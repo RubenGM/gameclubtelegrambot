@@ -1,0 +1,128 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { loadRuntimeConfig } from './load-runtime-config.js';
+
+const validConfigJson = JSON.stringify({
+  bot: {
+    publicName: 'Game Club Bot',
+    clubName: 'Game Club',
+  },
+  telegram: {
+    token: 'telegram-token',
+  },
+  database: {
+    host: 'localhost',
+    port: 5432,
+    name: 'gameclub',
+    user: 'gameclub_user',
+    password: 'super-secret',
+    ssl: false,
+  },
+  adminElevation: {
+    password: 'admin-secret',
+  },
+  featureFlags: {
+    bootstrapWizard: true,
+    newsGroups: false,
+  },
+});
+
+test('loadRuntimeConfig returns typed configuration from the configured JSON file', async () => {
+  const config = await loadRuntimeConfig({
+    env: {
+      GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+    },
+    readConfigFile: async (filePath) => {
+      assert.equal(filePath, '/etc/gameclub/config.json');
+      return validConfigJson;
+    },
+  });
+
+  assert.equal(config.bot.publicName, 'Game Club Bot');
+  assert.equal(config.telegram.token, 'telegram-token');
+  assert.equal(config.database.port, 5432);
+  assert.equal(config.featureFlags.bootstrapWizard, true);
+});
+
+test('loadRuntimeConfig fails with an operator-friendly error when the file is missing', async () => {
+  await assert.rejects(
+    () =>
+      loadRuntimeConfig({
+        env: {
+          GAMECLUB_CONFIG_PATH: '/missing/config.json',
+        },
+        readConfigFile: async () => {
+          throw new Error('ENOENT: no such file or directory');
+        },
+      }),
+    (error: unknown) => {
+      assert.match(
+        error instanceof Error ? error.message : '',
+        /Could not read runtime configuration file \/missing\/config\.json/,
+      );
+      return true;
+    },
+  );
+});
+
+test('loadRuntimeConfig fails with a clear error when the JSON payload is malformed', async () => {
+  await assert.rejects(
+    () =>
+      loadRuntimeConfig({
+        env: {
+          GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+        },
+        readConfigFile: async () => '{not-json}',
+      }),
+    (error: unknown) => {
+      assert.match(
+        error instanceof Error ? error.message : '',
+        /contains invalid JSON/,
+      );
+      return true;
+    },
+  );
+});
+
+test('loadRuntimeConfig fails when required configuration fields are invalid', async () => {
+  await assert.rejects(
+    () =>
+      loadRuntimeConfig({
+        env: {
+          GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+        },
+        readConfigFile: async () =>
+          JSON.stringify({
+            bot: {
+              publicName: '',
+              clubName: 'Game Club',
+            },
+            telegram: {
+              token: '',
+            },
+            database: {
+              host: 'localhost',
+              port: 70000,
+              name: 'gameclub',
+              user: 'gameclub_user',
+              password: '',
+              ssl: false,
+            },
+            adminElevation: {
+              password: '',
+            },
+            featureFlags: {},
+          }),
+      }),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : '';
+      assert.match(message, /Runtime configuration validation failed/);
+      assert.match(message, /bot\.publicName/);
+      assert.match(message, /telegram\.token/);
+      assert.match(message, /database\.port/);
+      assert.match(message, /adminElevation\.password/);
+      return true;
+    },
+  );
+});
