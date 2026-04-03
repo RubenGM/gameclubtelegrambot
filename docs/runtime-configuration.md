@@ -37,6 +37,7 @@ Els errors inesperats de procés (`uncaughtException` i `unhandledRejection`) ta
 
 El contracte runtime actual inclou:
 
+- `schemaVersion` amb valor actual `1`
 - `bot.publicName`
 - `bot.clubName`
 - `bot.iconPath` opcional
@@ -48,12 +49,19 @@ El contracte runtime actual inclou:
 - `database.password`
 - `database.ssl`
 - `adminElevation.password`
+- `bootstrap.firstAdmin.telegramUserId`
+- `bootstrap.firstAdmin.username` opcional
+- `bootstrap.firstAdmin.displayName`
+- `notifications.defaults.groupAnnouncementsEnabled` amb default `true`
+- `notifications.defaults.eventRemindersEnabled` amb default `true`
+- `notifications.defaults.eventReminderLeadHours` amb default `24`
 - `featureFlags` com a mapa de claus booleanes
 
 ## Exemple de configuració
 
 ```json
 {
+  "schemaVersion": 1,
   "bot": {
     "publicName": "Game Club Bot",
     "clubName": "Game Club",
@@ -73,6 +81,20 @@ El contracte runtime actual inclou:
   "adminElevation": {
     "password": "admin-secret"
   },
+  "bootstrap": {
+    "firstAdmin": {
+      "telegramUserId": 123456789,
+      "username": "rubengm",
+      "displayName": "Rubén González"
+    }
+  },
+  "notifications": {
+    "defaults": {
+      "groupAnnouncementsEnabled": true,
+      "eventRemindersEnabled": true,
+      "eventReminderLeadHours": 24
+    }
+  },
   "featureFlags": {
     "bootstrapWizard": true,
     "newsGroups": false
@@ -86,6 +108,12 @@ El contracte runtime actual inclou:
 - El codi de l'aplicació ha de consumir objectes tipats de configuració, no JSON cru.
 - Si en el futur canvia la ruta o el format, caldrà documentar explícitament la migració.
 - El mateix contracte runtime s'utilitza per obrir la connexió de l'aplicació i per executar migracions explícites.
+- `bot.*` descriu metadata visible del club i del bot; no ha de barrejar-se amb secrets.
+- `telegram.*`, `database.*` i `adminElevation.*` són configuració operativa o secrets explícits.
+- `bootstrap.firstAdmin.*` descriu la identitat inicial que el wizard ha de persistir; el sistema no l'ha d'inferir a partir del primer usuari que escriu al bot.
+- `bootstrap.firstAdmin.telegramUserId` és la identitat canònica; `username` només és ajuda humana i no s'ha d'usar com a clau única.
+- `notifications.defaults.*` defineix defaults explícits per al primer arrencada; no s'han d'inferir implícitament a partir de feature flags o del context del xat.
+- Camps futurs opcionals s'han d'afegir amb defaults o amb una nova `schemaVersion`, evitant trencar configs persistides de versions anteriors.
 
 ## Workflow de migracions
 

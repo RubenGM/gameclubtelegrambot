@@ -71,10 +71,13 @@ Si la configuración es válida pero `PostgreSQL` no responde o rechaza la conex
 
 La estructura runtime actual cubre:
 
+- `schemaVersion`
 - `bot`
 - `telegram`
 - `database`
 - `adminElevation`
+- `bootstrap`
+- `notifications`
 - `featureFlags`
 
 Hay una guía más concreta en `docs/runtime-configuration.md`.

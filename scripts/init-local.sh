@@ -40,9 +40,13 @@ set +a
 if [ ! -f config/runtime.local.json ]; then
   ADMIN_PASSWORD="$(openssl rand -hex 16)"
   TELEGRAM_TOKEN="${GAMECLUB_TELEGRAM_TOKEN:-REPLACE_WITH_REAL_TELEGRAM_TOKEN}"
+  FIRST_ADMIN_TELEGRAM_USER_ID="${GAMECLUB_FIRST_ADMIN_TELEGRAM_USER_ID:-1}"
+  FIRST_ADMIN_USERNAME="${GAMECLUB_FIRST_ADMIN_USERNAME:-club_admin}"
+  FIRST_ADMIN_DISPLAY_NAME="${GAMECLUB_FIRST_ADMIN_DISPLAY_NAME:-Club Administrator}"
 
   cat > config/runtime.local.json <<EOF
 {
+  "schemaVersion": 1,
   "bot": {
     "publicName": "Game Club Bot",
     "clubName": "Game Club"
@@ -60,6 +64,20 @@ if [ ! -f config/runtime.local.json ]; then
   },
   "adminElevation": {
     "password": "${ADMIN_PASSWORD}"
+  },
+  "bootstrap": {
+    "firstAdmin": {
+      "telegramUserId": ${FIRST_ADMIN_TELEGRAM_USER_ID},
+      "username": "${FIRST_ADMIN_USERNAME}",
+      "displayName": "${FIRST_ADMIN_DISPLAY_NAME}"
+    }
+  },
+  "notifications": {
+    "defaults": {
+      "groupAnnouncementsEnabled": true,
+      "eventRemindersEnabled": true,
+      "eventReminderLeadHours": 24
+    }
   },
   "featureFlags": {
     "bootstrapWizard": true

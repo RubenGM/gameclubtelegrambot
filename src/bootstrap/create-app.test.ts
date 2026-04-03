@@ -6,6 +6,7 @@ import { InfrastructureStartupError } from '../infrastructure/runtime-boundary.j
 import { TelegramStartupError } from '../telegram/runtime-boundary.js';
 
 const runtimeConfig = {
+  schemaVersion: 1,
   bot: {
     publicName: 'Game Club Bot',
     clubName: 'Game Club',
@@ -23,6 +24,19 @@ const runtimeConfig = {
   },
   adminElevation: {
     password: 'admin-secret',
+  },
+  bootstrap: {
+    firstAdmin: {
+      telegramUserId: 123456789,
+      displayName: 'Ruben Gonzalez',
+    },
+  },
+  notifications: {
+    defaults: {
+      groupAnnouncementsEnabled: true,
+      eventRemindersEnabled: true,
+      eventReminderLeadHours: 24,
+    },
   },
   featureFlags: {
     bootstrapWizard: true,

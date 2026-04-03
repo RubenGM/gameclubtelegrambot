@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { loadRuntimeConfig } from './load-runtime-config.js';
 
 const validConfigJson = JSON.stringify({
+  schemaVersion: 1,
   bot: {
     publicName: 'Game Club Bot',
     clubName: 'Game Club',
@@ -21,6 +22,20 @@ const validConfigJson = JSON.stringify({
   },
   adminElevation: {
     password: 'admin-secret',
+  },
+  bootstrap: {
+    firstAdmin: {
+      telegramUserId: 123456789,
+      username: 'rubengm',
+      displayName: 'Ruben Gonzalez',
+    },
+  },
+  notifications: {
+    defaults: {
+      groupAnnouncementsEnabled: true,
+      eventRemindersEnabled: true,
+      eventReminderLeadHours: 24,
+    },
   },
   featureFlags: {
     bootstrapWizard: true,
@@ -42,7 +57,47 @@ test('loadRuntimeConfig returns typed configuration from the configured JSON fil
   assert.equal(config.bot.publicName, 'Game Club Bot');
   assert.equal(config.telegram.token, 'telegram-token');
   assert.equal(config.database.port, 5432);
+  assert.equal(config.bootstrap.firstAdmin.telegramUserId, 123456789);
+  assert.equal(config.notifications.defaults.eventReminderLeadHours, 24);
   assert.equal(config.featureFlags.bootstrapWizard, true);
+});
+
+test('loadRuntimeConfig applies defaults for schema version, notification defaults and feature flags', async () => {
+  const config = await loadRuntimeConfig({
+    readConfigFile: async () =>
+      JSON.stringify({
+        bot: {
+          publicName: 'Game Club Bot',
+          clubName: 'Game Club',
+        },
+        telegram: {
+          token: 'telegram-token',
+        },
+        database: {
+          host: 'localhost',
+          port: 5432,
+          name: 'gameclub',
+          user: 'gameclub_user',
+          password: 'super-secret',
+          ssl: false,
+        },
+        adminElevation: {
+          password: 'admin-secret',
+        },
+        bootstrap: {
+          firstAdmin: {
+            telegramUserId: 123456789,
+            displayName: 'Ruben Gonzalez',
+          },
+        },
+      }),
+  });
+
+  assert.equal(config.schemaVersion, 1);
+  assert.equal(config.notifications.defaults.groupAnnouncementsEnabled, true);
+  assert.equal(config.notifications.defaults.eventRemindersEnabled, true);
+  assert.equal(config.notifications.defaults.eventReminderLeadHours, 24);
+  assert.deepEqual(config.featureFlags, {});
 });
 
 test('loadRuntimeConfig fails with an operator-friendly error when the file is missing', async () => {
@@ -112,6 +167,17 @@ test('loadRuntimeConfig fails when required configuration fields are invalid', a
             adminElevation: {
               password: '',
             },
+            bootstrap: {
+              firstAdmin: {
+                telegramUserId: 0,
+                displayName: '',
+              },
+            },
+            notifications: {
+              defaults: {
+                eventReminderLeadHours: 500,
+              },
+            },
             featureFlags: {},
           }),
       }),
@@ -122,6 +188,9 @@ test('loadRuntimeConfig fails when required configuration fields are invalid', a
       assert.match(message, /telegram\.token/);
       assert.match(message, /database\.port/);
       assert.match(message, /adminElevation\.password/);
+      assert.match(message, /bootstrap\.firstAdmin\.telegramUserId/);
+      assert.match(message, /bootstrap\.firstAdmin\.displayName/);
+      assert.match(message, /notifications\.defaults\.eventReminderLeadHours/);
       return true;
     },
   );

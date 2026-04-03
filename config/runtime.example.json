@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "bot": {
     "publicName": "Game Club Bot",
     "clubName": "Game Club"
@@ -16,6 +17,20 @@
   },
   "adminElevation": {
     "password": "replace-with-generated-admin-password"
+  },
+  "bootstrap": {
+    "firstAdmin": {
+      "telegramUserId": 123456789,
+      "username": "club_admin",
+      "displayName": "Club Administrator"
+    }
+  },
+  "notifications": {
+    "defaults": {
+      "groupAnnouncementsEnabled": true,
+      "eventRemindersEnabled": true,
+      "eventReminderLeadHours": 24
+    }
   },
   "featureFlags": {
     "bootstrapWizard": true
