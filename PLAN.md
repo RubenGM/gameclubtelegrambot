@@ -45,6 +45,7 @@ Stack técnico ya fijado:
 Decisiones a cerrar en esta fase:
 
 - formato exacto del archivo JSON de configuración inicial
+- alineación final entre configuración de bootstrap y configuración runtime cargada en arranque
 - estructura exacta de carpetas y módulos
 - estrategia de separación entre dominio, infraestructura y capa Telegram
 
@@ -59,7 +60,7 @@ Entregables:
 - comando o utilidad CLI de inicialización
 - preguntas guiadas en terminal
 - validación de respuestas
-- generación del `config.json`
+- generación del `config/runtime.json` o migración explícita al formato y ruta runtime vigentes
 - creación del primer administrador aprobado
 - protección contra reinicialización accidental
 

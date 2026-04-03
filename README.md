@@ -2,6 +2,58 @@
 
 Bot de Telegram para gestionar un club de juegos de mesa, rol, wargames y otras actividades similares.
 
+## Estado actual del repositorio
+
+La base técnica inicial ya está creada.
+
+- proyecto `Node.js` con `TypeScript`
+- compilación de `src/` a `dist/`
+- logging básico con `pino`
+- carga centralizada de configuración runtime con validación `zod`
+- arranque inicial del proceso con límites explícitos para Telegram y base de datos
+
+Todavía no están implementadas la conexión real a Telegram, PostgreSQL ni el asistente de bootstrap inicial.
+
+## Puesta en marcha local
+
+Requisitos:
+
+- `Node.js >= 20.19.0`
+
+Comandos principales:
+
+- `npm install`
+- `npm test`
+- `npm run typecheck`
+- `npm run build`
+- `npm run start`
+
+Para desarrollo:
+
+- `npm run dev`
+
+## Configuración runtime actual
+
+El proceso espera un archivo JSON de configuración en:
+
+- `config/runtime.json`
+
+La ruta puede sobreescribirse con la variable de entorno:
+
+- `GAMECLUB_CONFIG_PATH`
+
+Si el archivo no existe, el JSON es inválido o algún campo no cumple el contrato, el proceso aborta el arranque con un error fatal claro.
+
+La estructura runtime actual cubre:
+
+- `bot`
+- `telegram`
+- `database`
+- `adminElevation`
+- `featureFlags`
+
+Hay una guía más concreta en `docs/runtime-configuration.md`.
+
 El objetivo del proyecto es centralizar desde Telegram la operativa habitual del club:
 
 - agenda y reservas de actividades
@@ -205,7 +257,7 @@ Esto permitirá que cada club organice varios grupos con finalidades distintas.
 
 En el primer arranque no habrá configuración previa.
 
-Se ejecutará un asistente local en terminal que generará un archivo JSON con la configuración inicial del bot.
+Se ejecutará un asistente local en terminal que generará un archivo JSON con la configuración inicial del bot. La ruta runtime actual por defecto es `config/runtime.json`, y el bootstrap futuro deberá alinearse con ese contrato o migrarlo de forma explícita.
 
 Este asistente deberá pedir, como mínimo:
 
@@ -359,14 +411,23 @@ Más adelante se documentarán:
 
 ## Estado actual
 
-Actualmente el repositorio está en fase de definición.
+Actualmente el repositorio ya dispone de una base técnica mínima y ejecutable.
 
-Antes de empezar a programar se documentan:
+Estado implementado hasta ahora:
 
-- alcance funcional completo
-- arquitectura inicial
-- decisiones de seguridad y permisos
-- orden de implementación
+- esqueletado inicial de `Node.js` + `TypeScript`
+- estructura base de carpetas
+- scripts de desarrollo, pruebas, compilación y arranque
+- validación centralizada de configuración runtime con `zod`
+- errores fatales de arranque cuando falta o falla la configuración
+
+Pendiente de implementación:
+
+- bootstrap inicial interactivo
+- conexión real a `PostgreSQL`
+- migraciones con `drizzle-kit`
+- integración con `grammY`
+- módulos funcionales del dominio
 
 ## Plan de implementación
 
