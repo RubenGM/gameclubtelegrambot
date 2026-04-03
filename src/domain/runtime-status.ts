@@ -1,4 +1,4 @@
-export type IntegrationStatus = 'not-configured';
+export type IntegrationStatus = 'connected' | 'not-configured';
 
 export interface AppRuntimeStatus {
   service: 'gameclubtelegrambot';

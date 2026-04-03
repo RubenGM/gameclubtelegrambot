@@ -16,12 +16,18 @@ Per sobreescriure aquesta ruta es pot fer servir:
 
 L'aplicació valida tota la configuració abans de continuar l'startup.
 
+Després de validar-la, intenta establir connexió real amb `PostgreSQL`.
+
+També valida el token de `Telegram` i arrenca el bot en `long polling`.
+
 L'arrencada s'atura si passa qualsevol d'aquests casos:
 
 - el fitxer no existeix
 - el fitxer no es pot llegir
 - el contingut no és JSON vàlid
 - algun camp no compleix l'esquema definit
+- la base de dades no és accessible amb la configuració indicada
+- el token de Telegram és invàlid o la inicialització del bot falla
 
 ## Contracte actual
 
@@ -75,3 +81,21 @@ El contracte runtime actual inclou:
 - Aquesta estructura està pensada per ser prou estable per al futur assistent de bootstrap.
 - El codi de l'aplicació ha de consumir objectes tipats de configuració, no JSON cru.
 - Si en el futur canvia la ruta o el format, caldrà documentar explícitament la migració.
+- El mateix contracte runtime s'utilitza per obrir la connexió de l'aplicació i per executar migracions explícites.
+
+## Workflow de migracions
+
+L'esquema font viu a:
+
+`src/infrastructure/database/schema.ts`
+
+La configuració de `drizzle-kit` viu a:
+
+`drizzle.config.ts`
+
+Comandes canòniques:
+
+- `npm run db:generate` per generar una migració SQL nova a `drizzle/`
+- `npm run db:migrate` per aplicar les migracions pendents contra la base de dades configurada
+
+No es fa cap auto-sync implícit durant l'arrencada de l'aplicació. L'execució de migracions és sempre explícita.

@@ -8,18 +8,31 @@
     "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test src/**/*.test.ts",
-    "start": "node dist/main.js"
+    "test": "bash -O globstar -c 'node --import tsx --test src/**/*.test.ts'",
+    "start": "node dist/main.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --import tsx src/scripts/migrate.ts",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose stop postgres",
+    "db:logs": "docker compose logs -f postgres",
+    "db:migrate:local": "GAMECLUB_CONFIG_PATH=config/runtime.local.json node --import tsx src/scripts/migrate.ts",
+    "start:local": "GAMECLUB_CONFIG_PATH=config/runtime.local.json node --import tsx src/main.ts",
+    "init:local": "./scripts/init-local.sh"
   },
   "engines": {
     "node": ">=20.19.0"
   },
   "dependencies": {
+    "drizzle-orm": "^0.44.7",
+    "grammy": "^1.38.3",
     "pino": "^9.7.0",
+    "pg": "^8.16.3",
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@types/pg": "^8.15.5",
     "@types/node": "^24.5.2",
+    "drizzle-kit": "^0.31.5",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }

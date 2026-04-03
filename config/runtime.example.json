@@ -1,0 +1,23 @@
+{
+  "bot": {
+    "publicName": "Game Club Bot",
+    "clubName": "Game Club"
+  },
+  "telegram": {
+    "token": "replace-with-real-telegram-token"
+  },
+  "database": {
+    "host": "127.0.0.1",
+    "port": 55432,
+    "name": "gameclub",
+    "user": "gameclub_user",
+    "password": "replace-with-generated-password",
+    "ssl": false
+  },
+  "adminElevation": {
+    "password": "replace-with-generated-admin-password"
+  },
+  "featureFlags": {
+    "bootstrapWizard": true
+  }
+}

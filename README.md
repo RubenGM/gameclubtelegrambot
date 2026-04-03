@@ -10,9 +10,14 @@ La base técnica inicial ya está creada.
 - compilación de `src/` a `dist/`
 - logging básico con `pino`
 - carga centralizada de configuración runtime con validación `zod`
+- conexión real a `PostgreSQL`
+- esquema y migraciones con `Drizzle ORM` y `drizzle-kit`
+- integración real con `Telegram Bot API` mediante `grammY` y `long polling`
 - arranque inicial del proceso con límites explícitos para Telegram y base de datos
 
-Todavía no están implementadas la conexión real a Telegram, PostgreSQL ni el asistente de bootstrap inicial.
+Todavía no está implementado el asistente de bootstrap inicial.
+
+La integración inicial de Telegram ya autentica el bot, levanta `long polling` y expone una respuesta mínima para `/start`.
 
 ## Puesta en marcha local
 
@@ -27,10 +32,26 @@ Comandos principales:
 - `npm run typecheck`
 - `npm run build`
 - `npm run start`
+- `npm run db:generate`
+- `npm run db:migrate`
 
 Para desarrollo:
 
 - `npm run dev`
+
+Preparación local rápida después de `git clone`:
+
+- `npm run init:local`
+
+Esto deja preparado:
+
+- `PostgreSQL` local en Docker
+- `config/runtime.local.json`
+- migraciones aplicadas
+
+La base de datos local integrada del repositorio se publica por defecto en `127.0.0.1:55432` para evitar conflictos con otros `PostgreSQL` ya instalados en la máquina.
+
+Después solo tendrás que sustituir el token real de Telegram en `config/runtime.local.json` si no lo pasaste mediante `GAMECLUB_TELEGRAM_TOKEN`.
 
 ## Configuración runtime actual
 
@@ -44,6 +65,8 @@ La ruta puede sobreescribirse con la variable de entorno:
 
 Si el archivo no existe, el JSON es inválido o algún campo no cumple el contrato, el proceso aborta el arranque con un error fatal claro.
 
+Si la configuración es válida pero `PostgreSQL` no responde o rechaza la conexión, el proceso también aborta el arranque con un error fatal predecible.
+
 La estructura runtime actual cubre:
 
 - `bot`
@@ -53,6 +76,32 @@ La estructura runtime actual cubre:
 - `featureFlags`
 
 Hay una guía más concreta en `docs/runtime-configuration.md`.
+
+## Persistencia y migraciones
+
+El repositorio usa:
+
+- `pg` como driver de PostgreSQL
+- `Drizzle ORM` para acceso tipado a la base de datos
+- `drizzle-kit` para generar migraciones SQL versionadas
+
+Workflow canónico:
+
+- definir o actualizar tablas en `src/infrastructure/database/schema.ts`
+- generar una migración nueva con `npm run db:generate`
+- aplicar migraciones con `npm run db:migrate`
+- arrancar la aplicación con `npm run start`
+
+Workflow local integrado en el repo:
+
+- levantar PostgreSQL local con `npm run db:up`
+- aplicar migraciones locales con `npm run db:migrate:local`
+- arrancar el bot con `npm run start:local`
+- ver logs de PostgreSQL con `npm run db:logs`
+
+La aplicación valida primero la configuración runtime y después verifica conectividad real con la base de datos antes de considerarse arrancada.
+
+La primera migración generada crea la tabla `app_metadata`, que actúa como base mínima para validar el workflow de esquema y migraciones desde esta fase inicial.
 
 El objetivo del proyecto es centralizar desde Telegram la operativa habitual del club:
 
