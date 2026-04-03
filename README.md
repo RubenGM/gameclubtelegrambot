@@ -19,6 +19,8 @@ Todavía no está implementado el asistente de bootstrap inicial.
 
 La integración inicial de Telegram ya autentica el bot, levanta `long polling` y expone una respuesta mínima para `/start`.
 
+El runtime principal también registra shutdown controlado y manejo definido para `SIGINT`, `SIGTERM`, `uncaughtException` y `unhandledRejection`.
+
 ## Puesta en marcha local
 
 Requisitos:
@@ -100,6 +102,8 @@ Workflow local integrado en el repo:
 - ver logs de PostgreSQL con `npm run db:logs`
 
 La aplicación valida primero la configuración runtime y después verifica conectividad real con la base de datos antes de considerarse arrancada.
+
+Durante el arranque y la parada se registran hitos explícitos para facilitar diagnóstico operativo.
 
 La primera migración generada crea la tabla `app_metadata`, que actúa como base mínima para validar el workflow de esquema y migraciones desde esta fase inicial.
 

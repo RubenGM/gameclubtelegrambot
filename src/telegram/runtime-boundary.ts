@@ -6,6 +6,11 @@ export interface TelegramBoundaryStatus {
   bot: 'connected';
 }
 
+export interface TelegramBoundary {
+  status: TelegramBoundaryStatus;
+  stop(): Promise<void>;
+}
+
 export interface TelegramLogger {
   info(bindings: object, message: string): void;
   error(bindings: object, message: string): void;
@@ -18,6 +23,7 @@ export interface TelegramContextLike {
 export interface TelegramBotLike {
   onStartCommand(handler: (context: TelegramContextLike) => Promise<unknown> | unknown): void;
   startPolling(): Promise<void>;
+  stopPolling(): Promise<void>;
 }
 
 export interface CreateTelegramBoundaryOptions {
@@ -43,7 +49,7 @@ export async function createTelegramBoundary({
   config,
   logger,
   createBot = createGrammyTelegramBot,
-}: CreateTelegramBoundaryOptions): Promise<TelegramBoundaryStatus> {
+}: CreateTelegramBoundaryOptions): Promise<TelegramBoundary> {
   try {
     const bot = createBot({
       token: config.telegram.token,
@@ -58,6 +64,18 @@ export async function createTelegramBoundary({
     });
 
     await bot.startPolling();
+
+    logger.info({ publicName: config.bot.publicName }, 'Telegram bot long polling started');
+
+    return {
+      status: {
+        bot: 'connected',
+      },
+      async stop() {
+        await bot.stopPolling();
+        logger.info({}, 'Telegram bot long polling stopped');
+      },
+    };
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown Telegram startup error';
 
@@ -65,12 +83,6 @@ export async function createTelegramBoundary({
 
     throw new TelegramStartupError(`Telegram startup failed: ${reason}`);
   }
-
-  logger.info({ publicName: config.bot.publicName }, 'Telegram bot long polling started');
-
-  return {
-    bot: 'connected',
-  };
 }
 
 function createGrammyTelegramBot({
@@ -94,6 +106,9 @@ function createGrammyTelegramBot({
       }).catch((error) => {
         logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Telegram polling stopped unexpectedly');
       });
+    },
+    async stopPolling() {
+      bot.stop();
     },
   };
 }

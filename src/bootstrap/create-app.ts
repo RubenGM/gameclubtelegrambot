@@ -2,11 +2,11 @@ import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { AppRuntimeStatus } from '../domain/runtime-status.js';
 import {
   createInfrastructureBoundary,
-  type InfrastructureBoundaryStatus,
+  type InfrastructureBoundary,
 } from '../infrastructure/runtime-boundary.js';
 import {
   createTelegramBoundary,
-  type TelegramBoundaryStatus,
+  type TelegramBoundary,
 } from '../telegram/runtime-boundary.js';
 
 export interface LoggerLike {
@@ -17,12 +17,13 @@ export interface LoggerLike {
 export interface CreateAppOptions {
   config: RuntimeConfig;
   logger: LoggerLike;
-  startInfrastructure?: () => Promise<InfrastructureBoundaryStatus>;
-  startTelegram?: () => Promise<TelegramBoundaryStatus>;
+  startInfrastructure?: () => Promise<InfrastructureBoundary>;
+  startTelegram?: () => Promise<TelegramBoundary>;
 }
 
 export interface App {
   start(): Promise<AppRuntimeStatus>;
+  stop(): Promise<void>;
 }
 
 export function createApp({
@@ -45,15 +46,25 @@ export function createApp({
       },
     }),
 }: CreateAppOptions): App {
+  let infrastructure: InfrastructureBoundary | undefined;
+  let telegram: TelegramBoundary | undefined;
+
   return {
     async start() {
-      const infrastructure = await startInfrastructure();
-      const telegram = await startTelegram();
+      infrastructure = await startInfrastructure();
+
+      try {
+        telegram = await startTelegram();
+      } catch (error) {
+        await infrastructure.stop();
+        infrastructure = undefined;
+        throw error;
+      }
 
       const status: AppRuntimeStatus = {
         service: 'gameclubtelegrambot',
-        infrastructure,
-        telegram,
+        infrastructure: infrastructure.status,
+        telegram: telegram.status,
       };
 
       logger.info(
@@ -69,5 +80,39 @@ export function createApp({
 
       return status;
     },
+    async stop() {
+      const shutdownErrors: Error[] = [];
+
+      if (telegram) {
+        try {
+          await telegram.stop();
+        } catch (error) {
+          shutdownErrors.push(normalizeError(error, 'Telegram shutdown failed'));
+        }
+      }
+
+      if (infrastructure) {
+        try {
+          await infrastructure.stop();
+        } catch (error) {
+          shutdownErrors.push(normalizeError(error, 'Infrastructure shutdown failed'));
+        }
+      }
+
+      telegram = undefined;
+      infrastructure = undefined;
+
+      if (shutdownErrors[0]) {
+        throw shutdownErrors[0];
+      }
+    },
   };
+}
+
+function normalizeError(error: unknown, fallbackMessage: string): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+
+  return new Error(fallbackMessage);
 }

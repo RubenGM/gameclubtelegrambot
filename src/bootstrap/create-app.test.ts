@@ -41,10 +41,16 @@ test('createApp exposes clean startup boundaries before external integrations ex
     config: runtimeConfig,
     logger,
     startInfrastructure: async () => ({
-      database: 'connected',
+      status: {
+        database: 'connected',
+      },
+      stop: async () => {},
     }),
     startTelegram: async () => ({
-      bot: 'connected',
+      status: {
+        bot: 'connected',
+      },
+      stop: async () => {},
     }),
   });
   const status = await app.start();
@@ -94,7 +100,10 @@ test('createApp propagates predictable Telegram startup failures', async () => {
     config: runtimeConfig,
     logger,
     startInfrastructure: async () => ({
-      database: 'connected',
+      status: {
+        database: 'connected',
+      },
+      stop: async () => {},
     }),
     startTelegram: async () => {
       throw new TelegramStartupError('Telegram startup failed: Unauthorized');
@@ -109,4 +118,72 @@ test('createApp propagates predictable Telegram startup failures', async () => {
       return true;
     },
   );
+});
+
+test('createApp stops Telegram before infrastructure during shutdown', async () => {
+  const events: string[] = [];
+  const logger = {
+    info: (_bindings: object, _message: string) => {},
+  };
+
+  const app = createApp({
+    config: runtimeConfig,
+    logger,
+    startInfrastructure: async () => ({
+      status: {
+        database: 'connected',
+      },
+      stop: async () => {
+        events.push('stop:infrastructure');
+      },
+    }),
+    startTelegram: async () => ({
+      status: {
+        bot: 'connected',
+      },
+      stop: async () => {
+        events.push('stop:telegram');
+      },
+    }),
+  });
+
+  await app.start();
+  await app.stop();
+
+  assert.deepEqual(events, ['stop:telegram', 'stop:infrastructure']);
+});
+
+test('createApp attempts infrastructure shutdown even when Telegram stop fails', async () => {
+  const events: string[] = [];
+  const logger = {
+    info: (_bindings: object, _message: string) => {},
+    error: (_bindings: object, _message: string) => {},
+  };
+
+  const app = createApp({
+    config: runtimeConfig,
+    logger,
+    startInfrastructure: async () => ({
+      status: {
+        database: 'connected',
+      },
+      stop: async () => {
+        events.push('stop:infrastructure');
+      },
+    }),
+    startTelegram: async () => ({
+      status: {
+        bot: 'connected',
+      },
+      stop: async () => {
+        events.push('stop:telegram');
+        throw new Error('telegram stop failed');
+      },
+    }),
+  });
+
+  await app.start();
+
+  await assert.rejects(() => app.stop(), /telegram stop failed/);
+  assert.deepEqual(events, ['stop:telegram', 'stop:infrastructure']);
 });

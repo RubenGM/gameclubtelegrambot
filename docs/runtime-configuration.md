@@ -20,6 +20,8 @@ Després de validar-la, intenta establir connexió real amb `PostgreSQL`.
 
 També valida el token de `Telegram` i arrenca el bot en `long polling`.
 
+El procés registra fites clares d'arrencada i, quan rep `SIGINT` o `SIGTERM`, intenta tancar Telegram i PostgreSQL de forma ordenada.
+
 L'arrencada s'atura si passa qualsevol d'aquests casos:
 
 - el fitxer no existeix
@@ -28,6 +30,8 @@ L'arrencada s'atura si passa qualsevol d'aquests casos:
 - algun camp no compleix l'esquema definit
 - la base de dades no és accessible amb la configuració indicada
 - el token de Telegram és invàlid o la inicialització del bot falla
+
+Els errors inesperats de procés (`uncaughtException` i `unhandledRejection`) també segueixen un camí definit: es registren com a fatals i es força un shutdown controlat abans de sortir.
 
 ## Contracte actual
 

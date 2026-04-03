@@ -3,11 +3,17 @@ import type { RuntimeConfig } from '../config/runtime-config.js';
 import {
   connectPostgresDatabase,
   createPostgresConnectionString,
+  type DatabaseConnection,
   type ConnectDatabaseOptions,
 } from './database/connection.js';
 
 export interface InfrastructureBoundaryStatus {
   database: 'connected';
+}
+
+export interface InfrastructureBoundary {
+  status: InfrastructureBoundaryStatus;
+  stop(): Promise<void>;
 }
 
 export interface InfrastructureLogger {
@@ -18,7 +24,7 @@ export interface InfrastructureLogger {
 export interface CreateInfrastructureBoundaryOptions {
   config: RuntimeConfig;
   logger: InfrastructureLogger;
-  connectDatabase?: (options: ConnectDatabaseOptions) => Promise<unknown>;
+  connectDatabase?: (options: ConnectDatabaseOptions) => Promise<DatabaseConnection>;
 }
 
 export class InfrastructureStartupError extends Error {
@@ -32,15 +38,37 @@ export async function createInfrastructureBoundary({
   config,
   logger,
   connectDatabase = connectPostgresDatabase,
-}: CreateInfrastructureBoundaryOptions): Promise<InfrastructureBoundaryStatus> {
+}: CreateInfrastructureBoundaryOptions): Promise<InfrastructureBoundary> {
   const connectionString = createPostgresConnectionString(config.database);
 
   try {
-    await connectDatabase({
+    const database = await connectDatabase({
       connectionString,
       ssl: config.database.ssl,
       logger,
     });
+
+    logger.info(
+      {
+        database: {
+          host: config.database.host,
+          port: config.database.port,
+          name: config.database.name,
+          ssl: config.database.ssl,
+        },
+      },
+      'Database connection established',
+    );
+
+    return {
+      status: {
+        database: 'connected',
+      },
+      async stop() {
+        await database.close();
+        logger.info({}, 'Database connection closed');
+      },
+    };
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown database startup error';
 
@@ -59,20 +87,4 @@ export async function createInfrastructureBoundary({
 
     throw new InfrastructureStartupError(`Database connection failed: ${reason}`);
   }
-
-  logger.info(
-    {
-      database: {
-        host: config.database.host,
-        port: config.database.port,
-        name: config.database.name,
-        ssl: config.database.ssl,
-      },
-    },
-    'Database connection established',
-  );
-
-  return {
-    database: 'connected',
-  };
 }

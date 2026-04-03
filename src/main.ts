@@ -1,6 +1,7 @@
 import pino from 'pino';
 
 import { createApp } from './bootstrap/create-app.js';
+import { runService } from './bootstrap/run-service.js';
 import { loadRuntimeConfig, RuntimeConfigError } from './config/load-runtime-config.js';
 import { InfrastructureStartupError } from './infrastructure/runtime-boundary.js';
 import { TelegramStartupError } from './telegram/runtime-boundary.js';
@@ -10,10 +11,14 @@ const logger = pino({
 });
 
 try {
+  logger.info({}, 'Runtime configuration loading started');
   const config = await loadRuntimeConfig();
-  const app = createApp({ config, logger });
+  logger.info({}, 'Runtime configuration loaded');
 
-  await app.start();
+  process.exitCode = await runService({
+    logger,
+    createApp: async () => createApp({ config, logger }),
+  });
 } catch (error) {
   if (error instanceof RuntimeConfigError) {
     logger.fatal({ error: error.message }, 'Startup aborted due to invalid runtime configuration');

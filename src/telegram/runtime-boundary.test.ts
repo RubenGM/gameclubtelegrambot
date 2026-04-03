@@ -28,7 +28,7 @@ const runtimeConfig = {
 test('createTelegramBoundary reports a connected bot when long polling starts', async () => {
   const events: string[] = [];
 
-  const status = await createTelegramBoundary({
+  const telegram = await createTelegramBoundary({
     config: runtimeConfig,
     logger: {
       info: () => {},
@@ -49,16 +49,23 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
         startPolling: async () => {
           events.push('start-polling');
         },
+        stopPolling: async () => {
+          events.push('stop-polling');
+        },
       };
     },
   });
 
-  assert.equal(status.bot, 'connected');
+  assert.equal(telegram.status.bot, 'connected');
+
+  await telegram.stop();
+
   assert.deepEqual(events, [
     'token:telegram-token',
     'register:/start',
     'reply:Game Club Bot online. Escriu /start per comprovar que la connexio amb Telegram funciona.',
     'start-polling',
+    'stop-polling',
   ]);
 });
 
@@ -76,6 +83,7 @@ test('createTelegramBoundary throws a predictable error when Telegram startup fa
           startPolling: async () => {
             throw new Error('Unauthorized');
           },
+          stopPolling: async () => {},
         }),
       }),
     (error: unknown) => {
