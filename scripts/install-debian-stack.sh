@@ -33,9 +33,11 @@ Options:
 
 What it does:
   - Installs OS packages required by the service and tray.
+  - Builds the production artefacts locally before deployment.
   - Creates service and operator groups/users if needed.
   - Copies the built app to the target root and installs production dependencies.
   - Installs runtime config and environment files under /etc.
+  - Validates the installed runtime config and applies database migrations.
   - Installs and enables the systemd service and polkit rule.
   - Installs GNOME AppIndicator support and tray autostart for the operator user.
 EOF
@@ -148,6 +150,27 @@ ensure_groups_and_user() {
   run_root_cmd usermod -aG "$OPERATOR_GROUP" "$OPERATOR_USER"
 }
 
+prepare_build_artifacts() {
+  log 'Construint artefactes locals de produccio'
+  run_cmd npm ci
+  run_cmd npm run build
+
+  if [ ! -f "$ROOT_DIR/dist/main.js" ]; then
+    printf 'No s ha generat dist/main.js despres del build local\n' >&2
+    exit 1
+  fi
+
+  if [ ! -f "$ROOT_DIR/dist/scripts/migrate.js" ]; then
+    printf 'No s ha generat dist/scripts/migrate.js despres del build local\n' >&2
+    exit 1
+  fi
+
+  if [ ! -f "$ROOT_DIR/dist/scripts/check-runtime-config.js" ]; then
+    printf 'No s ha generat dist/scripts/check-runtime-config.js despres del build local\n' >&2
+    exit 1
+  fi
+}
+
 deploy_application() {
   log "Preparant aplicació a $APP_ROOT"
   run_root_cmd install -d -m 0755 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$APP_ROOT"
@@ -184,6 +207,16 @@ GAMECLUB_CONFIG_PATH=$CONFIG_TARGET
 NODE_ENV=production
 EOF"
   fi
+}
+
+validate_installed_runtime() {
+  log 'Validant la configuracio runtime instal.lada'
+  run_as_user "$SERVICE_USER" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/check-runtime-config.js"
+}
+
+apply_runtime_migrations() {
+  log 'Aplicant migracions de base de dades abans d arrencar el servei'
+  run_as_user "$SERVICE_USER" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/migrate.js"
 }
 
 install_service_assets() {
@@ -281,8 +314,11 @@ require_command mktemp
 
 ensure_packages
 ensure_groups_and_user
+prepare_build_artifacts
 deploy_application
 install_runtime_config
+validate_installed_runtime
+apply_runtime_migrations
 install_service_assets
 install_tray_support
 

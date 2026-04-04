@@ -12,6 +12,7 @@
     "start": "node dist/main.js",
     "tray:debian": "node dist/scripts/debian-tray.js",
     "bootstrap:wizard": "node --import tsx src/scripts/bootstrap-wizard.ts",
+    "config:check": "node --import tsx src/scripts/check-runtime-config.ts",
     "db:generate": "node --import tsx src/scripts/generate-checked-migration.ts",
     "db:generate:checked": "node --import tsx src/scripts/generate-checked-migration.ts",
     "db:check": "node --import tsx src/scripts/check-generated-migrations.ts",
@@ -21,6 +22,7 @@
     "db:down": "docker compose stop postgres",
     "db:logs": "docker compose logs -f postgres",
     "db:migrate:local": "GAMECLUB_CONFIG_PATH=config/runtime.local.json node --import tsx src/scripts/migrate.ts",
+    "config:check:local": "GAMECLUB_CONFIG_PATH=config/runtime.local.json node --import tsx src/scripts/check-runtime-config.ts",
     "start:local": "GAMECLUB_CONFIG_PATH=config/runtime.local.json node --import tsx src/main.ts",
     "init:local": "./scripts/init-local.sh"
   },

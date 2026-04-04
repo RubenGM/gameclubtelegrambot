@@ -21,11 +21,14 @@ Per preparar en una sola passada aplicació, servei, permisos i safata a Debian:
 Aquest script:
 
 - instal·la els paquets del sistema necessaris
+- construeix `dist/` localment abans del desplegament
 - crea usuaris i grups operatius
 - copia l'aplicació al directori objectiu
 - instal·la dependències de producció
 - copia la configuració runtime a `/etc/gameclubtelegrambot/runtime.json`
 - crea `/etc/default/gameclubtelegrambot`
+- valida la configuració runtime instal·lada
+- aplica les migracions pendents abans d'arrencar el servei
 - instal·la `systemd`, `polkit` i autostart de la safata
 - arrenca el servei si no s'indica `--no-start`
 
@@ -43,6 +46,8 @@ La proposta actual assumeix aquestes rutes i identitats:
 El servei assumeix que l'aplicació ja està construïda i que existeix:
 
 - `dist/main.js`
+- `dist/scripts/check-runtime-config.js`
+- `dist/scripts/migrate.js`
 - `node_modules/`
 
 ## Expectatives de runtime
@@ -55,6 +60,11 @@ Per tant, abans d'habilitar el servei cal tenir:
 - una base de dades ja inicialitzada
 - migracions aplicades
 - un token de Telegram vàlid
+
+La unitat falla de forma explícita si no troba:
+
+- `/etc/gameclubtelegrambot/runtime.json`
+- `/opt/gameclubtelegrambot/dist/main.js`
 
 Si es vol fer servir una ruta de configuració no estàndard, cal definir-la al fitxer d'entorn:
 
@@ -89,6 +99,13 @@ sudo chown -R gameclubbot:gameclubbot /opt/gameclubtelegrambot
 
 Després cal construir l'aplicació i deixar `dist/` disponible.
 
+En desplegament manual, la seqüència mínima recomanada és:
+
+```bash
+npm ci
+npm run build
+```
+
 ## Fitxer d'entorn
 
 Crear `/etc/default/gameclubtelegrambot` si cal personalitzar l'entorn:
@@ -99,6 +116,17 @@ NODE_ENV=production
 ```
 
 El fitxer és opcional perquè la unitat fa servir `EnvironmentFile=-...`, però és la manera recomanada de fixar la configuració de producció.
+
+## Validació del runtime abans d'arrencar
+
+Abans d'habilitar el servei és recomanable validar explícitament la configuració i aplicar migracions:
+
+```bash
+GAMECLUB_CONFIG_PATH=/etc/gameclubtelegrambot/runtime.json node dist/scripts/check-runtime-config.js
+GAMECLUB_CONFIG_PATH=/etc/gameclubtelegrambot/runtime.json node dist/scripts/migrate.js
+```
+
+L'script `install-debian-stack.sh` ja fa aquests dos passos abans de fer `systemctl enable --now`.
 
 ## Instal·lació de la unitat systemd
 
