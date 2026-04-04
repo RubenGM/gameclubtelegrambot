@@ -2,6 +2,17 @@ import { Bot, type Context } from 'grammy';
 
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
+import {
+  registerTelegramCommands,
+  type TelegramCommandDefinition,
+  type TelegramCommandHandlerContext,
+  type TelegramCommandHandler,
+} from './command-registry.js';
+import {
+  resolveTelegramChatContext,
+  type TelegramChatContext,
+  type TelegramChatLike,
+} from './chat-context.js';
 
 export interface TelegramBoundaryStatus {
   bot: 'connected';
@@ -18,6 +29,7 @@ export interface TelegramLogger {
 }
 
 export interface TelegramContextLike {
+  chat?: TelegramChatLike;
   reply(message: string): Promise<unknown>;
   runtime?: TelegramRuntime;
 }
@@ -25,6 +37,7 @@ export interface TelegramContextLike {
 export interface TelegramRuntime {
   bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName'>;
   services: InfrastructureRuntimeServices;
+  chat?: TelegramChatContext;
 }
 
 export type TelegramMiddleware = (
@@ -34,7 +47,7 @@ export type TelegramMiddleware = (
 
 export interface TelegramBotLike {
   use(middleware: TelegramMiddleware): void;
-  onStartCommand(handler: (context: TelegramContextLike) => Promise<unknown> | unknown): void;
+  onCommand(command: string, handler: TelegramCommandHandler): void;
   startPolling(): Promise<void>;
   stopPolling(): Promise<void>;
 }
@@ -43,6 +56,10 @@ export interface CreateTelegramBoundaryOptions {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
   logger: TelegramLogger;
+  isNewsEnabledGroup?: (options: {
+    chatId: number;
+    services: InfrastructureRuntimeServices;
+  }) => Promise<boolean>;
   createBot?: (options: CreateTelegramBotOptions) => TelegramBotLike;
 }
 
@@ -63,6 +80,7 @@ export async function createTelegramBoundary({
   config,
   services,
   logger,
+  isNewsEnabledGroup = async () => false,
   createBot = createGrammyTelegramBot,
 }: CreateTelegramBoundaryOptions): Promise<TelegramBoundary> {
   try {
@@ -72,7 +90,12 @@ export async function createTelegramBoundary({
       publicName: config.bot.publicName,
     });
 
-    for (const middleware of createMiddlewarePipeline({ config, services, logger })) {
+    for (const middleware of createMiddlewarePipeline({
+      config,
+      services,
+      logger,
+      isNewsEnabledGroup,
+    })) {
       bot.use(middleware);
     }
 
@@ -110,8 +133,14 @@ function createGrammyTelegramBot({
     use(middleware) {
       bot.use(async (context, next) => middleware(context, next));
     },
-    onStartCommand(handler) {
-      bot.command('start', handler);
+    onCommand(command, handler) {
+      bot.command(command, async (context) => {
+        if (!context.runtime?.chat) {
+          throw new Error('Telegram command received before chat context resolution');
+        }
+
+        await handler(context as unknown as TelegramCommandHandlerContext);
+      });
     },
     async startPolling() {
       await bot.init();
@@ -135,15 +164,21 @@ function createMiddlewarePipeline({
   config,
   services,
   logger,
+  isNewsEnabledGroup,
 }: {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
   logger: TelegramLogger;
+  isNewsEnabledGroup: (options: {
+    chatId: number;
+    services: InfrastructureRuntimeServices;
+  }) => Promise<boolean>;
 }): TelegramMiddleware[] {
   return [
     createErrorHandlingMiddleware({ logger }),
     createLoggingMiddleware({ logger }),
     createRuntimeContextMiddleware({ config, services }),
+    createChatContextMiddleware({ services, isNewsEnabledGroup }),
   ];
 }
 
@@ -199,6 +234,38 @@ function createRuntimeContextMiddleware({
   };
 }
 
+function createChatContextMiddleware({
+  services,
+  isNewsEnabledGroup,
+}: {
+  services: InfrastructureRuntimeServices;
+  isNewsEnabledGroup: (options: {
+    chatId: number;
+    services: InfrastructureRuntimeServices;
+  }) => Promise<boolean>;
+}): TelegramMiddleware {
+  return async (context, next) => {
+    if (!context.runtime) {
+      throw new Error('Telegram runtime context missing before chat context resolution');
+    }
+
+    const chat = context.chat;
+
+    context.runtime.chat = await resolveTelegramChatContext(
+      chat
+        ? {
+            chat,
+            isNewsEnabledGroup: ({ chatId }) => isNewsEnabledGroup({ chatId, services }),
+          }
+        : {
+            isNewsEnabledGroup: ({ chatId }) => isNewsEnabledGroup({ chatId, services }),
+          },
+    );
+
+    await next();
+  };
+}
+
 function registerHandlers({
   bot,
   config,
@@ -206,17 +273,35 @@ function registerHandlers({
   bot: TelegramBotLike;
   config: RuntimeConfig;
 }): void {
-  bot.onStartCommand(createStartCommandHandler({ publicName: config.bot.publicName }));
+  registerTelegramCommands({
+    bot,
+    commands: createDefaultCommands({ publicName: config.bot.publicName }),
+  });
 }
 
-function createStartCommandHandler({
+function createDefaultCommands({
   publicName,
 }: {
   publicName: string;
-}): (context: TelegramContextLike) => Promise<void> {
-  return async (context) => {
-    await context.reply(
-      `${publicName} online. Escriu /start per comprovar que la connexio amb Telegram funciona.`,
-    );
-  };
+}): TelegramCommandDefinition[] {
+  return [
+    {
+      command: 'start',
+      contexts: ['private', 'group', 'group-news'],
+      handle: async (context) => {
+        await context.reply(
+          `${publicName} online. Escriu /start per comprovar que la connexio amb Telegram funciona.`,
+        );
+      },
+    },
+    {
+      command: 'help',
+      contexts: ['private'],
+      handle: async (context) => {
+        await context.reply(
+          `${publicName} disponible en privat per a tota la gestio del club. En grup, les comandes quedaran limitades a consulta i avisos.`,
+        );
+      },
+    },
+  ];
 }

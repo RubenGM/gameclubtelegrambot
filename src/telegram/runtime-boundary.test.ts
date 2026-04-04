@@ -7,6 +7,7 @@ import {
   type TelegramContextLike,
   type TelegramMiddleware,
 } from './runtime-boundary.js';
+import type { TelegramCommandHandler } from './command-registry.js';
 
 const runtimeConfig = {
   schemaVersion: 1,
@@ -63,7 +64,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     },
     createBot: ({ token }) => {
       const middlewares: TelegramMiddleware[] = [];
-      let startHandler: ((context: TelegramContextLike) => Promise<unknown> | unknown) | undefined;
+      const commandHandlers = new Map<string, TelegramCommandHandler>();
 
       events.push(`token:${token}`);
 
@@ -72,12 +73,16 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
           events.push('middleware:register');
           middlewares.push(middleware);
         },
-        onStartCommand: (handler) => {
-          events.push('register:/start');
-          startHandler = handler;
+        onCommand: (command, handler) => {
+          events.push(`register:/${command}`);
+          commandHandlers.set(command, handler);
         },
         startPolling: async () => {
           const context: TelegramContextLike = {
+            chat: {
+              id: -100,
+              type: 'group',
+            },
             reply: async (message: string) => {
               events.push(`reply:${message}`);
             },
@@ -93,11 +98,15 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
 
             if (middlewareIndex === middlewares.length) {
               events.push(`runtime:database:${Number((context.runtime as { services: { database: unknown } }).services.database === databaseConnection)}`);
+              const startHandler = commandHandlers.get('start');
               if (!startHandler) {
                 throw new Error('start handler not registered');
               }
 
-              await startHandler(context);
+              const commandContext = context as unknown as import('./command-registry.js').TelegramCommandHandlerContext;
+
+              await startHandler(commandContext);
+              await commandHandlers.get('help')?.(commandContext);
               return;
             }
 
@@ -129,9 +138,12 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'middleware:register',
     'middleware:register',
     'middleware:register',
+    'middleware:register',
     'register:/start',
+    'register:/help',
     'runtime:database:1',
     'reply:Game Club Bot online. Escriu /start per comprovar que la connexio amb Telegram funciona.',
+    'reply:Aquest comandament nomes esta disponible en xat privat.',
     'start-polling',
     'stop-polling',
   ]);
@@ -155,7 +167,7 @@ test('createTelegramBoundary throws a predictable error when Telegram startup fa
         },
         createBot: () => ({
           use: () => {},
-          onStartCommand: () => {},
+          onCommand: () => {},
           startPolling: async () => {
             throw new Error('Unauthorized');
           },
