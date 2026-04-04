@@ -8,6 +8,7 @@ const validConfigJson = JSON.stringify({
   bot: {
     publicName: 'Game Club Bot',
     clubName: 'Game Club',
+    language: 'ca',
   },
   telegram: {
     token: 'telegram-token',
@@ -56,6 +57,7 @@ test('loadRuntimeConfig returns typed configuration from the configured JSON fil
 
   assert.equal(config.bot.publicName, 'Game Club Bot');
   assert.equal(config.telegram.token, 'telegram-token');
+  assert.equal(config.bot.language, 'ca');
   assert.equal(config.database.port, 5432);
   assert.equal(config.bootstrap.firstAdmin.telegramUserId, 123456789);
   assert.equal(config.notifications.defaults.eventReminderLeadHours, 24);
@@ -97,6 +99,7 @@ test('loadRuntimeConfig applies defaults for schema version, notification defaul
   assert.equal(config.notifications.defaults.groupAnnouncementsEnabled, true);
   assert.equal(config.notifications.defaults.eventRemindersEnabled, true);
   assert.equal(config.notifications.defaults.eventReminderLeadHours, 24);
+  assert.equal(config.bot.language, 'ca');
   assert.deepEqual(config.featureFlags, {});
 });
 

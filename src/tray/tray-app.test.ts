@@ -32,10 +32,47 @@ test('tray app renders active service state and enables the right actions', asyn
     { id: 'start', title: 'Start', enabled: false },
     { id: 'stop', title: 'Stop', enabled: true },
     { id: 'restart', title: 'Restart', enabled: true },
+    { id: 'rebuild-restart', title: 'Rebuild and restart', enabled: true },
     { id: 'logs', title: 'View last logs', enabled: true },
     { id: 'refresh', title: 'Refresh', enabled: true },
     { id: 'quit', title: 'Quit tray', enabled: true },
   ]);
+});
+
+test('tray app rebuilds and restarts through the provided callback', async () => {
+  const runtime = createTrayRuntimeDouble();
+  const serviceControl = createServiceControlDouble({
+    statuses: [
+      {
+        serviceName: 'gameclubtelegrambot.service',
+        state: 'active',
+        rawState: 'active',
+      },
+      {
+        serviceName: 'gameclubtelegrambot.service',
+        state: 'active',
+        rawState: 'active',
+      },
+    ],
+  });
+  const calls: string[] = [];
+
+  const app = createTrayApp({
+    serviceControl,
+    runtime,
+    rebuildAndRestart: async () => {
+      calls.push('rebuild-restart');
+    },
+    pollIntervalMs: 5000,
+    scheduler: runtime.scheduler,
+  });
+
+  await app.start();
+  await runtime.trigger('rebuild-restart');
+
+  assert.deepEqual(calls, ['rebuild-restart']);
+  assert.equal(runtime.statusHistory.includes('busy'), true);
+  assert.deepEqual(serviceControl.calls, ['status', 'status']);
 });
 
 test('tray app restarts the service and refreshes state afterwards', async () => {

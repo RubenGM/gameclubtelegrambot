@@ -68,6 +68,7 @@ export interface TelegramCatalogAdminContext {
     bot: {
       publicName: string;
       clubName: string;
+      language?: string;
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
     };
   };
@@ -216,7 +217,15 @@ async function handleCreateSession(
       await context.reply('Tria un grup valid pel seu id o continua sense grup.', buildGroupOptions());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'description', data: { ...data, groupId } });
+    await context.runtime.session.advance({ stepKey: 'original-name', data: { ...data, groupId } });
+    await context.reply('Escriu el nom original opcional o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'original-name') {
+    await context.runtime.session.advance({
+      stepKey: 'description',
+      data: { ...data, originalName: text === catalogAdminLabels.skipOptional ? null : text },
+    });
     await context.reply('Escriu una descripcio opcional o tria una opcio del teclat.', buildSkipOptionalKeyboard());
     return true;
   }
@@ -230,8 +239,16 @@ async function handleCreateSession(
   }
   if (stepKey === 'language') {
     await context.runtime.session.advance({
-      stepKey: 'publication-year',
+      stepKey: 'publisher',
       data: { ...data, language: text === catalogAdminLabels.skipOptional ? null : text },
+    });
+    await context.reply('Escriu l editorial o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'publisher') {
+    await context.runtime.session.advance({
+      stepKey: 'publication-year',
+      data: { ...data, publisher: text === catalogAdminLabels.skipOptional ? null : text },
     });
     await context.reply('Escriu l any de publicacio o tria una opcio del teclat.', buildSkipOptionalKeyboard());
     return true;
@@ -271,6 +288,47 @@ async function handleCreateSession(
       return true;
     }
     const nextData = { ...data, playerCountMax };
+    await context.runtime.session.advance({ stepKey: 'recommended-age', data: nextData });
+    await context.reply('Escriu l edat recomanada o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'recommended-age') {
+    const recommendedAge = parseOptionalPositiveInteger(text);
+    if (recommendedAge instanceof Error) {
+      await context.reply('L edat recomanada ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'play-time-minutes', data: { ...data, recommendedAge } });
+    await context.reply('Escriu la durada en minuts o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'play-time-minutes') {
+    const playTimeMinutes = parseOptionalPositiveInteger(text);
+    if (playTimeMinutes instanceof Error) {
+      await context.reply('La durada ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'external-refs', data: { ...data, playTimeMinutes } });
+    await context.reply('Escriu referencies externes en JSON o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'external-refs') {
+    const externalRefs = parseOptionalJsonObject(text);
+    if (externalRefs instanceof Error) {
+      await context.reply('Les referencies externes han de ser un objecte JSON valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'metadata', data: { ...data, externalRefs } });
+    await context.reply('Escriu metadata addicional en JSON o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'metadata') {
+    const metadata = parseOptionalJsonObject(text);
+    if (metadata instanceof Error) {
+      await context.reply('La metadata ha de ser un objecte JSON valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    const nextData = { ...data, metadata };
     await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
     await context.reply(`${await formatDraftSummary(context, nextData)}
 
@@ -288,11 +346,17 @@ Tria una opcio per confirmar o cancel.lar.`, buildCreateConfirmOptions());
       groupId: (data.groupId as number | null | undefined) ?? null,
       itemType: String(data.itemType ?? 'board-game') as CatalogItemType,
       displayName: String(data.displayName ?? ''),
+      originalName: asNullableString(data.originalName),
       description: asNullableString(data.description),
       language: asNullableString(data.language),
+      publisher: asNullableString(data.publisher),
       publicationYear: asNullableNumber(data.publicationYear),
       playerCountMin: asNullableNumber(data.playerCountMin),
       playerCountMax: asNullableNumber(data.playerCountMax),
+      recommendedAge: asNullableNumber(data.recommendedAge),
+      playTimeMinutes: asNullableNumber(data.playTimeMinutes),
+      externalRefs: asNullableObject(data.externalRefs),
+      metadata: asNullableObject(data.metadata),
     });
     await appendAuditEvent({
       repository: resolveAuditRepository(context),
@@ -357,7 +421,18 @@ async function handleEditSession(
       await context.reply('Tria un grup valid pel seu id o continua sense grup.', buildEditGroupOptions());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'description', data: { ...data, groupId } });
+    await context.runtime.session.advance({ stepKey: 'original-name', data: { ...data, groupId } });
+    await context.reply('Escriu el nou nom original o tria una opcio del teclat.', buildEditOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'original-name') {
+    await context.runtime.session.advance({
+      stepKey: 'description',
+      data: {
+        ...data,
+        originalName: text === catalogAdminLabels.keepCurrent ? item.originalName : text === catalogAdminLabels.skipOptional ? null : text,
+      },
+    });
     await context.reply('Escriu la nova descripcio o tria una opcio del teclat.', buildEditOptionalKeyboard());
     return true;
   }
@@ -371,8 +446,16 @@ async function handleEditSession(
   }
   if (stepKey === 'language') {
     await context.runtime.session.advance({
-      stepKey: 'publication-year',
+      stepKey: 'publisher',
       data: { ...data, language: text === catalogAdminLabels.keepCurrent ? item.language : text === catalogAdminLabels.skipOptional ? null : text },
+    });
+    await context.reply('Escriu la nova editorial o tria una opcio del teclat.', buildEditOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'publisher') {
+    await context.runtime.session.advance({
+      stepKey: 'publication-year',
+      data: { ...data, publisher: text === catalogAdminLabels.keepCurrent ? item.publisher : text === catalogAdminLabels.skipOptional ? null : text },
     });
     await context.reply('Escriu el nou any de publicacio o tria una opcio del teclat.', buildEditOptionalKeyboard());
     return true;
@@ -409,6 +492,47 @@ async function handleEditSession(
       return true;
     }
     const nextData = { ...data, playerCountMax };
+    await context.runtime.session.advance({ stepKey: 'recommended-age', data: nextData });
+    await context.reply('Escriu la nova edat recomanada o tria una opcio del teclat.', buildEditOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'recommended-age') {
+    const recommendedAge = text === catalogAdminLabels.keepCurrent ? item.recommendedAge : parseOptionalPositiveInteger(text);
+    if (recommendedAge instanceof Error) {
+      await context.reply('L edat recomanada ha de ser un enter positiu valid o omet el camp.', buildEditOptionalKeyboard());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'play-time-minutes', data: { ...data, recommendedAge } });
+    await context.reply('Escriu la nova durada en minuts o tria una opcio del teclat.', buildEditOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'play-time-minutes') {
+    const playTimeMinutes = text === catalogAdminLabels.keepCurrent ? item.playTimeMinutes : parseOptionalPositiveInteger(text);
+    if (playTimeMinutes instanceof Error) {
+      await context.reply('La durada ha de ser un enter positiu valid o omet el camp.', buildEditOptionalKeyboard());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'external-refs', data: { ...data, playTimeMinutes } });
+    await context.reply('Escriu les noves referencies externes en JSON o tria una opcio del teclat.', buildEditOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'external-refs') {
+    const externalRefs = text === catalogAdminLabels.keepCurrent ? item.externalRefs : parseOptionalJsonObject(text);
+    if (externalRefs instanceof Error) {
+      await context.reply('Les referencies externes han de ser un objecte JSON valid o omet el camp.', buildEditOptionalKeyboard());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'metadata', data: { ...data, externalRefs } });
+    await context.reply('Escriu la nova metadata en JSON o tria una opcio del teclat.', buildEditOptionalKeyboard());
+    return true;
+  }
+  if (stepKey === 'metadata') {
+    const metadata = text === catalogAdminLabels.keepCurrent ? item.metadata : parseOptionalJsonObject(text);
+    if (metadata instanceof Error) {
+      await context.reply('La metadata ha de ser un objecte JSON valid o omet el camp.', buildEditOptionalKeyboard());
+      return true;
+    }
+    const nextData = { ...data, metadata };
     await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
     await context.reply(`${await formatDraftSummary(context, nextData)}
 
@@ -427,11 +551,17 @@ Tria una opcio per confirmar o cancel.lar.`, buildEditConfirmOptions());
       groupId: hasOwn(data, 'groupId') ? (data.groupId as number | null) : item.groupId,
       itemType: String(data.itemType ?? item.itemType) as CatalogItemType,
       displayName: String(data.displayName ?? item.displayName),
+      originalName: hasOwn(data, 'originalName') ? asNullableString(data.originalName) : item.originalName,
       description: hasOwn(data, 'description') ? asNullableString(data.description) : item.description,
       language: hasOwn(data, 'language') ? asNullableString(data.language) : item.language,
+      publisher: hasOwn(data, 'publisher') ? asNullableString(data.publisher) : item.publisher,
       publicationYear: hasOwn(data, 'publicationYear') ? asNullableNumber(data.publicationYear) : item.publicationYear,
       playerCountMin: hasOwn(data, 'playerCountMin') ? asNullableNumber(data.playerCountMin) : item.playerCountMin,
       playerCountMax: hasOwn(data, 'playerCountMax') ? asNullableNumber(data.playerCountMax) : item.playerCountMax,
+      recommendedAge: hasOwn(data, 'recommendedAge') ? asNullableNumber(data.recommendedAge) : item.recommendedAge,
+      playTimeMinutes: hasOwn(data, 'playTimeMinutes') ? asNullableNumber(data.playTimeMinutes) : item.playTimeMinutes,
+      externalRefs: hasOwn(data, 'externalRefs') ? asNullableObject(data.externalRefs) : item.externalRefs,
+      metadata: hasOwn(data, 'metadata') ? asNullableObject(data.metadata) : item.metadata,
     });
     await appendAuditEvent({
       repository: resolveAuditRepository(context),
@@ -673,10 +803,16 @@ async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, it
     `Tipus: ${renderItemType(item.itemType)}`,
     `Familia: ${familyName ?? 'Sense familia'}`,
     `Grup: ${groupName ?? 'Sense grup'}`,
+    `Nom original: ${item.originalName ?? 'Sense valor'}`,
     `Descripcio: ${item.description ?? 'Sense descripcio'}`,
     `Llengua: ${item.language ?? 'Sense valor'}`,
+    `Editorial: ${item.publisher ?? 'Sense valor'}`,
     `Any publicacio: ${item.publicationYear ?? 'Sense valor'}`,
     `Jugadors: ${renderPlayerRange(item.playerCountMin, item.playerCountMax)}`,
+    `Edat recomanada: ${item.recommendedAge ?? 'Sense valor'}`,
+    `Durada: ${item.playTimeMinutes ?? 'Sense valor'}`,
+    `Referencies externes: ${renderOptionalObject(item.externalRefs)}`,
+    `Metadata: ${renderOptionalObject(item.metadata)}`,
     `Estat: ${item.lifecycleStatus}`,
   ].join('\n');
 }
@@ -702,10 +838,16 @@ async function formatDraftSummary(context: TelegramCatalogAdminContext, data: Re
     `- Tipus: ${renderItemType(String(data.itemType ?? 'board-game') as CatalogItemType)}`,
     `- Familia: ${familyName ?? 'Sense familia'}`,
     `- Grup: ${groupName ?? 'Sense grup'}`,
+    `- Nom original: ${asNullableString(data.originalName) ?? 'Sense valor'}`,
     `- Descripcio: ${asNullableString(data.description) ?? 'Sense descripcio'}`,
     `- Llengua: ${asNullableString(data.language) ?? 'Sense valor'}`,
+    `- Editorial: ${asNullableString(data.publisher) ?? 'Sense valor'}`,
     `- Any publicacio: ${asNullableNumber(data.publicationYear) ?? 'Sense valor'}`,
     `- Jugadors: ${renderPlayerRange(asNullableNumber(data.playerCountMin), asNullableNumber(data.playerCountMax))}`,
+    `- Edat recomanada: ${asNullableNumber(data.recommendedAge) ?? 'Sense valor'}`,
+    `- Durada: ${asNullableNumber(data.playTimeMinutes) ?? 'Sense valor'}`,
+    `- Referencies externes: ${renderOptionalObject(asNullableObject(data.externalRefs))}`,
+    `- Metadata: ${renderOptionalObject(asNullableObject(data.metadata))}`,
   ].join('\n');
 }
 
@@ -770,6 +912,21 @@ function parseOptionalPositiveInteger(text: string): number | null | Error {
     return new Error('invalid-number');
   }
   return value;
+}
+
+function parseOptionalJsonObject(text: string): Record<string, unknown> | null | Error {
+  if (text === catalogAdminLabels.skipOptional) {
+    return null;
+  }
+  try {
+    const value = JSON.parse(text) as unknown;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return new Error('invalid-json-object');
+    }
+    return value as Record<string, unknown>;
+  } catch {
+    return new Error('invalid-json-object');
+  }
 }
 
 function parseItemId(callbackData: string, prefix: string): number {
@@ -879,6 +1036,17 @@ function asNullableString(value: unknown): string | null {
 
 function asNullableNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null;
+}
+
+function asNullableObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function renderOptionalObject(value: Record<string, unknown> | null): string {
+  return value ? JSON.stringify(value) : 'Sense valor';
 }
 
 function hasOwn(data: Record<string, unknown>, key: string): boolean {

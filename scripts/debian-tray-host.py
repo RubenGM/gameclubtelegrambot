@@ -13,16 +13,16 @@ from gi.repository import AyatanaAppIndicator3, GLib, Gtk  # noqa: E402
 
 class TrayHost:
     def __init__(self) -> None:
+        self.menu = Gtk.Menu()
         self.indicator = AyatanaAppIndicator3.Indicator.new(
             'gameclubtelegrambot',
             'applications-system-symbolic',
             AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS,
         )
+        self.indicator.set_menu(self.menu)
         self.indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
         self.indicator.set_title('Game Club Bot')
         self.indicator.set_label('GC unknown', '')
-        self.menu = Gtk.Menu()
-        self.indicator.set_menu(self.menu)
 
     def run(self) -> None:
         thread = threading.Thread(target=self._stdin_loop, daemon=True)

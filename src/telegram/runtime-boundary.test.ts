@@ -18,6 +18,7 @@ const runtimeConfig = {
   bot: {
     publicName: 'Game Club Bot',
     clubName: 'Game Club',
+    language: 'ca',
   },
   telegram: {
     token: 'telegram-token',
@@ -239,6 +240,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:table_admin:edit:',
     'register:callback:table_admin:deactivate:',
     'register:callback:catalog_admin:inspect:',
+    'register:callback:catalog_admin:inspect_group:',
     'register:callback:catalog_admin:edit:',
     'register:callback:catalog_admin:deactivate:',
     'register:callback:venue_event_admin:inspect:',

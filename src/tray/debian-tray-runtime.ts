@@ -186,14 +186,15 @@ function parseHostMessage(line: string): HostMessage | null {
     }
 
     if (
-      parsed.type === 'click' &&
-      (parsed.actionId === 'status' ||
-        parsed.actionId === 'start' ||
-        parsed.actionId === 'stop' ||
-        parsed.actionId === 'restart' ||
-        parsed.actionId === 'logs' ||
-        parsed.actionId === 'refresh' ||
-        parsed.actionId === 'quit')
+        parsed.type === 'click' &&
+        (parsed.actionId === 'status' ||
+          parsed.actionId === 'start' ||
+          parsed.actionId === 'stop' ||
+          parsed.actionId === 'restart' ||
+          parsed.actionId === 'rebuild-restart' ||
+          parsed.actionId === 'logs' ||
+          parsed.actionId === 'refresh' ||
+          parsed.actionId === 'quit')
     ) {
       return parsed;
     }

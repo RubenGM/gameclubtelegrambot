@@ -11,6 +11,7 @@ export const bootstrapConfigCandidateSchema = z.object({
   bot: z.object({
     publicName: z.string().trim().min(1),
     clubName: z.string().trim().min(1),
+    language: z.string().trim().min(2).default('ca'),
     iconPath: z.string().trim().min(1).optional(),
   }),
   telegram: z.object({

@@ -223,7 +223,7 @@ function createContext({
       },
       chat: { kind: 'private', chatId: 1 },
       services: { database: { db: undefined as never } },
-      bot: { publicName: 'Game Club Bot', clubName: 'Game Club', sendPrivateMessage: async () => {} },
+      bot: { publicName: 'Game Club Bot', clubName: 'Game Club', language: 'ca', sendPrivateMessage: async () => {} },
     },
     catalogRepository: repository,
     auditRepository,
@@ -284,9 +284,19 @@ test('handleTelegramCatalogAdminText creates an item through keyboard-guided ste
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.skipOptional;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '2';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '4';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.skipOptional;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
@@ -299,6 +309,8 @@ test('handleTelegramCatalogAdminText creates an item through keyboard-guided ste
   assert.equal(created?.displayName, 'Root');
   assert.equal(created?.itemType, 'board-game');
   assert.equal(created?.groupId, null);
+  assert.equal(created?.publisher, null);
+  assert.equal(created?.recommendedAge, null);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.created');
 });
 
@@ -314,6 +326,10 @@ test('handleTelegramCatalogAdminText keeps the player max step active when the r
   context.messageText = catalogAdminLabels.noFamily;
   await handleTelegramCatalogAdminText(context);
   context.messageText = catalogAdminLabels.noGroup;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.skipOptional;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.skipOptional;
   await handleTelegramCatalogAdminText(context);
   context.messageText = catalogAdminLabels.skipOptional;
   await handleTelegramCatalogAdminText(context);
@@ -371,9 +387,13 @@ test('handleTelegramCatalogAdminCallback edits and deactivates existing items', 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.keepCurrent;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.skipOptional;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Leder Games';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.skipOptional;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
@@ -381,12 +401,23 @@ test('handleTelegramCatalogAdminCallback edits and deactivates existing items', 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '5';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.keepCurrent;
+  context.messageText = '10';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '90';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '{"bggId":1234}';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '{"complexity":"medium"}';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.confirmEdit;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.equal((await repository.findItemById(3))?.displayName, 'Root Deluxe');
+  assert.equal((await repository.findItemById(3))?.publisher, 'Leder Games');
+  assert.equal((await repository.findItemById(3))?.recommendedAge, 10);
+  assert.equal((await repository.findItemById(3))?.playTimeMinutes, 90);
+  assert.deepEqual((await repository.findItemById(3))?.externalRefs, { bggId: 1234 });
+  assert.deepEqual((await repository.findItemById(3))?.metadata, { complexity: 'medium' });
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.updated');
 
   context.callbackData = `${catalogAdminCallbackPrefixes.deactivate}3`;
@@ -484,4 +515,90 @@ test('handleTelegramCatalogAdminText lists grouped catalog items and navigates f
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}4`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /Grup: Second Edition/);
+});
+
+test('handleTelegramCatalogAdminText captures extended optional metadata on create', async () => {
+  const repository = createRepository();
+  const { context } = createContext({ repository });
+
+  context.messageText = catalogAdminLabels.create;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Spirit Island';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.typeBoardGame;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.noFamily;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.noGroup;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Spirit Island';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Cooperatiu de defensa insular';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'CA';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Greater Than Games';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '2017';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '1';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '4';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '14';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '120';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '{"bggId":162886}';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '{"weight":"high"}';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.confirmCreate;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  const created = await repository.findItemById(1);
+  assert.equal(created?.originalName, 'Spirit Island');
+  assert.equal(created?.publisher, 'Greater Than Games');
+  assert.equal(created?.recommendedAge, 14);
+  assert.equal(created?.playTimeMinutes, 120);
+  assert.deepEqual(created?.externalRefs, { bggId: 162886 });
+  assert.deepEqual(created?.metadata, { weight: 'high' });
+});
+
+test('handleTelegramCatalogAdminText keeps JSON steps active when metadata is invalid', async () => {
+  const { context, getCurrentSession, replies } = createContext();
+
+  context.messageText = catalogAdminLabels.create;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = 'Root';
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.typeBoardGame;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.noFamily;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.noGroup;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.skipOptional;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.skipOptional;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.skipOptional;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.skipOptional;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.skipOptional;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = '2';
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = '4';
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.skipOptional;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.skipOptional;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = '[]';
+
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'external-refs');
+  assert.equal(replies.at(-1)?.message, 'Les referencies externes han de ser un objecte JSON valid o omet el camp.');
 });

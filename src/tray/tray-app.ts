@@ -2,7 +2,7 @@ import type { ServiceControl, ServiceLifecycleState } from '../operations/servic
 
 export type TrayStatusIndicator = ServiceLifecycleState | 'busy';
 
-export type TrayActionId = 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'refresh' | 'quit';
+export type TrayActionId = 'status' | 'start' | 'stop' | 'restart' | 'rebuild-restart' | 'logs' | 'refresh' | 'quit';
 
 export interface TrayMenuItem {
   id: TrayActionId;
@@ -28,6 +28,7 @@ export interface TrayScheduler {
 export interface CreateTrayAppOptions {
   serviceControl: ServiceControl;
   runtime: TrayRuntime;
+  rebuildAndRestart?: (() => Promise<void>) | undefined;
   pollIntervalMs?: number;
   scheduler?: TrayScheduler;
 }
@@ -43,6 +44,7 @@ const defaultPollIntervalMs = 5000;
 export function createTrayApp({
   serviceControl,
   runtime,
+  rebuildAndRestart,
   pollIntervalMs = defaultPollIntervalMs,
   scheduler = createDefaultScheduler(),
 }: CreateTrayAppOptions): TrayApp {
@@ -90,6 +92,24 @@ export function createTrayApp({
       } catch (error) {
         await runtime.showNotification('Game Club Bot', errorMessage(error));
       }
+      return;
+    }
+
+    if (actionId === 'rebuild-restart') {
+      if (!rebuildAndRestart) {
+        await runtime.showNotification('Game Club Bot', 'Aquesta instal.lacio no te habilitada l accio rebuild and restart.');
+        return;
+      }
+
+      await render({ state: currentState, busy: true });
+
+      try {
+        await rebuildAndRestart();
+      } catch (error) {
+        await runtime.showNotification('Game Club Bot', errorMessage(error));
+      }
+
+      await refreshWithNotification(false);
       return;
     }
 
@@ -165,6 +185,7 @@ function buildMenu({
     { id: 'start', title: 'Start', enabled: controlEnabled && state !== 'active' && state !== 'activating' },
     { id: 'stop', title: 'Stop', enabled: controlEnabled && state !== 'inactive' && state !== 'deactivating' },
     { id: 'restart', title: 'Restart', enabled: controlEnabled && state !== 'deactivating' },
+    { id: 'rebuild-restart', title: 'Rebuild and restart', enabled: controlEnabled },
     { id: 'logs', title: 'View last logs', enabled: true },
     { id: 'refresh', title: 'Refresh', enabled: controlEnabled },
     { id: 'quit', title: 'Quit tray', enabled: true },

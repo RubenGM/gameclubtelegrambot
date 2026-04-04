@@ -72,6 +72,7 @@ Normalment no cal obrir la safata manualment si s'està utilitzant l'entrypoint 
 ```
 
 Aquest flux intenta obrir la safata abans d'arrencar o reiniciar el bot.
+Abans d'obrir-la, `startup.sh` tanca qualsevol instància anterior del tray que ja estigui executant-se per al mateix `APP_ROOT`, per evitar icones duplicades a la sessió gràfica.
 
 Per provar la safata manualment des d'una sessió gràfica:
 
@@ -138,10 +139,17 @@ Si la instal·lació s'ha fet amb `./scripts/install-debian-stack.sh`, aquest aj
 Quan la safata està activa:
 
 - mostra el resum d'estat del servei al tooltip
-- ofereix `Start`, `Stop`, `Restart`, `View last logs`, `Refresh` i `Quit tray`
+- ofereix `Start`, `Stop`, `Restart`, `Rebuild and restart`, `View last logs`, `Refresh` i `Quit tray`
 - refresca automàticament l'estat a l'interval configurat
 - refresca immediatament després d'una acció manual
 - el menú no opera el bot directament: opera `systemd`, i el servei del bot continua sent el procés real de producció
+
+Semàntica de les accions de reinici:
+
+- `Restart`: només executa el reinici del servei actual via `systemd`
+- `Rebuild and restart`: executa `startup.sh --no-tray --skip-apt ...`, recompila/redesplega l'aplicació i després reinicia el servei
+
+La segona acció és més lenta i pot requerir permisos operatius addicionals segons com s'hagi desplegat la màquina.
 
 ## Validació manual recomanada
 

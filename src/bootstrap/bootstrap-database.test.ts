@@ -15,6 +15,7 @@ const persistedConfig: RuntimeConfig = {
   bot: {
     publicName: 'Game Club Bot',
     clubName: 'Game Club',
+    language: 'ca',
   },
   telegram: {
     token: 'telegram-token',

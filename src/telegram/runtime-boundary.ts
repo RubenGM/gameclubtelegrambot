@@ -106,7 +106,7 @@ export interface TelegramReplyOptions {
 }
 
 export interface TelegramRuntime {
-  bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName'> & {
+  bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName' | 'language'> & {
     sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
@@ -411,6 +411,7 @@ function createRuntimeContextMiddleware({
     context.runtime = {
       bot: {
         clubName: config.bot.clubName,
+        language: config.bot.language,
         publicName: config.bot.publicName,
         sendPrivateMessage: bot.sendPrivateMessage.bind(bot),
       },
@@ -880,6 +881,9 @@ function registerCatalogAdminCallbacks({
   bot: TelegramBotLike;
 }): void {
   bot.onCallback(catalogAdminCallbackPrefixes.inspect, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.inspectGroup, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
   bot.onCallback(catalogAdminCallbackPrefixes.edit, async (context) => {

@@ -152,8 +152,15 @@ ensure_groups_and_user() {
 
 prepare_build_artifacts() {
   log 'Construint artefactes locals de produccio'
-  run_cmd npm ci
-  run_cmd npm run build
+
+  if [ "$ROOT_DIR" = "$APP_ROOT" ]; then
+    log 'Detectat entorn desplegat: executant npm ci i npm run build com a usuari del servei.'
+    run_as_user "$SERVICE_USER" npm --prefix "$ROOT_DIR" ci
+    run_as_user "$SERVICE_USER" npm --prefix "$ROOT_DIR" run build
+  else
+    run_cmd npm ci
+    run_cmd npm run build
+  fi
 
   if [ ! -f "$ROOT_DIR/dist/main.js" ]; then
     printf 'No s ha generat dist/main.js despres del build local\n' >&2
@@ -191,13 +198,23 @@ deploy_application() {
 }
 
 install_runtime_config() {
+  local source_realpath target_realpath
+
   if [ ! -f "$CONFIG_SOURCE" ]; then
     printf 'No s ha trobat el fitxer de configuració: %s\n' "$CONFIG_SOURCE" >&2
     exit 1
   fi
 
   run_root_cmd install -d -m 0755 "$CONFIG_DIR"
-  run_root_cmd install -m 0640 -o root -g "$SERVICE_GROUP" "$CONFIG_SOURCE" "$CONFIG_TARGET"
+
+  source_realpath="$(realpath "$CONFIG_SOURCE")"
+  target_realpath="$(realpath -m "$CONFIG_TARGET")"
+
+  if [ "$source_realpath" = "$target_realpath" ]; then
+    log 'La configuració runtime ja apunta al fitxer instal.lat. S omet la copia redundant.'
+  else
+    run_root_cmd install -m 0640 -o root -g "$SERVICE_GROUP" "$CONFIG_SOURCE" "$CONFIG_TARGET"
+  fi
 
   if [ "$DRY_RUN" -eq 1 ]; then
     printf '+ cat > %q <<EOF\nGAMECLUB_CONFIG_PATH=%s\nNODE_ENV=production\nEOF\n' "$ENV_TARGET" "$CONFIG_TARGET"
@@ -311,6 +328,7 @@ require_command npm
 require_command node
 require_command systemctl
 require_command mktemp
+require_command realpath
 
 ensure_packages
 ensure_groups_and_user

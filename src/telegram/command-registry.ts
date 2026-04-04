@@ -21,6 +21,7 @@ export interface TelegramCommandRuntime {
   bot: {
     publicName: string;
     clubName: string;
+    language?: string;
     sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
   };
   services: InfrastructureRuntimeServices;

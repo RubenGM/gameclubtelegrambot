@@ -3,7 +3,13 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_ROOT="${GAMECLUB_APP_ROOT:-/opt/gameclubtelegrambot}"
-CONFIG_SOURCE="${GAMECLUB_CONFIG_SOURCE:-$ROOT_DIR/config/runtime.json}"
+DEFAULT_CONFIG_SOURCE="$ROOT_DIR/config/runtime.json"
+if [ -n "${GAMECLUB_CONFIG_PATH:-}" ]; then
+  DEFAULT_CONFIG_SOURCE="$GAMECLUB_CONFIG_PATH"
+elif [ -f /etc/gameclubtelegrambot/runtime.json ]; then
+  DEFAULT_CONFIG_SOURCE='/etc/gameclubtelegrambot/runtime.json'
+fi
+CONFIG_SOURCE="${GAMECLUB_CONFIG_SOURCE:-$DEFAULT_CONFIG_SOURCE}"
 OPERATOR_USER="${SUDO_USER:-$USER}"
 SERVICE_NAME="${GAMECLUB_SERVICE_NAME:-gameclubtelegrambot.service}"
 SKIP_APT=0
@@ -56,6 +62,19 @@ require_command() {
     printf 'Falta la comanda requerida: %s\n' "$1" >&2
     exit 1
   fi
+}
+
+list_matching_pids() {
+  local pattern="$1"
+
+  if command -v pgrep >/dev/null 2>&1; then
+    pgrep -u "$OPERATOR_USER" -f "$pattern" || true
+    return 0
+  fi
+
+  ps -u "$OPERATOR_USER" -o pid= -o args= | grep -F "$pattern" | grep -v grep | while read -r pid _; do
+    printf '%s\n' "$pid"
+  done
 }
 
 run_cmd() {
@@ -161,6 +180,38 @@ start_compose_postgres_if_needed() {
   run_cmd docker compose up -d postgres
 }
 
+close_existing_trays() {
+  local tray_pattern host_pattern tray_pids host_pids all_pids
+
+  tray_pattern="$APP_ROOT/dist/scripts/debian-tray.js"
+  host_pattern="$APP_ROOT/scripts/debian-tray-host.py"
+  tray_pids="$(list_matching_pids "$tray_pattern")"
+  host_pids="$(list_matching_pids "$host_pattern")"
+  all_pids="$(printf '%s\n%s\n' "$tray_pids" "$host_pids" | sed '/^$/d')"
+
+  if [ -z "$all_pids" ]; then
+    log 'No hi ha instancies anteriors del tray per tancar.'
+    return 0
+  fi
+
+  log 'Tancant instancies anteriors del tray abans d obrir-ne una de nova.'
+
+  while read -r pid; do
+    [ -n "$pid" ] || continue
+    if [ "$DRY_RUN" -eq 1 ]; then
+      printf '+ '
+      printf '%q ' kill "$pid"
+      printf '\n'
+      continue
+    fi
+    kill "$pid" 2>/dev/null || true
+  done <<< "$all_pids"
+
+  if [ "$DRY_RUN" -eq 0 ]; then
+    sleep 1
+  fi
+}
+
 launch_tray_if_requested() {
   if [ "$OPEN_TRAY" -ne 1 ]; then
     log 'S omet l arrencada de la safata per petició de l operador.'
@@ -176,6 +227,8 @@ launch_tray_if_requested() {
     printf 'No s ha trobat %s/dist/scripts/debian-tray.js\n' "$APP_ROOT" >&2
     exit 1
   fi
+
+  close_existing_trays
 
   local tray_env=(env "DISPLAY=$DISPLAY_VALUE")
   if [ -n "$DBUS_SESSION_BUS_ADDRESS_VALUE" ]; then
@@ -262,6 +315,7 @@ require_command grep
 require_command basename
 require_command id
 require_command systemctl
+require_command ps
 
 install_cmd=(bash "$ROOT_DIR/scripts/install-debian-stack.sh" --app-root "$APP_ROOT" --config-source "$CONFIG_SOURCE" --operator-user "$OPERATOR_USER" --no-start)
 if [ "$SKIP_APT" -eq 1 ]; then

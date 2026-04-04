@@ -20,6 +20,8 @@ L'entrypoint operatiu recomanat per al dia a dia és:
 
 Aquest script orquestra el flux complet: prerequisits, desplegament/actualització, dependències locals si s'escauen, safata Debian i arrencada o reinici del servei.
 
+La nova acció `Rebuild and restart` de la safata Debian reutilitza aquest mateix entrypoint amb `--no-tray --skip-apt` per aplicar una reconstrucció i reinici des del menú de safata.
+
 Internament reutilitza `./scripts/install-debian-stack.sh` per a la preparació del sistema.
 
 Si es vol executar només la fase d'instal·lació base sense la seqüència final de tray + reinici, es pot seguir fent servir directament:

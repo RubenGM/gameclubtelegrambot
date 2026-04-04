@@ -19,6 +19,7 @@ test('runBootstrapFlow blocks when the system already looks initialized', async 
             bot: {
               publicName: 'Game Club Bot',
               clubName: 'Game Club',
+              language: 'ca',
             },
             telegram: {
               token: 'telegram-token',

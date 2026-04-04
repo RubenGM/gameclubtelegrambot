@@ -60,10 +60,13 @@ export const scheduleLabels = {
   keepCurrent: 'Mantenir valor actual',
   noTable: 'Sense taula',
   keepCurrentDuration: 'Mantenir durada actual',
+  defaultDuration: '180 min per defecte',
   confirmCreate: 'Guardar activitat',
   confirmEdit: 'Guardar canvis',
   confirmCancel: 'Confirmar cancel.lacio',
 } as const;
+
+const defaultScheduleDurationMinutes = 180;
 
 export interface TelegramScheduleContext {
   messageText?: string | undefined;
@@ -82,6 +85,7 @@ export interface TelegramScheduleContext {
     bot: {
       publicName: string;
       clubName: string;
+      language?: string;
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
     };
   };
@@ -259,14 +263,14 @@ async function handleCreateSession(
       stepKey: 'date',
       data: { ...data, description: text === scheduleLabels.skipOptional ? null : text },
     });
-    await context.reply('Escriu la data en format YYYY-MM-DD.', buildSingleCancelKeyboard());
+    await context.reply('Escriu la data en format dd/MM o dd/MM/yyyy.', buildDateOptions(context));
     return true;
   }
 
   if (stepKey === 'date') {
     const date = parseDate(text);
     if (date instanceof Error) {
-      await context.reply('La data ha de tenir format YYYY-MM-DD.', buildSingleCancelKeyboard());
+      await context.reply('La data ha de tenir format dd/MM o dd/MM/yyyy.', buildDateOptions(context));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time', data: { ...data, date } });
@@ -281,14 +285,14 @@ async function handleCreateSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'duration', data: { ...data, time } });
-    await context.reply('Escriu la durada en minuts com a numero enter positiu.', buildSingleCancelKeyboard());
+    await context.reply('Escriu la durada en minuts com a numero enter positiu o omet el camp per usar 180 minuts.', buildCreateDurationOptions());
     return true;
   }
 
   if (stepKey === 'duration') {
-    const durationMinutes = parsePositiveInteger(text);
+    const durationMinutes = parseOptionalDurationMinutes(text);
     if (durationMinutes instanceof Error) {
-      await context.reply('La durada ha de ser un enter positiu en minuts.', buildSingleCancelKeyboard());
+      await context.reply('La durada ha de ser un enter positiu en minuts o pots ometre-la per usar 180 minuts.', buildCreateDurationOptions());
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
@@ -387,14 +391,14 @@ async function handleEditSession(
   if (stepKey === 'description') {
     const description = text === scheduleLabels.keepCurrent ? event.description : text === scheduleLabels.skipOptional ? null : text;
     await context.runtime.session.advance({ stepKey: 'date', data: { ...data, title: data.title ?? event.title, description } });
-    await context.reply('Escriu la data en format YYYY-MM-DD o mantingues el valor actual.', buildEditTitleOptions());
+    await context.reply('Escriu la data en format dd/MM o dd/MM/yyyy, o mantingues el valor actual.', buildEditDateOptions(context));
     return true;
   }
   if (stepKey === 'date') {
     const currentDate = event.startsAt.slice(0, 10);
     const date = text === scheduleLabels.keepCurrent ? currentDate : parseDate(text);
     if (date instanceof Error) {
-      await context.reply('La data ha de tenir format YYYY-MM-DD.', buildEditTitleOptions());
+      await context.reply('La data ha de tenir format dd/MM o dd/MM/yyyy.', buildEditDateOptions(context));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time', data: { ...data, date } });
@@ -409,13 +413,13 @@ async function handleEditSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'duration', data: { ...data, time } });
-    await context.reply('Escriu la durada en minuts o mantingues el valor actual.', buildEditDurationOptions());
+    await context.reply('Escriu la durada en minuts, mantingues el valor actual o omet el camp per usar 180 minuts.', buildEditDurationOptions());
     return true;
   }
   if (stepKey === 'duration') {
-    const durationMinutes = text === scheduleLabels.keepCurrent ? event.durationMinutes : parsePositiveInteger(text);
+    const durationMinutes = text === scheduleLabels.keepCurrent ? event.durationMinutes : parseOptionalDurationMinutes(text);
     if (durationMinutes instanceof Error) {
-      await context.reply('La durada ha de ser un enter positiu en minuts.', buildEditDurationOptions());
+      await context.reply('La durada ha de ser un enter positiu en minuts, o pots ometre-la per usar 180 minuts.', buildEditDurationOptions());
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
@@ -654,6 +658,22 @@ function buildDescriptionOptions(): TelegramReplyOptions {
   };
 }
 
+function buildDateOptions(context: TelegramScheduleContext): TelegramReplyOptions {
+  return {
+    replyKeyboard: [...buildUpcomingDateRows(resolveBotLanguage(context)), [scheduleLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildEditDateOptions(context: TelegramScheduleContext): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[scheduleLabels.keepCurrent], ...buildUpcomingDateRows(resolveBotLanguage(context)), [scheduleLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
 function buildEditDescriptionOptions(): TelegramReplyOptions {
   return {
     replyKeyboard: [[scheduleLabels.keepCurrent], [scheduleLabels.skipOptional], [scheduleLabels.cancelFlow]],
@@ -672,7 +692,15 @@ function buildEditTitleOptions(): TelegramReplyOptions {
 
 function buildEditDurationOptions(): TelegramReplyOptions {
   return {
-    replyKeyboard: [[scheduleLabels.keepCurrent], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[scheduleLabels.keepCurrent], [scheduleLabels.skipOptional], [scheduleLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildCreateDurationOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[scheduleLabels.skipOptional], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -724,13 +752,14 @@ async function buildEditTableOptions(context: TelegramScheduleContext): Promise<
 }
 
 function formatScheduleListMessage(events: ScheduleEventRecord[]): string {
-  return ['Activitats disponibles:'].concat(events.map((event) => `- ${event.title} (${event.startsAt.slice(0, 16).replace('T', ' ')})`)).join('\n');
+  return ['Activitats disponibles:'].concat(events.map((event) => `- ${event.title} (${formatTimestamp(event.startsAt)})`)).join('\n');
 }
 
 function formatScheduleEventDetails({ event, tableName }: { event: ScheduleEventRecord; tableName: string | null }): string {
   return [
     event.title,
-    `Inici: ${event.startsAt.slice(0, 16).replace('T', ' ')}`,
+    `Inici: ${formatTimestamp(event.startsAt)}`,
+    `Durada: ${event.durationMinutes} min`,
     `Places: ${event.capacity}`,
     `Taula: ${tableName ?? 'Sense taula'}`,
     `Descripcio: ${event.description ?? 'Sense descripcio'}`,
@@ -822,7 +851,7 @@ async function formatDraftSummary(
   return [
     `Titol: ${String(data.title ?? '')}`,
     `Descripcio: ${asNullableString(data.description) ?? 'Sense descripcio'}`,
-    `Inici: ${buildStartsAt(String(data.date ?? ''), String(data.time ?? '')).slice(0, 16).replace('T', ' ')}`,
+    `Inici: ${formatTimestamp(buildStartsAt(String(data.date ?? ''), String(data.time ?? '')) )}`,
     `Durada: ${Number(data.durationMinutes)} min`,
     `Places: ${Number(data.capacity)}`,
     `Taula: ${table?.displayName ?? 'Sense taula'}`,
@@ -832,7 +861,33 @@ async function formatDraftSummary(
 }
 
 function parseDate(value: string): string | Error {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : new Error('invalid-date');
+  const normalizedValue = value.includes(',') ? value.slice(value.indexOf(',') + 1).trim() : value;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
+    return normalizedValue;
+  }
+
+  const match = normalizedValue.match(/^(\d{2})\/(\d{2})(?:\/(\d{4}))?$/);
+  if (!match) {
+    return new Error('invalid-date');
+  }
+
+  const [, dayText, monthText, yearText] = match;
+  const year = Number(yearText ?? String(new Date().getUTCFullYear()));
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    Number.isNaN(candidate.getTime()) ||
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() !== month - 1 ||
+    candidate.getUTCDate() !== day
+  ) {
+    return new Error('invalid-date');
+  }
+
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 function parseTime(value: string): string | Error {
@@ -851,12 +906,65 @@ function parsePositiveInteger(value: string, code = 'invalid-positive-integer'):
   return Number.isInteger(parsed) && parsed > 0 ? parsed : new Error(code);
 }
 
+function parseOptionalDurationMinutes(value: string): number | Error {
+  if (value === scheduleLabels.skipOptional) {
+    return defaultScheduleDurationMinutes;
+  }
+  return parsePositiveInteger(value, 'invalid-duration');
+}
+
 function buildStartsAt(date: string, time: string): string {
   return `${date}T${time}:00.000Z`;
 }
 
 function formatTimestamp(value: string): string {
-  return value.slice(0, 16).replace('T', ' ');
+  const date = new Date(value);
+  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCFullYear())} ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+function buildUpcomingDateRows(language: string, now = new Date()): string[][] {
+  const rows: string[][] = [];
+  const values: string[] = [];
+
+  for (let index = 0; index < 6; index += 1) {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + index));
+    values.push(formatUpcomingDateLabel(date, language));
+  }
+
+  for (let index = 0; index < values.length; index += 2) {
+    rows.push(values.slice(index, index + 2));
+  }
+
+  return rows;
+}
+
+function formatUpcomingDateLabel(date: Date, language: string): string {
+  const weekday = new Intl.DateTimeFormat(resolveLanguageLocale(language), {
+    weekday: 'long',
+    timeZone: 'UTC',
+  }).format(date);
+  return `${capitalizeFirstLetter(weekday)}, ${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function resolveLanguageLocale(language: string): string {
+  switch (language) {
+    case 'ca':
+      return 'ca-ES';
+    case 'es':
+      return 'es-ES';
+    case 'en':
+      return 'en-GB';
+    default:
+      return language;
+  }
+}
+
+function capitalizeFirstLetter(value: string): string {
+  return value.length === 0 ? value : value[0]!.toUpperCase() + value.slice(1);
+}
+
+function resolveBotLanguage(context: TelegramScheduleContext): string {
+  return context.runtime.bot.language ?? 'ca';
 }
 
 function parseEntityId(callbackData: string, prefix: string, kind: string): number {

@@ -64,6 +64,7 @@ export interface TelegramVenueEventAdminContext {
     bot: {
       publicName: string;
       clubName: string;
+      language?: string;
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
     };
   };
