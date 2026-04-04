@@ -10,6 +10,25 @@ Aquest paquet de desplegament prepara tres peces:
 - una regla `polkit` limitada al servei del bot
 - convencions d'entorn perquè futures eines d'operació, com la safata Debian, el puguin controlar amb seguretat
 
+## Instal·lació ràpida de tota la pila
+
+Per preparar en una sola passada aplicació, servei, permisos i safata a Debian:
+
+```bash
+./scripts/install-debian-stack.sh --app-root /opt/gameclubtelegrambot --config-source ./config/runtime.json --operator-user "$USER"
+```
+
+Aquest script:
+
+- instal·la els paquets del sistema necessaris
+- crea usuaris i grups operatius
+- copia l'aplicació al directori objectiu
+- instal·la dependències de producció
+- copia la configuració runtime a `/etc/gameclubtelegrambot/runtime.json`
+- crea `/etc/default/gameclubtelegrambot`
+- instal·la `systemd`, `polkit` i autostart de la safata
+- arrenca el servei si no s'indica `--no-start`
+
 ## Convencions operatives
 
 La proposta actual assumeix aquestes rutes i identitats:
