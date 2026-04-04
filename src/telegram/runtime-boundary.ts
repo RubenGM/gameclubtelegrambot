@@ -37,6 +37,8 @@ import {
   requestMembershipAccess,
 } from '../membership/access-flow.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
+import { elevateApprovedUserToAdmin } from '../membership/admin-elevation.js';
+import { createDatabaseAdminElevationRepository } from '../membership/admin-elevation-store.js';
 
 export interface TelegramBoundaryStatus {
   bot: 'connected';
@@ -445,7 +447,10 @@ function registerHandlers({
 }): void {
   registerTelegramCommands({
     bot,
-    commands: createDefaultCommands({ publicName: config.bot.publicName }),
+    commands: createDefaultCommands({
+      publicName: config.bot.publicName,
+      adminElevationPasswordHash: config.adminElevation.passwordHash,
+    }),
   });
 
   registerMembershipCallbacks({ bot });
@@ -453,10 +458,32 @@ function registerHandlers({
 
 function createDefaultCommands({
   publicName,
+  adminElevationPasswordHash,
 }: {
   publicName: string;
+  adminElevationPasswordHash: string;
 }): TelegramCommandDefinition[] {
   return [
+    {
+      command: 'elevate_admin',
+      contexts: ['private'],
+      access: 'public',
+      description: 'Eleva privilegis amb contrasenya',
+      handle: async (context) => {
+        const password = parseCommandSecret(context.messageText, 'elevate_admin');
+        const repository = createDatabaseAdminElevationRepository({
+          database: context.runtime.services.database.db,
+        });
+        const result = await elevateApprovedUserToAdmin({
+          repository,
+          telegramUserId: context.runtime.actor.telegramUserId,
+          password,
+          passwordHash: adminElevationPasswordHash,
+        });
+
+        await context.reply(result.message);
+      },
+    },
     {
       command: 'access',
       contexts: ['private'],
@@ -571,7 +598,7 @@ function createDefaultCommands({
       handle: async (context) => {
         await context.reply(
           renderTelegramHelpMessage({
-            commands: createDefaultCommands({ publicName }),
+            commands: createDefaultCommands({ publicName, adminElevationPasswordHash }),
             context,
           }),
         );
@@ -591,6 +618,16 @@ function parseCommandTarget(messageText: string | undefined, command: string): n
   }
 
   return telegramUserId;
+}
+
+function parseCommandSecret(messageText: string | undefined, command: string): string {
+  const secret = messageText?.trim().split(/\s+/).slice(1).join(' ');
+
+  if (!secret) {
+    throw new TelegramInteractionError(`Has d indicar la contrasenya amb /${command} <contrasenya>.`);
+  }
+
+  return secret;
 }
 
 function parseCallbackTarget(callbackData: string | undefined, callbackPrefix: string): number {
@@ -678,7 +715,10 @@ function registerMembershipCallbacks({
   bot.onCallback('menu:help', async (context) => {
     await context.reply(
       renderTelegramHelpMessage({
-        commands: createDefaultCommands({ publicName: context.runtime.bot.publicName }),
+        commands: createDefaultCommands({
+          publicName: context.runtime.bot.publicName,
+          adminElevationPasswordHash: '',
+        }),
         context,
       }),
     );
