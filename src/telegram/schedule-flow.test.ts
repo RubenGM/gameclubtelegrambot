@@ -217,7 +217,7 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
   assert.deepEqual(replies.at(-1), {
     message: 'Gestio d activitats: tria una accio.',
     options: {
-      replyKeyboard: [['Crear activitat', 'Editar activitat'], ['Cancel.lar activitat', '/start'], ['/help']],
+      replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['/start', '/help']],
       resizeKeyboard: true,
       persistentKeyboard: true,
     },
@@ -273,6 +273,110 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /Activitat creada correctament: Dungeons & Dragons/);
   assert.match(replies.at(-1)?.message ?? '', /Mesa TV/);
+  assert.match(replies.at(-1)?.message ?? '', /Assistents: 42/);
+});
+
+test('handleTelegramScheduleText lists activities with inline detail actions for members', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Wingspan',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await scheduleRepository.upsertParticipant({
+    eventId: 4,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+    status: 'active',
+  });
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+  context.messageText = scheduleLabels.list;
+
+  const handled = await handleTelegramScheduleText(context);
+
+  assert.equal(handled, true);
+  assert.equal(replies.at(-1)?.message, 'Activitats disponibles:\n- Wingspan (2026-04-05 16:00)');
+  assert.deepEqual(replies.at(-1)?.options, {
+    inlineKeyboard: [[{ text: 'Veure Wingspan', callbackData: 'schedule:inspect:4' }]],
+  });
+});
+
+test('handleTelegramScheduleCallback shows activity attendance and allows joining when seats remain', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 6,
+      title: 'Azul',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await scheduleRepository.upsertParticipant({ eventId: 6, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active' });
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+  context.callbackData = `${scheduleCallbackPrefixes.inspect}6`;
+
+  const handled = await handleTelegramScheduleCallback(context);
+
+  assert.equal(handled, true);
+  assert.match(replies.at(-1)?.message ?? '', /Assistents: 42/);
+  assert.match(replies.at(-1)?.message ?? '', /Places ocupades: 1\/3/);
+  assert.deepEqual(replies.at(-1)?.options, {
+    inlineKeyboard: [[{ text: 'Apuntar-me', callbackData: 'schedule:join:6' }]],
+  });
+});
+
+test('handleTelegramScheduleCallback joins and leaves an activity updating attendance immediately', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 12,
+      title: 'Root',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await scheduleRepository.upsertParticipant({ eventId: 12, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active' });
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+
+  context.callbackData = `${scheduleCallbackPrefixes.join}12`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /T has apuntat correctament a Root/);
+  assert.match(replies.at(-1)?.message ?? '', /Assistents: 42, 77/);
+
+  context.callbackData = `${scheduleCallbackPrefixes.leave}12`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Has sortit correctament de Root/);
+  assert.match(replies.at(-1)?.message ?? '', /Assistents: 42/);
 });
 
 test('handleTelegramScheduleCallback lets an organizer edit their own activity', async () => {

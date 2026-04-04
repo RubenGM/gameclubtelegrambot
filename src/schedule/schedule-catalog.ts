@@ -88,7 +88,7 @@ export async function createScheduleEvent({
   tableId?: number | null;
   capacity: number;
 }): Promise<ScheduleEventRecord> {
-  return repository.createEvent({
+  const event = await repository.createEvent({
     title: normalizeTitle(title),
     description: normalizeDescription(description),
     startsAt: normalizeStartsAt(startsAt),
@@ -97,6 +97,15 @@ export async function createScheduleEvent({
     tableId: normalizeTableId(tableId),
     capacity: normalizeCapacity(capacity),
   });
+
+  await repository.upsertParticipant({
+    eventId: event.id,
+    participantTelegramUserId: event.organizerTelegramUserId,
+    actorTelegramUserId: event.organizerTelegramUserId,
+    status: 'active',
+  });
+
+  return event;
 }
 
 export async function listScheduleEvents({
@@ -252,6 +261,83 @@ export async function getScheduleCapacitySnapshot({
     occupiedSeats,
     availableSeats,
     isFull: availableSeats === 0,
+  };
+}
+
+export async function joinScheduleEvent({
+  repository,
+  eventId,
+  participantTelegramUserId,
+  actorTelegramUserId,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+  participantTelegramUserId: number;
+  actorTelegramUserId: number;
+}): Promise<ScheduleParticipantRecord> {
+  const existing = await repository.findParticipant(eventId, participantTelegramUserId);
+  if (existing?.status === 'active') {
+    throw new Error('Ja estas apuntat a aquesta activitat');
+  }
+
+  return setScheduleEventParticipantStatus({
+    repository,
+    eventId,
+    participantTelegramUserId,
+    actorTelegramUserId,
+    status: 'active',
+  });
+}
+
+export async function leaveScheduleEvent({
+  repository,
+  eventId,
+  participantTelegramUserId,
+  actorTelegramUserId,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+  participantTelegramUserId: number;
+  actorTelegramUserId: number;
+}): Promise<ScheduleParticipantRecord> {
+  const existing = await repository.findParticipant(eventId, participantTelegramUserId);
+  if (!existing || existing.status !== 'active') {
+    throw new Error('No estas apuntat a aquesta activitat');
+  }
+
+  return setScheduleEventParticipantStatus({
+    repository,
+    eventId,
+    participantTelegramUserId,
+    actorTelegramUserId,
+    status: 'removed',
+  });
+}
+
+export async function getScheduleEventAttendance({
+  repository,
+  eventId,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+}): Promise<{
+  activeParticipantTelegramUserIds: number[];
+  snapshot: {
+    capacity: number;
+    occupiedSeats: number;
+    availableSeats: number;
+    isFull: boolean;
+  };
+}> {
+  const participants = await repository.listParticipants(eventId);
+  const activeParticipantTelegramUserIds = participants
+    .filter((participant) => participant.status === 'active')
+    .map((participant) => participant.participantTelegramUserId)
+    .sort((left, right) => left - right);
+
+  return {
+    activeParticipantTelegramUserIds,
+    snapshot: await getScheduleCapacitySnapshot({ repository, eventId }),
   };
 }
 

@@ -1,6 +1,9 @@
 import {
   cancelScheduleEvent,
   createScheduleEvent,
+  getScheduleEventAttendance,
+  joinScheduleEvent,
+  leaveScheduleEvent,
   listScheduleEvents,
   updateScheduleEvent,
   type ScheduleEventRecord,
@@ -20,6 +23,9 @@ const editFlowKey = 'schedule-edit';
 const cancelFlowKey = 'schedule-cancel';
 
 export const scheduleCallbackPrefixes = {
+  inspect: 'schedule:inspect:',
+  join: 'schedule:join:',
+  leave: 'schedule:leave:',
   selectEdit: 'schedule:select_edit:',
   selectCancel: 'schedule:select_cancel:',
   tableSelection: 'schedule:table:',
@@ -27,6 +33,7 @@ export const scheduleCallbackPrefixes = {
 
 export const scheduleLabels = {
   openMenu: 'Activitats',
+  list: 'Veure activitats',
   create: 'Crear activitat',
   edit: 'Editar activitat',
   cancel: 'Cancel.lar activitat',
@@ -86,6 +93,10 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
     return true;
   }
 
+  if (text === scheduleLabels.list || text === '/schedule_list') {
+    return replyWithInspectableEventList(context);
+  }
+
   if (text === scheduleLabels.edit || text === '/schedule_edit') {
     return replyWithManageableEventList(context, 'edit');
   }
@@ -101,6 +112,45 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
   const callbackData = context.callbackData;
   if (!callbackData || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
     return false;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.inspect)) {
+    const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.inspect, 'activitat');
+    const event = await loadEventOrThrow(context, eventId);
+    await context.reply(await formatScheduleEventView(context, event), buildAttendanceActionOptions(context, event, await isActorAttending(context, event.id)));
+    return true;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.join)) {
+    const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.join, 'activitat');
+    const event = await loadEventOrThrow(context, eventId);
+    await joinScheduleEvent({
+      repository: resolveScheduleRepository(context),
+      eventId,
+      participantTelegramUserId: context.runtime.actor.telegramUserId,
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+    });
+    await context.reply(
+      `T has apuntat correctament a ${event.title}\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
+      buildAttendanceActionOptions(context, event, true),
+    );
+    return true;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.leave)) {
+    const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.leave, 'activitat');
+    const event = await loadEventOrThrow(context, eventId);
+    await leaveScheduleEvent({
+      repository: resolveScheduleRepository(context),
+      eventId,
+      participantTelegramUserId: context.runtime.actor.telegramUserId,
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+    });
+    await context.reply(
+      `Has sortit correctament de ${event.title}\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
+      buildAttendanceActionOptions(context, event, false),
+    );
+    return true;
   }
 
   if (callbackData.startsWith(scheduleCallbackPrefixes.selectEdit)) {
@@ -256,7 +306,7 @@ async function handleCreateSession(
     });
     await context.runtime.session.cancel();
     await context.reply(
-      `Activitat creada correctament: ${created.title}\n${formatScheduleEventDetails({ event: created, tableName: await loadTableName(context, created.tableId) })}`,
+      `Activitat creada correctament: ${created.title}\n${await formatScheduleEventView(context, created)}`,
       buildScheduleMenuOptions(),
     );
     return true;
@@ -458,7 +508,7 @@ async function loadTableName(context: TelegramScheduleContext, tableId: number |
 
 function buildScheduleMenuOptions(): TelegramReplyOptions {
   return {
-    replyKeyboard: [[scheduleLabels.create, scheduleLabels.edit], [scheduleLabels.cancel, scheduleLabels.start], [scheduleLabels.help]],
+    replyKeyboard: [[scheduleLabels.list, scheduleLabels.create], [scheduleLabels.edit, scheduleLabels.cancel], [scheduleLabels.start, scheduleLabels.help]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -553,6 +603,56 @@ function formatScheduleEventDetails({ event, tableName }: { event: ScheduleEvent
     `Taula: ${tableName ?? 'Sense taula'}`,
     `Descripcio: ${event.description ?? 'Sense descripcio'}`,
   ].join('\n');
+}
+
+async function formatScheduleEventView(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+): Promise<string> {
+  const attendance = await getScheduleEventAttendance({
+    repository: resolveScheduleRepository(context),
+    eventId: event.id,
+  });
+
+  return [
+    formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) }),
+    `Places ocupades: ${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`,
+    `Places lliures: ${attendance.snapshot.availableSeats}`,
+    `Assistents: ${attendance.activeParticipantTelegramUserIds.length > 0 ? attendance.activeParticipantTelegramUserIds.join(', ') : 'Cap'}`,
+  ].join('\n');
+}
+
+async function replyWithInspectableEventList(context: TelegramScheduleContext): Promise<boolean> {
+  const events = await listScheduleEvents({ repository: resolveScheduleRepository(context) });
+  if (events.length === 0) {
+    await context.reply('No hi ha activitats programades ara mateix.', buildScheduleMenuOptions());
+    return true;
+  }
+
+  await context.reply(formatScheduleListMessage(events), {
+    inlineKeyboard: events.map((event) => [{ text: `Veure ${event.title}`, callbackData: `${scheduleCallbackPrefixes.inspect}${event.id}` }]),
+  });
+  return true;
+}
+
+function buildAttendanceActionOptions(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+  isAttending: boolean,
+): TelegramReplyOptions {
+  return {
+    inlineKeyboard: [[
+      {
+        text: isAttending ? 'Sortir' : 'Apuntar-me',
+        callbackData: `${isAttending ? scheduleCallbackPrefixes.leave : scheduleCallbackPrefixes.join}${event.id}`,
+      },
+    ]],
+  };
+}
+
+async function isActorAttending(context: TelegramScheduleContext, eventId: number): Promise<boolean> {
+  const participant = await resolveScheduleRepository(context).findParticipant(eventId, context.runtime.actor.telegramUserId);
+  return participant?.status === 'active';
 }
 
 async function formatDraftSummary(

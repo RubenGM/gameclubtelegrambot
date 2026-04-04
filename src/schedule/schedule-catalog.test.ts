@@ -5,6 +5,9 @@ import {
   cancelScheduleEvent,
   createScheduleEvent,
   getScheduleCapacitySnapshot,
+  getScheduleEventAttendance,
+  joinScheduleEvent,
+  leaveScheduleEvent,
   setScheduleEventParticipantStatus,
   type ScheduleEventRecord,
   type ScheduleParticipantRecord,
@@ -128,6 +131,19 @@ test('createScheduleEvent creates a scheduled activity with organizer ownership 
   assert.equal(event.tableId, 7);
   assert.equal(event.capacity, 5);
   assert.equal(event.lifecycleStatus, 'scheduled');
+
+  assert.deepEqual(await repository.listParticipants(event.id), [
+    {
+      scheduleEventId: 1,
+      participantTelegramUserId: 42,
+      status: 'active',
+      addedByTelegramUserId: 42,
+      removedByTelegramUserId: null,
+      joinedAt: '2026-04-04T10:30:00.000Z',
+      updatedAt: '2026-04-04T10:30:00.000Z',
+      leftAt: null,
+    },
+  ]);
 });
 
 test('createScheduleEvent rejects non-positive seat capacity', async () => {
@@ -246,5 +262,123 @@ test('cancelScheduleEvent preserves identity and prevents further participant ac
         status: 'active',
       }),
     /No es poden gestionar participants en una activitat cancel.lada/,
+  );
+});
+
+test('joinScheduleEvent prevents duplicate seats and reports current attendance', async () => {
+  const repository = createRepository([
+    {
+      id: 9,
+      title: 'Heat',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await setScheduleEventParticipantStatus({
+    repository,
+    eventId: 9,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+    status: 'active',
+  });
+
+  const joined = await joinScheduleEvent({
+    repository,
+    eventId: 9,
+    participantTelegramUserId: 77,
+    actorTelegramUserId: 77,
+  });
+
+  assert.equal(joined.status, 'active');
+
+  await assert.rejects(
+    () =>
+      joinScheduleEvent({
+        repository,
+        eventId: 9,
+        participantTelegramUserId: 77,
+        actorTelegramUserId: 77,
+      }),
+    /Ja estas apuntat a aquesta activitat/,
+  );
+
+  const attendance = await getScheduleEventAttendance({ repository, eventId: 9 });
+  assert.deepEqual(attendance.activeParticipantTelegramUserIds, [42, 77]);
+  assert.deepEqual(attendance.snapshot, {
+    capacity: 3,
+    occupiedSeats: 2,
+    availableSeats: 1,
+    isFull: false,
+  });
+});
+
+test('leaveScheduleEvent frees the seat and rejects leaving when not joined', async () => {
+  const repository = createRepository([
+    {
+      id: 10,
+      title: 'Cascadia',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      capacity: 2,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await setScheduleEventParticipantStatus({
+    repository,
+    eventId: 10,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+    status: 'active',
+  });
+  await joinScheduleEvent({
+    repository,
+    eventId: 10,
+    participantTelegramUserId: 77,
+    actorTelegramUserId: 77,
+  });
+
+  const left = await leaveScheduleEvent({
+    repository,
+    eventId: 10,
+    participantTelegramUserId: 77,
+    actorTelegramUserId: 77,
+  });
+  assert.equal(left.status, 'removed');
+
+  const snapshot = await getScheduleCapacitySnapshot({ repository, eventId: 10 });
+  assert.deepEqual(snapshot, {
+    capacity: 2,
+    occupiedSeats: 1,
+    availableSeats: 1,
+    isFull: false,
+  });
+
+  await assert.rejects(
+    () =>
+      leaveScheduleEvent({
+        repository,
+        eventId: 10,
+        participantTelegramUserId: 88,
+        actorTelegramUserId: 88,
+      }),
+    /No estas apuntat a aquesta activitat/,
   );
 });

@@ -225,6 +225,9 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:menu:help',
     'register:callback:approve_access:',
     'register:callback:reject_access:',
+    'register:callback:schedule:inspect:',
+    'register:callback:schedule:join:',
+    'register:callback:schedule:leave:',
     'register:callback:schedule:select_edit:',
     'register:callback:schedule:select_cancel:',
     'register:callback:schedule:table:',
@@ -816,7 +819,7 @@ test('createTelegramBoundary routes plain text keyboard actions for schedule man
     {
       message: 'Gestio d activitats: tria una accio.',
       options: {
-        replyKeyboard: [['Crear activitat', 'Editar activitat'], ['Cancel.lar activitat', '/start'], ['/help']],
+        replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['/start', '/help']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },
