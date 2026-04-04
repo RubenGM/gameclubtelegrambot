@@ -5,6 +5,12 @@ import { createApp } from './create-app.js';
 import { InfrastructureStartupError } from '../infrastructure/runtime-boundary.js';
 import { TelegramStartupError } from '../telegram/runtime-boundary.js';
 
+const databaseConnection = {
+  pool: undefined as never,
+  db: undefined as never,
+  close: async () => {},
+};
+
 const runtimeConfig = {
   schemaVersion: 1,
   bot: {
@@ -57,6 +63,9 @@ test('createApp exposes clean startup boundaries before external integrations ex
     startInfrastructure: async () => ({
       status: {
         database: 'connected',
+      },
+      services: {
+        database: databaseConnection,
       },
       stop: async () => {},
     }),
@@ -117,6 +126,9 @@ test('createApp propagates predictable Telegram startup failures', async () => {
       status: {
         database: 'connected',
       },
+      services: {
+        database: databaseConnection,
+      },
       stop: async () => {},
     }),
     startTelegram: async () => {
@@ -134,6 +146,41 @@ test('createApp propagates predictable Telegram startup failures', async () => {
   );
 });
 
+test('createApp passes infrastructure services into Telegram startup', async () => {
+  const logger = {
+    info: (_bindings: object, _message: string) => {},
+  };
+  let seenDatabaseConnection: unknown;
+
+  const app = createApp({
+    config: runtimeConfig,
+    logger,
+    startInfrastructure: async () => ({
+      status: {
+        database: 'connected',
+      },
+      services: {
+        database: databaseConnection,
+      },
+      stop: async () => {},
+    }),
+    startTelegram: async ({ services }) => {
+      seenDatabaseConnection = services.database;
+
+      return {
+        status: {
+          bot: 'connected',
+        },
+        stop: async () => {},
+      };
+    },
+  });
+
+  await app.start();
+
+  assert.equal(seenDatabaseConnection, databaseConnection);
+});
+
 test('createApp stops Telegram before infrastructure during shutdown', async () => {
   const events: string[] = [];
   const logger = {
@@ -146,6 +193,9 @@ test('createApp stops Telegram before infrastructure during shutdown', async () 
     startInfrastructure: async () => ({
       status: {
         database: 'connected',
+      },
+      services: {
+        database: databaseConnection,
       },
       stop: async () => {
         events.push('stop:infrastructure');
@@ -180,6 +230,9 @@ test('createApp attempts infrastructure shutdown even when Telegram stop fails',
     startInfrastructure: async () => ({
       status: {
         database: 'connected',
+      },
+      services: {
+        database: databaseConnection,
       },
       stop: async () => {
         events.push('stop:infrastructure');

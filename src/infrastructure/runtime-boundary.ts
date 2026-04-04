@@ -13,7 +13,12 @@ export interface InfrastructureBoundaryStatus {
 
 export interface InfrastructureBoundary {
   status: InfrastructureBoundaryStatus;
+  services: InfrastructureRuntimeServices;
   stop(): Promise<void>;
+}
+
+export interface InfrastructureRuntimeServices {
+  database: DatabaseConnection;
 }
 
 export interface InfrastructureLogger {
@@ -63,6 +68,9 @@ export async function createInfrastructureBoundary({
     return {
       status: {
         database: 'connected',
+      },
+      services: {
+        database,
       },
       async stop() {
         await database.close();

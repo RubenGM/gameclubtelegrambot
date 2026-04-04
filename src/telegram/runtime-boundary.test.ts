@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createTelegramBoundary, TelegramStartupError } from './runtime-boundary.js';
+import {
+  createTelegramBoundary,
+  TelegramStartupError,
+  type TelegramContextLike,
+  type TelegramMiddleware,
+} from './runtime-boundary.js';
 
 const runtimeConfig = {
   schemaVersion: 1,
@@ -41,6 +46,11 @@ const runtimeConfig = {
 
 test('createTelegramBoundary reports a connected bot when long polling starts', async () => {
   const events: string[] = [];
+  const databaseConnection = {
+    pool: undefined as never,
+    db: undefined as never,
+    close: async () => {},
+  };
 
   const telegram = await createTelegramBoundary({
     config: runtimeConfig,
@@ -48,19 +58,59 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
       info: () => {},
       error: () => {},
     },
+    services: {
+      database: databaseConnection,
+    },
     createBot: ({ token }) => {
+      const middlewares: TelegramMiddleware[] = [];
+      let startHandler: ((context: TelegramContextLike) => Promise<unknown> | unknown) | undefined;
+
       events.push(`token:${token}`);
 
       return {
+        use: (middleware) => {
+          events.push('middleware:register');
+          middlewares.push(middleware);
+        },
         onStartCommand: (handler) => {
           events.push('register:/start');
-          void handler({
+          startHandler = handler;
+        },
+        startPolling: async () => {
+          const context: TelegramContextLike = {
             reply: async (message: string) => {
               events.push(`reply:${message}`);
             },
-          });
-        },
-        startPolling: async () => {
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              events.push(`runtime:database:${Number((context.runtime as { services: { database: unknown } }).services.database === databaseConnection)}`);
+              if (!startHandler) {
+                throw new Error('start handler not registered');
+              }
+
+              await startHandler(context);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
           events.push('start-polling');
         },
         stopPolling: async () => {
@@ -76,7 +126,11 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
 
   assert.deepEqual(events, [
     'token:telegram-token',
+    'middleware:register',
+    'middleware:register',
+    'middleware:register',
     'register:/start',
+    'runtime:database:1',
     'reply:Game Club Bot online. Escriu /start per comprovar que la connexio amb Telegram funciona.',
     'start-polling',
     'stop-polling',
@@ -92,7 +146,15 @@ test('createTelegramBoundary throws a predictable error when Telegram startup fa
           info: () => {},
           error: () => {},
         },
+        services: {
+          database: {
+            pool: undefined as never,
+            db: undefined as never,
+            close: async () => {},
+          },
+        },
         createBot: () => ({
+          use: () => {},
           onStartCommand: () => {},
           startPolling: async () => {
             throw new Error('Unauthorized');

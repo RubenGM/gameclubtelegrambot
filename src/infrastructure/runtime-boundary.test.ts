@@ -42,6 +42,13 @@ const runtimeConfig = {
 test('createInfrastructureBoundary reports a connected database when startup succeeds', async () => {
   let seenConnectionString = '';
   let closeCalls = 0;
+  const databaseConnection = {
+    pool: undefined as never,
+    db: undefined as never,
+    close: async () => {
+      closeCalls += 1;
+    },
+  };
 
   const infrastructure = await createInfrastructureBoundary({
     config: runtimeConfig,
@@ -52,17 +59,12 @@ test('createInfrastructureBoundary reports a connected database when startup suc
     connectDatabase: async ({ connectionString }) => {
       seenConnectionString = connectionString;
 
-      return {
-        pool: undefined as never,
-        db: undefined as never,
-        close: async () => {
-          closeCalls += 1;
-        },
-      };
+      return databaseConnection;
     },
   });
 
   assert.equal(infrastructure.status.database, 'connected');
+  assert.equal(infrastructure.services.database, databaseConnection);
   assert.match(seenConnectionString, /^postgresql:\/\//);
   assert.match(seenConnectionString, /localhost:5432/);
 

@@ -3,6 +3,7 @@ import type { AppRuntimeStatus } from '../domain/runtime-status.js';
 import {
   createInfrastructureBoundary,
   type InfrastructureBoundary,
+  type InfrastructureRuntimeServices,
 } from '../infrastructure/runtime-boundary.js';
 import {
   createTelegramBoundary,
@@ -18,7 +19,7 @@ export interface CreateAppOptions {
   config: RuntimeConfig;
   logger: LoggerLike;
   startInfrastructure?: () => Promise<InfrastructureBoundary>;
-  startTelegram?: () => Promise<TelegramBoundary>;
+  startTelegram?: (options: { services: InfrastructureRuntimeServices }) => Promise<TelegramBoundary>;
 }
 
 export interface App {
@@ -37,9 +38,10 @@ export function createApp({
         error: logger.error?.bind(logger) ?? (() => {}),
       },
     }),
-  startTelegram = () =>
+  startTelegram = ({ services }) =>
     createTelegramBoundary({
       config,
+      services,
       logger: {
         info: logger.info.bind(logger),
         error: logger.error?.bind(logger) ?? (() => {}),
@@ -54,7 +56,7 @@ export function createApp({
       infrastructure = await startInfrastructure();
 
       try {
-        telegram = await startTelegram();
+        telegram = await startTelegram({ services: infrastructure.services });
       } catch (error) {
         await infrastructure.stop();
         infrastructure = undefined;
