@@ -1,5 +1,5 @@
 export type CatalogFamilyKind = 'board-game-line' | 'rpg-line' | 'generic-line';
-export type CatalogItemType = 'board-game' | 'expansion' | 'rpg-book' | 'accessory';
+export type CatalogItemType = 'board-game' | 'expansion' | 'book' | 'rpg-book' | 'accessory';
 export type CatalogItemLifecycleStatus = 'active' | 'deactivated';
 export type CatalogMediaType = 'image' | 'link' | 'document';
 
@@ -462,7 +462,7 @@ function normalizeFamilyKind(value: CatalogFamilyKind): CatalogFamilyKind {
 }
 
 function normalizeItemType(value: CatalogItemType): CatalogItemType {
-  if (value !== 'board-game' && value !== 'expansion' && value !== 'rpg-book' && value !== 'accessory') {
+  if (value !== 'board-game' && value !== 'expansion' && value !== 'book' && value !== 'rpg-book' && value !== 'accessory') {
     throw new Error('El tipus d item no es valid');
   }
   return value;

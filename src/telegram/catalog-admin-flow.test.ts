@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log.js';
+import type { CatalogLookupCandidate, CatalogLookupService } from '../catalog/catalog-lookup-service.js';
 import type {
   CatalogFamilyRecord,
   CatalogGroupRecord,
@@ -31,11 +32,24 @@ function createRepository({
   const familyMap = new Map(families.map((family) => [family.id, family]));
   const groupMap = new Map(groups.map((group) => [group.id, group]));
   const itemMap = new Map(items.map((item) => [item.id, item]));
+  let nextFamilyId = Math.max(0, ...families.map((family) => family.id)) + 1;
   let nextItemId = Math.max(0, ...items.map((item) => item.id)) + 1;
 
   return {
-    async createFamily() {
-      throw new Error('not implemented');
+    async createFamily(input) {
+      const createdAt = '2026-04-04T10:00:00.000Z';
+      const family: CatalogFamilyRecord = {
+        id: nextFamilyId,
+        slug: input.slug,
+        displayName: input.displayName,
+        description: input.description,
+        familyKind: input.familyKind,
+        createdAt,
+        updatedAt: createdAt,
+      };
+      nextFamilyId += 1;
+      familyMap.set(family.id, family);
+      return family;
     },
     async findFamilyById(familyId) {
       return familyMap.get(familyId) ?? null;
@@ -167,10 +181,12 @@ function createAuditRepository(): AuditLogRepository & { __events: AuditLogEvent
 function createContext({
   repository = createRepository(),
   auditRepository = createAuditRepository(),
+  catalogLookupService,
   isAdmin = true,
 }: {
   repository?: CatalogRepository;
   auditRepository?: AuditLogRepository;
+  catalogLookupService?: CatalogLookupService;
   isAdmin?: boolean;
 } = {}) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions | undefined }> = [];
@@ -227,6 +243,7 @@ function createContext({
     },
     catalogRepository: repository,
     auditRepository,
+    ...(catalogLookupService ? { catalogLookupService } : {}),
   };
 
   return { context, replies, getCurrentSession: () => currentSession };
@@ -240,7 +257,7 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   assert.equal(replies.at(-1)?.message, 'Gestio de cataleg: tria una accio.');
 });
 
-test('handleTelegramCatalogAdminText creates an item through keyboard-guided steps', async () => {
+test('handleTelegramCatalogAdminText creates a board game with only the minimum fields', async () => {
   const repository = createRepository({
     families: [
       {
@@ -270,37 +287,11 @@ test('handleTelegramCatalogAdminText creates an item through keyboard-guided ste
 
   context.messageText = catalogAdminLabels.create;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = 'Root';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.typeBoardGame;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.noFamily;
+  context.messageText = 'Root';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.noGroup;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '2';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '4';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.confirmCreate;
+  context.messageText = 'Arkham Horror';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.equal(getCurrentSession(), null);
@@ -308,42 +299,428 @@ test('handleTelegramCatalogAdminText creates an item through keyboard-guided ste
   const created = await repository.findItemById(1);
   assert.equal(created?.displayName, 'Root');
   assert.equal(created?.itemType, 'board-game');
+  assert.equal(created?.familyId, 7);
   assert.equal(created?.groupId, null);
   assert.equal(created?.publisher, null);
   assert.equal(created?.recommendedAge, null);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.created');
 });
 
-test('handleTelegramCatalogAdminText keeps the player max step active when the range is invalid', async () => {
-  const { context, replies, getCurrentSession } = createContext();
+test('handleTelegramCatalogAdminText creates a regular book through lookup first and then family by name', async () => {
+  const repository = createRepository({
+    families: [
+      {
+        id: 1,
+        slug: 'mundodisco',
+        displayName: 'Mundodisco',
+        description: null,
+        familyKind: 'generic-line',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+    items: [
+      {
+        id: 8,
+        familyId: 1,
+        groupId: null,
+        itemType: 'book',
+        displayName: 'Guards! Guards!',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const catalogLookupService: CatalogLookupService = {
+    async search(): Promise<CatalogLookupCandidate[]> {
+      return [
+        {
+          source: 'open-library',
+          sourceId: '/works/OL999W',
+          title: 'El color de la magia',
+          summary: 'Terry Pratchett · 1983',
+          importedData: {
+            originalName: 'The Colour of Magic',
+            description: null,
+            language: 'SPA',
+            publisher: 'Debolsillo',
+            publicationYear: 1983,
+            externalRefs: {
+              openLibraryKey: '/works/OL999W',
+              openLibraryUrl: 'https://openlibrary.org/works/OL999W',
+            },
+            metadata: {
+              source: 'open-library',
+              author: 'Terry Pratchett',
+            },
+          },
+        },
+      ];
+    },
+  };
+  const { context, replies, getCurrentSession } = createContext({ repository, catalogLookupService });
+
+  context.messageText = catalogAdminLabels.create;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[1]?.[0], catalogAdminLabels.typeBook);
+
+  context.messageText = catalogAdminLabels.typeBook;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'El nom de la rosa';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.equal(getCurrentSession()?.stepKey, 'lookup-choice');
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'El color de la magia');
+
+  context.messageText = 'El color de la magia';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'lookup-title-choice');
+
+  context.messageText = catalogAdminLabels.useApiTitle;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'family');
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Mundodisco');
+
+  context.messageText = 'Mundodisco';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.equal(getCurrentSession(), null);
+  const created = await repository.findItemById(9);
+  assert.equal(created?.itemType, 'book');
+  assert.equal(created?.displayName, 'El color de la magia');
+  assert.equal(created?.familyId, 1);
+  assert.equal(created?.publisher, 'Debolsillo');
+});
+
+test('handleTelegramCatalogAdminText offers Open Library matches for rpg books and imports the selected one on confirmation', async () => {
+  const lookupCalls: Array<{ itemType: string; query: string }> = [];
+  const catalogLookupService: CatalogLookupService = {
+    async search(input) {
+      lookupCalls.push(input);
+      return [
+        {
+          source: 'open-library',
+          sourceId: '/works/OL123W',
+          title: 'Player\'s Handbook',
+          summary: 'Wizards RPG Team · Wizards of the Coast · 2024',
+          importedData: {
+            originalName: 'Player\'s Handbook: 2024 Edition',
+            description: null,
+            language: 'ENG',
+            publisher: 'Wizards of the Coast',
+            publicationYear: 2024,
+            externalRefs: {
+              openLibraryKey: '/works/OL123W',
+              openLibraryUrl: 'https://openlibrary.org/works/OL123W',
+            },
+            metadata: {
+              source: 'open-library',
+              author: 'Wizards RPG Team',
+            },
+          },
+        },
+        {
+          source: 'open-library',
+          sourceId: '/works/OL456W',
+          title: 'Player\'s Handbook Alt',
+          summary: 'Alternate · 2014',
+          importedData: {
+            originalName: 'Player\'s Handbook Alt',
+            description: null,
+            language: 'ENG',
+            publisher: 'Alternate Publisher',
+            publicationYear: 2014,
+            externalRefs: { openLibraryKey: '/works/OL456W', openLibraryUrl: 'https://openlibrary.org/works/OL456W' },
+            metadata: { source: 'open-library' },
+          },
+        },
+      ];
+    },
+  };
+  const { context, replies, getCurrentSession } = createContext({ catalogLookupService });
 
   context.messageText = catalogAdminLabels.create;
   await handleTelegramCatalogAdminText(context);
-  context.messageText = 'Root';
+  context.messageText = catalogAdminLabels.typeRpgBook;
   await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.typeBoardGame;
+  context.messageText = 'Manual del jugador (2024)';
+  await handleTelegramCatalogAdminText(context);
+
+  assert.deepEqual(lookupCalls, [{ itemType: 'rpg-book', query: 'Manual del jugador (2024)' }]);
+  assert.equal(getCurrentSession()?.stepKey, 'lookup-choice');
+  assert.match(replies.at(-1)?.message ?? '', /He trobat aquestes coincidencies/);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Player\'s Handbook');
+
+  context.messageText = 'Player\'s Handbook';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'lookup-title-choice');
+  assert.match(replies.at(-1)?.message ?? '', /no coincideix exactament/);
+
+  context.messageText = catalogAdminLabels.keepTypedTitle;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'family');
+  context.messageText = 'Dungeons and Dragons 5';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /Item de cataleg creat correctament: Manual del jugador \(2024\)/);
+});
+
+test('handleTelegramCatalogAdminText lets lookup results be refined by author text', async () => {
+  const lookupCalls: Array<{ itemType: string; query: string; author?: string }> = [];
+  const catalogLookupService: CatalogLookupService = {
+    async search(input) {
+      lookupCalls.push(input);
+      if (!input.author) {
+        return [
+          {
+            source: 'open-library',
+            sourceId: '/works/OL1W',
+            title: 'The Very Hungry Caterpillar',
+            summary: 'Eric Carle · 1969',
+            importedData: {
+              originalName: 'The Very Hungry Caterpillar',
+              description: null,
+              language: 'ENG',
+              publisher: 'World Publishing',
+              publicationYear: 1969,
+              externalRefs: { openLibraryKey: '/works/OL1W', openLibraryUrl: 'https://openlibrary.org/works/OL1W' },
+              metadata: { source: 'open-library', author: 'Eric Carle' },
+            },
+          },
+        ];
+      }
+      return [
+        {
+          source: 'open-library',
+          sourceId: '/works/OLEricW',
+          title: 'Eric',
+          summary: 'Terry Pratchett · 1990',
+          importedData: {
+            originalName: 'Eric',
+            description: null,
+            language: 'ENG',
+            publisher: 'Victor Gollancz',
+            publicationYear: 1990,
+            externalRefs: { openLibraryKey: '/works/OLEricW', openLibraryUrl: 'https://openlibrary.org/works/OLEricW' },
+            metadata: { source: 'open-library', author: 'Terry Pratchett' },
+          },
+        },
+      ];
+    },
+  };
+  const repository = createRepository();
+  const { context, getCurrentSession, replies } = createContext({ repository, catalogLookupService });
+
+  context.messageText = catalogAdminLabels.create;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.typeBook;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = 'Eric';
+  await handleTelegramCatalogAdminText(context);
+
+  assert.equal(getCurrentSession()?.stepKey, 'lookup-choice');
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.at(-3)?.[0], catalogAdminLabels.refineLookupByAuthor);
+
+  context.messageText = 'Terry Pratchett';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.deepEqual(lookupCalls, [
+    { itemType: 'book', query: 'Eric' },
+    { itemType: 'book', query: 'Eric', author: 'Terry Pratchett' },
+  ]);
+  assert.equal(getCurrentSession()?.stepKey, 'lookup-choice');
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Eric');
+});
+
+test('handleTelegramCatalogAdminText creates an rpg book with minimum fields when Open Library is skipped', async () => {
+  const repository = createRepository();
+  const catalogLookupService: CatalogLookupService = {
+    async search(): Promise<CatalogLookupCandidate[]> {
+      return [
+        {
+          source: 'open-library',
+          sourceId: '/works/OL123W',
+          title: 'Player\'s Handbook',
+          summary: 'Wizards RPG Team · Wizards of the Coast · 2024',
+          importedData: {
+            originalName: 'Player\'s Handbook',
+            description: null,
+            language: 'ENG',
+            publisher: 'Wizards of the Coast',
+            publicationYear: 2024,
+            externalRefs: { openLibraryKey: '/works/OL123W', openLibraryUrl: 'https://openlibrary.org/works/OL123W' },
+            metadata: { source: 'open-library' },
+          },
+        },
+      ];
+    },
+  };
+  const { context, getCurrentSession } = createContext({ repository, catalogLookupService });
+
+  context.messageText = catalogAdminLabels.create;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.typeRpgBook;
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = 'Manual del jugador';
+  await handleTelegramCatalogAdminText(context);
+  context.messageText = 'No importar dades';
   await handleTelegramCatalogAdminText(context);
   context.messageText = catalogAdminLabels.noFamily;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.noGroup;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = '4';
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = '2';
 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.equal(getCurrentSession()?.stepKey, 'player-max');
-  assert.equal(replies.at(-1)?.message, 'El maxim de jugadors no pot ser inferior al minim. Escriu un enter positiu valid o omet el camp.');
+  assert.equal(getCurrentSession(), null);
+
+  const created = await repository.findItemById(1);
+  assert.equal(created?.displayName, 'Manual del jugador');
+  assert.equal(created?.originalName, null);
+  assert.equal(created?.publisher, null);
+  assert.equal(created?.externalRefs, null);
+});
+
+test('handleTelegramCatalogAdminText lets rpg books pick a popular family or create a new one by name', async () => {
+  const repository = createRepository({
+    families: [
+      {
+        id: 3,
+        slug: 'dungeons-and-dragons-5',
+        displayName: 'Dungeons and Dragons 5',
+        description: null,
+        familyKind: 'rpg-line',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+      {
+        id: 4,
+        slug: 'call-of-cthulhu',
+        displayName: 'Call of Cthulhu',
+        description: null,
+        familyKind: 'rpg-line',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+    items: [
+      {
+        id: 20,
+        familyId: 3,
+        groupId: null,
+        itemType: 'rpg-book',
+        displayName: 'Players Handbook',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 21,
+        familyId: 3,
+        groupId: null,
+        itemType: 'rpg-book',
+        displayName: 'Monster Manual',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 22,
+        familyId: 4,
+        groupId: null,
+        itemType: 'rpg-book',
+        displayName: 'Keeper Rulebook',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const catalogLookupService: CatalogLookupService = {
+    async search() {
+      return [];
+    },
+  };
+  const { context, replies, getCurrentSession } = createContext({ repository, catalogLookupService });
+
+  context.messageText = catalogAdminLabels.create;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.typeRpgBook;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Dungeon Master Guide';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.match(replies.at(-1)?.message ?? '', /Escriu o tria una familia/);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], ['Dungeons and Dragons 5', 'Call of Cthulhu']);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.at(-2)?.[0], catalogAdminLabels.noFamily);
+
+  context.messageText = 'Dungeons and Dragons 5';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession(), null);
+
+  const createdWithExistingFamily = (await repository.listItems({ includeDeactivated: true }))
+    .find((item) => item.displayName === 'Dungeon Master Guide');
+  assert.equal(createdWithExistingFamily?.familyId, 3);
+  assert.equal(createdWithExistingFamily?.groupId, null);
+
+  context.messageText = catalogAdminLabels.create;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.typeRpgBook;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Xanathar Guide';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Shadowdark RPG';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  const families = await repository.listFamilies();
+  const createdFamily = families.find((family) => family.displayName === 'Shadowdark RPG');
+  assert.ok(createdFamily);
+  assert.equal(createdFamily.familyKind, 'rpg-line');
+  assert.equal(getCurrentSession(), null);
 });
 
 test('handleTelegramCatalogAdminCallback edits and deactivates existing items', async () => {
@@ -517,88 +894,86 @@ test('handleTelegramCatalogAdminText lists grouped catalog items and navigates f
   assert.match(replies.at(-1)?.message ?? '', /Grup: Second Edition/);
 });
 
-test('handleTelegramCatalogAdminText captures extended optional metadata on create', async () => {
-  const repository = createRepository();
-  const { context } = createContext({ repository });
+test('handleTelegramCatalogAdminText hides deactivated items from the normal catalog list', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 1,
+        familyId: null,
+        groupId: null,
+        itemType: 'rpg-book',
+        displayName: 'Actiu',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 2,
+        familyId: null,
+        groupId: null,
+        itemType: 'rpg-book',
+        displayName: 'Desactivat',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'deactivated',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T12:00:00.000Z',
+        deactivatedAt: '2026-04-04T12:00:00.000Z',
+      },
+    ],
+  });
+  const { context, replies } = createContext({ repository });
 
-  context.messageText = catalogAdminLabels.create;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = 'Spirit Island';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.typeBoardGame;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.noFamily;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.noGroup;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = 'Spirit Island';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = 'Cooperatiu de defensa insular';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = 'CA';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = 'Greater Than Games';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '2017';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '1';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '4';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '14';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '120';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '{"bggId":162886}';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '{"weight":"high"}';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.confirmCreate;
+  context.messageText = catalogAdminLabels.list;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  const created = await repository.findItemById(1);
-  assert.equal(created?.originalName, 'Spirit Island');
-  assert.equal(created?.publisher, 'Greater Than Games');
-  assert.equal(created?.recommendedAge, 14);
-  assert.equal(created?.playTimeMinutes, 120);
-  assert.deepEqual(created?.externalRefs, { bggId: 162886 });
-  assert.deepEqual(created?.metadata, { weight: 'high' });
+  assert.match(replies.at(-1)?.message ?? '', /Actiu/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
 });
 
-test('handleTelegramCatalogAdminText keeps JSON steps active when metadata is invalid', async () => {
-  const { context, getCurrentSession, replies } = createContext();
+test('handleTelegramCatalogAdminText falls back to minimum-field creation when lookup fails', async () => {
+  const repository = createRepository();
+  const catalogLookupService: CatalogLookupService = {
+    async search() {
+      throw new Error('lookup unavailable');
+    },
+  };
+  const { context, getCurrentSession } = createContext({ repository, catalogLookupService });
 
   context.messageText = catalogAdminLabels.create;
   await handleTelegramCatalogAdminText(context);
-  context.messageText = 'Root';
+  context.messageText = catalogAdminLabels.typeRpgBook;
   await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.typeBoardGame;
+  context.messageText = 'Monster Manual';
   await handleTelegramCatalogAdminText(context);
   context.messageText = catalogAdminLabels.noFamily;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.noGroup;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = '2';
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = '4';
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = catalogAdminLabels.skipOptional;
-  await handleTelegramCatalogAdminText(context);
-  context.messageText = '[]';
 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.equal(getCurrentSession()?.stepKey, 'external-refs');
-  assert.equal(replies.at(-1)?.message, 'Les referencies externes han de ser un objecte JSON valid o omet el camp.');
+  assert.equal(getCurrentSession(), null);
+
+  const created = await repository.findItemById(1);
+  assert.equal(created?.displayName, 'Monster Manual');
+  assert.equal(created?.publisher, null);
+  assert.equal(created?.externalRefs, null);
 });

@@ -1,6 +1,12 @@
 import { appendAuditEvent, type AuditLogRepository } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import {
+  createHttpCatalogLookupService,
+  type CatalogLookupCandidate,
+  type CatalogLookupService,
+} from '../catalog/catalog-lookup-service.js';
+import {
+  createCatalogFamily,
   createCatalogItem,
   deactivateCatalogItem,
   listCatalogGroups,
@@ -38,6 +44,7 @@ export const catalogAdminLabels = {
   deactivate: 'Desactivar item',
   typeBoardGame: 'Joc de taula',
   typeExpansion: 'Expansio',
+  typeBook: 'Llibre',
   typeRpgBook: 'Llibre RPG',
   typeAccessory: 'Accessori',
   noFamily: 'Sense familia',
@@ -47,6 +54,11 @@ export const catalogAdminLabels = {
   confirmCreate: 'Guardar item',
   confirmEdit: 'Guardar canvis',
   confirmDeactivate: 'Confirmar desactivacio',
+  importLookupData: 'Importar dades',
+  skipLookupImport: 'No importar dades',
+  refineLookupByAuthor: 'Refinar amb autor',
+  keepTypedTitle: 'Quedar-me amb el meu titol',
+  useApiTitle: 'Fer servir el titol de la API',
   start: '/start',
   cancel: '/cancel',
 } as const;
@@ -74,6 +86,7 @@ export interface TelegramCatalogAdminContext {
   };
   catalogRepository?: CatalogRepository;
   auditRepository?: AuditLogRepository;
+  catalogLookupService?: CatalogLookupService;
 }
 
 export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdminContext): Promise<boolean> {
@@ -91,8 +104,8 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
     return true;
   }
   if (text === catalogAdminLabels.create || text === '/catalog_create') {
-    await context.runtime.session.start({ flowKey: createFlowKey, stepKey: 'display-name', data: {} });
-    await context.reply('Escriu el nom visible de l item.', buildSingleCancelKeyboard());
+    await context.runtime.session.start({ flowKey: createFlowKey, stepKey: 'item-type', data: {} });
+    await context.reply('Selecciona el tipus d item.', buildTypeOptions());
     return true;
   }
   if (text === catalogAdminLabels.list || text === '/catalog_list') {
@@ -185,30 +198,110 @@ async function handleCreateSession(
   stepKey: string,
   data: Record<string, unknown>,
 ): Promise<boolean> {
-  if (stepKey === 'display-name') {
-    await context.runtime.session.advance({ stepKey: 'item-type', data: { displayName: text } });
-    await context.reply('Selecciona el tipus d item.', buildTypeOptions());
-    return true;
-  }
   if (stepKey === 'item-type') {
     const itemType = parseItemTypeLabel(text);
     if (itemType instanceof Error) {
       await context.reply('Tria un tipus valid del teclat.', buildTypeOptions());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'family', data: { ...data, itemType } });
-    await context.reply(await buildFamilyPrompt(context), buildFamilyOptions());
+    await context.runtime.session.advance({ stepKey: 'display-name', data: { ...data, itemType } });
+    await context.reply('Escriu el titol visible de l item.', buildSingleCancelKeyboard());
+    return true;
+  }
+  if (stepKey === 'display-name') {
+    const itemType = String(data.itemType) as CatalogItemType;
+    const nextData = { ...data, displayName: text };
+    const lookupCandidates = await searchCatalogLookupCandidates(context, {
+      itemType,
+      displayName: text,
+    });
+    if (lookupCandidates.length > 0) {
+      await context.runtime.session.advance({ stepKey: 'lookup-choice', data: { ...nextData, lookupCandidates } });
+      await context.reply(
+        buildLookupChoicePrompt(lookupCandidates),
+        buildLookupChoiceOptions(lookupCandidates),
+      );
+      return true;
+    }
+
+    await context.runtime.session.advance({ stepKey: 'family', data: nextData });
+    await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
     return true;
   }
   if (stepKey === 'family') {
-    const familyId = await parseFamilyInput(context, text);
+    const itemType = String(data.itemType) as CatalogItemType;
+    const familyId = await parseFamilyInput(context, text, itemType);
     if (familyId instanceof Error) {
-      await context.reply('Tria una familia valida pel seu id o continua sense familia.', buildFamilyOptions());
+      await context.reply(
+        itemType === 'rpg-book' || itemType === 'book'
+          ? 'Escriu o tria una familia valida, o continua sense familia.'
+          : 'Tria una familia valida pel seu id o continua sense familia.',
+        await buildFamilyOptions(context, itemType),
+      );
       return true;
     }
-    const nextData = { ...data, familyId };
-    await context.runtime.session.advance({ stepKey: 'group', data: nextData });
-    await context.reply(await buildGroupPrompt(context, familyId), buildGroupOptions());
+    await createCatalogItemFromDraft(context, { ...data, familyId, groupId: null });
+    return true;
+  }
+  if (stepKey === 'lookup-choice') {
+    if (text === catalogAdminLabels.skipLookupImport) {
+      const itemType = String(data.itemType) as CatalogItemType;
+      await context.runtime.session.advance({ stepKey: 'family', data });
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      return true;
+    }
+    if (text === catalogAdminLabels.refineLookupByAuthor) {
+      await context.runtime.session.advance({ stepKey: 'lookup-author', data });
+      await context.reply('Escriu el nom de l autor per refinar la cerca.', buildSingleCancelKeyboard());
+      return true;
+    }
+    const lookupCandidate = parseLookupCandidateInput(text, data.lookupCandidates);
+    if (lookupCandidate instanceof Error) {
+      const refined = await refineLookupCandidatesByAuthor(context, data, text);
+      if (refined) {
+        return true;
+      }
+      await context.reply('Tria una coincidencia valida, escriu un autor per refinar la cerca o continua sense importar dades.', buildLookupChoiceOptions(asLookupCandidates(data.lookupCandidates)));
+      return true;
+    }
+
+    const nextData = applyLookupCandidateToDraft(data, lookupCandidate);
+    if (!isExactTitleMatch(String(data.displayName ?? ''), lookupCandidate.title)) {
+      await context.runtime.session.advance({ stepKey: 'lookup-title-choice', data: { ...nextData, selectedLookupCandidate: lookupCandidate } });
+      await context.reply(
+        buildLookupTitleChoicePrompt(String(data.displayName ?? ''), lookupCandidate.title),
+        buildLookupTitleChoiceOptions(),
+      );
+      return true;
+    }
+
+    const itemType = String(data.itemType) as CatalogItemType;
+    await context.runtime.session.advance({ stepKey: 'family', data: nextData });
+    await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+    return true;
+  }
+  if (stepKey === 'lookup-title-choice') {
+    const itemType = String(data.itemType) as CatalogItemType;
+    const lookupCandidate = asLookupCandidate(data.selectedLookupCandidate);
+    if (text === catalogAdminLabels.keepTypedTitle) {
+      await context.runtime.session.advance({ stepKey: 'family', data: { ...data, displayName: String(data.displayName ?? '') } });
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      return true;
+    }
+    if (text === catalogAdminLabels.useApiTitle) {
+      await context.runtime.session.advance({ stepKey: 'family', data: { ...data, displayName: lookupCandidate.title } });
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      return true;
+    }
+    await context.reply('Tria quin titol vols fer servir abans de continuar.', buildLookupTitleChoiceOptions());
+    return true;
+  }
+  if (stepKey === 'lookup-author') {
+    const refined = await refineLookupCandidatesByAuthor(context, data, text);
+    if (refined) {
+      return true;
+    }
+    await context.reply('No he trobat cap coincidencia amb aquest autor. Escriu un altre autor o cancel.la el flux.', buildSingleCancelKeyboard());
     return true;
   }
   if (stepKey === 'group') {
@@ -374,6 +467,41 @@ Tria una opcio per confirmar o cancel.lar.`, buildCreateConfirmOptions());
   return false;
 }
 
+async function createCatalogItemFromDraft(
+  context: TelegramCatalogAdminContext,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const item = await createCatalogItem({
+    repository: resolveCatalogRepository(context),
+    familyId: (data.familyId as number | null | undefined) ?? null,
+    groupId: (data.groupId as number | null | undefined) ?? null,
+    itemType: String(data.itemType ?? 'board-game') as CatalogItemType,
+    displayName: String(data.displayName ?? ''),
+    originalName: asNullableString(data.originalName),
+    description: asNullableString(data.description),
+    language: asNullableString(data.language),
+    publisher: asNullableString(data.publisher),
+    publicationYear: asNullableNumber(data.publicationYear),
+    playerCountMin: asNullableNumber(data.playerCountMin),
+    playerCountMax: asNullableNumber(data.playerCountMax),
+    recommendedAge: asNullableNumber(data.recommendedAge),
+    playTimeMinutes: asNullableNumber(data.playTimeMinutes),
+    externalRefs: asNullableObject(data.externalRefs),
+    metadata: asNullableObject(data.metadata),
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'catalog.item.created',
+    targetType: 'catalog-item',
+    targetId: item.id,
+    summary: `Item de cataleg creat: ${item.displayName}`,
+    details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
+  });
+  await context.runtime.session.cancel();
+  await context.reply(`Item de cataleg creat correctament: ${item.displayName} (#${item.id}).`, buildCatalogAdminMenuOptions());
+}
+
 async function handleEditSession(
   context: TelegramCatalogAdminContext,
   text: string,
@@ -397,12 +525,13 @@ async function handleEditSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'family', data: { ...data, itemType } });
-    await context.reply(await buildFamilyPrompt(context), buildEditFamilyOptions());
+    await context.reply(await buildFamilyPrompt(context, itemType), buildEditFamilyOptions());
     return true;
   }
   if (stepKey === 'family') {
+    const itemType = String(data.itemType) as CatalogItemType;
     const familyId =
-      text === catalogAdminLabels.keepCurrent ? item.familyId : await parseFamilyInput(context, text);
+      text === catalogAdminLabels.keepCurrent ? item.familyId : await parseFamilyInput(context, text, itemType);
     if (familyId instanceof Error) {
       await context.reply('Tria una familia valida pel seu id o continua sense familia.', buildEditFamilyOptions());
       return true;
@@ -626,7 +755,8 @@ function buildTypeOptions(): TelegramReplyOptions {
   return {
     replyKeyboard: [
       [catalogAdminLabels.typeBoardGame, catalogAdminLabels.typeExpansion],
-      [catalogAdminLabels.typeRpgBook, catalogAdminLabels.typeAccessory],
+      [catalogAdminLabels.typeBook, catalogAdminLabels.typeRpgBook],
+      [catalogAdminLabels.typeAccessory],
       [catalogAdminLabels.cancel],
     ],
     resizeKeyboard: true,
@@ -639,7 +769,8 @@ function buildEditTypeOptions(): TelegramReplyOptions {
     replyKeyboard: [
       [catalogAdminLabels.keepCurrent],
       [catalogAdminLabels.typeBoardGame, catalogAdminLabels.typeExpansion],
-      [catalogAdminLabels.typeRpgBook, catalogAdminLabels.typeAccessory],
+      [catalogAdminLabels.typeBook, catalogAdminLabels.typeRpgBook],
+      [catalogAdminLabels.typeAccessory],
       [catalogAdminLabels.cancel],
     ],
     resizeKeyboard: true,
@@ -647,9 +778,23 @@ function buildEditTypeOptions(): TelegramReplyOptions {
   };
 }
 
-function buildFamilyOptions(): TelegramReplyOptions {
+async function buildFamilyOptions(
+  context: TelegramCatalogAdminContext,
+  itemType: CatalogItemType,
+): Promise<TelegramReplyOptions> {
+  if (itemType !== 'rpg-book' && itemType !== 'book') {
+    return {
+      replyKeyboard: [[catalogAdminLabels.noFamily], [catalogAdminLabels.cancel]],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    };
+  }
+
+  const popularFamilies = await listPopularFamilies(context, itemType);
+  const replyKeyboard = chunkKeyboard(popularFamilies.map((family) => family.displayName), 3);
+  replyKeyboard.push([catalogAdminLabels.noFamily], [catalogAdminLabels.cancel]);
   return {
-    replyKeyboard: [[catalogAdminLabels.noFamily], [catalogAdminLabels.cancel]],
+    replyKeyboard,
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -739,7 +884,7 @@ async function replyWithCatalogList(
   context: TelegramCatalogAdminContext,
   mode: 'list' | 'edit' | 'deactivate',
 ): Promise<void> {
-  const items = await listCatalogItems({ repository: resolveCatalogRepository(context), includeDeactivated: mode === 'list' });
+  const items = await listCatalogItems({ repository: resolveCatalogRepository(context), includeDeactivated: false });
   if (items.length === 0) {
     await context.reply('No hi ha cap item de cataleg disponible ara mateix.', buildCatalogAdminMenuOptions());
     return;
@@ -857,6 +1002,8 @@ function parseItemTypeLabel(text: string): CatalogItemType | Error {
       return 'board-game';
     case catalogAdminLabels.typeExpansion:
       return 'expansion';
+    case catalogAdminLabels.typeBook:
+      return 'book';
     case catalogAdminLabels.typeRpgBook:
       return 'rpg-book';
     case catalogAdminLabels.typeAccessory:
@@ -866,19 +1013,46 @@ function parseItemTypeLabel(text: string): CatalogItemType | Error {
   }
 }
 
-async function parseFamilyInput(context: TelegramCatalogAdminContext, text: string): Promise<number | null | Error> {
+async function parseFamilyInput(
+  context: TelegramCatalogAdminContext,
+  text: string,
+  itemType: CatalogItemType,
+): Promise<number | null | Error> {
   if (text === catalogAdminLabels.noFamily) {
     return null;
   }
+  const repository = resolveCatalogRepository(context);
   const value = Number(text);
-  if (!Number.isInteger(value) || value <= 0) {
-    return new Error('invalid-family-id');
+  if (Number.isInteger(value) && value > 0) {
+    const family = await repository.findFamilyById(value);
+    if (!family) {
+      return new Error('unknown-family');
+    }
+    return value;
   }
-  const family = await resolveCatalogRepository(context).findFamilyById(value);
-  if (!family) {
+
+  const normalizedText = normalizeFamilyLookupKey(text);
+  if (!normalizedText) {
+    return new Error('invalid-family-name');
+  }
+
+  const existingFamily = (await repository.listFamilies()).find((family) => {
+    return normalizeFamilyLookupKey(family.displayName) === normalizedText || normalizeFamilyLookupKey(family.slug) === normalizedText;
+  });
+  if (existingFamily) {
+    return existingFamily.id;
+  }
+  if (itemType !== 'rpg-book' && itemType !== 'book') {
     return new Error('unknown-family');
   }
-  return value;
+
+  const createdFamily = await createCatalogFamily({
+    repository,
+    slug: buildFamilySlug(text),
+    displayName: text.trim(),
+    familyKind: familyKindForItemType(itemType),
+  });
+  return createdFamily.id;
 }
 
 async function parseGroupInput(
@@ -929,6 +1103,11 @@ function parseOptionalJsonObject(text: string): Record<string, unknown> | null |
   }
 }
 
+function parseLookupCandidateInput(text: string, value: unknown): CatalogLookupCandidate | Error {
+  const candidates = asLookupCandidates(value);
+  return candidates.find((candidate) => candidate.title === text) ?? new Error('invalid-lookup-candidate');
+}
+
 function parseItemId(callbackData: string, prefix: string): number {
   const value = Number(callbackData.slice(prefix.length));
   if (!Number.isInteger(value) || value <= 0) {
@@ -969,12 +1148,82 @@ async function loadGroupName(context: TelegramCatalogAdminContext, groupId: numb
   return group?.displayName ?? `Grup #${groupId}`;
 }
 
-async function buildFamilyPrompt(context: TelegramCatalogAdminContext): Promise<string> {
+async function buildFamilyPrompt(context: TelegramCatalogAdminContext, itemType: CatalogItemType): Promise<string> {
   const families = await resolveCatalogRepository(context).listFamilies();
+  if (itemType === 'rpg-book' || itemType === 'book') {
+    const popularFamilies = await listPopularFamilies(context, itemType);
+    if (popularFamilies.length === 0) {
+      return itemType === 'rpg-book'
+        ? 'Escriu la familia del llibre RPG. Si no existeix, la creare. També pots continuar sense familia.'
+        : 'Escriu la familia del llibre. Si no existeix, la creare. També pots continuar sense familia.';
+    }
+    return itemType === 'rpg-book'
+      ? 'Escriu o tria una familia del llibre RPG. Si no existeix, la creare. També pots continuar sense familia.'
+      : 'Escriu o tria una familia del llibre. Si no existeix, la creare. També pots continuar sense familia.';
+  }
   if (families.length === 0) {
     return 'No hi ha families creades. Continua sense familia o escriu /cancel.';
   }
   return ['Escriu l id de la familia o continua sense familia.', ...families.map(formatFamilyOption)].join('\n');
+}
+
+async function listPopularFamilies(
+  context: TelegramCatalogAdminContext,
+  itemType: CatalogItemType,
+): Promise<CatalogFamilyRecord[]> {
+  const repository = resolveCatalogRepository(context);
+  const [families, items] = await Promise.all([
+    repository.listFamilies(),
+    listCatalogItems({ repository, includeDeactivated: false }),
+  ]);
+  const compatibleFamilies = families.filter((family) => family.familyKind === familyKindForItemType(itemType));
+  const counts = new Map<number, number>();
+  for (const item of items) {
+    if (item.itemType !== itemType || item.familyId === null) {
+      continue;
+    }
+    counts.set(item.familyId, (counts.get(item.familyId) ?? 0) + 1);
+  }
+  return compatibleFamilies
+    .slice()
+    .sort((left, right) => {
+      const popularityDifference = (counts.get(right.id) ?? 0) - (counts.get(left.id) ?? 0);
+      if (popularityDifference !== 0) {
+        return popularityDifference;
+      }
+      return left.displayName.localeCompare(right.displayName);
+    })
+    .slice(0, 6);
+}
+
+function familyKindForItemType(itemType: CatalogItemType): CatalogFamilyRecord['familyKind'] {
+  switch (itemType) {
+    case 'rpg-book':
+      return 'rpg-line';
+    case 'book':
+      return 'generic-line';
+    case 'board-game':
+    case 'expansion':
+      return 'board-game-line';
+    case 'accessory':
+      return 'generic-line';
+  }
+}
+
+function chunkKeyboard(values: string[], size: number): string[][] {
+  const rows: string[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    rows.push(values.slice(index, index + size));
+  }
+  return rows;
+}
+
+function normalizeFamilyLookupKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function buildFamilySlug(value: string): string {
+  return normalizeFamilyLookupKey(value).replace(/\s+/g, '-');
 }
 
 function formatFamilyOption(family: CatalogFamilyRecord): string {
@@ -1013,6 +1262,8 @@ function renderItemType(itemType: CatalogItemType): string {
       return 'Joc de taula';
     case 'expansion':
       return 'Expansio';
+    case 'book':
+      return 'Llibre';
     case 'rpg-book':
       return 'Llibre RPG';
     case 'accessory':
@@ -1045,8 +1296,114 @@ function asNullableObject(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function asLookupCandidate(value: unknown): CatalogLookupCandidate {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Invalid lookup candidate');
+  }
+  return value as CatalogLookupCandidate;
+}
+
+function asLookupCandidates(value: unknown): CatalogLookupCandidate[] {
+  return Array.isArray(value) ? value.filter((entry) => entry && typeof entry === 'object') as CatalogLookupCandidate[] : [];
+}
+
 function renderOptionalObject(value: Record<string, unknown> | null): string {
   return value ? JSON.stringify(value) : 'Sense valor';
+}
+
+function isExactTitleMatch(left: string, right: string): boolean {
+  return normalizeTitleForComparison(left) === normalizeTitleForComparison(right);
+}
+
+function normalizeTitleForComparison(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+async function searchCatalogLookupCandidates(
+  context: TelegramCatalogAdminContext,
+  input: { itemType: CatalogItemType; displayName: string; author?: string },
+): Promise<CatalogLookupCandidate[]> {
+  try {
+    return await resolveCatalogLookupService(context).search({ itemType: input.itemType, query: input.displayName, ...(input.author ? { author: input.author } : {}) });
+  } catch {
+    return [];
+  }
+}
+
+function buildLookupChoicePrompt(candidates: CatalogLookupCandidate[]): string {
+  return [
+    'He trobat aquestes coincidencies externes. Tria la que vols importar, escriu un autor per refinar la cerca o continua sense dades externes:',
+    ...candidates.map((candidate) => `- ${candidate.title} · ${candidate.summary}`),
+  ].join('\n');
+}
+
+function buildLookupChoiceOptions(candidates: CatalogLookupCandidate[]): TelegramReplyOptions {
+  return {
+    replyKeyboard: [...candidates.map((candidate) => [candidate.title]), [catalogAdminLabels.refineLookupByAuthor], [catalogAdminLabels.skipLookupImport], [catalogAdminLabels.cancel]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+async function refineLookupCandidatesByAuthor(
+  context: TelegramCatalogAdminContext,
+  data: Record<string, unknown>,
+  author: string,
+): Promise<boolean> {
+  const normalizedAuthor = author.trim();
+  if (!normalizedAuthor) {
+    return false;
+  }
+  const itemType = String(data.itemType) as CatalogItemType;
+  const refinedCandidates = await searchCatalogLookupCandidates(context, {
+    itemType,
+    displayName: String(data.displayName ?? ''),
+    author: normalizedAuthor,
+  });
+  if (refinedCandidates.length === 0) {
+    return false;
+  }
+  await context.runtime.session.advance({ stepKey: 'lookup-choice', data: { ...data, lookupCandidates: refinedCandidates, lookupAuthor: normalizedAuthor } });
+  await context.reply(buildLookupChoicePrompt(refinedCandidates), buildLookupChoiceOptions(refinedCandidates));
+  return true;
+}
+
+function buildLookupTitleChoicePrompt(typedTitle: string, apiTitle: string): string {
+  return [
+    'El titol trobat a la API no coincideix exactament amb el que has escrit.',
+    `- El teu titol: ${typedTitle}`,
+    `- Titol API: ${apiTitle}`,
+    'Tria quin titol vols fer servir.',
+  ].join('\n');
+}
+
+function buildLookupTitleChoiceOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[catalogAdminLabels.keepTypedTitle], [catalogAdminLabels.useApiTitle], [catalogAdminLabels.cancel]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function applyLookupCandidateToDraft(
+  data: Record<string, unknown>,
+  candidate: CatalogLookupCandidate,
+): Record<string, unknown> {
+  return {
+    ...data,
+    originalName: candidate.importedData.originalName,
+    description: candidate.importedData.description,
+    language: candidate.importedData.language,
+    publisher: candidate.importedData.publisher,
+    publicationYear: candidate.importedData.publicationYear,
+    externalRefs: candidate.importedData.externalRefs,
+    metadata: candidate.importedData.metadata,
+  };
 }
 
 function hasOwn(data: Record<string, unknown>, key: string): boolean {
@@ -1065,4 +1422,11 @@ function resolveAuditRepository(context: TelegramCatalogAdminContext): AuditLogR
     return context.auditRepository;
   }
   return createDatabaseAuditLogRepository({ database: context.runtime.services.database.db as never });
+}
+
+function resolveCatalogLookupService(context: TelegramCatalogAdminContext): CatalogLookupService {
+  if (context.catalogLookupService) {
+    return context.catalogLookupService;
+  }
+  return createHttpCatalogLookupService();
 }
