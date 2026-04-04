@@ -356,6 +356,60 @@ test('createCatalogItem supports grouped lines and standalone catalog items', as
   assert.deepEqual(groupedGroups.map((group) => group.displayName), ['Second Edition']);
 });
 
+test('createCatalogItem and updateCatalogItem clear player counts for books', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 7,
+        familyId: null,
+        groupId: null,
+        itemType: 'book',
+        displayName: 'Discworld',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 1,
+        playerCountMax: 2,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+
+  const created = await createCatalogItem({
+    repository,
+    familyId: null,
+    itemType: 'book',
+    displayName: 'Guards! Guards!',
+    playerCountMin: 2,
+    playerCountMax: 4,
+  });
+
+  assert.equal(created.playerCountMin, null);
+  assert.equal(created.playerCountMax, null);
+
+  const updated = await updateCatalogItem({
+    repository,
+    itemId: 7,
+    familyId: null,
+    itemType: 'book',
+    displayName: 'Discworld Revised',
+    playerCountMin: 3,
+    playerCountMax: 5,
+  });
+
+  assert.equal(updated.playerCountMin, null);
+  assert.equal(updated.playerCountMax, null);
+});
+
 test('createCatalogItem rejects unknown groups and family mismatches against the selected group', async () => {
   const repository = createRepository({
     families: [

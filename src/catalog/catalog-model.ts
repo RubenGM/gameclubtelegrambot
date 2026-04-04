@@ -231,9 +231,14 @@ export async function createCatalogItem({
   metadata?: Record<string, unknown> | null;
 }): Promise<CatalogItemRecord> {
   await ensureFamilyAndGroupConsistency({ repository, familyId, groupId: groupId ?? null });
+  const normalizedItemType = normalizeItemType(itemType);
 
-  const normalizedPlayerCountMin = normalizePositiveInteger(playerCountMin, 'El minim de jugadors ha de ser un enter positiu');
-  const normalizedPlayerCountMax = normalizePositiveInteger(playerCountMax, 'El maxim de jugadors ha de ser un enter positiu');
+  const normalizedPlayerCountMin = itemTypeSupportsPlayers(normalizedItemType)
+    ? normalizePositiveInteger(playerCountMin, 'El minim de jugadors ha de ser un enter positiu')
+    : null;
+  const normalizedPlayerCountMax = itemTypeSupportsPlayers(normalizedItemType)
+    ? normalizePositiveInteger(playerCountMax, 'El maxim de jugadors ha de ser un enter positiu')
+    : null;
   if (
     normalizedPlayerCountMin !== null &&
     normalizedPlayerCountMax !== null &&
@@ -245,7 +250,7 @@ export async function createCatalogItem({
   return repository.createItem({
     familyId,
     groupId: groupId ?? null,
-    itemType: normalizeItemType(itemType),
+    itemType: normalizedItemType,
     displayName: normalizeRequiredText(displayName, 'El nom visible de l item es obligatori'),
     originalName: normalizeOptionalText(originalName),
     description: normalizeOptionalText(description),
@@ -321,9 +326,14 @@ export async function updateCatalogItem({
     throw new Error(`Catalog item ${itemId} not found`);
   }
   await ensureFamilyAndGroupConsistency({ repository, familyId, groupId: groupId ?? null });
+  const normalizedItemType = normalizeItemType(itemType);
 
-  const normalizedPlayerCountMin = normalizePositiveInteger(playerCountMin, 'El minim de jugadors ha de ser un enter positiu');
-  const normalizedPlayerCountMax = normalizePositiveInteger(playerCountMax, 'El maxim de jugadors ha de ser un enter positiu');
+  const normalizedPlayerCountMin = itemTypeSupportsPlayers(normalizedItemType)
+    ? normalizePositiveInteger(playerCountMin, 'El minim de jugadors ha de ser un enter positiu')
+    : null;
+  const normalizedPlayerCountMax = itemTypeSupportsPlayers(normalizedItemType)
+    ? normalizePositiveInteger(playerCountMax, 'El maxim de jugadors ha de ser un enter positiu')
+    : null;
   if (
     normalizedPlayerCountMin !== null &&
     normalizedPlayerCountMax !== null &&
@@ -336,7 +346,7 @@ export async function updateCatalogItem({
     itemId,
     familyId,
     groupId: groupId ?? null,
-    itemType: normalizeItemType(itemType),
+    itemType: normalizedItemType,
     displayName: normalizeRequiredText(displayName, 'El nom visible de l item es obligatori'),
     originalName: normalizeOptionalText(originalName),
     description: normalizeOptionalText(description),
@@ -523,6 +533,10 @@ function normalizeMediaType(value: CatalogMediaType): CatalogMediaType {
     throw new Error('El tipus de media no es valid');
   }
   return value;
+}
+
+function itemTypeSupportsPlayers(value: CatalogItemType): boolean {
+  return value !== 'book' && value !== 'rpg-book';
 }
 
 function normalizePositiveInteger(value: number | null | undefined, message: string): number | null {

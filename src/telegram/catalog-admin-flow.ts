@@ -69,6 +69,21 @@ export const catalogAdminLabels = {
   mediaTypeImage: 'Imatge',
   mediaTypeLink: 'Enllac',
   mediaTypeDocument: 'Document',
+  editFieldDisplayName: 'Nom visible',
+  editFieldItemType: 'Tipus',
+  editFieldFamily: 'Familia',
+  editFieldGroup: 'Grup',
+  editFieldOriginalName: 'Nom original',
+  editFieldDescription: 'Descripcio',
+  editFieldLanguage: 'Llengua',
+  editFieldPublisher: 'Editorial',
+  editFieldPublicationYear: 'Any publicacio',
+  editFieldPlayerMin: 'Minim jugadors',
+  editFieldPlayerMax: 'Maxim jugadors',
+  editFieldRecommendedAge: 'Edat recomanada',
+  editFieldPlayTimeMinutes: 'Durada',
+  editFieldExternalRefs: 'Referencies externes',
+  editFieldMetadata: 'Metadata',
   importLookupData: 'Importar dades',
   skipLookupImport: 'No importar dades',
   refineLookupByAuthor: 'Refinar amb autor',
@@ -173,10 +188,10 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.edit)) {
     const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.edit);
     const item = await loadItemOrThrow(context, itemId);
-    await context.runtime.session.start({ flowKey: editFlowKey, stepKey: 'display-name', data: { itemId } });
+    await context.runtime.session.start({ flowKey: editFlowKey, stepKey: 'select-field', data: { itemId } });
     await context.reply(`${await formatCatalogItemDetails(context, item)}
 
-Escriu el nou nom o tria una opcio del teclat.`, buildKeepCurrentKeyboard());
+Quin camp vols editar primer?`, buildEditFieldMenuOptions(item.itemType));
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.deactivate)) {
@@ -430,8 +445,14 @@ async function handleCreateSession(
       await context.reply('L any de publicacio ha de ser un enter positiu valid o omet el camp.', buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear)));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'player-min', data: { ...data, publicationYear } });
-    await context.reply('Escriu el minim de jugadors o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin)));
+    const nextStepKey = itemTypeSupportsPlayers(String(data.itemType ?? 'board-game') as CatalogItemType) ? 'player-min' : 'recommended-age';
+    await context.runtime.session.advance({ stepKey: nextStepKey, data: { ...data, publicationYear } });
+    await context.reply(
+      nextStepKey === 'player-min' ? 'Escriu el minim de jugadors o tria una opcio del teclat.' : 'Escriu l edat recomanada o tria una opcio del teclat.',
+      nextStepKey === 'player-min'
+        ? buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin))
+        : buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge)),
+    );
     return true;
   }
   if (stepKey === 'player-min') {
@@ -553,187 +574,209 @@ async function handleEditSession(
 ): Promise<boolean> {
   const itemId = Number(data.itemId);
   const item = await loadItemOrThrow(context, itemId);
-  if (stepKey === 'display-name') {
-    await context.runtime.session.advance({
-      stepKey: 'item-type',
-      data: { ...data, displayName: text === catalogAdminLabels.keepCurrent ? item.displayName : text },
-    });
-    await context.reply('Selecciona el tipus d item o mantingues el valor actual.', buildEditTypeOptions());
-    return true;
-  }
-  if (stepKey === 'item-type') {
-    const itemType = text === catalogAdminLabels.keepCurrent ? item.itemType : parseItemTypeLabel(text);
-    if (itemType instanceof Error) {
-      await context.reply('Tria un tipus valid del teclat.', buildEditTypeOptions());
-      return true;
-    }
-    await context.runtime.session.advance({ stepKey: 'family', data: { ...data, itemType } });
-    await context.reply(await buildFamilyPrompt(context, itemType), buildEditFamilyOptions());
-    return true;
-  }
-  if (stepKey === 'family') {
-    const itemType = String(data.itemType) as CatalogItemType;
-    const familyId =
-      text === catalogAdminLabels.keepCurrent ? item.familyId : await parseFamilyInput(context, text, itemType);
-    if (familyId instanceof Error) {
-      await context.reply('Tria una familia valida pel seu id o continua sense familia.', buildEditFamilyOptions());
-      return true;
-    }
-    const nextData = { ...data, familyId };
-    await context.runtime.session.advance({ stepKey: 'group', data: nextData });
-    await context.reply(await buildGroupPrompt(context, familyId), buildEditGroupOptions());
-    return true;
-  }
-  if (stepKey === 'group') {
-    const groupId =
-      text === catalogAdminLabels.keepCurrent
-        ? item.groupId
-        : await parseGroupInput(context, text, hasOwn(data, 'familyId') ? asNullableNumber(data.familyId) : item.familyId);
-    if (groupId instanceof Error) {
-      await context.reply('Tria un grup valid pel seu id o continua sense grup.', buildEditGroupOptions());
-      return true;
-    }
-    await context.runtime.session.advance({ stepKey: 'original-name', data: { ...data, groupId } });
-    await context.reply('Escriu el nou nom original o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'original-name') {
-    await context.runtime.session.advance({
-      stepKey: 'description',
-      data: {
-        ...data,
-        originalName: text === catalogAdminLabels.keepCurrent ? item.originalName : text === catalogAdminLabels.skipOptional ? null : text,
-      },
-    });
-    await context.reply('Escriu la nova descripcio o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'description') {
-    await context.runtime.session.advance({
-      stepKey: 'language',
-      data: { ...data, description: text === catalogAdminLabels.keepCurrent ? item.description : text === catalogAdminLabels.skipOptional ? null : text },
-    });
-    await context.reply('Escriu la nova llengua o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'language') {
-    await context.runtime.session.advance({
-      stepKey: 'publisher',
-      data: { ...data, language: text === catalogAdminLabels.keepCurrent ? item.language : text === catalogAdminLabels.skipOptional ? null : text },
-    });
-    await context.reply('Escriu la nova editorial o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'publisher') {
-    await context.runtime.session.advance({
-      stepKey: 'publication-year',
-      data: { ...data, publisher: text === catalogAdminLabels.keepCurrent ? item.publisher : text === catalogAdminLabels.skipOptional ? null : text },
-    });
-    await context.reply('Escriu el nou any de publicacio o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'publication-year') {
-    const publicationYear = text === catalogAdminLabels.keepCurrent ? item.publicationYear : parseOptionalPositiveInteger(text);
-    if (publicationYear instanceof Error) {
-      await context.reply('L any de publicacio ha de ser un enter positiu valid o omet el camp.', buildEditOptionalKeyboard());
-      return true;
-    }
-    await context.runtime.session.advance({ stepKey: 'player-min', data: { ...data, publicationYear } });
-    await context.reply('Escriu el nou minim de jugadors o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'player-min') {
-    const playerCountMin = text === catalogAdminLabels.keepCurrent ? item.playerCountMin : parseOptionalPositiveInteger(text);
-    if (playerCountMin instanceof Error) {
-      await context.reply('El minim de jugadors ha de ser un enter positiu valid o omet el camp.', buildEditOptionalKeyboard());
-      return true;
-    }
-    await context.runtime.session.advance({ stepKey: 'player-max', data: { ...data, playerCountMin } });
-    await context.reply('Escriu el nou maxim de jugadors o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'player-max') {
-    const playerCountMax = text === catalogAdminLabels.keepCurrent ? item.playerCountMax : parseOptionalPositiveInteger(text);
-    if (playerCountMax instanceof Error) {
-      await context.reply('El maxim de jugadors ha de ser un enter positiu valid o omet el camp.', buildEditOptionalKeyboard());
-      return true;
-    }
-    const candidateMin = asNullableNumber(data.playerCountMin);
-    if (playerCountMax !== null && candidateMin !== null && playerCountMax < candidateMin) {
-      await context.reply('El maxim de jugadors no pot ser inferior al minim. Escriu un enter positiu valid o omet el camp.', buildEditOptionalKeyboard());
-      return true;
-    }
-    const nextData = { ...data, playerCountMax };
-    await context.runtime.session.advance({ stepKey: 'recommended-age', data: nextData });
-    await context.reply('Escriu la nova edat recomanada o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'recommended-age') {
-    const recommendedAge = text === catalogAdminLabels.keepCurrent ? item.recommendedAge : parseOptionalPositiveInteger(text);
-    if (recommendedAge instanceof Error) {
-      await context.reply('L edat recomanada ha de ser un enter positiu valid o omet el camp.', buildEditOptionalKeyboard());
-      return true;
-    }
-    await context.runtime.session.advance({ stepKey: 'play-time-minutes', data: { ...data, recommendedAge } });
-    await context.reply('Escriu la nova durada en minuts o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'play-time-minutes') {
-    const playTimeMinutes = text === catalogAdminLabels.keepCurrent ? item.playTimeMinutes : parseOptionalPositiveInteger(text);
-    if (playTimeMinutes instanceof Error) {
-      await context.reply('La durada ha de ser un enter positiu valid o omet el camp.', buildEditOptionalKeyboard());
-      return true;
-    }
-    await context.runtime.session.advance({ stepKey: 'external-refs', data: { ...data, playTimeMinutes } });
-    await context.reply('Escriu les noves referencies externes en JSON o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'external-refs') {
-    const externalRefs = text === catalogAdminLabels.keepCurrent ? item.externalRefs : parseOptionalJsonObject(text);
-    if (externalRefs instanceof Error) {
-      await context.reply('Les referencies externes han de ser un objecte JSON valid o omet el camp.', buildEditOptionalKeyboard());
-      return true;
-    }
-    await context.runtime.session.advance({ stepKey: 'metadata', data: { ...data, externalRefs } });
-    await context.reply('Escriu la nova metadata en JSON o tria una opcio del teclat.', buildEditOptionalKeyboard());
-    return true;
-  }
-  if (stepKey === 'metadata') {
-    const metadata = text === catalogAdminLabels.keepCurrent ? item.metadata : parseOptionalJsonObject(text);
-    if (metadata instanceof Error) {
-      await context.reply('La metadata ha de ser un objecte JSON valid o omet el camp.', buildEditOptionalKeyboard());
-      return true;
-    }
-    const nextData = { ...data, metadata };
-    await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(`${await formatDraftSummary(context, nextData)}
+  if (stepKey === 'select-field') {
+    if (text === catalogAdminLabels.confirmEdit) {
+      await context.runtime.session.advance({ stepKey: 'confirm', data });
+      await context.reply(`${await formatDraftSummary(context, buildCatalogItemDraft(item, data))}
 
 Tria una opcio per confirmar o cancel.lar.`, buildEditConfirmOptions());
-    return true;
+      return true;
+    }
+    const currentItemType = getDraftItemType(item, data);
+    switch (text) {
+      case catalogAdminLabels.editFieldDisplayName:
+        await context.runtime.session.advance({ stepKey: 'display-name', data });
+        await context.reply('Escriu el nou nom visible.', buildSingleCancelKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldItemType:
+        await context.runtime.session.advance({ stepKey: 'item-type', data });
+        await context.reply('Selecciona el nou tipus d item.', buildTypeOptions());
+        return true;
+      case catalogAdminLabels.editFieldFamily:
+        await context.runtime.session.advance({ stepKey: 'family', data });
+        await context.reply(await buildFamilyPrompt(context, currentItemType), await buildFamilyOptions(context, currentItemType));
+        return true;
+      case catalogAdminLabels.editFieldGroup:
+        await context.runtime.session.advance({ stepKey: 'group', data });
+        await context.reply(await buildGroupPrompt(context, getDraftFamilyId(item, data)), buildGroupOptions());
+        return true;
+      case catalogAdminLabels.editFieldOriginalName:
+        await context.runtime.session.advance({ stepKey: 'original-name', data });
+        await context.reply('Escriu el nou nom original o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldDescription:
+        await context.runtime.session.advance({ stepKey: 'description', data });
+        await context.reply('Escriu la nova descripcio o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldLanguage:
+        await context.runtime.session.advance({ stepKey: 'language', data });
+        await context.reply('Escriu la nova llengua o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldPublisher:
+        await context.runtime.session.advance({ stepKey: 'publisher', data });
+        await context.reply('Escriu la nova editorial o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldPublicationYear:
+        await context.runtime.session.advance({ stepKey: 'publication-year', data });
+        await context.reply('Escriu el nou any de publicacio o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldPlayerMin:
+        await context.runtime.session.advance({ stepKey: 'player-min', data });
+        await context.reply('Escriu el nou minim de jugadors o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldPlayerMax:
+        await context.runtime.session.advance({ stepKey: 'player-max', data });
+        await context.reply('Escriu el nou maxim de jugadors o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldRecommendedAge:
+        await context.runtime.session.advance({ stepKey: 'recommended-age', data });
+        await context.reply('Escriu la nova edat recomanada o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldPlayTimeMinutes:
+        await context.runtime.session.advance({ stepKey: 'play-time-minutes', data });
+        await context.reply('Escriu la nova durada en minuts o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldExternalRefs:
+        await context.runtime.session.advance({ stepKey: 'external-refs', data });
+        await context.reply('Escriu les noves referencies externes en JSON o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      case catalogAdminLabels.editFieldMetadata:
+        await context.runtime.session.advance({ stepKey: 'metadata', data });
+        await context.reply('Escriu la nova metadata en JSON o omet el camp.', buildSkipOptionalKeyboard());
+        return true;
+      default:
+        await context.reply('Tria un camp del teclat o guarda els canvis quan hagis acabat.', buildEditFieldMenuOptions(currentItemType));
+        return true;
+    }
+  }
+  if (stepKey === 'display-name') {
+    return updateEditDraftAndReturn(context, item, data, { displayName: text });
+  }
+  if (stepKey === 'item-type') {
+    const itemType = parseItemTypeLabel(text);
+    if (itemType instanceof Error) {
+      await context.reply('Tria un tipus valid del teclat.', buildTypeOptions());
+      return true;
+    }
+    return updateEditDraftAndReturn(context, item, data, {
+      itemType,
+      ...(!itemTypeSupportsPlayers(itemType) ? { playerCountMin: null, playerCountMax: null } : {}),
+    });
+  }
+  if (stepKey === 'family') {
+    const familyId = await parseFamilyInput(context, text, getDraftItemType(item, data));
+    if (familyId instanceof Error) {
+      await context.reply('Tria una familia valida pel seu id o continua sense familia.', await buildFamilyOptions(context, getDraftItemType(item, data)));
+      return true;
+    }
+    const nextData = await withCompatibleGroup(context, item, { ...data, familyId }, familyId);
+    return updateEditDraftAndReturn(context, item, data, nextData);
+  }
+  if (stepKey === 'group') {
+    const groupId = await parseGroupInput(context, text, getDraftFamilyId(item, data));
+    if (groupId instanceof Error) {
+      await context.reply('Tria un grup valid pel seu id o continua sense grup.', buildGroupOptions());
+      return true;
+    }
+    return updateEditDraftAndReturn(context, item, data, { groupId });
+  }
+  if (stepKey === 'original-name') {
+    return updateEditDraftAndReturn(context, item, data, { originalName: text === catalogAdminLabels.skipOptional ? null : text });
+  }
+  if (stepKey === 'description') {
+    return updateEditDraftAndReturn(context, item, data, { description: text === catalogAdminLabels.skipOptional ? null : text });
+  }
+  if (stepKey === 'language') {
+    return updateEditDraftAndReturn(context, item, data, { language: text === catalogAdminLabels.skipOptional ? null : text });
+  }
+  if (stepKey === 'publisher') {
+    return updateEditDraftAndReturn(context, item, data, { publisher: text === catalogAdminLabels.skipOptional ? null : text });
+  }
+  if (stepKey === 'publication-year') {
+    const publicationYear = parseOptionalPositiveInteger(text);
+    if (publicationYear instanceof Error) {
+      await context.reply('L any de publicacio ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    return updateEditDraftAndReturn(context, item, data, { publicationYear });
+  }
+  if (stepKey === 'player-min') {
+    const playerCountMin = parseOptionalPositiveInteger(text);
+    if (playerCountMin instanceof Error) {
+      await context.reply('El minim de jugadors ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    return updateEditDraftAndReturn(context, item, data, { playerCountMin });
+  }
+  if (stepKey === 'player-max') {
+    const playerCountMax = parseOptionalPositiveInteger(text);
+    if (playerCountMax instanceof Error) {
+      await context.reply('El maxim de jugadors ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    const candidateMin = hasOwn(data, 'playerCountMin') ? asNullableNumber(data.playerCountMin) : item.playerCountMin;
+    if (playerCountMax !== null && candidateMin !== null && playerCountMax < candidateMin) {
+      await context.reply('El maxim de jugadors no pot ser inferior al minim. Escriu un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    return updateEditDraftAndReturn(context, item, data, { playerCountMax });
+  }
+  if (stepKey === 'recommended-age') {
+    const recommendedAge = parseOptionalPositiveInteger(text);
+    if (recommendedAge instanceof Error) {
+      await context.reply('L edat recomanada ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    return updateEditDraftAndReturn(context, item, data, { recommendedAge });
+  }
+  if (stepKey === 'play-time-minutes') {
+    const playTimeMinutes = parseOptionalPositiveInteger(text);
+    if (playTimeMinutes instanceof Error) {
+      await context.reply('La durada ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    return updateEditDraftAndReturn(context, item, data, { playTimeMinutes });
+  }
+  if (stepKey === 'external-refs') {
+    const externalRefs = parseOptionalJsonObject(text);
+    if (externalRefs instanceof Error) {
+      await context.reply('Les referencies externes han de ser un objecte JSON valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    return updateEditDraftAndReturn(context, item, data, { externalRefs });
+  }
+  if (stepKey === 'metadata') {
+    const metadata = parseOptionalJsonObject(text);
+    if (metadata instanceof Error) {
+      await context.reply('La metadata ha de ser un objecte JSON valid o omet el camp.', buildSkipOptionalKeyboard());
+      return true;
+    }
+    return updateEditDraftAndReturn(context, item, data, { metadata });
   }
   if (stepKey === 'confirm') {
     if (text !== catalogAdminLabels.confirmEdit) {
       await context.reply('Per guardar els canvis, tria el boto de confirmacio o cancel.la el flux.', buildEditConfirmOptions());
       return true;
     }
+    const draft = buildCatalogItemDraft(item, data);
     const updated = await updateCatalogItem({
       repository: resolveCatalogRepository(context),
       itemId,
-      familyId: hasOwn(data, 'familyId') ? (data.familyId as number | null) : item.familyId,
-      groupId: hasOwn(data, 'groupId') ? (data.groupId as number | null) : item.groupId,
-      itemType: String(data.itemType ?? item.itemType) as CatalogItemType,
-      displayName: String(data.displayName ?? item.displayName),
-      originalName: hasOwn(data, 'originalName') ? asNullableString(data.originalName) : item.originalName,
-      description: hasOwn(data, 'description') ? asNullableString(data.description) : item.description,
-      language: hasOwn(data, 'language') ? asNullableString(data.language) : item.language,
-      publisher: hasOwn(data, 'publisher') ? asNullableString(data.publisher) : item.publisher,
-      publicationYear: hasOwn(data, 'publicationYear') ? asNullableNumber(data.publicationYear) : item.publicationYear,
-      playerCountMin: hasOwn(data, 'playerCountMin') ? asNullableNumber(data.playerCountMin) : item.playerCountMin,
-      playerCountMax: hasOwn(data, 'playerCountMax') ? asNullableNumber(data.playerCountMax) : item.playerCountMax,
-      recommendedAge: hasOwn(data, 'recommendedAge') ? asNullableNumber(data.recommendedAge) : item.recommendedAge,
-      playTimeMinutes: hasOwn(data, 'playTimeMinutes') ? asNullableNumber(data.playTimeMinutes) : item.playTimeMinutes,
-      externalRefs: hasOwn(data, 'externalRefs') ? asNullableObject(data.externalRefs) : item.externalRefs,
-      metadata: hasOwn(data, 'metadata') ? asNullableObject(data.metadata) : item.metadata,
+      familyId: draft.familyId,
+      groupId: draft.groupId,
+      itemType: draft.itemType,
+      displayName: draft.displayName,
+      originalName: draft.originalName,
+      description: draft.description,
+      language: draft.language,
+      publisher: draft.publisher,
+      publicationYear: draft.publicationYear,
+      playerCountMin: draft.playerCountMin,
+      playerCountMax: draft.playerCountMax,
+      recommendedAge: draft.recommendedAge,
+      playTimeMinutes: draft.playTimeMinutes,
+      externalRefs: draft.externalRefs,
+      metadata: draft.metadata,
     });
     await appendAuditEvent({
       repository: resolveAuditRepository(context),
@@ -1013,6 +1056,27 @@ function buildEditOptionalKeyboard(): TelegramReplyOptions {
   };
 }
 
+function buildEditFieldMenuOptions(itemType: CatalogItemType): TelegramReplyOptions {
+  const replyKeyboard: string[][] = [
+    [catalogAdminLabels.editFieldDisplayName, catalogAdminLabels.editFieldItemType],
+    [catalogAdminLabels.editFieldFamily, catalogAdminLabels.editFieldGroup],
+    [catalogAdminLabels.editFieldOriginalName, catalogAdminLabels.editFieldDescription],
+    [catalogAdminLabels.editFieldLanguage, catalogAdminLabels.editFieldPublisher],
+    [catalogAdminLabels.editFieldPublicationYear, catalogAdminLabels.editFieldRecommendedAge],
+    [catalogAdminLabels.editFieldPlayTimeMinutes],
+    [catalogAdminLabels.editFieldExternalRefs, catalogAdminLabels.editFieldMetadata],
+  ];
+  if (itemTypeSupportsPlayers(itemType)) {
+    replyKeyboard.splice(5, 0, [catalogAdminLabels.editFieldPlayerMin, catalogAdminLabels.editFieldPlayerMax]);
+  }
+  replyKeyboard.push([catalogAdminLabels.confirmEdit], [catalogAdminLabels.cancel]);
+  return {
+    replyKeyboard,
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
 function buildCreateConfirmOptions(): TelegramReplyOptions {
   return {
     replyKeyboard: [[catalogAdminLabels.confirmCreate], [catalogAdminLabels.cancel]],
@@ -1125,6 +1189,73 @@ async function replyWithCatalogList(
   );
 }
 
+function itemTypeSupportsPlayers(itemType: CatalogItemType): boolean {
+  return itemType !== 'book' && itemType !== 'rpg-book';
+}
+
+function getDraftItemType(item: CatalogItemRecord, data: Record<string, unknown>): CatalogItemType {
+  return String(data.itemType ?? item.itemType) as CatalogItemType;
+}
+
+function getDraftFamilyId(item: CatalogItemRecord, data: Record<string, unknown>): number | null {
+  return hasOwn(data, 'familyId') ? asNullableNumber(data.familyId) : item.familyId;
+}
+
+function buildCatalogItemDraft(item: CatalogItemRecord, data: Record<string, unknown>) {
+  const itemType = getDraftItemType(item, data);
+  const supportsPlayers = itemTypeSupportsPlayers(itemType);
+  return {
+    familyId: hasOwn(data, 'familyId') ? asNullableNumber(data.familyId) : item.familyId,
+    groupId: hasOwn(data, 'groupId') ? asNullableNumber(data.groupId) : item.groupId,
+    itemType,
+    displayName: String(data.displayName ?? item.displayName),
+    originalName: hasOwn(data, 'originalName') ? asNullableString(data.originalName) : item.originalName,
+    description: hasOwn(data, 'description') ? asNullableString(data.description) : item.description,
+    language: hasOwn(data, 'language') ? asNullableString(data.language) : item.language,
+    publisher: hasOwn(data, 'publisher') ? asNullableString(data.publisher) : item.publisher,
+    publicationYear: hasOwn(data, 'publicationYear') ? asNullableNumber(data.publicationYear) : item.publicationYear,
+    playerCountMin: supportsPlayers
+      ? hasOwn(data, 'playerCountMin') ? asNullableNumber(data.playerCountMin) : item.playerCountMin
+      : null,
+    playerCountMax: supportsPlayers
+      ? hasOwn(data, 'playerCountMax') ? asNullableNumber(data.playerCountMax) : item.playerCountMax
+      : null,
+    recommendedAge: hasOwn(data, 'recommendedAge') ? asNullableNumber(data.recommendedAge) : item.recommendedAge,
+    playTimeMinutes: hasOwn(data, 'playTimeMinutes') ? asNullableNumber(data.playTimeMinutes) : item.playTimeMinutes,
+    externalRefs: hasOwn(data, 'externalRefs') ? asNullableObject(data.externalRefs) : item.externalRefs,
+    metadata: hasOwn(data, 'metadata') ? asNullableObject(data.metadata) : item.metadata,
+  };
+}
+
+async function updateEditDraftAndReturn(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+  data: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Promise<boolean> {
+  const nextData = { ...data, ...patch };
+  await context.runtime.session.advance({ stepKey: 'select-field', data: nextData });
+  await context.reply('Camp actualitzat. Tria un altre camp o guarda els canvis.', buildEditFieldMenuOptions(getDraftItemType(item, nextData)));
+  return true;
+}
+
+async function withCompatibleGroup(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+  data: Record<string, unknown>,
+  familyId: number | null,
+): Promise<Record<string, unknown>> {
+  const currentGroupId = hasOwn(data, 'groupId') ? asNullableNumber(data.groupId) : item.groupId;
+  if (currentGroupId === null) {
+    return { ...data, familyId, groupId: null };
+  }
+  const group = await resolveCatalogRepository(context).findGroupById(currentGroupId);
+  if (!group || group.familyId !== familyId) {
+    return { ...data, familyId, groupId: null };
+  }
+  return { ...data, familyId, groupId: currentGroupId };
+}
+
 async function formatCatalogItemList(context: TelegramCatalogAdminContext, items: CatalogItemRecord[]): Promise<string> {
   const repository = resolveCatalogRepository(context);
   const families = await repository.listFamilies();
@@ -1194,11 +1325,11 @@ async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, it
     `Nom original: ${item.originalName ?? 'Sense valor'}`,
     `Descripcio: ${item.description ?? 'Sense descripcio'}`,
     `Llengua: ${item.language ?? 'Sense valor'}`,
-    `Editorial: ${item.publisher ?? 'Sense valor'}`,
-    `Any publicacio: ${item.publicationYear ?? 'Sense valor'}`,
-    `Jugadors: ${renderPlayerRange(item.playerCountMin, item.playerCountMax)}`,
-    `Edat recomanada: ${item.recommendedAge ?? 'Sense valor'}`,
-    `Durada: ${item.playTimeMinutes ?? 'Sense valor'}`,
+      `Editorial: ${item.publisher ?? 'Sense valor'}`,
+      `Any publicacio: ${item.publicationYear ?? 'Sense valor'}`,
+      ...(itemTypeSupportsPlayers(item.itemType) ? [`Jugadors: ${renderPlayerRange(item.playerCountMin, item.playerCountMax)}`] : []),
+      `Edat recomanada: ${item.recommendedAge ?? 'Sense valor'}`,
+      `Durada: ${item.playTimeMinutes ?? 'Sense valor'}`,
     `Referencies externes: ${renderOptionalObject(item.externalRefs)}`,
     `Metadata: ${renderOptionalObject(item.metadata)}`,
     ...mediaLines,
@@ -1221,10 +1352,11 @@ async function formatCatalogGroupDetails(context: TelegramCatalogAdminContext, g
 async function formatDraftSummary(context: TelegramCatalogAdminContext, data: Record<string, unknown>): Promise<string> {
   const familyName = await loadFamilyName(context, asNullableNumber(data.familyId));
   const groupName = await loadGroupName(context, asNullableNumber(data.groupId));
+  const itemType = String(data.itemType ?? 'board-game') as CatalogItemType;
   return [
     'Resum de l item:',
     `- Nom: ${String(data.displayName ?? '')}`,
-    `- Tipus: ${renderItemType(String(data.itemType ?? 'board-game') as CatalogItemType)}`,
+    `- Tipus: ${renderItemType(itemType)}`,
     `- Familia: ${familyName ?? 'Sense familia'}`,
     `- Grup: ${groupName ?? 'Sense grup'}`,
     `- Nom original: ${asNullableString(data.originalName) ?? 'Sense valor'}`,
@@ -1232,7 +1364,9 @@ async function formatDraftSummary(context: TelegramCatalogAdminContext, data: Re
     `- Llengua: ${asNullableString(data.language) ?? 'Sense valor'}`,
     `- Editorial: ${asNullableString(data.publisher) ?? 'Sense valor'}`,
     `- Any publicacio: ${asNullableNumber(data.publicationYear) ?? 'Sense valor'}`,
-    `- Jugadors: ${renderPlayerRange(asNullableNumber(data.playerCountMin), asNullableNumber(data.playerCountMax))}`,
+    ...(itemTypeSupportsPlayers(itemType)
+      ? [`- Jugadors: ${renderPlayerRange(asNullableNumber(data.playerCountMin), asNullableNumber(data.playerCountMax))}`]
+      : []),
     `- Edat recomanada: ${asNullableNumber(data.recommendedAge) ?? 'Sense valor'}`,
     `- Durada: ${asNullableNumber(data.playTimeMinutes) ?? 'Sense valor'}`,
     `- Referencies externes: ${renderOptionalObject(asNullableObject(data.externalRefs))}`,

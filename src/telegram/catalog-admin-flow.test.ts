@@ -939,7 +939,7 @@ test('handleTelegramCatalogAdminText lets rpg books pick a popular family or cre
   assert.equal(getCurrentSession(), null);
 });
 
-test('handleTelegramCatalogAdminCallback edits and deactivates existing items', async () => {
+test('handleTelegramCatalogAdminCallback edits items through a field menu and deactivates them afterwards', async () => {
   const repository = createRepository({
     items: [
       {
@@ -967,46 +967,52 @@ test('handleTelegramCatalogAdminCallback edits and deactivates existing items', 
     ],
   });
   const auditRepository = createAuditRepository();
-  const { context } = createContext({ repository, auditRepository });
+  const { context, replies } = createContext({ repository, auditRepository });
 
   context.callbackData = `${catalogAdminCallbackPrefixes.edit}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   delete context.callbackData;
+  assert.match(replies.at(-1)?.message ?? '', /Quin camp vols editar primer/);
+
+  context.messageText = 'Nom visible';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'Root Deluxe';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.keepCurrent;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.keepCurrent;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.keepCurrent;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.keepCurrent;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
+
+  context.messageText = 'Editorial';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'Leder Games';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.skipOptional;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '2';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '5';
+
+  context.messageText = 'Edat recomanada';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '10';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  context.messageText = 'Durada';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '90';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  context.messageText = 'Referencies externes';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '{"bggId":1234}';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  context.messageText = 'Metadata';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '{"complexity":"medium"}';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  context.messageText = 'Guardar canvis';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.confirmEdit;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.equal((await repository.findItemById(3))?.displayName, 'Root Deluxe');
   assert.equal((await repository.findItemById(3))?.publisher, 'Leder Games');
+  assert.equal((await repository.findItemById(3))?.playerCountMin, 2);
+  assert.equal((await repository.findItemById(3))?.playerCountMax, 4);
   assert.equal((await repository.findItemById(3))?.recommendedAge, 10);
   assert.equal((await repository.findItemById(3))?.playTimeMinutes, 90);
   assert.deepEqual((await repository.findItemById(3))?.externalRefs, { bggId: 1234 });
@@ -1020,6 +1026,50 @@ test('handleTelegramCatalogAdminCallback edits and deactivates existing items', 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal((await repository.findItemById(3))?.lifecycleStatus, 'deactivated');
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.deactivated');
+});
+
+test('handleTelegramCatalogAdminText skips player prompts for books and clears legacy player counts on edit', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 5,
+        familyId: null,
+        groupId: null,
+        itemType: 'book',
+        displayName: 'Mort',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: 'Mai Mes',
+        publicationYear: 2020,
+        playerCountMin: 1,
+        playerCountMax: 2,
+        recommendedAge: null,
+        playTimeMinutes: 180,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies } = createContext({ repository });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.edit}5`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  delete context.callbackData;
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Jugadors/);
+
+  context.messageText = 'Guardar canvis';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Jugadors:/);
+  context.messageText = catalogAdminLabels.confirmEdit;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.equal((await repository.findItemById(5))?.playerCountMin, null);
+  assert.equal((await repository.findItemById(5))?.playerCountMax, null);
 });
 
 test('handleTelegramCatalogAdminText lists grouped catalog items and navigates from group to item detail', async () => {
