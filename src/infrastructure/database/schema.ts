@@ -92,3 +92,55 @@ export const clubTables = pgTable('club_tables', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
 });
+
+export const scheduleEvents = pgTable('schedule_events', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description'),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  organizerTelegramUserId: bigint('organizer_telegram_user_id', { mode: 'number' })
+    .notNull()
+    .references(() => users.telegramUserId),
+  createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
+    .notNull()
+    .references(() => users.telegramUserId),
+  tableId: bigint('table_id', { mode: 'number' }).references(() => clubTables.id),
+  capacity: integer('capacity').notNull(),
+  lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('scheduled'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  cancelledByTelegramUserId: bigint('cancelled_by_telegram_user_id', { mode: 'number' }).references(
+    () => users.telegramUserId,
+  ),
+  cancellationReason: text('cancellation_reason'),
+});
+
+export const scheduleEventParticipants = pgTable(
+  'schedule_event_participants',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    scheduleEventId: bigint('schedule_event_id', { mode: 'number' })
+      .notNull()
+      .references(() => scheduleEvents.id),
+    participantTelegramUserId: bigint('participant_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    addedByTelegramUserId: bigint('added_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    removedByTelegramUserId: bigint('removed_by_telegram_user_id', { mode: 'number' }).references(
+      () => users.telegramUserId,
+    ),
+    joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    leftAt: timestamp('left_at', { withTimezone: true }),
+  },
+  (table) => ({
+    participantPerEvent: uniqueIndex('schedule_event_participants_unique_participant').on(
+      table.scheduleEventId,
+      table.participantTelegramUserId,
+    ),
+  }),
+);
