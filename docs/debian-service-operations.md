@@ -197,3 +197,9 @@ La futura safata Debian assumirà exactament aquesta convenció:
 - permisos delegats a `polkit`
 
 Si aquestes convencions canvien, també caldrà actualitzar la capa `service-control` i la futura UI de safata.
+
+## Backup i recuperació
+
+El runbook específic de backup, restore i recuperació és a:
+
+- `docs/backup-restore-recovery.md`

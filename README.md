@@ -478,9 +478,13 @@ El objetivo operativo es:
 Más adelante se documentarán:
 
 - fichero de servicio `systemd`
-- estrategia de backups
 - actualización del bot
-- restauración del sistema
+
+Documentación ya disponible:
+
+- `docs/debian-service-operations.md`
+- `docs/debian-tray-operations.md`
+- `docs/backup-restore-recovery.md`
 
 ## Principios de implementación
 
