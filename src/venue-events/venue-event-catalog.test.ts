@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   cancelVenueEvent,
   createVenueEvent,
+  findRelevantVenueEventsForRange,
   listVenueEvents,
   updateVenueEvent,
   type VenueEventRecord,
@@ -229,4 +230,59 @@ test('cancelVenueEvent cancels without deleting the historical record', async ()
   assert.equal(cancelled.lifecycleStatus, 'cancelled');
   assert.equal(cancelled.cancellationReason, 'Canvi de sala');
   assert.equal(cancelled.id, 4);
+});
+
+test('findRelevantVenueEventsForRange returns only overlapping active venue events', async () => {
+  const repository = createRepository([
+    {
+      id: 5,
+      name: 'Campionat regional',
+      description: null,
+      startsAt: '2026-04-10T15:00:00.000Z',
+      endsAt: '2026-04-10T21:00:00.000Z',
+      occupancyScope: 'full',
+      impactLevel: 'high',
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancellationReason: null,
+    },
+    {
+      id: 6,
+      name: 'Taller infantil',
+      description: null,
+      startsAt: '2026-04-10T09:00:00.000Z',
+      endsAt: '2026-04-10T11:00:00.000Z',
+      occupancyScope: 'partial',
+      impactLevel: 'medium',
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancellationReason: null,
+    },
+    {
+      id: 7,
+      name: 'Acte cancel.lat',
+      description: null,
+      startsAt: '2026-04-10T16:00:00.000Z',
+      endsAt: '2026-04-10T17:00:00.000Z',
+      occupancyScope: 'partial',
+      impactLevel: 'low',
+      lifecycleStatus: 'cancelled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: '2026-04-04T12:00:00.000Z',
+      cancellationReason: 'Aplacat',
+    },
+  ]);
+
+  const relevant = await findRelevantVenueEventsForRange({
+    repository,
+    startsAt: '2026-04-10T16:00:00.000Z',
+    endsAt: '2026-04-10T18:00:00.000Z',
+  });
+
+  assert.deepEqual(relevant.map((event) => event.id), [5]);
 });

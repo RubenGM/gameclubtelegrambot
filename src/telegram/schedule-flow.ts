@@ -14,6 +14,12 @@ import {
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import { listClubTables, type ClubTableRecord, type ClubTableRepository } from '../tables/table-catalog.js';
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
+import {
+  findRelevantVenueEventsForRange,
+  type VenueEventRecord,
+  type VenueEventRepository,
+} from '../venue-events/venue-event-catalog.js';
+import { createDatabaseVenueEventRepository } from '../venue-events/venue-event-catalog-store.js';
 import type { TelegramActor } from './actor-store.js';
 import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramChatContext } from './chat-context.js';
@@ -73,6 +79,7 @@ export interface TelegramScheduleContext {
   };
   scheduleRepository?: ScheduleRepository;
   tableRepository?: ClubTableRepository;
+  venueEventRepository?: VenueEventRepository;
 }
 
 export async function handleTelegramScheduleText(context: TelegramScheduleContext): Promise<boolean> {
@@ -650,12 +657,24 @@ async function formatScheduleEventView(
     eventId: event.id,
   });
 
+  const relevantVenueEvents = await listRelevantVenueEventsForScheduleEvent(context, event);
+
   return [
     formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) }),
     `Final: ${getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')}`,
     `Places ocupades: ${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`,
     `Places lliures: ${attendance.snapshot.availableSeats}`,
     `Assistents: ${attendance.activeParticipantTelegramUserIds.length > 0 ? attendance.activeParticipantTelegramUserIds.join(', ') : 'Cap'}`,
+    ...(relevantVenueEvents.length > 0
+      ? [
+          'Esdeveniments del local rellevants:',
+          ...relevantVenueEvents.map(
+            (venueEvent) =>
+              `- ${venueEvent.name} (${formatTimestamp(venueEvent.startsAt)} - ${formatTimestamp(venueEvent.endsAt)}, ocupacio ${venueEvent.occupancyScope}, impacte ${venueEvent.impactLevel})`,
+          ),
+          'Aixo no bloqueja automaticament l activitat; serveix com a context per decidir millor.',
+        ]
+      : []),
   ].join('\n');
 }
 
@@ -666,7 +685,9 @@ async function replyWithInspectableEventList(context: TelegramScheduleContext): 
     return true;
   }
 
-  await context.reply(formatScheduleListMessage(events), {
+  const listMessage = await formatScheduleListWithVenueImpact(context, events);
+
+  await context.reply(listMessage, {
     inlineKeyboard: events.map((event) => [{ text: `Veure ${event.title}`, callbackData: `${scheduleCallbackPrefixes.inspect}${event.id}` }]),
   });
   return true;
@@ -732,6 +753,10 @@ function buildStartsAt(date: string, time: string): string {
   return `${date}T${time}:00.000Z`;
 }
 
+function formatTimestamp(value: string): string {
+  return value.slice(0, 16).replace('T', ' ');
+}
+
 function parseEntityId(callbackData: string, prefix: string, kind: string): number {
   const candidate = Number(callbackData.slice(prefix.length));
   if (!Number.isInteger(candidate) || candidate <= 0) {
@@ -758,6 +783,47 @@ function asNullableString(value: unknown): string | null {
 
 function asNullableNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null;
+}
+
+function resolveVenueEventRepository(context: TelegramScheduleContext): VenueEventRepository {
+  if (context.venueEventRepository) {
+    return context.venueEventRepository;
+  }
+
+  return createDatabaseVenueEventRepository({
+    database: context.runtime.services.database.db as never,
+  });
+}
+
+async function listRelevantVenueEventsForScheduleEvent(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+): Promise<VenueEventRecord[]> {
+  return findRelevantVenueEventsForRange({
+    repository: resolveVenueEventRepository(context),
+    startsAt: event.startsAt,
+    endsAt: getScheduleEventEndsAt(event),
+  });
+}
+
+async function formatScheduleListWithVenueImpact(
+  context: TelegramScheduleContext,
+  events: ScheduleEventRecord[],
+): Promise<string> {
+  const lines = ['Activitats disponibles:'];
+
+  for (const event of events) {
+    lines.push(`- ${event.title} (${formatTimestamp(event.startsAt)})`);
+    const relevantVenueEvents = await listRelevantVenueEventsForScheduleEvent(context, event);
+    if (relevantVenueEvents.length > 0) {
+      const summary = relevantVenueEvents
+        .map((venueEvent) => `${venueEvent.name} (ocupacio ${venueEvent.occupancyScope}, impacte ${venueEvent.impactLevel})`)
+        .join(', ');
+      lines.push(`  Impacte local: ${summary}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 async function notifyScheduleConflicts({

@@ -161,6 +161,26 @@ export async function cancelVenueEvent({
   });
 }
 
+export async function findRelevantVenueEventsForRange({
+  repository,
+  startsAt,
+  endsAt,
+}: {
+  repository: VenueEventRepository;
+  startsAt: string;
+  endsAt: string;
+}): Promise<VenueEventRecord[]> {
+  const normalizedStartsAt = normalizeTimestamp(startsAt, 'inici');
+  const normalizedEndsAt = normalizeTimestamp(endsAt, 'final');
+  ensureTimeRange(normalizedStartsAt, normalizedEndsAt);
+
+  return repository.listVenueEvents({
+    includeCancelled: false,
+    startsAtFrom: normalizedStartsAt,
+    endsAtTo: normalizedEndsAt,
+  });
+}
+
 function normalizeName(name: string): string {
   const normalized = name.trim();
   if (!normalized) {

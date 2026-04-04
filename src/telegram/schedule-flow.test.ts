@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import type { ScheduleEventRecord, ScheduleParticipantRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
+import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import {
@@ -120,14 +121,90 @@ function createTableRepository(initialTables: ClubTableRecord[] = []): ClubTable
   };
 }
 
+function createVenueEventRepository(initialEvents: VenueEventRecord[] = []): VenueEventRepository {
+  const events = new Map(initialEvents.map((event) => [event.id, event]));
+  let nextId = Math.max(0, ...initialEvents.map((event) => event.id)) + 1;
+
+  return {
+    async createVenueEvent(input) {
+      const createdAt = '2026-04-04T10:00:00.000Z';
+      const next: VenueEventRecord = {
+        id: nextId,
+        name: input.name,
+        description: input.description,
+        startsAt: input.startsAt,
+        endsAt: input.endsAt,
+        occupancyScope: input.occupancyScope,
+        impactLevel: input.impactLevel,
+        lifecycleStatus: 'scheduled',
+        createdAt,
+        updatedAt: createdAt,
+        cancelledAt: null,
+        cancellationReason: null,
+      };
+      nextId += 1;
+      events.set(next.id, next);
+      return next;
+    },
+    async findVenueEventById(eventId: number) {
+      return events.get(eventId) ?? null;
+    },
+    async listVenueEvents({ includeCancelled, startsAtFrom, endsAtTo }) {
+      return Array.from(events.values()).filter((event) => {
+        if (!includeCancelled && event.lifecycleStatus === 'cancelled') {
+          return false;
+        }
+        if (startsAtFrom && event.endsAt < startsAtFrom) {
+          return false;
+        }
+        if (endsAtTo && event.startsAt > endsAtTo) {
+          return false;
+        }
+        return true;
+      });
+    },
+    async updateVenueEvent(input) {
+      const existing = events.get(input.eventId);
+      if (!existing) throw new Error(`unknown venue event ${input.eventId}`);
+      const next: VenueEventRecord = {
+        ...existing,
+        name: input.name,
+        description: input.description,
+        startsAt: input.startsAt,
+        endsAt: input.endsAt,
+        occupancyScope: input.occupancyScope,
+        impactLevel: input.impactLevel,
+        updatedAt: '2026-04-04T11:00:00.000Z',
+      };
+      events.set(next.id, next);
+      return next;
+    },
+    async cancelVenueEvent(input) {
+      const existing = events.get(input.eventId);
+      if (!existing) throw new Error(`unknown venue event ${input.eventId}`);
+      const next: VenueEventRecord = {
+        ...existing,
+        lifecycleStatus: 'cancelled',
+        cancelledAt: '2026-04-04T12:00:00.000Z',
+        cancellationReason: input.reason ?? null,
+        updatedAt: '2026-04-04T12:00:00.000Z',
+      };
+      events.set(next.id, next);
+      return next;
+    },
+  };
+}
+
 function createContext({
   scheduleRepository = createScheduleRepository(),
   tableRepository = createTableRepository(),
+  venueEventRepository = createVenueEventRepository(),
   actorTelegramUserId = 99,
   isAdmin = false,
 }: {
   scheduleRepository?: ScheduleRepository;
   tableRepository?: ClubTableRepository;
+  venueEventRepository?: VenueEventRepository;
   actorTelegramUserId?: number;
   isAdmin?: boolean;
 } = {}) {
@@ -205,6 +282,7 @@ function createContext({
     },
     scheduleRepository,
     tableRepository,
+    venueEventRepository,
   };
 
   context.runtime.bot.sendPrivateMessage = async (telegramUserId: number, message: string) => {
@@ -325,6 +403,49 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
   });
 });
 
+test('handleTelegramScheduleText includes venue impact hints in the activity list when the local is affected', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 14,
+      title: 'Wingspan',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const venueEventRepository = createVenueEventRepository([
+    {
+      id: 1,
+      name: 'Campionat regional',
+      description: null,
+      startsAt: '2026-04-05T15:00:00.000Z',
+      endsAt: '2026-04-05T21:00:00.000Z',
+      occupancyScope: 'full',
+      impactLevel: 'high',
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, venueEventRepository, actorTelegramUserId: 77 });
+  context.messageText = scheduleLabels.list;
+
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Impacte local: Campionat regional \(ocupacio full, impacte high\)/);
+});
+
 test('handleTelegramScheduleCallback shows activity attendance and allows joining when seats remain', async () => {
   const scheduleRepository = createScheduleRepository([
     {
@@ -357,6 +478,53 @@ test('handleTelegramScheduleCallback shows activity attendance and allows joinin
   assert.deepEqual(replies.at(-1)?.options, {
     inlineKeyboard: [[{ text: 'Apuntar-me', callbackData: 'schedule:join:6' }]],
   });
+});
+
+test('handleTelegramScheduleCallback shows overlapping venue event context in the schedule detail view', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 16,
+      title: 'Azul',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await scheduleRepository.upsertParticipant({ eventId: 16, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active' });
+  const venueEventRepository = createVenueEventRepository([
+    {
+      id: 2,
+      name: 'Campionat regional',
+      description: 'Afecta gran part del local',
+      startsAt: '2026-04-05T15:00:00.000Z',
+      endsAt: '2026-04-05T21:00:00.000Z',
+      occupancyScope: 'full',
+      impactLevel: 'high',
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, venueEventRepository, actorTelegramUserId: 77 });
+  context.callbackData = `${scheduleCallbackPrefixes.inspect}16`;
+
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Esdeveniments del local rellevants:/);
+  assert.match(replies.at(-1)?.message ?? '', /Campionat regional/);
+  assert.match(replies.at(-1)?.message ?? '', /ocupacio full, impacte high/);
+  assert.match(replies.at(-1)?.message ?? '', /Aixo no bloqueja automaticament l activitat/);
 });
 
 test('handleTelegramScheduleCallback joins and leaves an activity updating attendance immediately', async () => {
