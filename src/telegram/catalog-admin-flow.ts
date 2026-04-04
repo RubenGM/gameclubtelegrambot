@@ -391,7 +391,15 @@ async function handleCreateSession(
       await context.reply('Tria un grup valid pel seu id o continua sense grup.', buildGroupOptions());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'original-name', data: { ...data, groupId } });
+    const nextData = { ...data, groupId };
+    if (String(data.itemType ?? 'board-game') === 'board-game') {
+      await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
+      await context.reply(`${await formatDraftSummary(context, nextData)}
+
+Tria una opcio per confirmar o cancel.lar.`, buildCreateConfirmOptions());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'original-name', data: nextData });
     await context.reply('Escriu el nom original opcional o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableString(data.originalName)));
     return true;
   }
@@ -559,6 +567,18 @@ Tria una opcio per confirmar o cancel.lar.`, buildCreateConfirmOptions());
       summary: `Item de cataleg creat: ${item.displayName}`,
       details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
     });
+    if (item.itemType === 'board-game') {
+      await context.runtime.session.start({
+        flowKey: editFlowKey,
+        stepKey: 'select-field',
+        data: { itemId: item.id },
+      });
+      await context.reply(
+        `Item de cataleg creat correctament: ${item.displayName} (#${item.id}). Ara el pots editar camp a camp.`,
+        buildEditFieldMenuOptions(item.itemType),
+      );
+      return true;
+    }
     await context.runtime.session.cancel();
     await context.reply(`Item de cataleg creat correctament: ${item.displayName} (#${item.id}).`, buildCatalogAdminMenuOptions());
     return true;
@@ -992,7 +1012,7 @@ async function buildFamilyOptions(
   context: TelegramCatalogAdminContext,
   itemType: CatalogItemType,
 ): Promise<TelegramReplyOptions> {
-  if (itemType !== 'rpg-book' && itemType !== 'book') {
+  if (itemType !== 'rpg-book' && itemType !== 'book' && itemType !== 'board-game') {
     return {
       replyKeyboard: [[catalogAdminLabels.noFamily], [catalogAdminLabels.cancel]],
       resizeKeyboard: true,
@@ -1433,7 +1453,7 @@ async function parseFamilyInput(
   if (existingFamily) {
     return existingFamily.id;
   }
-  if (itemType !== 'rpg-book' && itemType !== 'book') {
+  if (itemType !== 'rpg-book' && itemType !== 'book' && itemType !== 'board-game') {
     return new Error('unknown-family');
   }
 
@@ -1560,12 +1580,18 @@ async function loadGroupName(context: TelegramCatalogAdminContext, groupId: numb
 
 async function buildFamilyPrompt(context: TelegramCatalogAdminContext, itemType: CatalogItemType): Promise<string> {
   const families = await resolveCatalogRepository(context).listFamilies();
-  if (itemType === 'rpg-book' || itemType === 'book') {
+  if (itemType === 'rpg-book' || itemType === 'book' || itemType === 'board-game') {
     const popularFamilies = await listPopularFamilies(context, itemType);
     if (popularFamilies.length === 0) {
+      if (itemType === 'board-game') {
+        return 'Escriu la familia del joc de taula. Si no existeix, la creare. També pots continuar sense familia.';
+      }
       return itemType === 'rpg-book'
         ? 'Escriu la familia del llibre RPG. Si no existeix, la creare. També pots continuar sense familia.'
         : 'Escriu la familia del llibre. Si no existeix, la creare. També pots continuar sense familia.';
+    }
+    if (itemType === 'board-game') {
+      return 'Escriu o tria una familia del joc de taula. Si no existeix, la creare. També pots continuar sense familia.';
     }
     return itemType === 'rpg-book'
       ? 'Escriu o tria una familia del llibre RPG. Si no existeix, la creare. També pots continuar sense familia.'
