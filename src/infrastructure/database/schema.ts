@@ -3,6 +3,7 @@ import {
   bigserial,
   boolean,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -79,6 +80,17 @@ export const userStatusAuditLog = pgTable('user_status_audit_log', {
   nextStatus: varchar('next_status', { length: 16 }).notNull(),
   changedByTelegramUserId: bigint('changed_by_telegram_user_id', { mode: 'number' }).notNull(),
   reason: text('reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const auditLog = pgTable('audit_log', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  actorTelegramUserId: bigint('actor_telegram_user_id', { mode: 'number' }),
+  actionKey: varchar('action_key', { length: 128 }).notNull(),
+  targetType: varchar('target_type', { length: 64 }).notNull(),
+  targetId: varchar('target_id', { length: 128 }).notNull(),
+  summary: text('summary').notNull(),
+  details: jsonb('details'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

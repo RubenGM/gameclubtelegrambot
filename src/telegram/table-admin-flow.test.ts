@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
@@ -77,9 +78,11 @@ function createRepository(initialTables: ClubTableRecord[] = []): ClubTableRepos
 
 function createContext({
   repository = createRepository(),
+  auditRepository = createAuditRepository(),
   isAdmin = true,
 }: {
   repository?: ClubTableRepository;
+  auditRepository?: AuditLogRepository;
   isAdmin?: boolean;
 } = {}) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions | undefined }> = [];
@@ -180,12 +183,32 @@ function createContext({
       },
     },
     tableRepository: repository,
+    auditRepository,
   };
 
   return {
     context,
     replies,
     getCurrentSession: () => currentSession,
+  };
+}
+
+function createAuditRepository(): AuditLogRepository & { __events: AuditLogEventRecord[] } {
+  const events: AuditLogEventRecord[] = [];
+
+  return {
+    async appendEvent(input) {
+      events.push({
+        actorTelegramUserId: input.actorTelegramUserId,
+        actionKey: input.actionKey,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        summary: input.summary,
+        details: input.details ?? null,
+        createdAt: '2026-04-04T10:00:00.000Z',
+      });
+    },
+    __events: events,
   };
 }
 
@@ -210,7 +233,8 @@ test('handleTelegramTableAdminText opens the admin table menu from the keyboard 
 
 test('handleTelegramTableAdminText creates a table through keyboard-guided conversation steps', async () => {
   const repository = createRepository();
-  const { context, replies, getCurrentSession } = createContext({ repository });
+  const auditRepository = createAuditRepository();
+  const { context, replies, getCurrentSession } = createContext({ repository, auditRepository });
 
   context.messageText = tableAdminLabels.create;
   assert.equal(await handleTelegramTableAdminText(context), true);
@@ -264,6 +288,8 @@ test('handleTelegramTableAdminText creates a table through keyboard-guided conve
       deactivatedAt: null,
     },
   ]);
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'table.created');
+  assert.equal(auditRepository.__events.at(-1)?.targetType, 'club-table');
 });
 
 test('handleTelegramTableAdminText keeps the capacity step active when the numeric value is invalid', async () => {
@@ -373,7 +399,8 @@ test('handleTelegramTableAdminCallback deactivates a table only after explicit c
       deactivatedAt: null,
     },
   ]);
-  const { context, getCurrentSession } = createContext({ repository });
+  const auditRepository = createAuditRepository();
+  const { context, getCurrentSession } = createContext({ repository, auditRepository });
 
   context.callbackData = `${tableAdminCallbackPrefixes.deactivate}5`;
   assert.equal(await handleTelegramTableAdminCallback(context), true);
@@ -388,4 +415,6 @@ test('handleTelegramTableAdminCallback deactivates a table only after explicit c
   assert.equal(await handleTelegramTableAdminText(context), true);
 
   assert.equal((await repository.findTableById(5))?.lifecycleStatus, 'deactivated');
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'table.deactivated');
+  assert.equal(auditRepository.__events.at(-1)?.targetId, '5');
 });

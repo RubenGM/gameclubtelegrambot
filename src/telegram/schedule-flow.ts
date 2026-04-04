@@ -1,3 +1,5 @@
+import { appendAuditEvent, type AuditLogRepository } from '../audit/audit-log.js';
+import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import {
   cancelScheduleEvent,
   createScheduleEvent,
@@ -86,6 +88,7 @@ export interface TelegramScheduleContext {
   scheduleRepository?: ScheduleRepository;
   tableRepository?: ClubTableRepository;
   venueEventRepository?: VenueEventRepository;
+  auditRepository?: AuditLogRepository;
 }
 
 export async function handleTelegramScheduleText(context: TelegramScheduleContext): Promise<boolean> {
@@ -342,6 +345,19 @@ async function handleCreateSession(
       tableId: asNullableNumber(data.tableId),
       capacity: Number(data.capacity),
     });
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'schedule.created',
+      targetType: 'schedule-event',
+      targetId: created.id,
+      summary: `Activitat creada: ${created.title}`,
+      details: {
+        startsAt: created.startsAt,
+        capacity: created.capacity,
+        tableId: created.tableId,
+      },
+    });
     await context.runtime.session.cancel();
     await context.reply(
       `Activitat creada correctament: ${created.title}\n${await formatScheduleEventView(context, created)}`,
@@ -458,6 +474,22 @@ async function handleEditSession(
       tableId: asNullableNumber(data.tableId),
       capacity: Number(data.capacity ?? event.capacity),
     });
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'schedule.updated',
+      targetType: 'schedule-event',
+      targetId: updated.id,
+      summary: `Activitat actualitzada: ${updated.title}`,
+      details: {
+        previousStartsAt: event.startsAt,
+        startsAt: updated.startsAt,
+        previousCapacity: event.capacity,
+        capacity: updated.capacity,
+        previousTableId: event.tableId,
+        tableId: updated.tableId,
+      },
+    });
     await context.runtime.session.cancel();
     await context.reply(
       `Activitat actualitzada correctament: ${updated.title}\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId) })}`,
@@ -483,6 +515,19 @@ async function handleCancelSession(
     repository: resolveScheduleRepository(context),
     eventId: Number(data.eventId),
     actorTelegramUserId: context.runtime.actor.telegramUserId,
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'schedule.cancelled',
+    targetType: 'schedule-event',
+    targetId: cancelled.id,
+    summary: `Activitat cancel.lada: ${cancelled.title}`,
+    details: {
+      startsAt: cancelled.startsAt,
+      cancelledAt: cancelled.cancelledAt,
+      cancellationReason: cancelled.cancellationReason,
+    },
   });
   await context.runtime.session.cancel();
   await context.reply(`Activitat cancel.lada correctament: ${cancelled.title}`, buildScheduleMenuOptions());
@@ -560,6 +605,13 @@ function resolveTableRepository(context: TelegramScheduleContext): ClubTableRepo
     return context.tableRepository;
   }
   return createDatabaseClubTableRepository({ database: context.runtime.services.database.db as never });
+}
+
+function resolveAuditRepository(context: TelegramScheduleContext): AuditLogRepository {
+  if (context.auditRepository) {
+    return context.auditRepository;
+  }
+  return createDatabaseAuditLogRepository({ database: context.runtime.services.database.db as never });
 }
 
 async function loadEventOrThrow(context: TelegramScheduleContext, eventId: number): Promise<ScheduleEventRecord> {

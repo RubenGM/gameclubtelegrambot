@@ -1,3 +1,5 @@
+import { appendAuditEvent, type AuditLogRepository } from '../audit/audit-log.js';
+import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import {
   createClubTable,
   deactivateClubTable,
@@ -64,6 +66,7 @@ export interface TelegramTableAdminContext {
     };
   };
   tableRepository?: ClubTableRepository;
+  auditRepository?: AuditLogRepository;
 }
 
 export async function handleTelegramTableAdminText(
@@ -265,6 +268,19 @@ async function handleCreateSession(
       description: (data.description as string | null | undefined) ?? null,
       recommendedCapacity: (data.recommendedCapacity as number | null | undefined) ?? null,
     });
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'table.created',
+      targetType: 'club-table',
+      targetId: table.id,
+      summary: `Taula creada: ${table.displayName}`,
+      details: {
+        displayName: table.displayName,
+        recommendedCapacity: table.recommendedCapacity,
+        lifecycleStatus: table.lifecycleStatus,
+      },
+    });
     await context.runtime.session.cancel();
     await context.reply(
       `Taula creada correctament: ${table.displayName} (#${table.id}).`,
@@ -368,6 +384,20 @@ async function handleEditSession(
         ? (data.recommendedCapacity as number | null)
         : table.recommendedCapacity,
     });
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'table.updated',
+      targetType: 'club-table',
+      targetId: updated.id,
+      summary: `Taula actualitzada: ${updated.displayName}`,
+      details: {
+        previousDisplayName: table.displayName,
+        displayName: updated.displayName,
+        previousRecommendedCapacity: table.recommendedCapacity,
+        recommendedCapacity: updated.recommendedCapacity,
+      },
+    });
     await context.runtime.session.cancel();
     await context.reply(
       `Taula actualitzada correctament: ${updated.displayName} (#${updated.id}).`,
@@ -397,6 +427,19 @@ async function handleDeactivateSession(
     repository: resolveTableRepository(context),
     tableId,
   });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'table.deactivated',
+    targetType: 'club-table',
+    targetId: table.id,
+    summary: `Taula desactivada: ${table.displayName}`,
+    details: {
+      displayName: table.displayName,
+      lifecycleStatus: table.lifecycleStatus,
+      deactivatedAt: table.deactivatedAt,
+    },
+  });
   await context.runtime.session.cancel();
   await context.reply(
     `Taula desactivada correctament: ${table.displayName} (#${table.id}).`,
@@ -415,6 +458,13 @@ function buildTableAdminMenuOptions(): TelegramReplyOptions {
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
+}
+
+function resolveAuditRepository(context: TelegramTableAdminContext): AuditLogRepository {
+  if (context.auditRepository) {
+    return context.auditRepository;
+  }
+  return createDatabaseAuditLogRepository({ database: context.runtime.services.database.db as never });
 }
 
 function buildDescriptionOptions(): TelegramReplyOptions {

@@ -6,10 +6,15 @@ import {
   type AdminElevationRepository,
   type AdminElevationUserRecord,
 } from './admin-elevation.js';
+import type { AuditLogEventRecord } from '../audit/audit-log.js';
 
-function createRepository(initialUsers: AdminElevationUserRecord[] = []): AdminElevationRepository {
+function createRepository(initialUsers: AdminElevationUserRecord[] = []): AdminElevationRepository & {
+  __auditLog: string[];
+  __auditEvents: AuditLogEventRecord[];
+} {
   const users = new Map(initialUsers.map((user) => [user.telegramUserId, user]));
   const auditLog: string[] = [];
+  const auditEvents: AuditLogEventRecord[] = [];
 
   return {
     async findUserByTelegramUserId(telegramUserId) {
@@ -32,8 +37,20 @@ function createRepository(initialUsers: AdminElevationUserRecord[] = []): AdminE
     async appendAdminElevationAuditLog(input) {
       auditLog.push(`audit:${input.telegramUserId}:${input.outcome}:${input.reason ?? 'none'}`);
     },
+    async appendAuditEvent(input) {
+      auditEvents.push({
+        actorTelegramUserId: input.actorTelegramUserId,
+        actionKey: input.actionKey,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        summary: input.summary,
+        details: input.details ?? null,
+        createdAt: '2026-04-04T10:00:00.000Z',
+      });
+    },
     __auditLog: auditLog,
-  } as AdminElevationRepository & { __auditLog: string[] };
+    __auditEvents: auditEvents,
+  };
 }
 
 test('elevateApprovedUserToAdmin promotes an approved user with the correct password', async () => {
@@ -55,6 +72,8 @@ test('elevateApprovedUserToAdmin promotes an approved user with the correct pass
 
   assert.equal(result.outcome, 'elevated');
   assert.match(result.message, /Ara tens permisos d administrador/);
+  assert.equal(repository.__auditEvents.at(-1)?.actionKey, 'membership.admin-elevated');
+  assert.equal(repository.__auditEvents.at(-1)?.targetId, '42');
 });
 
 test('elevateApprovedUserToAdmin rejects unapproved users even with the correct password', async () => {

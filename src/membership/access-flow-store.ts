@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 
+import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { userStatusAuditLog, users } from '../infrastructure/database/schema.js';
 import type { MembershipAccessRepository, MembershipUserRecord, MembershipUserStatus } from './access-flow.js';
@@ -9,6 +10,8 @@ export function createDatabaseMembershipAccessRepository({
 }: {
   database: DatabaseConnection['db'];
 }): MembershipAccessRepository {
+  const auditRepository = createDatabaseAuditLogRepository({ database });
+
   return {
     async findUserByTelegramUserId(telegramUserId) {
       const result = await database
@@ -111,6 +114,9 @@ export function createDatabaseMembershipAccessRepository({
         changedByTelegramUserId: input.changedByTelegramUserId,
         ...(input.reason !== undefined ? { reason: input.reason } : {}),
       });
+    },
+    async appendAuditEvent(input) {
+      await auditRepository.appendEvent(input);
     },
   };
 }

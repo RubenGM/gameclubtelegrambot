@@ -57,6 +57,13 @@
       "when": 1775312629580,
       "tag": "0007_safe_red_shift",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775316161876,
+      "tag": "0008_lying_talisman",
+      "breakpoints": true
     }
   ]
 }

@@ -9,10 +9,16 @@ import {
   type MembershipAccessRepository,
   type MembershipUserRecord,
 } from './access-flow.js';
+import type { AuditLogEventRecord } from '../audit/audit-log.js';
 
-function createRepository(initialUsers: MembershipUserRecord[] = []): MembershipAccessRepository {
+function createRepository(initialUsers: MembershipUserRecord[] = []): MembershipAccessRepository & {
+  __statusLog: string[];
+  __auditEvents: AuditLogEventRecord[];
+  __users: Map<number, MembershipUserRecord>;
+} {
   const users = new Map(initialUsers.map((user) => [user.telegramUserId, user]));
   const statusLog: string[] = [];
+  const auditEvents: AuditLogEventRecord[] = [];
 
   return {
     async findUserByTelegramUserId(telegramUserId) {
@@ -55,11 +61,20 @@ function createRepository(initialUsers: MembershipUserRecord[] = []): Membership
         `audit:${input.telegramUserId}:${input.previousStatus ?? 'null'}:${input.nextStatus}:${input.changedByTelegramUserId}`,
       );
     },
+    async appendAuditEvent(input) {
+      auditEvents.push({
+        actorTelegramUserId: input.actorTelegramUserId,
+        actionKey: input.actionKey,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        summary: input.summary,
+        details: input.details ?? null,
+        createdAt: '2026-04-04T10:00:00.000Z',
+      });
+    },
     __statusLog: statusLog,
+    __auditEvents: auditEvents,
     __users: users,
-  } as MembershipAccessRepository & {
-    __statusLog: string[];
-    __users: Map<number, MembershipUserRecord>;
   };
 }
 
@@ -186,6 +201,8 @@ test('approveMembershipRequest approves a pending user and returns applicant not
 
   assert.equal(result.outcome, 'approved');
   assert.match(result.applicantMessage, /La teva sollicitud ha estat aprovada/);
+  assert.equal(repository.__auditEvents.at(-1)?.actionKey, 'membership.approved');
+  assert.equal(repository.__auditEvents.at(-1)?.targetId, '10');
 });
 
 test('approveMembershipRequest is safe against duplicate approvals', async () => {
@@ -228,4 +245,6 @@ test('rejectMembershipRequest blocks a pending user and returns applicant notifi
 
   assert.equal(result.outcome, 'blocked');
   assert.match(result.applicantMessage, /La teva sollicitud d accés ha estat rebutjada/);
+  assert.equal(repository.__auditEvents.at(-1)?.actionKey, 'membership.rejected');
+  assert.equal(repository.__auditEvents.at(-1)?.actorTelegramUserId, 99);
 });

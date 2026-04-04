@@ -1,5 +1,6 @@
 import { sql, eq } from 'drizzle-orm';
 
+import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import type { AdminElevationRepository, AdminElevationUserRecord } from './admin-elevation.js';
 import { users } from '../infrastructure/database/schema.js';
@@ -9,6 +10,8 @@ export function createDatabaseAdminElevationRepository({
 }: {
   database: DatabaseConnection['db'];
 }): AdminElevationRepository {
+  const auditRepository = createDatabaseAuditLogRepository({ database });
+
   return {
     async findUserByTelegramUserId(telegramUserId) {
       const result = await database
@@ -49,6 +52,9 @@ export function createDatabaseAdminElevationRepository({
         sql`insert into user_status_audit_log (subject_telegram_user_id, previous_status, next_status, changed_by_telegram_user_id, reason)
             values (${input.telegramUserId}, null, 'approved', ${input.telegramUserId}, ${input.reason ?? input.outcome})`,
       );
+    },
+    async appendAuditEvent(input) {
+      await auditRepository.appendEvent(input);
     },
   };
 }

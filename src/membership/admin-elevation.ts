@@ -1,4 +1,5 @@
 import { verifySecret } from '../security/verify-password-hash.js';
+import { appendAuditEvent, type AuditLogAppendInput } from '../audit/audit-log.js';
 
 export interface AdminElevationUserRecord {
   telegramUserId: number;
@@ -18,6 +19,7 @@ export interface AdminElevationRepository {
     outcome: 'elevated' | 'not-approved' | 'blocked' | 'already-admin' | 'invalid-password' | 'missing';
     reason?: string | null;
   }): Promise<void>;
+  appendAuditEvent(input: AuditLogAppendInput): Promise<void>;
 }
 
 export async function elevateApprovedUserToAdmin({
@@ -108,6 +110,17 @@ export async function elevateApprovedUserToAdmin({
     telegramUserId,
     outcome: 'elevated',
     reason: 'password-match',
+  });
+  await appendAuditEvent({
+    repository: { appendEvent: repository.appendAuditEvent },
+    actorTelegramUserId: telegramUserId,
+    actionKey: 'membership.admin-elevated',
+    targetType: 'membership-user',
+    targetId: telegramUserId,
+    summary: 'Usuari elevat a administrador',
+    details: {
+      outcome: 'elevated',
+    },
   });
 
   return {

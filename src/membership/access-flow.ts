@@ -1,3 +1,5 @@
+import { appendAuditEvent, type AuditLogAppendInput } from '../audit/audit-log.js';
+
 export type MembershipUserStatus = 'pending' | 'approved' | 'blocked';
 
 export interface MembershipUserRecord {
@@ -30,6 +32,7 @@ export interface MembershipAccessRepository {
     changedByTelegramUserId: number;
     reason?: string | null;
   }): Promise<void>;
+  appendAuditEvent(input: AuditLogAppendInput): Promise<void>;
 }
 
 export async function requestMembershipAccess({
@@ -146,6 +149,18 @@ export async function approveMembershipRequest({
     changedByTelegramUserId: adminTelegramUserId,
     reason: 'member-access-approved',
   });
+  await appendAuditEvent({
+    repository: { appendEvent: repository.appendAuditEvent },
+    actorTelegramUserId: adminTelegramUserId,
+    actionKey: 'membership.approved',
+    targetType: 'membership-user',
+    targetId: applicantTelegramUserId,
+    summary: 'Usuari aprovat correctament',
+    details: {
+      previousStatus: existing.status,
+      nextStatus: 'approved',
+    },
+  });
 
   return {
     outcome: 'approved',
@@ -207,6 +222,19 @@ export async function rejectMembershipRequest({
     nextStatus: 'blocked',
     changedByTelegramUserId: adminTelegramUserId,
     reason: reason ?? 'member-access-rejected',
+  });
+  await appendAuditEvent({
+    repository: { appendEvent: repository.appendAuditEvent },
+    actorTelegramUserId: adminTelegramUserId,
+    actionKey: 'membership.rejected',
+    targetType: 'membership-user',
+    targetId: applicantTelegramUserId,
+    summary: 'Sollicitud d acces rebutjada',
+    details: {
+      previousStatus: existing.status,
+      nextStatus: 'blocked',
+      reason: reason ?? null,
+    },
   });
 
   return {

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import type { ScheduleEventRecord, ScheduleParticipantRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
@@ -199,12 +200,14 @@ function createContext({
   scheduleRepository = createScheduleRepository(),
   tableRepository = createTableRepository(),
   venueEventRepository = createVenueEventRepository(),
+  auditRepository = createAuditRepository(),
   actorTelegramUserId = 99,
   isAdmin = false,
 }: {
   scheduleRepository?: ScheduleRepository;
   tableRepository?: ClubTableRepository;
   venueEventRepository?: VenueEventRepository;
+  auditRepository?: AuditLogRepository;
   actorTelegramUserId?: number;
   isAdmin?: boolean;
 } = {}) {
@@ -283,6 +286,7 @@ function createContext({
     scheduleRepository,
     tableRepository,
     venueEventRepository,
+    auditRepository,
   };
 
   context.runtime.bot.sendPrivateMessage = async (telegramUserId: number, message: string) => {
@@ -290,6 +294,25 @@ function createContext({
   };
 
   return { context, replies, privateMessages, getCurrentSession: () => currentSession };
+}
+
+function createAuditRepository(): AuditLogRepository & { __events: AuditLogEventRecord[] } {
+  const events: AuditLogEventRecord[] = [];
+
+  return {
+    async appendEvent(input) {
+      events.push({
+        actorTelegramUserId: input.actorTelegramUserId,
+        actionKey: input.actionKey,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        summary: input.summary,
+        details: input.details ?? null,
+        createdAt: '2026-04-04T10:00:00.000Z',
+      });
+    },
+    __events: events,
+  };
 }
 
 test('handleTelegramScheduleText opens the schedule menu from the keyboard action', async () => {
@@ -323,7 +346,8 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
     },
   ]);
   const scheduleRepository = createScheduleRepository();
-  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, tableRepository, actorTelegramUserId: 42 });
+  const auditRepository = createAuditRepository();
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, tableRepository, auditRepository, actorTelegramUserId: 42 });
 
   context.messageText = scheduleLabels.create;
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -363,6 +387,41 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.match(replies.at(-1)?.message ?? '', /Activitat creada correctament: Dungeons & Dragons/);
   assert.match(replies.at(-1)?.message ?? '', /Mesa TV/);
   assert.match(replies.at(-1)?.message ?? '', /Assistents: 42/);
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.created');
+  assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
+});
+
+test('handleTelegramScheduleCallback records audit entries when an admin cancels an activity', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 21,
+      title: 'Terraforming Mars',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 5,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const auditRepository = createAuditRepository();
+  const { context } = createContext({ scheduleRepository, auditRepository, actorTelegramUserId: 99, isAdmin: true });
+
+  context.callbackData = `${scheduleCallbackPrefixes.selectCancel}21`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  delete context.callbackData;
+  context.messageText = scheduleLabels.confirmCancel;
+  assert.equal(await handleTelegramScheduleText(context), true);
+
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.cancelled');
+  assert.equal(auditRepository.__events.at(-1)?.actorTelegramUserId, 99);
 });
 
 test('handleTelegramScheduleCallback rejects selecting a deactivated table for a new activity', async () => {
