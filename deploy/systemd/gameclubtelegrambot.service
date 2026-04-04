@@ -1,0 +1,17 @@
+[Unit]
+Description=Game Club Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gameclubbot
+Group=gameclubbot
+WorkingDirectory=/opt/gameclubtelegrambot
+EnvironmentFile=-/etc/default/gameclubtelegrambot
+ExecStart=/usr/bin/node /opt/gameclubtelegrambot/dist/main.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
