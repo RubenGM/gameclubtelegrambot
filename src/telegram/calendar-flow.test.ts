@@ -72,7 +72,7 @@ test('handleTelegramCalendarText shows upcoming activities and venue events grou
         {
           id: 1,
           title: 'Final de "La Copa"',
-          description: null,
+          description: 'Partida final del torneig',
           startsAt: '2026-04-04T10:00:00.000Z',
           durationMinutes: 120,
           organizerTelegramUserId: 99,
@@ -120,7 +120,7 @@ test('handleTelegramCalendarText shows upcoming activities and venue events grou
         {
           id: 10,
           name: 'L5A',
-          description: null,
+          description: 'Campanya oberta',
           startsAt: '2026-04-05T18:00:00.000Z',
           endsAt: '2026-04-05T20:00:00.000Z',
           occupancyScope: 'full',
@@ -171,11 +171,13 @@ test('handleTelegramCalendarText shows upcoming activities and venue events grou
   const handled = await handleTelegramCalendarText(context);
 
   assert.equal(handled, true);
-  assert.match(replies.at(-1)?.message ?? '', /Calendari proper:/);
-  assert.match(replies.at(-1)?.message ?? '', /Dissabte 4 abril/);
-  assert.match(replies.at(-1)?.message ?? '', /Activitat: Final de "La Copa" · 2p · Taula Taula de l entrada/);
-  assert.match(replies.at(-1)?.message ?? '', /Diumenge 5 abril/);
-  assert.match(replies.at(-1)?.message ?? '', /Esdeveniment: L5A/);
-  assert.match(replies.at(-1)?.message ?? '', /Dimecres 8 abril/);
-  assert.match(replies.at(-1)?.message ?? '', /Tot el dia Esdeveniment: Jornada oberta JdT Vermut Edition/);
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.match(replies.at(-1)?.message ?? '', /<b>Dissabte 4 abril<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /10h-12h Final de "La Copa" · 2p · Taula Taula de l entrada/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Partida final del torneig<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Diumenge 5 abril<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /18h-20h L5A/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Campanya oberta<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Dimecres 8 abril<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /Tot el dia Jornada oberta JdT Vermut Edition/);
 });

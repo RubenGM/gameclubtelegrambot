@@ -106,6 +106,7 @@ export interface TelegramReplyOptions {
   replyKeyboard?: string[][];
   resizeKeyboard?: boolean;
   persistentKeyboard?: boolean;
+  parseMode?: 'HTML';
 }
 
 export interface TelegramRuntime {
@@ -784,6 +785,7 @@ export function toGrammyReplyOptions(options?: TelegramReplyOptions): Record<str
         resize_keyboard: options.resizeKeyboard ?? true,
         is_persistent: options.persistentKeyboard ?? true,
       },
+      ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
     };
   }
 
@@ -802,6 +804,7 @@ export function toGrammyReplyOptions(options?: TelegramReplyOptions): Record<str
         })),
       ),
     },
+    ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
   };
 }
 

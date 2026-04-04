@@ -61,7 +61,7 @@ async function replyWithCalendar(context: TelegramCalendarContext): Promise<void
     return;
   }
 
-  await context.reply(formatCalendarMessage(events, resolveBotLanguage(context)), buildCalendarMenuOptions(context));
+  await context.reply(formatCalendarMessage(events, resolveBotLanguage(context)), buildCalendarReplyOptions(context));
 }
 
 async function loadUpcomingCalendarEntries(context: TelegramCalendarContext): Promise<CalendarEntry[]> {
@@ -82,6 +82,7 @@ async function loadUpcomingCalendarEntries(context: TelegramCalendarContext): Pr
         startsAt: event.startsAt,
         endsAt: getScheduleEventEndsAt(event),
         title: event.title,
+        description: event.description,
         tableName,
         capacity: event.capacity,
       };
@@ -93,6 +94,7 @@ async function loadUpcomingCalendarEntries(context: TelegramCalendarContext): Pr
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     title: event.name,
+    description: event.description,
     allDay: isAllDayVenueEvent(event),
   }));
 
@@ -104,7 +106,7 @@ async function loadUpcomingCalendarEntries(context: TelegramCalendarContext): Pr
 }
 
 function formatCalendarMessage(entries: CalendarEntry[], language: string): string {
-  const rows: string[] = ['Calendari proper:'];
+  const rows: string[] = [];
   let currentDay: string | null = null;
 
   for (const entry of entries) {
@@ -112,7 +114,7 @@ function formatCalendarMessage(entries: CalendarEntry[], language: string): stri
     if (dayKey !== currentDay) {
       currentDay = dayKey;
       rows.push('');
-      rows.push(formatCalendarDayHeader(dayKey, language));
+      rows.push(`<b>${escapeHtml(formatCalendarDayHeader(dayKey, language))}</b>`);
     }
     rows.push(formatCalendarEntry(entry));
   }
@@ -121,16 +123,18 @@ function formatCalendarMessage(entries: CalendarEntry[], language: string): stri
 }
 
 function formatCalendarEntry(entry: CalendarEntry): string {
+  const descriptionLine = entry.description ? `\n  <i>${escapeHtml(entry.description)}</i>` : '';
+
   if (entry.kind === 'schedule') {
-    const tableSuffix = entry.tableName ? ` · Taula ${entry.tableName}` : '';
-    return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} Activitat: ${entry.title} · ${entry.capacity}p${tableSuffix}`;
+    const tableSuffix = entry.tableName ? ` · Taula ${escapeHtml(entry.tableName)}` : '';
+    return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} ${escapeHtml(entry.title)} · ${entry.capacity}p${tableSuffix}${descriptionLine}`;
   }
 
   if (entry.allDay) {
-    return `- Tot el dia Esdeveniment: ${entry.title}`;
+    return `- Tot el dia ${escapeHtml(entry.title)}${descriptionLine}`;
   }
 
-  return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} Esdeveniment: ${entry.title}`;
+  return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} ${escapeHtml(entry.title)}${descriptionLine}`;
 }
 
 function formatCalendarDayHeader(dayKey: string, language: string): string {
@@ -166,6 +170,13 @@ function buildCalendarMenuOptions(context: TelegramCalendarContext): TelegramRep
       persistentKeyboard: true,
     }
   );
+}
+
+function buildCalendarReplyOptions(context: TelegramCalendarContext): TelegramReplyOptions {
+  return {
+    ...buildCalendarMenuOptions(context),
+    parseMode: 'HTML',
+  };
 }
 
 function resolveScheduleRepository(context: TelegramCalendarContext): ScheduleRepository {
@@ -205,6 +216,13 @@ function resolveBotLanguage(context: TelegramCalendarContext): string {
   return context.runtime.bot.language ?? 'ca';
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 function resolveLanguageLocale(language: string): string {
   switch (language) {
     case 'ca':
@@ -226,6 +244,7 @@ interface CalendarEntryBase {
   startsAt: string;
   endsAt: string;
   title: string;
+  description: string | null;
 }
 
 type CalendarEntry =
