@@ -207,14 +207,14 @@ export async function inspectBootstrapDatabaseState({
     const approvedAdminCountResult = await connection.db
       .select({ count: sql<number>`count(*)` })
       .from(users)
-      .where(eq(users.isApproved, true));
+      .where(eq(users.status, 'approved'));
     const firstAdminResult = await connection.db
       .select({ telegramUserId: users.telegramUserId })
       .from(users)
       .where(
         and(
           eq(users.telegramUserId, persistedConfig.bootstrap.firstAdmin.telegramUserId),
-          eq(users.isApproved, true),
+          eq(users.status, 'approved'),
           eq(users.isAdmin, true),
         ),
       );
@@ -280,7 +280,7 @@ async function defaultRunInTransaction(
         const result = await transaction
           .select({ count: sql<number>`count(*)` })
           .from(users)
-          .where(eq(users.isApproved, true));
+          .where(eq(users.status, 'approved'));
 
         return Number(result[0]?.count ?? 0);
       },
@@ -291,7 +291,7 @@ async function defaultRunInTransaction(
           .where(
             and(
               eq(users.telegramUserId, telegramUserId),
-              eq(users.isApproved, true),
+              eq(users.status, 'approved'),
               eq(users.isAdmin, true),
             ),
           );
@@ -304,6 +304,7 @@ async function defaultRunInTransaction(
           ...(input.username !== undefined ? { username: input.username } : {}),
           displayName: input.displayName,
           isApproved: true,
+          status: 'approved',
           isAdmin: true,
           approvedAt: new Date(),
         });

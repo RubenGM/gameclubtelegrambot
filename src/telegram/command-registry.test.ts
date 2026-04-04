@@ -42,8 +42,11 @@ function createContext({
       },
       actor: {
         telegramUserId: 123,
+        status: isApproved ? 'approved' : 'pending',
         isApproved,
+        isBlocked: false,
         isAdmin,
+        permissions: [],
       },
       session: {
         current: null,

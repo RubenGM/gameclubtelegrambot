@@ -66,8 +66,11 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     },
     loadActor: async ({ telegramUserId }) => ({
       telegramUserId,
+      status: 'approved',
       isApproved: true,
+      isBlocked: false,
       isAdmin: false,
+      permissions: [],
     }),
     createConversationSessionStore: () => ({
       loadSession: async (key) => sessionRecords.get(key) ?? null,
@@ -189,8 +192,11 @@ test('createTelegramBoundary replies with a safe message and clears session on u
     },
     loadActor: async ({ telegramUserId }) => ({
       telegramUserId,
+      status: 'approved',
       isApproved: true,
+      isBlocked: false,
       isAdmin: false,
+      permissions: [],
     }),
     createConversationSessionStore: () => ({
       loadSession: async () => ({
