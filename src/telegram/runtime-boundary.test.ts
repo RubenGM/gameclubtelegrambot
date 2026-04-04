@@ -8,6 +8,7 @@ import {
   type TelegramMiddleware,
 } from './runtime-boundary.js';
 import type { TelegramCommandHandler } from './command-registry.js';
+import type { ConversationSessionRecord } from './conversation-session.js';
 
 const runtimeConfig = {
   schemaVersion: 1,
@@ -47,6 +48,7 @@ const runtimeConfig = {
 
 test('createTelegramBoundary reports a connected bot when long polling starts', async () => {
   const events: string[] = [];
+  const sessionRecords = new Map<string, ConversationSessionRecord>();
   const databaseConnection = {
     pool: undefined as never,
     db: undefined as never,
@@ -62,6 +64,14 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     services: {
       database: databaseConnection,
     },
+    createConversationSessionStore: () => ({
+      loadSession: async (key) => sessionRecords.get(key) ?? null,
+      saveSession: async (session) => {
+        sessionRecords.set(session.key, session);
+      },
+      deleteSession: async (key) => sessionRecords.delete(key),
+      deleteExpiredSessions: async () => 0,
+    }),
     createBot: ({ token }) => {
       const middlewares: TelegramMiddleware[] = [];
       const commandHandlers = new Map<string, TelegramCommandHandler>();
@@ -82,6 +92,9 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
             chat: {
               id: -100,
               type: 'group',
+            },
+            from: {
+              id: 42,
             },
             reply: async (message: string) => {
               events.push(`reply:${message}`);
@@ -139,6 +152,8 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'middleware:register',
     'middleware:register',
     'middleware:register',
+    'middleware:register',
+    'register:/cancel',
     'register:/start',
     'register:/help',
     'runtime:database:1',

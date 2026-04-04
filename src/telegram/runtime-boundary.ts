@@ -13,6 +13,15 @@ import {
   type TelegramChatContext,
   type TelegramChatLike,
 } from './chat-context.js';
+import {
+  loadConversationSessionRuntime,
+  type ConversationSessionRuntime,
+  type ConversationSessionStore,
+} from './conversation-session.js';
+import {
+  createAppMetadataConversationSessionStore,
+  createDatabaseAppMetadataSessionStorage,
+} from './conversation-session-store.js';
 
 export interface TelegramBoundaryStatus {
   bot: 'connected';
@@ -30,6 +39,9 @@ export interface TelegramLogger {
 
 export interface TelegramContextLike {
   chat?: TelegramChatLike;
+  from?: {
+    id: number;
+  };
   reply(message: string): Promise<unknown>;
   runtime?: TelegramRuntime;
 }
@@ -38,6 +50,7 @@ export interface TelegramRuntime {
   bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName'>;
   services: InfrastructureRuntimeServices;
   chat?: TelegramChatContext;
+  session?: ConversationSessionRuntime;
 }
 
 export type TelegramMiddleware = (
@@ -60,6 +73,9 @@ export interface CreateTelegramBoundaryOptions {
     chatId: number;
     services: InfrastructureRuntimeServices;
   }) => Promise<boolean>;
+  createConversationSessionStore?: (options: {
+    services: InfrastructureRuntimeServices;
+  }) => ConversationSessionStore;
   createBot?: (options: CreateTelegramBotOptions) => TelegramBotLike;
 }
 
@@ -81,6 +97,12 @@ export async function createTelegramBoundary({
   services,
   logger,
   isNewsEnabledGroup = async () => false,
+  createConversationSessionStore = ({ services: runtimeServices }) =>
+    createAppMetadataConversationSessionStore({
+      storage: createDatabaseAppMetadataSessionStorage({
+        database: runtimeServices.database.db,
+      }),
+    }),
   createBot = createGrammyTelegramBot,
 }: CreateTelegramBoundaryOptions): Promise<TelegramBoundary> {
   try {
@@ -95,6 +117,7 @@ export async function createTelegramBoundary({
       services,
       logger,
       isNewsEnabledGroup,
+      conversationSessionStore: createConversationSessionStore({ services }),
     })) {
       bot.use(middleware);
     }
@@ -165,6 +188,7 @@ function createMiddlewarePipeline({
   services,
   logger,
   isNewsEnabledGroup,
+  conversationSessionStore,
 }: {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
@@ -173,12 +197,14 @@ function createMiddlewarePipeline({
     chatId: number;
     services: InfrastructureRuntimeServices;
   }) => Promise<boolean>;
+  conversationSessionStore: ConversationSessionStore;
 }): TelegramMiddleware[] {
   return [
     createErrorHandlingMiddleware({ logger }),
     createLoggingMiddleware({ logger }),
     createRuntimeContextMiddleware({ config, services }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
+    createConversationSessionMiddleware({ store: conversationSessionStore }),
   ];
 }
 
@@ -266,6 +292,32 @@ function createChatContextMiddleware({
   };
 }
 
+function createConversationSessionMiddleware({
+  store,
+}: {
+  store: ConversationSessionStore;
+}): TelegramMiddleware {
+  return async (context, next) => {
+    if (!context.runtime?.chat) {
+      throw new Error('Telegram chat context missing before conversation session resolution');
+    }
+
+    if (!context.from) {
+      throw new Error('Telegram update does not include sender information');
+    }
+
+    context.runtime.session = await loadConversationSessionRuntime({
+      scope: {
+        chatId: context.runtime.chat.chatId,
+        userId: context.from.id,
+      },
+      store,
+    });
+
+    await next();
+  };
+}
+
 function registerHandlers({
   bot,
   config,
@@ -285,6 +337,17 @@ function createDefaultCommands({
   publicName: string;
 }): TelegramCommandDefinition[] {
   return [
+    {
+      command: 'cancel',
+      contexts: ['private', 'group', 'group-news'],
+      handle: async (context) => {
+        const cancelled = await context.runtime.session.cancel();
+
+        await context.reply(
+          cancelled ? 'Flux cancel.lat correctament.' : 'No hi ha cap flux actiu per cancel.lar.',
+        );
+      },
+    },
     {
       command: 'start',
       contexts: ['private', 'group', 'group-news'],

@@ -1,5 +1,6 @@
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
+import type { ConversationSessionRuntime } from './conversation-session.js';
 
 export interface TelegramCommandRuntime {
   bot: {
@@ -8,6 +9,7 @@ export interface TelegramCommandRuntime {
   };
   services: InfrastructureRuntimeServices;
   chat: TelegramChatContext;
+  session: ConversationSessionRuntime;
 }
 
 export interface TelegramCommandHandlerContext {

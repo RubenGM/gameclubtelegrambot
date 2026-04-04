@@ -30,6 +30,16 @@ function createContext(kind: 'private' | 'group' | 'group-news'): TelegramComman
         kind,
         chatId: kind === 'private' ? 1 : -1,
       },
+      session: {
+        current: null,
+        start: async () => {
+          throw new Error('not used in command registry tests');
+        },
+        advance: async () => {
+          throw new Error('not used in command registry tests');
+        },
+        cancel: async () => false,
+      },
     },
     __replies: replies,
   };
