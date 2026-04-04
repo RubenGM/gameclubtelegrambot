@@ -11,8 +11,14 @@ import {
   type ScheduleEventRecord,
   type ScheduleRepository,
 } from '../schedule/schedule-catalog.js';
+import {
+  getScheduleTableCapacityAdvisories,
+  listSchedulableTables,
+  requireSchedulableTableSelection,
+  resolveScheduleTableReference,
+} from '../schedule/schedule-table-selection.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
-import { listClubTables, type ClubTableRecord, type ClubTableRepository } from '../tables/table-catalog.js';
+import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
 import {
   findRelevantVenueEventsForRange,
@@ -315,6 +321,16 @@ async function handleCreateSession(
       await context.reply('Per guardar l activitat, tria el boto de confirmacio o cancel.la el flux.', buildCreateConfirmOptions());
       return true;
     }
+    try {
+      await requireSchedulableTableSelection({
+        repository: resolveTableRepository(context),
+        tableId: asNullableNumber(data.tableId),
+      });
+    } catch {
+      await context.runtime.session.advance({ stepKey: 'table', data });
+      await context.reply('La taula seleccionada ja no esta activa. Torna a triar una taula activa o continua sense taula.', await buildTableSelectionOptions(context));
+      return true;
+    }
     const created = await createScheduleEvent({
       repository: resolveScheduleRepository(context),
       title: String(data.title ?? ''),
@@ -421,6 +437,16 @@ async function handleEditSession(
       await context.reply('Per guardar els canvis, tria el boto de confirmacio o cancel.la el flux.', buildEditConfirmOptions());
       return true;
     }
+    try {
+      await requireSchedulableTableSelection({
+        repository: resolveTableRepository(context),
+        tableId: asNullableNumber(data.tableId),
+      });
+    } catch {
+      await context.runtime.session.advance({ stepKey: 'table', data });
+      await context.reply('La taula seleccionada ja no esta activa. Torna a triar una taula activa, mantenir la taula actual o eliminar-la.', await buildEditTableOptions(context));
+      return true;
+    }
     const updated = await updateScheduleEvent({
       repository: resolveScheduleRepository(context),
       eventId: Number(data.eventId),
@@ -470,11 +496,22 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
   }
 
   const tableId = parseTableSelection(callbackData);
+  let selectedTable: ClubTableRecord | null;
+  try {
+    selectedTable = await requireSchedulableTableSelection({
+      repository: resolveTableRepository(context),
+      tableId,
+    });
+  } catch {
+    await context.reply('La taula seleccionada ja no esta activa. Tria una taula activa o continua sense taula.', await buildTableSelectionOptions(context));
+    return true;
+  }
+
   const nextData = { ...session.data, tableId };
   await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
   const event = session.flowKey === editFlowKey ? await loadEventOrThrow(context, Number(session.data.eventId)) : null;
   await context.reply(
-    `${await formatDraftSummary(context, nextData, event?.organizerTelegramUserId)}\n\nConfirma o cancel.la el flux.`,
+    `${await formatDraftSummary(context, nextData, event?.organizerTelegramUserId, selectedTable)}\n\nConfirma o cancel.la el flux.`,
     session.flowKey === editFlowKey ? buildEditConfirmOptions() : buildCreateConfirmOptions(),
   );
   return true;
@@ -534,10 +571,10 @@ async function loadEventOrThrow(context: TelegramScheduleContext, eventId: numbe
 }
 
 async function loadTableName(context: TelegramScheduleContext, tableId: number | null): Promise<string | null> {
-  if (!tableId) {
-    return null;
-  }
-  const table = await resolveTableRepository(context).findTableById(tableId);
+  const table = await resolveScheduleTableReference({
+    repository: resolveTableRepository(context),
+    tableId,
+  });
   return table?.displayName ?? null;
 }
 
@@ -614,7 +651,7 @@ function buildCancelConfirmOptions(): TelegramReplyOptions {
 }
 
 async function buildTableSelectionOptions(context: TelegramScheduleContext): Promise<TelegramReplyOptions> {
-  const tables = await listClubTables({ repository: resolveTableRepository(context) });
+  const tables = await listSchedulableTables({ repository: resolveTableRepository(context) });
   return {
     inlineKeyboard: [
       [{ text: scheduleLabels.noTable, callbackData: `${scheduleCallbackPrefixes.tableSelection}none` }],
@@ -717,14 +754,27 @@ async function formatDraftSummary(
   context: TelegramScheduleContext,
   data: Record<string, unknown>,
   organizerTelegramUserId?: number,
+  selectedTable?: ClubTableRecord | null,
 ): Promise<string> {
+  const table = selectedTable === undefined
+    ? await resolveScheduleTableReference({
+        repository: resolveTableRepository(context),
+        tableId: asNullableNumber(data.tableId),
+      })
+    : selectedTable;
+  const advisories = getScheduleTableCapacityAdvisories({
+    table,
+    requestedCapacity: Number(data.capacity),
+  });
+
   return [
     `Titol: ${String(data.title ?? '')}`,
     `Descripcio: ${asNullableString(data.description) ?? 'Sense descripcio'}`,
     `Inici: ${buildStartsAt(String(data.date ?? ''), String(data.time ?? '')).slice(0, 16).replace('T', ' ')}`,
     `Durada: ${Number(data.durationMinutes)} min`,
     `Places: ${Number(data.capacity)}`,
-    `Taula: ${(await loadTableName(context, asNullableNumber(data.tableId))) ?? 'Sense taula'}`,
+    `Taula: ${table?.displayName ?? 'Sense taula'}`,
+    ...advisories,
     ...(organizerTelegramUserId ? [`Organitzador: ${organizerTelegramUserId}`] : []),
   ].join('\n');
 }

@@ -365,6 +365,118 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.match(replies.at(-1)?.message ?? '', /Assistents: 42/);
 });
 
+test('handleTelegramScheduleCallback rejects selecting a deactivated table for a new activity', async () => {
+  const tableRepository = createTableRepository([
+    {
+      id: 7,
+      displayName: 'Mesa TV',
+      description: null,
+      recommendedCapacity: 6,
+      lifecycleStatus: 'deactivated',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T11:00:00.000Z',
+      deactivatedAt: '2026-04-04T11:00:00.000Z',
+    },
+  ]);
+  const { context, replies, getCurrentSession } = createContext({ tableRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Root';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = '2026-04-05';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = '180';
+  await handleTelegramScheduleText(context);
+  context.messageText = '5';
+  await handleTelegramScheduleText(context);
+
+  context.callbackData = `${scheduleCallbackPrefixes.tableSelection}7`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'table');
+  assert.equal(replies.at(-1)?.message, 'La taula seleccionada ja no esta activa. Tria una taula activa o continua sense taula.');
+});
+
+test('handleTelegramScheduleCallback keeps showing deactivated table names for historical activity views', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 18,
+      title: 'Brass',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: 9,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await scheduleRepository.upsertParticipant({ eventId: 18, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active' });
+  const tableRepository = createTableRepository([
+    {
+      id: 9,
+      displayName: 'Mesa arxiu',
+      description: null,
+      recommendedCapacity: 4,
+      lifecycleStatus: 'deactivated',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T11:00:00.000Z',
+      deactivatedAt: '2026-04-04T11:00:00.000Z',
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, tableRepository, actorTelegramUserId: 77 });
+
+  context.callbackData = `${scheduleCallbackPrefixes.inspect}18`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Taula: Mesa arxiu/);
+});
+
+test('handleTelegramScheduleText shows advisory warning when requested capacity exceeds the selected table recommendation', async () => {
+  const tableRepository = createTableRepository([
+    {
+      id: 7,
+      displayName: 'Mesa TV',
+      description: null,
+      recommendedCapacity: 4,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const { context, replies } = createContext({ tableRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Root';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = '2026-04-05';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = '180';
+  await handleTelegramScheduleText(context);
+  context.messageText = '6';
+  await handleTelegramScheduleText(context);
+  context.callbackData = `${scheduleCallbackPrefixes.tableSelection}7`;
+
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /supera la capacitat recomanada de la taula \(4\)/);
+  assert.match(replies.at(-1)?.message ?? '', /no bloqueja la reserva/);
+});
+
 test('handleTelegramScheduleText lists activities with inline detail actions for members', async () => {
   const scheduleRepository = createScheduleRepository([
     {
