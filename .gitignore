@@ -4,3 +4,4 @@ dist/
 .DS_Store
 .env.postgres.local
 config/runtime.local.json
+config/runtime.json
