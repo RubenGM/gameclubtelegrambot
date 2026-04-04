@@ -104,9 +104,21 @@ El repositorio usa:
 Workflow canónico:
 
 - definir o actualizar tablas en `src/infrastructure/database/schema.ts`
-- generar una migración nueva con `npm run db:generate`
+- validar que el historial Drizzle está íntegro con `npm run db:check:state`
+- generar una migración nueva con `npm run db:generate:checked`
 - aplicar migraciones con `npm run db:migrate`
 - arrancar la aplicación con `npm run start`
+
+Comprobaciones recomendadas antes de abrir PR o fusionar cambios:
+
+- `npm run db:check` para verificar que `schema.ts` y las migraciones versionadas siguen sincronizadas
+- `npm run typecheck`
+- `npm test`
+
+Notas sobre automatización de migraciones:
+
+- `npm run db:generate:checked` falla si detecta un historial incompleto de snapshots o si `drizzle-kit generate` intenta tocar artefactos históricos en vez de crear solo la nueva migración esperada.
+- `npm run db:check` ejecuta una generación temporal y revierte los archivos `drizzle/` al terminar, de forma que puede usarse en CI para detectar drift sin ensuciar el árbol de trabajo.
 
 Workflow local integrado en el repo:
 

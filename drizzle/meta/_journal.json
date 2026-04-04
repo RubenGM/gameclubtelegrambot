@@ -29,6 +29,13 @@
       "when": 1775292493024,
       "tag": "0003_far_mayday",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775296156503,
+      "tag": "0004_legal_tusk",
+      "breakpoints": true
     }
   ]
 }

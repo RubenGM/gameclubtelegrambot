@@ -2,6 +2,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -79,4 +80,15 @@ export const userStatusAuditLog = pgTable('user_status_audit_log', {
   changedByTelegramUserId: bigint('changed_by_telegram_user_id', { mode: 'number' }).notNull(),
   reason: text('reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const clubTables = pgTable('club_tables', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  displayName: varchar('display_name', { length: 255 }).notNull(),
+  description: text('description'),
+  recommendedCapacity: integer('recommended_capacity'),
+  lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('active'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
 });
