@@ -7,6 +7,9 @@ import {
   type VenueEventRepository,
 } from '../venue-events/venue-event-catalog.js';
 import { createDatabaseVenueEventRepository } from '../venue-events/venue-event-catalog-store.js';
+import type { ScheduleRepository } from '../schedule/schedule-catalog.js';
+import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
+import { buildVenueEventImpactSignal } from '../venue-events/venue-event-impact-signals.js';
 import type { TelegramActor } from './actor-store.js';
 import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramChatContext } from './chat-context.js';
@@ -65,6 +68,7 @@ export interface TelegramVenueEventAdminContext {
     };
   };
   venueEventRepository?: VenueEventRepository;
+  scheduleRepository?: ScheduleRepository;
 }
 
 export async function handleTelegramVenueEventAdminText(context: TelegramVenueEventAdminContext): Promise<boolean> {
@@ -256,6 +260,7 @@ async function handleCreateSession(context: TelegramVenueEventAdminContext, text
     });
     await context.runtime.session.cancel();
     await context.reply(`Esdeveniment del local creat correctament: ${created.name}\n${formatVenueEventDetails(created)}`, buildVenueEventMenuOptions());
+    await notifyVenueEventImpact({ context, venueEventId: created.id, changeType: 'created' });
     return true;
   }
   return false;
@@ -357,6 +362,7 @@ async function handleEditSession(context: TelegramVenueEventAdminContext, text: 
     });
     await context.runtime.session.cancel();
     await context.reply(`Esdeveniment del local actualitzat correctament: ${updated.name}\n${formatVenueEventDetails(updated)}`, buildVenueEventMenuOptions());
+    await notifyVenueEventImpact({ context, venueEventId: updated.id, changeType: 'updated' });
     return true;
   }
   return false;
@@ -370,6 +376,7 @@ async function handleCancelSession(context: TelegramVenueEventAdminContext, text
   const cancelled = await cancelVenueEvent({ repository: resolveVenueEventRepository(context), eventId: Number(data.eventId) });
   await context.runtime.session.cancel();
   await context.reply(`Esdeveniment del local cancel.lat correctament: ${cancelled.name}`, buildVenueEventMenuOptions());
+  await notifyVenueEventImpact({ context, venueEventId: cancelled.id, changeType: 'cancelled' });
   return true;
 }
 
@@ -390,6 +397,11 @@ async function replyWithVenueEventList(context: TelegramVenueEventAdminContext, 
 function resolveVenueEventRepository(context: TelegramVenueEventAdminContext): VenueEventRepository {
   if (context.venueEventRepository) return context.venueEventRepository;
   return createDatabaseVenueEventRepository({ database: context.runtime.services.database.db as never });
+}
+
+function resolveScheduleRepository(context: TelegramVenueEventAdminContext): ScheduleRepository {
+  if (context.scheduleRepository) return context.scheduleRepository;
+  return createDatabaseScheduleRepository({ database: context.runtime.services.database.db as never });
 }
 
 async function loadVenueEventOrThrow(context: TelegramVenueEventAdminContext, eventId: number): Promise<VenueEventRecord> {
@@ -492,3 +504,47 @@ function validateRange(data: Record<string, unknown>): string | null {
 }
 function formatTimestamp(value: string): string { return value.slice(0, 16).replace('T', ' '); }
 function asNullableString(value: unknown): string | null { return typeof value === 'string' ? value : null; }
+
+async function notifyVenueEventImpact({
+  context,
+  venueEventId,
+  changeType,
+}: {
+  context: TelegramVenueEventAdminContext;
+  venueEventId: number;
+  changeType: 'created' | 'updated' | 'cancelled';
+}): Promise<void> {
+  const signal = await buildVenueEventImpactSignal({
+    venueEventRepository: resolveVenueEventRepository(context),
+    scheduleRepository: resolveScheduleRepository(context),
+    venueEventId,
+    changeType,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+  });
+
+  if (signal.impactedTelegramUserIds.length === 0) {
+    return;
+  }
+
+  const affectedSchedules = signal.affectedScheduleEvents
+    .map((event) => `${event.title} (${formatTimestamp(event.startsAt)} - ${formatTimestamp(new Date(new Date(event.startsAt).getTime() + event.durationMinutes * 60000).toISOString())})`)
+    .join('\n- ');
+
+  const intro =
+    changeType === 'cancelled'
+      ? 'Ja no hi ha impacte actiu del local per aquest esdeveniment.'
+      : 'S ha detectat un possible conflicte amb l ocupacio del local.';
+
+  await Promise.all(
+    signal.impactedTelegramUserIds.map((telegramUserId) =>
+      context.runtime.bot.sendPrivateMessage(
+        telegramUserId,
+        [
+          intro,
+          `Esdeveniment del local: ${signal.venueEvent.name} (${formatTimestamp(signal.venueEvent.startsAt)} - ${formatTimestamp(signal.venueEvent.endsAt)})`,
+          `Activitats afectades:\n- ${affectedSchedules}`,
+        ].join('\n'),
+      ),
+    ),
+  );
+}

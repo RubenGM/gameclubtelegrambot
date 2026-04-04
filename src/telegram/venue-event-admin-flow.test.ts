@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
+import type { ScheduleRepository } from '../schedule/schedule-catalog.js';
 import {
   handleTelegramVenueEventAdminCallback,
   handleTelegramVenueEventAdminText,
@@ -75,14 +76,30 @@ function createVenueEventRepository(initialEvents: VenueEventRecord[] = []): Ven
   };
 }
 
+function createEmptyScheduleRepository(): ScheduleRepository {
+  return {
+    async createEvent() { throw new Error('not implemented'); },
+    async findEventById() { return null; },
+    async listEvents() { return []; },
+    async updateEvent() { throw new Error('not implemented'); },
+    async cancelEvent() { throw new Error('not implemented'); },
+    async findParticipant() { return null; },
+    async listParticipants() { return []; },
+    async upsertParticipant() { throw new Error('not implemented'); },
+  };
+}
+
 function createContext({
   venueEventRepository = createVenueEventRepository(),
+  scheduleRepository = createEmptyScheduleRepository(),
   isAdmin = true,
 }: {
   venueEventRepository?: VenueEventRepository;
+  scheduleRepository?: ScheduleRepository;
   isAdmin?: boolean;
 } = {}) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const privateMessages: Array<{ telegramUserId: number; message: string }> = [];
   let currentSession: { flowKey: string; stepKey: string; data: Record<string, unknown> } | null = null;
 
   const context: TelegramVenueEventAdminContext = {
@@ -150,9 +167,14 @@ function createContext({
       },
     },
     venueEventRepository,
+    ...(scheduleRepository ? { scheduleRepository } : {}),
   };
 
-  return { context, replies, getCurrentSession: () => currentSession };
+  context.runtime.bot.sendPrivateMessage = async (telegramUserId: number, message: string) => {
+    privateMessages.push({ telegramUserId, message });
+  };
+
+  return { context, replies, privateMessages, getCurrentSession: () => currentSession };
 }
 
 test('handleTelegramVenueEventAdminText opens the venue event admin menu from the keyboard action', async () => {
@@ -201,6 +223,125 @@ test('handleTelegramVenueEventAdminText creates a venue event through keyboard-g
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /Esdeveniment del local creat correctament: Campionat regional/);
   assert.match(replies.at(-1)?.message ?? '', /Impacte: high/);
+});
+
+test('handleTelegramVenueEventAdminText sends private warnings when a created venue event overlaps scheduled activities', async () => {
+  const venueEventRepository = createVenueEventRepository();
+  const scheduleRepository = {
+    async createEvent() { throw new Error('not implemented'); },
+    async findEventById(eventId: number) {
+      return eventId === 10
+        ? {
+            id: 10,
+            title: 'Azul',
+            description: null,
+            startsAt: '2026-04-12T16:00:00.000Z',
+            organizerTelegramUserId: 42,
+            createdByTelegramUserId: 42,
+            tableId: null,
+            durationMinutes: 180,
+            capacity: 4,
+            lifecycleStatus: 'scheduled',
+            createdAt: '2026-04-04T10:00:00.000Z',
+            updatedAt: '2026-04-04T10:00:00.000Z',
+            cancelledAt: null,
+            cancelledByTelegramUserId: null,
+            cancellationReason: null,
+          }
+        : null;
+    },
+    async listEvents({ includeCancelled }: { includeCancelled: boolean }) {
+      return includeCancelled ? [] : [
+        {
+          id: 10,
+          title: 'Azul',
+          description: null,
+          startsAt: '2026-04-12T16:00:00.000Z',
+          organizerTelegramUserId: 42,
+          createdByTelegramUserId: 42,
+          tableId: null,
+          durationMinutes: 180,
+          capacity: 4,
+          lifecycleStatus: 'scheduled',
+          createdAt: '2026-04-04T10:00:00.000Z',
+          updatedAt: '2026-04-04T10:00:00.000Z',
+          cancelledAt: null,
+          cancelledByTelegramUserId: null,
+          cancellationReason: null,
+        },
+      ];
+    },
+    async updateEvent() { throw new Error('not implemented'); },
+    async cancelEvent() { throw new Error('not implemented'); },
+    async findParticipant(eventId: number, participantTelegramUserId: number) {
+      return eventId === 10 && participantTelegramUserId === 42
+        ? {
+            scheduleEventId: 10,
+            participantTelegramUserId: 42,
+            status: 'active',
+            addedByTelegramUserId: 42,
+            removedByTelegramUserId: null,
+            joinedAt: '2026-04-04T10:30:00.000Z',
+            updatedAt: '2026-04-04T10:30:00.000Z',
+            leftAt: null,
+          }
+        : null;
+    },
+    async listParticipants(eventId: number) {
+      return eventId === 10
+        ? [
+            {
+              scheduleEventId: 10,
+              participantTelegramUserId: 42,
+              status: 'active',
+              addedByTelegramUserId: 42,
+              removedByTelegramUserId: null,
+              joinedAt: '2026-04-04T10:30:00.000Z',
+              updatedAt: '2026-04-04T10:30:00.000Z',
+              leftAt: null,
+            },
+            {
+              scheduleEventId: 10,
+              participantTelegramUserId: 55,
+              status: 'active',
+              addedByTelegramUserId: 55,
+              removedByTelegramUserId: null,
+              joinedAt: '2026-04-04T10:30:00.000Z',
+              updatedAt: '2026-04-04T10:30:00.000Z',
+              leftAt: null,
+            },
+          ]
+        : [];
+    },
+    async upsertParticipant() { throw new Error('not implemented'); },
+  } as ScheduleRepository;
+  const { context, privateMessages } = createContext({ venueEventRepository, scheduleRepository });
+
+  context.messageText = venueEventAdminLabels.create;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = 'Campionat regional';
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.skipOptional;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = '2026-04-12';
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = '15:00';
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = '2026-04-12';
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = '21:00';
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.scopeFull;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.impactHigh;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.confirmCreate;
+  await handleTelegramVenueEventAdminText(context);
+
+  assert.deepEqual(privateMessages.map((item) => item.telegramUserId).sort((a, b) => a - b), [42, 55]);
+  assert.match(privateMessages[0]?.message ?? '', /possible conflicte amb l ocupacio del local/);
+  assert.match(privateMessages[0]?.message ?? '', /Campionat regional/);
+  assert.match(privateMessages[0]?.message ?? '', /Azul/);
 });
 
 test('handleTelegramVenueEventAdminText keeps the end time step active when the range is invalid', async () => {
@@ -299,4 +440,109 @@ test('handleTelegramVenueEventAdminCallback cancels a venue event only after exp
   assert.equal(await handleTelegramVenueEventAdminText(context), true);
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /Esdeveniment del local cancel.lat correctament: Acte municipal/);
+});
+
+test('handleTelegramVenueEventAdminCallback notifies impacted users when a venue event cancellation resolves a local conflict', async () => {
+  const venueEventRepository = createVenueEventRepository([
+    {
+      id: 40,
+      name: 'Acte municipal',
+      description: null,
+      startsAt: '2026-04-12T09:00:00.000Z',
+      endsAt: '2026-04-12T15:00:00.000Z',
+      occupancyScope: 'full',
+      impactLevel: 'high',
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancellationReason: null,
+    },
+  ]);
+  const scheduleRepository = {
+    async createEvent() { throw new Error('not implemented'); },
+    async findEventById(eventId: number) {
+      return eventId === 77
+        ? {
+            id: 77,
+            title: 'Heat',
+            description: null,
+            startsAt: '2026-04-12T10:00:00.000Z',
+            organizerTelegramUserId: 42,
+            createdByTelegramUserId: 42,
+            tableId: null,
+            durationMinutes: 120,
+            capacity: 4,
+            lifecycleStatus: 'scheduled',
+            createdAt: '2026-04-04T10:00:00.000Z',
+            updatedAt: '2026-04-04T10:00:00.000Z',
+            cancelledAt: null,
+            cancelledByTelegramUserId: null,
+            cancellationReason: null,
+          }
+        : null;
+    },
+    async listEvents({ includeCancelled }: { includeCancelled: boolean }) {
+      return includeCancelled ? [] : [
+        {
+          id: 77,
+          title: 'Heat',
+          description: null,
+          startsAt: '2026-04-12T10:00:00.000Z',
+          organizerTelegramUserId: 42,
+          createdByTelegramUserId: 42,
+          tableId: null,
+          durationMinutes: 120,
+          capacity: 4,
+          lifecycleStatus: 'scheduled',
+          createdAt: '2026-04-04T10:00:00.000Z',
+          updatedAt: '2026-04-04T10:00:00.000Z',
+          cancelledAt: null,
+          cancelledByTelegramUserId: null,
+          cancellationReason: null,
+        },
+      ];
+    },
+    async updateEvent() { throw new Error('not implemented'); },
+    async cancelEvent() { throw new Error('not implemented'); },
+    async findParticipant(eventId: number, participantTelegramUserId: number) {
+      return eventId === 77 && participantTelegramUserId === 42
+        ? {
+            scheduleEventId: 77,
+            participantTelegramUserId: 42,
+            status: 'active',
+            addedByTelegramUserId: 42,
+            removedByTelegramUserId: null,
+            joinedAt: '2026-04-04T10:30:00.000Z',
+            updatedAt: '2026-04-04T10:30:00.000Z',
+            leftAt: null,
+          }
+        : null;
+    },
+    async listParticipants(eventId: number) {
+      return eventId === 77
+        ? [{
+            scheduleEventId: 77,
+            participantTelegramUserId: 42,
+            status: 'active',
+            addedByTelegramUserId: 42,
+            removedByTelegramUserId: null,
+            joinedAt: '2026-04-04T10:30:00.000Z',
+            updatedAt: '2026-04-04T10:30:00.000Z',
+            leftAt: null,
+          }]
+        : [];
+    },
+    async upsertParticipant() { throw new Error('not implemented'); },
+  } as ScheduleRepository;
+  const { context, privateMessages } = createContext({ venueEventRepository, scheduleRepository });
+
+  context.callbackData = `${venueEventAdminCallbackPrefixes.cancel}40`;
+  await handleTelegramVenueEventAdminCallback(context);
+  context.messageText = venueEventAdminLabels.confirmCancel;
+  await handleTelegramVenueEventAdminText(context);
+
+  assert.deepEqual(privateMessages.map((item) => item.telegramUserId), [42]);
+  assert.match(privateMessages[0]?.message ?? '', /Ja no hi ha impacte actiu del local/);
+  assert.match(privateMessages[0]?.message ?? '', /Acte municipal/);
 });
