@@ -12,6 +12,7 @@ import {
   type TelegramCommandHandlerContext,
   type TelegramCommandHandler,
 } from './command-registry.js';
+import { resolveTelegramActionMenu } from './action-menu.js';
 import {
   resolveTelegramChatContext,
   type TelegramChatContext,
@@ -564,6 +565,7 @@ function createDefaultCommands({
 
         await context.reply(
           cancelled ? 'Flux cancel.lat correctament.' : 'No hi ha cap flux actiu per cancel.lar.',
+          buildReplyOptionsForCurrentActionMenu(context),
         );
       },
     },
@@ -579,14 +581,7 @@ function createDefaultCommands({
             version: APP_VERSION,
             isAdmin: context.runtime.actor.isAdmin,
           }),
-          context.runtime.actor.isAdmin
-            ? {
-                inlineKeyboard: buildAdminStartInlineKeyboard(),
-                replyKeyboard: buildAdminReplyKeyboard(),
-                resizeKeyboard: true,
-                persistentKeyboard: true,
-              }
-            : undefined,
+          buildReplyOptionsForCurrentActionMenu(context),
         );
       },
     },
@@ -794,23 +789,17 @@ async function handleReviewAccess(context: TelegramCommandHandlerContext): Promi
   );
 }
 
-export function buildAdminStartInlineKeyboard(): TelegramInlineButton[][] {
-  return [
-    [
-      {
-        text: 'Revisar accessos',
-        callbackData: 'menu:review_access',
-      },
-      {
-        text: 'Ajuda',
-        callbackData: 'menu:help',
-      },
-    ],
-  ];
-}
-
-export function buildAdminReplyKeyboard(): string[][] {
-  return [['/review_access', '/help']];
+function buildReplyOptionsForCurrentActionMenu(
+  context: TelegramCommandHandlerContext,
+): TelegramReplyOptions | undefined {
+  return resolveTelegramActionMenu({
+    context: {
+      actor: context.runtime.actor,
+      authorization: context.runtime.authorization,
+      chat: context.runtime.chat,
+      session: context.runtime.session.current,
+    },
+  });
 }
 
 function escapeRegExp(value: string): string {

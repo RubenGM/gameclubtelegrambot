@@ -19,6 +19,8 @@ Ya existe un asistente interactivo de primer arranque en terminal que persiste l
 
 La integración inicial de Telegram ya autentica el bot, levanta `long polling` y expone una respuesta mínima para `/start`.
 
+La capa de Telegram també resol ara un menú visible d'accions mitjançant `reply keyboard`, separat del transport baix nivell. Aquest menú es calcula segons el rol de l'usuari, el context del xat i l'estat de la sessió de conversa activa, de manera que els fluxos multistep poden substituir temporalment el menú per defecte i restaurar-lo en acabar o cancel·lar-se.
+
 El arranque principal ahora distingue entre primer arranque, sistema ya inicializado y estados ambiguos de bootstrap antes de decidir si debe lanzar el asistente inicial o el runtime normal.
 
 El runtime principal también registra shutdown controlado y manejo definido para `SIGINT`, `SIGTERM`, `uncaughtException` y `unhandledRejection`.
@@ -136,6 +138,8 @@ El bot estará pensado para uso interno de un club.
 - En chat privado ofrecerá toda la funcionalidad.
 - En grupos ofrecerá principalmente consultas, lectura y avisos.
 - Algunos grupos podrán activarse en `modo noticias` para recibir avisos automáticos por categorías.
+
+En la práctica, esto implica que el bot puede mostrar acciones visibles distintas según el tipo de chat y el estado del usuario. El menú persistente de Telegram se usa como superficie principal de navegación rápida, mientras que los botones inline se reservan para acciones contextuales puntuales.
 
 El proyecto se desplegará en un PC con Debian y se ejecutará como servicio del sistema al arrancar el equipo.
 

@@ -2,8 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildAdminReplyKeyboard,
-  buildAdminStartInlineKeyboard,
   createTelegramBoundary,
   formatStartMessage,
   TelegramStartupError,
@@ -227,6 +225,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'runtime:database:1',
     'reply:Hem registrat la teva sollicitud d accés. Un administrador la revisara al mes aviat possible.',
     'reply:Benvingut a Game Club Bot. Escriu /help per veure les opcions disponibles.',
+    'reply-keyboard:/access|/start|/help',
     'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
     'reply:Usuari aprovat correctament.',
@@ -429,6 +428,128 @@ test('toGrammyReplyOptions converts reply keyboard to grammY reply markup', asyn
   );
 });
 
+test('cancel restores the default action menu after an active flow', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: undefined as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => {
+      let current: ConversationSessionRecord | null = {
+        key: 'telegram.session:100:42',
+        flowKey: 'schedule-create',
+        stepKey: 'title',
+        data: {},
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        expiresAt: '2026-04-04T11:00:00.000Z',
+      };
+
+      return {
+        loadSession: async () => current,
+        saveSession: async (session) => {
+          current = session;
+        },
+        deleteSession: async () => {
+          current = null;
+          return true;
+        },
+        deleteExpiredSessions: async () => 0,
+      };
+    },
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+      const commandHandlers = new Map<string, TelegramCommandHandler>();
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: (command, handler) => {
+          commandHandlers.set(command, handler);
+        },
+        onCallback: () => {},
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 42,
+            },
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push({ message, ...(options ? { options } : {}) });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              const cancelHandler = commandHandlers.get('cancel');
+              if (!cancelHandler) {
+                throw new Error('cancel handler not registered');
+              }
+
+              await cancelHandler(context as unknown as import('./command-registry.js').TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.deepEqual(replies, [
+    {
+      message: 'Flux cancel.lat correctament.',
+      options: {
+        replyKeyboard: [['/elevate_admin', '/start'], ['/help']],
+        resizeKeyboard: true,
+        persistentKeyboard: true,
+      },
+    },
+  ]);
+
+  await telegram.stop();
+});
+
 test('formatStartMessage shows version only to admins', async () => {
   assert.match(
     formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: true }),
@@ -440,36 +561,6 @@ test('formatStartMessage shows version only to admins', async () => {
   );
 });
 
-test('buildAdminStartInlineKeyboard exposes admin shortcuts in start message', async () => {
-  assert.deepEqual(buildAdminStartInlineKeyboard(), [
-    [
-      { text: 'Revisar accessos', callbackData: 'menu:review_access' },
-      { text: 'Ajuda', callbackData: 'menu:help' },
-    ],
-  ]);
-});
-
-test('buildAdminReplyKeyboard exposes admin reply shortcuts', async () => {
-  assert.deepEqual(buildAdminReplyKeyboard(), [['/review_access', '/help']]);
-});
-
-test('admin start reply options expose both inline and reply keyboard shortcuts', async () => {
-  assert.deepEqual(
-    toGrammyReplyOptions({
-      inlineKeyboard: buildAdminStartInlineKeyboard(),
-      replyKeyboard: buildAdminReplyKeyboard(),
-      resizeKeyboard: true,
-      persistentKeyboard: true,
-    }),
-    {
-      reply_markup: {
-        keyboard: [[{ text: '/review_access' }, { text: '/help' }]],
-        resize_keyboard: true,
-        is_persistent: true,
-      },
-    },
-  );
-});
 
 function createMembershipDatabaseStub({
   membershipUsers,

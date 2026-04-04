@@ -118,6 +118,7 @@ El contracte runtime actual inclou:
 - El codi de l'aplicació ha de consumir objectes tipats de configuració, no JSON cru.
 - Si en el futur canvia la ruta o el format, caldrà documentar explícitament la migració.
 - El mateix contracte runtime s'utilitza per obrir la connexió de l'aplicació i per executar migracions explícites.
+- La capa visible de menús de Telegram es resol fora del transport baix nivell; les definicions declaratives viuen a `src/telegram/action-menu.ts` i combinen rol, context de xat i sessió activa.
 - L'estat d'inicialització validat es complementa amb un marcador durable a `app_metadata` sota la clau `bootstrap.initialization`.
 - `bot.*` descriu metadata visible del club i del bot; no ha de barrejar-se amb secrets.
 - `telegram.*` i `database.*` són configuració operativa; `adminElevation.passwordHash` és un secret derivat persistit, no la contrasenya en clar.
