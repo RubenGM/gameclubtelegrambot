@@ -213,6 +213,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'middleware:register',
     'register:/elevate_admin',
     'register:/access',
+    'register:/tables',
     'register:/review_access',
     'register:/approve',
     'register:/reject',
@@ -223,6 +224,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:menu:help',
     'register:callback:approve_access:',
     'register:callback:reject_access:',
+    'register:callback:table_read:inspect:',
     'register:callback:table_admin:inspect:',
     'register:callback:table_admin:edit:',
     'register:callback:table_admin:deactivate:',
@@ -233,7 +235,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
     'reply:Usuari aprovat correctament.',
-    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/review_access - Revisa sollicituds pendents\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
+    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/tables - Consulta les taules actives del club\n/review_access - Revisa sollicituds pendents\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
     'start-polling',
     'stop-polling',
   ]);
@@ -242,6 +244,57 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     statusAuditLog.map((entry) => `${entry.telegramUserId}:${entry.nextStatus}`),
     ['42:pending', '42:approved'],
   );
+});
+
+test('createTelegramBoundary registers member-facing table callbacks', async () => {
+  const events: string[] = [];
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: undefined as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => ({
+      use: () => {},
+      onCommand: (command) => {
+        events.push(`register:/${command}`);
+      },
+      onCallback: (callbackPrefix) => {
+        events.push(`register:callback:${callbackPrefix}`);
+      },
+      onText: () => {},
+      sendPrivateMessage: async () => {},
+      startPolling: async () => {},
+      stopPolling: async () => {},
+    }),
+  });
+
+  await telegram.stop();
+
+  assert.ok(events.includes('register:/tables'));
+  assert.ok(events.includes('register:callback:table_read:inspect:'));
 });
 
 test('createTelegramBoundary replies with a safe message and clears session on unexpected handler errors', async () => {
@@ -547,7 +600,7 @@ test('cancel restores the default action menu after an active flow', async () =>
     {
       message: 'Flux cancel.lat correctament.',
       options: {
-        replyKeyboard: [['/elevate_admin', '/start'], ['/help']],
+        replyKeyboard: [['/tables', '/elevate_admin'], ['/start', '/help']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },

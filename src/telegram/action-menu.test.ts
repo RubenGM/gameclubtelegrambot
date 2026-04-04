@@ -83,6 +83,31 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
   });
 });
 
+test('resolveTelegramActionMenu exposes table reads to approved non-admin members', async () => {
+  const menu = resolveTelegramActionMenu({
+    context: createContext({
+      actor: {
+        telegramUserId: 77,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: false,
+        permissions: [],
+      },
+      chat: {
+        kind: 'private',
+        chatId: 1,
+      },
+    }),
+  });
+
+  assert.deepEqual(menu, {
+    replyKeyboard: [['/tables', '/elevate_admin'], ['/start', '/help']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+});
+
 test('resolveTelegramActionMenu replaces the default menu when a flow is active', async () => {
   const menu = resolveTelegramActionMenu({
     context: createContext({

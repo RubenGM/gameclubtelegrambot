@@ -13,6 +13,7 @@ import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import { formatTelegramTableDetails, formatTelegramTableListMessage } from './table-presentation.js';
 
 const createFlowKey = 'table-admin-create';
 const editFlowKey = 'table-admin-edit';
@@ -529,23 +530,11 @@ async function replyWithTableList(
 }
 
 function formatTableListMessage(tables: ClubTableRecord[]): string {
-  return ['Taules registrades:']
-    .concat(
-      tables.map(
-        (table) =>
-          `- ${table.displayName} (#${table.id})${table.lifecycleStatus === 'deactivated' ? ' [desactivada]' : ''}`,
-      ),
-    )
-    .join('\n');
+  return formatTelegramTableListMessage({ tables, audience: 'admin' });
 }
 
 function formatTableDetails(table: ClubTableRecord): string {
-  return [
-    `${table.displayName} (#${table.id})`,
-    `Estat: ${table.lifecycleStatus === 'active' ? 'activa' : 'desactivada'}`,
-    `Descripcio: ${table.description ?? 'Sense descripcio'}`,
-    `Capacitat recomanada: ${table.recommendedCapacity ?? 'Sense valor'}`,
-  ].join('\n');
+  return formatTelegramTableDetails({ table, audience: 'admin' });
 }
 
 function formatDraftSummary(data: Record<string, unknown>): string {

@@ -45,6 +45,11 @@ import {
   handleTelegramTableAdminText,
   tableAdminCallbackPrefixes,
 } from './table-admin-flow.js';
+import {
+  handleTelegramTableReadCallback,
+  handleTelegramTableReadCommand,
+  tableReadCallbackPrefixes,
+} from './table-read-flow.js';
 
 export interface TelegramBoundaryStatus {
   bot: 'connected';
@@ -475,6 +480,7 @@ function registerHandlers({
   });
 
   registerMembershipCallbacks({ bot });
+  registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
   registerTextHandlers({ bot });
 }
@@ -536,6 +542,15 @@ function createDefaultCommands({
         });
 
         await context.reply(result.message);
+      },
+    },
+    {
+      command: 'tables',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Consulta les taules actives del club',
+      handle: async (context) => {
+        await handleTelegramTableReadCommand(context);
       },
     },
     {
@@ -798,6 +813,18 @@ function registerTableAdminCallbacks({
   for (const callbackPrefix of callbackPrefixes) {
     bot.onCallback(callbackPrefix, async (context) => {
       await handleTelegramTableAdminCallback(context);
+    });
+  }
+}
+
+function registerTableReadCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const callbackPrefix of Object.values(tableReadCallbackPrefixes)) {
+    bot.onCallback(callbackPrefix, async (context) => {
+      await handleTelegramTableReadCallback(context);
     });
   }
 }

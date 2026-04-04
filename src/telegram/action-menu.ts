@@ -37,6 +37,12 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => !context.actor.isApproved && !context.actor.isBlocked,
   },
   {
+    id: 'tables_read',
+    label: '/tables',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
+  },
+  {
     id: 'elevate_admin',
     label: '/elevate_admin',
     contexts: ['private'],
@@ -92,7 +98,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['elevate_admin', 'start'], ['help']],
+    rows: [['tables_read', 'elevate_admin'], ['start', 'help']],
   },
   {
     id: 'private-pending-default',
