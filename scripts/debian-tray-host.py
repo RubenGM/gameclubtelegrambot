@@ -25,7 +25,6 @@ class TrayHost:
         self.indicator.set_menu(self.menu)
 
     def run(self) -> None:
-        Gtk.init()
         thread = threading.Thread(target=self._stdin_loop, daemon=True)
         thread.start()
         self._emit({'type': 'ready'})
@@ -99,4 +98,5 @@ class TrayHost:
 
 
 if __name__ == '__main__':
+    Gtk.init()
     TrayHost().run()
