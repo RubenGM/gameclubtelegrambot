@@ -277,7 +277,7 @@ test('createTelegramBoundary replies with a safe message and clears session on u
         data: {},
         createdAt: '2026-04-04T10:00:00.000Z',
         updatedAt: '2026-04-04T10:00:00.000Z',
-        expiresAt: '2026-04-04T11:00:00.000Z',
+        expiresAt: '2099-04-04T11:00:00.000Z',
       }),
       saveSession: async () => {},
       deleteSession: async () => {
