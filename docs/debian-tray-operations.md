@@ -73,6 +73,7 @@ Normalment no cal obrir la safata manualment si s'està utilitzant l'entrypoint 
 
 Aquest flux intenta obrir la safata abans d'arrencar o reiniciar el bot.
 Abans d'obrir-la, `startup.sh` tanca qualsevol instància anterior del tray que ja estigui executant-se per al mateix `APP_ROOT`, per evitar icones duplicades a la sessió gràfica.
+La mateixa arrencada obre també una finestra local de control GTK amb els botons operatius del bot. Aquesta finestra és ara el mecanisme principal de control; la icona de safata queda com a indicador visual de l'estat.
 
 Per provar la safata manualment des d'una sessió gràfica:
 
@@ -139,10 +140,13 @@ Si la instal·lació s'ha fet amb `./scripts/install-debian-stack.sh`, aquest aj
 Quan la safata està activa:
 
 - mostra el resum d'estat del servei al tooltip
+- obre una finestra local de control amb accions directes (`Start`, `Stop`, `Restart`, `Rebuild and restart`, `View last logs`, `Refresh`, `Quit tray`)
 - ofereix `Start`, `Stop`, `Restart`, `Rebuild and restart`, `View last logs`, `Refresh` i `Quit tray`
 - refresca automàticament l'estat a l'interval configurat
 - refresca immediatament després d'una acció manual
 - el menú no opera el bot directament: opera `systemd`, i el servei del bot continua sent el procés real de producció
+
+La finestra local de control existeix perquè alguns entorns GNOME/AppIndicator poden ser poc fiables amb els menús popup de safata. El control diari s'ha de fer des d'aquesta finestra, no depenent del clic sobre la icona.
 
 Semàntica de les accions de reinici:
 

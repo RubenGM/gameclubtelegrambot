@@ -13,6 +13,7 @@ export interface TrayMenuItem {
 export interface TrayRuntime {
   start(): Promise<void>;
   onAction(handler: (actionId: TrayActionId) => Promise<void>): void;
+  setSnapshot(snapshot: { items: TrayMenuItem[]; state: TrayStatusIndicator; tooltip: string }): Promise<void>;
   setMenu(items: TrayMenuItem[]): Promise<void>;
   setStatus(state: TrayStatusIndicator): Promise<void>;
   setTooltip(text: string): Promise<void>;
@@ -59,9 +60,11 @@ export function createTrayApp({
     state: ServiceLifecycleState;
     busy?: boolean;
   }) => {
-    await runtime.setStatus(busy ? 'busy' : state);
-    await runtime.setTooltip(`Game Club Bot: ${statusLabel(state)}`);
-    await runtime.setMenu(buildMenu({ state, busy }));
+    await runtime.setSnapshot({
+      state: busy ? 'busy' : state,
+      tooltip: `Game Club Bot: ${statusLabel(state)}`,
+      items: buildMenu({ state, busy }),
+    });
   };
 
   const refresh = async () => {

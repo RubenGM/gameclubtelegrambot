@@ -382,9 +382,14 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   context.messageText = '5';
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'table');
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [['Mesa TV'], ['Sense taula'], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
 
-  context.callbackData = `${scheduleCallbackPrefixes.tableSelection}7`;
-  assert.equal(await handleTelegramScheduleCallback(context), true);
+  context.messageText = 'Mesa TV';
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'confirm');
 
   context.messageText = scheduleLabels.confirmCreate;
@@ -418,6 +423,58 @@ test('handleTelegramScheduleText accepts dd/MM/yyyy dates and shows upcoming day
   context.messageText = 'Dilluns, 06/04/2026';
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.data.date, '2026-04-06');
+});
+
+test('handleTelegramScheduleText shows created tables as reply keyboard buttons during selection', async () => {
+  const tableRepository = createTableRepository([
+    {
+      id: 7,
+      displayName: 'Mesa TV',
+      description: null,
+      recommendedCapacity: 6,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+    {
+      id: 8,
+      displayName: 'Mesa gran',
+      description: null,
+      recommendedCapacity: 8,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const { context, replies, getCurrentSession } = createContext({ tableRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Ark Nova';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = '05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = '5';
+  await handleTelegramScheduleText(context);
+
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [['Mesa TV', 'Mesa gran'], ['Sense taula'], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = 'Mesa gran';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'confirm');
+  assert.equal(getCurrentSession()?.data.tableId, 8);
 });
 
 test('handleTelegramScheduleCallback records audit entries when an admin cancels an activity', async () => {

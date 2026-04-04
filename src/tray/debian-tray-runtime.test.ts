@@ -15,12 +15,14 @@ test('debian tray runtime sends menu snapshots to the host process', async () =>
   host.emitStdout({ type: 'ready' });
   await startPromise;
 
-  await runtime.setTooltip('Game Club Bot: actiu');
-  await runtime.setStatus('active');
-  await runtime.setMenu([
-    { id: 'status', title: 'Status: Bot actiu', enabled: false },
-    { id: 'restart', title: 'Restart', enabled: true },
-  ]);
+  await runtime.setSnapshot({
+    tooltip: 'Game Club Bot: actiu',
+    state: 'active',
+    items: [
+      { id: 'status', title: 'Status: Bot actiu', enabled: false },
+      { id: 'restart', title: 'Restart', enabled: true },
+    ],
+  });
 
   const lastMessage = host.writes.at(-1) as
     | { type: 'snapshot'; status: string; tooltip: string; items: unknown[] }

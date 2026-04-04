@@ -293,6 +293,11 @@ function createTrayRuntimeDouble(): TrayRuntime & {
     onAction(handler: (actionId: TrayActionId) => Promise<void>) {
       actionHandler = handler;
     },
+    async setSnapshot(snapshot: { items: Array<{ id: string; title: string; enabled: boolean }>; state: string; tooltip: string }) {
+      this.statusHistory.push(snapshot.state);
+      this.tooltipHistory.push(snapshot.tooltip);
+      this.menuHistory.push(snapshot.items);
+    },
     async setMenu(items: Array<{ id: string; title: string; enabled: boolean }>) {
       this.menuHistory.push(items);
     },

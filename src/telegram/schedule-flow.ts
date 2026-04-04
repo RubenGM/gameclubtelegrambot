@@ -313,14 +313,7 @@ async function handleCreateSession(
   }
 
   if (stepKey === 'table') {
-    if (text !== scheduleLabels.noTable) {
-      await context.reply('Per continuar, tria una taula dels botons o selecciona Sense taula.', await buildTableSelectionOptions(context));
-      return true;
-    }
-    const nextData = { ...data, tableId: null };
-    await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(`${await formatDraftSummary(context, nextData)}\n\nConfirma o cancel.la el flux.`, buildCreateConfirmOptions());
-    return true;
+    return advanceCreateTableSelection(context, data, text);
   }
 
   if (stepKey === 'confirm') {
@@ -443,14 +436,7 @@ async function handleEditSession(
       await context.reply(`${await formatDraftSummary(context, nextData, event.organizerTelegramUserId)}\n\nConfirma o cancel.la el flux.`, buildEditConfirmOptions());
       return true;
     }
-    if (text !== scheduleLabels.noTable) {
-      await context.reply('Per continuar, tria una taula dels botons, mantingues el valor actual o selecciona Sense taula.', await buildEditTableOptions(context));
-      return true;
-    }
-    const nextData = { ...data, tableId: null };
-    await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(`${await formatDraftSummary(context, nextData, event.organizerTelegramUserId)}\n\nConfirma o cancel.la el flux.`, buildEditConfirmOptions());
-    return true;
+    return advanceEditTableSelection(context, data, text, event.organizerTelegramUserId);
   }
   if (stepKey === 'confirm') {
     if (text !== scheduleLabels.confirmEdit) {
@@ -564,6 +550,61 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
     session.flowKey === editFlowKey ? buildEditConfirmOptions() : buildCreateConfirmOptions(),
   );
   return true;
+}
+
+async function advanceCreateTableSelection(
+  context: TelegramScheduleContext,
+  data: Record<string, unknown>,
+  text: string,
+): Promise<boolean> {
+  if (text === scheduleLabels.noTable) {
+    const nextData = { ...data, tableId: null };
+    await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
+    await context.reply(`${await formatDraftSummary(context, nextData)}\n\nConfirma o cancel.la el flux.`, buildCreateConfirmOptions());
+    return true;
+  }
+
+  const selectedTable = await findSchedulableTableByDisplayName(context, text);
+  if (!selectedTable) {
+    await context.reply('Per continuar, tria una taula dels botons o selecciona Sense taula.', await buildTableSelectionOptions(context));
+    return true;
+  }
+
+  const nextData = { ...data, tableId: selectedTable.id };
+  await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
+  await context.reply(`${await formatDraftSummary(context, nextData, undefined, selectedTable)}\n\nConfirma o cancel.la el flux.`, buildCreateConfirmOptions());
+  return true;
+}
+
+async function advanceEditTableSelection(
+  context: TelegramScheduleContext,
+  data: Record<string, unknown>,
+  text: string,
+  organizerTelegramUserId: number,
+): Promise<boolean> {
+  if (text === scheduleLabels.noTable) {
+    const nextData = { ...data, tableId: null };
+    await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
+    await context.reply(`${await formatDraftSummary(context, nextData, organizerTelegramUserId)}\n\nConfirma o cancel.la el flux.`, buildEditConfirmOptions());
+    return true;
+  }
+
+  const selectedTable = await findSchedulableTableByDisplayName(context, text);
+  if (!selectedTable) {
+    await context.reply('Per continuar, tria una taula dels botons, mantingues el valor actual o selecciona Sense taula.', await buildEditTableOptions(context));
+    return true;
+  }
+
+  const nextData = { ...data, tableId: selectedTable.id };
+  await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
+  await context.reply(`${await formatDraftSummary(context, nextData, organizerTelegramUserId, selectedTable)}\n\nConfirma o cancel.la el flux.`, buildEditConfirmOptions());
+  return true;
+}
+
+async function findSchedulableTableByDisplayName(context: TelegramScheduleContext, text: string): Promise<ClubTableRecord | null> {
+  const normalizedText = text.trim();
+  const tables = await listSchedulableTables({ repository: resolveTableRepository(context) });
+  return tables.find((table) => table.displayName === normalizedText) ?? null;
 }
 
 async function replyWithManageableEventList(
@@ -733,11 +774,7 @@ function buildCancelConfirmOptions(): TelegramReplyOptions {
 async function buildTableSelectionOptions(context: TelegramScheduleContext): Promise<TelegramReplyOptions> {
   const tables = await listSchedulableTables({ repository: resolveTableRepository(context) });
   return {
-    inlineKeyboard: [
-      [{ text: scheduleLabels.noTable, callbackData: `${scheduleCallbackPrefixes.tableSelection}none` }],
-      ...tables.map((table) => [{ text: table.displayName, callbackData: `${scheduleCallbackPrefixes.tableSelection}${table.id}` }]),
-    ],
-    replyKeyboard: [[scheduleLabels.noTable], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [...chunkTableButtons(tables.map((table) => table.displayName)), [scheduleLabels.noTable], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -747,8 +784,18 @@ async function buildEditTableOptions(context: TelegramScheduleContext): Promise<
   const options = await buildTableSelectionOptions(context);
   return {
     ...options,
-    replyKeyboard: [[scheduleLabels.keepCurrent], [scheduleLabels.noTable], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[scheduleLabels.keepCurrent], ...(options.replyKeyboard ?? []).filter((row) => row[0] !== scheduleLabels.cancelFlow), [scheduleLabels.cancelFlow]],
   };
+}
+
+function chunkTableButtons(tableNames: string[]): string[][] {
+  const rows: string[][] = [];
+
+  for (let index = 0; index < tableNames.length; index += 2) {
+    rows.push(tableNames.slice(index, index + 2));
+  }
+
+  return rows;
 }
 
 function formatScheduleListMessage(events: ScheduleEventRecord[]): string {

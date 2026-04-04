@@ -50,6 +50,7 @@ class DebianTrayRuntime implements TrayRuntime {
   private tooltip = 'Game Club Bot';
   private status: TrayStatusIndicator = 'unknown';
   private actionHandler: ((actionId: TrayActionId) => Promise<void>) | null = null;
+  private lastSnapshotJson: string | null = null;
 
   constructor(private readonly spawnHost: () => Promise<TrayHostProcessLike>) {}
 
@@ -103,11 +104,17 @@ class DebianTrayRuntime implements TrayRuntime {
       });
     });
 
-    await this.pushSnapshot();
   }
 
   onAction(handler: (actionId: TrayActionId) => Promise<void>): void {
     this.actionHandler = handler;
+  }
+
+  async setSnapshot(snapshot: { items: TrayMenuItem[]; state: TrayStatusIndicator; tooltip: string }): Promise<void> {
+    this.items = snapshot.items;
+    this.status = snapshot.state;
+    this.tooltip = snapshot.tooltip;
+    await this.pushSnapshot();
   }
 
   async setMenu(items: TrayMenuItem[]): Promise<void> {
@@ -144,6 +151,7 @@ class DebianTrayRuntime implements TrayRuntime {
     this.sendCommand({ type: 'quit' });
     this.host.kill('SIGTERM');
     this.host = null;
+    this.lastSnapshotJson = null;
   }
 
   private async handleHostMessage(message: HostMessage): Promise<void> {
@@ -157,12 +165,20 @@ class DebianTrayRuntime implements TrayRuntime {
       return;
     }
 
-    this.sendCommand({
+    const command: HostCommand = {
       type: 'snapshot',
       status: this.status,
       tooltip: this.tooltip,
       items: this.items,
-    });
+    };
+    const snapshotJson = JSON.stringify(command);
+
+    if (snapshotJson === this.lastSnapshotJson) {
+      return;
+    }
+
+    this.lastSnapshotJson = snapshotJson;
+    this.host.stdin.write(`${snapshotJson}\n`);
   }
 
   private sendCommand(command: HostCommand): void {

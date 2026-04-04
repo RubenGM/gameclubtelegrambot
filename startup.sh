@@ -142,7 +142,7 @@ looks_like_local_config() {
     return 0
   fi
 
-  if grep -q '"host"[[:space:]]*:[[:space:]]*"127.0.0.1"' "$CONFIG_SOURCE" && grep -q '"port"[[:space:]]*:[[:space:]]*55432' "$CONFIG_SOURCE"; then
+  if grep -q '"host"[[:space:]]*:[[:space:]]*"127.0.0.1"' "$CONFIG_SOURCE" 2>/dev/null && grep -q '"port"[[:space:]]*:[[:space:]]*55432' "$CONFIG_SOURCE" 2>/dev/null; then
     return 0
   fi
 
