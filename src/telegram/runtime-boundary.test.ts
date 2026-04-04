@@ -215,6 +215,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:/access',
     'register:/schedule',
     'register:/tables',
+    'register:/venue_events',
     'register:/review_access',
     'register:/approve',
     'register:/reject',
@@ -235,6 +236,9 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:table_admin:inspect:',
     'register:callback:table_admin:edit:',
     'register:callback:table_admin:deactivate:',
+    'register:callback:venue_event_admin:inspect:',
+    'register:callback:venue_event_admin:edit:',
+    'register:callback:venue_event_admin:cancel:',
     'runtime:database:1',
     'reply:Hem registrat la teva sollicitud d accés. Un administrador la revisara al mes aviat possible.',
     'reply:Benvingut a Game Club Bot. Escriu /help per veure les opcions disponibles.',
@@ -242,7 +246,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
     'reply:Usuari aprovat correctament.',
-    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/schedule - Gestiona les teves activitats del club\n/tables - Consulta les taules actives del club\n/review_access - Revisa sollicituds pendents\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
+    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/schedule - Gestiona les teves activitats del club\n/tables - Consulta les taules actives del club\n/venue_events - Gestiona esdeveniments del local\n/review_access - Revisa sollicituds pendents\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
     'start-polling',
     'stop-polling',
   ]);
@@ -302,6 +306,8 @@ test('createTelegramBoundary registers member-facing table callbacks', async () 
 
   assert.ok(events.includes('register:/tables'));
   assert.ok(events.includes('register:callback:table_read:inspect:'));
+  assert.ok(events.includes('register:/venue_events'));
+  assert.ok(events.includes('register:callback:venue_event_admin:inspect:'));
 });
 
 test('createTelegramBoundary replies with a safe message and clears session on unexpected handler errors', async () => {

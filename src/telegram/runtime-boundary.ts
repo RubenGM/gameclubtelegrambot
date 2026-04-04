@@ -51,6 +51,11 @@ import {
   tableReadCallbackPrefixes,
 } from './table-read-flow.js';
 import {
+  handleTelegramVenueEventAdminCallback,
+  handleTelegramVenueEventAdminText,
+  venueEventAdminCallbackPrefixes,
+} from './venue-event-admin-flow.js';
+import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleText,
   scheduleCallbackPrefixes,
@@ -488,6 +493,7 @@ function registerHandlers({
   registerScheduleCallbacks({ bot });
   registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
+  registerVenueEventAdminCallbacks({ bot });
   registerTextHandlers({ bot });
 }
 
@@ -497,6 +503,10 @@ function registerTextHandlers({
   bot: TelegramBotLike;
 }): void {
   bot.onText(async (context) => {
+    if (await handleTelegramVenueEventAdminText(context)) {
+      return;
+    }
+
     if (await handleTelegramScheduleText(context)) {
       return;
     }
@@ -570,6 +580,15 @@ function createDefaultCommands({
       description: 'Consulta les taules actives del club',
       handle: async (context) => {
         await handleTelegramTableReadCommand(context);
+      },
+    },
+    {
+      command: 'venue_events',
+      contexts: ['private'],
+      access: 'admin',
+      description: 'Gestiona esdeveniments del local',
+      handle: async (context) => {
+        await handleTelegramVenueEventAdminText({ ...context, messageText: '/venue_events' });
       },
     },
     {
@@ -856,6 +875,18 @@ function registerScheduleCallbacks({
   for (const callbackPrefix of Object.values(scheduleCallbackPrefixes)) {
     bot.onCallback(callbackPrefix, async (context) => {
       await handleTelegramScheduleCallback(context);
+    });
+  }
+}
+
+function registerVenueEventAdminCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const callbackPrefix of Object.values(venueEventAdminCallbackPrefixes)) {
+    bot.onCallback(callbackPrefix, async (context) => {
+      await handleTelegramVenueEventAdminCallback(context);
     });
   }
 }
