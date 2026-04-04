@@ -77,7 +77,7 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats', 'Taules'], ['Cataleg', 'Esdeveniments local'], ['/review_access'], ['/start', '/help']],
+    replyKeyboard: [['Activitats', 'Calendari'], ['Taules', 'Cataleg'], ['Esdeveniments local', '/review_access'], ['/start', '/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -102,7 +102,7 @@ test('resolveTelegramActionMenu exposes table reads to approved non-admin member
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats', '/tables'], ['/elevate_admin', '/start'], ['/help']],
+    replyKeyboard: [['Activitats', 'Calendari'], ['/tables', '/elevate_admin'], ['/start', '/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -127,7 +127,7 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats', 'Taules'], ['Cataleg', 'Esdeveniments local'], ['/review_access'], ['/start', '/help']],
+    replyKeyboard: [['Activitats', 'Calendari'], ['Taules', 'Cataleg'], ['Esdeveniments local', '/review_access'], ['/start', '/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });

@@ -46,6 +46,9 @@ import {
   catalogAdminCallbackPrefixes,
 } from './catalog-admin-flow.js';
 import {
+  handleTelegramCalendarText,
+} from './calendar-flow.js';
+import {
   handleTelegramTableAdminCallback,
   handleTelegramTableAdminText,
   tableAdminCallbackPrefixes,
@@ -514,6 +517,10 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramCalendarText(context)) {
+      return;
+    }
+
     if (await handleTelegramScheduleText(context)) {
       return;
     }
@@ -582,6 +589,15 @@ function createDefaultCommands({
       description: 'Gestiona les teves activitats del club',
       handle: async (context) => {
         await handleTelegramScheduleText({ ...context, messageText: '/schedule' });
+      },
+    },
+    {
+      command: 'calendar',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Consulta el calendari proper del club',
+      handle: async (context) => {
+        await handleTelegramCalendarText({ ...context, messageText: '/calendar' });
       },
     },
     {
