@@ -8,10 +8,14 @@ import {
 import {
   createCatalogFamily,
   createCatalogItem,
+  createCatalogMedia,
   deactivateCatalogItem,
   listCatalogGroups,
   listCatalogItems,
+  removeCatalogMedia,
+  type CatalogMediaType,
   updateCatalogItem,
+  updateCatalogMedia,
   type CatalogFamilyRecord,
   type CatalogGroupRecord,
   type CatalogItemRecord,
@@ -28,12 +32,17 @@ import type { TelegramReplyOptions } from './runtime-boundary.js';
 const createFlowKey = 'catalog-admin-create';
 const editFlowKey = 'catalog-admin-edit';
 const deactivateFlowKey = 'catalog-admin-deactivate';
+const mediaFlowKey = 'catalog-admin-media';
+const mediaDeleteFlowKey = 'catalog-admin-media-delete';
 
 export const catalogAdminCallbackPrefixes = {
   inspect: 'catalog_admin:inspect:',
   inspectGroup: 'catalog_admin:inspect_group:',
   edit: 'catalog_admin:edit:',
   deactivate: 'catalog_admin:deactivate:',
+  addMedia: 'catalog_admin:add_media:',
+  editMedia: 'catalog_admin:edit_media:',
+  deleteMedia: 'catalog_admin:delete_media:',
 } as const;
 
 export const catalogAdminLabels = {
@@ -54,6 +63,12 @@ export const catalogAdminLabels = {
   confirmCreate: 'Guardar item',
   confirmEdit: 'Guardar canvis',
   confirmDeactivate: 'Confirmar desactivacio',
+  confirmMediaCreate: 'Guardar media',
+  confirmMediaEdit: 'Guardar canvis media',
+  confirmMediaDelete: 'Confirmar eliminacio media',
+  mediaTypeImage: 'Imatge',
+  mediaTypeLink: 'Enllac',
+  mediaTypeDocument: 'Document',
   importLookupData: 'Importar dades',
   skipLookupImport: 'No importar dades',
   refineLookupByAuthor: 'Refinar amb autor',
@@ -132,7 +147,16 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.inspect)) {
     const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.inspect);
     const item = await loadItemOrThrow(context, itemId);
-    await context.reply(await formatCatalogItemDetails(context, item));
+    const media = await resolveCatalogRepository(context).listMedia({ itemId });
+    await context.reply(await formatCatalogItemDetails(context, item), {
+      inlineKeyboard: [
+        [{ text: 'Afegir media', callbackData: `${catalogAdminCallbackPrefixes.addMedia}${item.id}` }],
+        ...media.flatMap((entry) => [[
+          { text: `Editar media #${entry.id}`, callbackData: `${catalogAdminCallbackPrefixes.editMedia}${entry.id}` },
+          { text: `Eliminar media #${entry.id}`, callbackData: `${catalogAdminCallbackPrefixes.deleteMedia}${entry.id}` },
+        ]]),
+      ],
+    });
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.inspectGroup)) {
@@ -164,6 +188,41 @@ Escriu el nou nom o tria una opcio del teclat.`, buildKeepCurrentKeyboard());
 Si el desactives, deixara d aparéixer als fluxos operatius futurs pero es mantindra per a consultes historiques.`, buildDeactivateConfirmOptions());
     return true;
   }
+  if (callbackData.startsWith(catalogAdminCallbackPrefixes.addMedia)) {
+    const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.addMedia);
+    const item = await loadItemOrThrow(context, itemId);
+    await context.runtime.session.start({ flowKey: mediaFlowKey, stepKey: 'media-type', data: { itemId } });
+    await context.reply(`${await formatCatalogItemDetails(context, item)}
+
+Selecciona el tipus de media que vols afegir.`, buildMediaTypeOptions());
+    return true;
+  }
+  if (callbackData.startsWith(catalogAdminCallbackPrefixes.editMedia)) {
+    const mediaId = parseItemId(callbackData, catalogAdminCallbackPrefixes.editMedia);
+    const media = await loadMediaOrThrow(context, mediaId);
+    await context.runtime.session.start({
+      flowKey: mediaFlowKey,
+      stepKey: 'media-type',
+      data: {
+        mediaId,
+        itemId: media.itemId,
+        mediaType: media.mediaType,
+        url: media.url,
+        altText: media.altText,
+        sortOrder: media.sortOrder,
+      },
+    });
+    await context.reply('Selecciona el tipus de media o mantingues el valor actual.', buildEditMediaTypeOptions());
+    return true;
+  }
+  if (callbackData.startsWith(catalogAdminCallbackPrefixes.deleteMedia)) {
+    const mediaId = parseItemId(callbackData, catalogAdminCallbackPrefixes.deleteMedia);
+    const media = await loadMediaOrThrow(context, mediaId);
+    await context.runtime.session.start({ flowKey: mediaDeleteFlowKey, stepKey: 'confirm', data: { mediaId, itemId: media.itemId } });
+    await context.reply(`Vols eliminar aquest media?
+- ${media.mediaType} · ${media.url}`, buildMediaDeleteConfirmOptions());
+    return true;
+  }
   return false;
 }
 
@@ -172,7 +231,7 @@ function canManageCatalog(context: TelegramCatalogAdminContext): boolean {
 }
 
 function isCatalogAdminSession(flowKey: string | undefined): boolean {
-  return flowKey === createFlowKey || flowKey === editFlowKey || flowKey === deactivateFlowKey;
+  return flowKey === createFlowKey || flowKey === editFlowKey || flowKey === deactivateFlowKey || flowKey === mediaFlowKey || flowKey === mediaDeleteFlowKey;
 }
 
 async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, text: string): Promise<boolean> {
@@ -188,6 +247,12 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
   }
   if (session.flowKey === deactivateFlowKey) {
     return handleDeactivateSession(context, text, session.data);
+  }
+  if (session.flowKey === mediaFlowKey) {
+    return handleMediaSession(context, text, session.stepKey, session.data);
+  }
+  if (session.flowKey === mediaDeleteFlowKey) {
+    return handleMediaDeleteSession(context, text, session.data);
   }
   return false;
 }
@@ -240,7 +305,8 @@ async function handleCreateSession(
       );
       return true;
     }
-    await createCatalogItemFromDraft(context, { ...data, familyId, groupId: null });
+    await context.runtime.session.advance({ stepKey: 'group', data: { ...data, familyId } });
+    await context.reply(await buildGroupPrompt(context, familyId), buildGroupOptions());
     return true;
   }
   if (stepKey === 'lookup-choice') {
@@ -311,65 +377,77 @@ async function handleCreateSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'original-name', data: { ...data, groupId } });
-    await context.reply('Escriu el nom original opcional o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu el nom original opcional o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableString(data.originalName)));
     return true;
   }
   if (stepKey === 'original-name') {
     await context.runtime.session.advance({
       stepKey: 'description',
-      data: { ...data, originalName: text === catalogAdminLabels.skipOptional ? null : text },
+      data: {
+        ...data,
+        originalName: text === catalogAdminLabels.keepCurrent ? asNullableString(data.originalName) : text === catalogAdminLabels.skipOptional ? null : text,
+      },
     });
-    await context.reply('Escriu una descripcio opcional o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu una descripcio opcional o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableString(data.description)));
     return true;
   }
   if (stepKey === 'description') {
     await context.runtime.session.advance({
       stepKey: 'language',
-      data: { ...data, description: text === catalogAdminLabels.skipOptional ? null : text },
+      data: {
+        ...data,
+        description: text === catalogAdminLabels.keepCurrent ? asNullableString(data.description) : text === catalogAdminLabels.skipOptional ? null : text,
+      },
     });
-    await context.reply('Escriu la llengua principal o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu la llengua principal o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableString(data.language)));
     return true;
   }
   if (stepKey === 'language') {
     await context.runtime.session.advance({
       stepKey: 'publisher',
-      data: { ...data, language: text === catalogAdminLabels.skipOptional ? null : text },
+      data: {
+        ...data,
+        language: text === catalogAdminLabels.keepCurrent ? asNullableString(data.language) : text === catalogAdminLabels.skipOptional ? null : text,
+      },
     });
-    await context.reply('Escriu l editorial o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu l editorial o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableString(data.publisher)));
     return true;
   }
   if (stepKey === 'publisher') {
     await context.runtime.session.advance({
       stepKey: 'publication-year',
-      data: { ...data, publisher: text === catalogAdminLabels.skipOptional ? null : text },
+      data: {
+        ...data,
+        publisher: text === catalogAdminLabels.keepCurrent ? asNullableString(data.publisher) : text === catalogAdminLabels.skipOptional ? null : text,
+      },
     });
-    await context.reply('Escriu l any de publicacio o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu l any de publicacio o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear)));
     return true;
   }
   if (stepKey === 'publication-year') {
-    const publicationYear = parseOptionalPositiveInteger(text);
+    const publicationYear = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.publicationYear) : parseOptionalPositiveInteger(text);
     if (publicationYear instanceof Error) {
-      await context.reply('L any de publicacio ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      await context.reply('L any de publicacio ha de ser un enter positiu valid o omet el camp.', buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear)));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'player-min', data: { ...data, publicationYear } });
-    await context.reply('Escriu el minim de jugadors o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu el minim de jugadors o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin)));
     return true;
   }
   if (stepKey === 'player-min') {
-    const playerCountMin = parseOptionalPositiveInteger(text);
+    const playerCountMin = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.playerCountMin) : parseOptionalPositiveInteger(text);
     if (playerCountMin instanceof Error) {
-      await context.reply('El minim de jugadors ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      await context.reply('El minim de jugadors ha de ser un enter positiu valid o omet el camp.', buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin)));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'player-max', data: { ...data, playerCountMin } });
-    await context.reply('Escriu el maxim de jugadors o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu el maxim de jugadors o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax)));
     return true;
   }
   if (stepKey === 'player-max') {
-    const playerCountMax = parseOptionalPositiveInteger(text);
+    const playerCountMax = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.playerCountMax) : parseOptionalPositiveInteger(text);
     if (playerCountMax instanceof Error) {
-      await context.reply('El maxim de jugadors ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      await context.reply('El maxim de jugadors ha de ser un enter positiu valid o omet el camp.', buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax)));
       return true;
     }
     if (
@@ -377,48 +455,48 @@ async function handleCreateSession(
       typeof data.playerCountMin === 'number' &&
       playerCountMax < data.playerCountMin
     ) {
-      await context.reply('El maxim de jugadors no pot ser inferior al minim. Escriu un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      await context.reply('El maxim de jugadors no pot ser inferior al minim. Escriu un enter positiu valid o omet el camp.', buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax)));
       return true;
     }
     const nextData = { ...data, playerCountMax };
     await context.runtime.session.advance({ stepKey: 'recommended-age', data: nextData });
-    await context.reply('Escriu l edat recomanada o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu l edat recomanada o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge)));
     return true;
   }
   if (stepKey === 'recommended-age') {
-    const recommendedAge = parseOptionalPositiveInteger(text);
+    const recommendedAge = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.recommendedAge) : parseOptionalPositiveInteger(text);
     if (recommendedAge instanceof Error) {
-      await context.reply('L edat recomanada ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      await context.reply('L edat recomanada ha de ser un enter positiu valid o omet el camp.', buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge)));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'play-time-minutes', data: { ...data, recommendedAge } });
-    await context.reply('Escriu la durada en minuts o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu la durada en minuts o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableNumber(data.playTimeMinutes)));
     return true;
   }
   if (stepKey === 'play-time-minutes') {
-    const playTimeMinutes = parseOptionalPositiveInteger(text);
+    const playTimeMinutes = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.playTimeMinutes) : parseOptionalPositiveInteger(text);
     if (playTimeMinutes instanceof Error) {
-      await context.reply('La durada ha de ser un enter positiu valid o omet el camp.', buildSkipOptionalKeyboard());
+      await context.reply('La durada ha de ser un enter positiu valid o omet el camp.', buildCreateOptionalKeyboard(asNullableNumber(data.playTimeMinutes)));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'external-refs', data: { ...data, playTimeMinutes } });
-    await context.reply('Escriu referencies externes en JSON o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu referencies externes en JSON o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableObject(data.externalRefs)));
     return true;
   }
   if (stepKey === 'external-refs') {
-    const externalRefs = parseOptionalJsonObject(text);
+    const externalRefs = text === catalogAdminLabels.keepCurrent ? asNullableObject(data.externalRefs) : parseOptionalJsonObject(text);
     if (externalRefs instanceof Error) {
-      await context.reply('Les referencies externes han de ser un objecte JSON valid o omet el camp.', buildSkipOptionalKeyboard());
+      await context.reply('Les referencies externes han de ser un objecte JSON valid o omet el camp.', buildCreateOptionalKeyboard(asNullableObject(data.externalRefs)));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'metadata', data: { ...data, externalRefs } });
-    await context.reply('Escriu metadata addicional en JSON o tria una opcio del teclat.', buildSkipOptionalKeyboard());
+    await context.reply('Escriu metadata addicional en JSON o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableObject(data.metadata)));
     return true;
   }
   if (stepKey === 'metadata') {
-    const metadata = parseOptionalJsonObject(text);
+    const metadata = text === catalogAdminLabels.keepCurrent ? asNullableObject(data.metadata) : parseOptionalJsonObject(text);
     if (metadata instanceof Error) {
-      await context.reply('La metadata ha de ser un objecte JSON valid o omet el camp.', buildSkipOptionalKeyboard());
+      await context.reply('La metadata ha de ser un objecte JSON valid o omet el camp.', buildCreateOptionalKeyboard(asNullableObject(data.metadata)));
       return true;
     }
     const nextData = { ...data, metadata };
@@ -465,41 +543,6 @@ Tria una opcio per confirmar o cancel.lar.`, buildCreateConfirmOptions());
     return true;
   }
   return false;
-}
-
-async function createCatalogItemFromDraft(
-  context: TelegramCatalogAdminContext,
-  data: Record<string, unknown>,
-): Promise<void> {
-  const item = await createCatalogItem({
-    repository: resolveCatalogRepository(context),
-    familyId: (data.familyId as number | null | undefined) ?? null,
-    groupId: (data.groupId as number | null | undefined) ?? null,
-    itemType: String(data.itemType ?? 'board-game') as CatalogItemType,
-    displayName: String(data.displayName ?? ''),
-    originalName: asNullableString(data.originalName),
-    description: asNullableString(data.description),
-    language: asNullableString(data.language),
-    publisher: asNullableString(data.publisher),
-    publicationYear: asNullableNumber(data.publicationYear),
-    playerCountMin: asNullableNumber(data.playerCountMin),
-    playerCountMax: asNullableNumber(data.playerCountMax),
-    recommendedAge: asNullableNumber(data.recommendedAge),
-    playTimeMinutes: asNullableNumber(data.playTimeMinutes),
-    externalRefs: asNullableObject(data.externalRefs),
-    metadata: asNullableObject(data.metadata),
-  });
-  await appendAuditEvent({
-    repository: resolveAuditRepository(context),
-    actorTelegramUserId: context.runtime.actor.telegramUserId,
-    actionKey: 'catalog.item.created',
-    targetType: 'catalog-item',
-    targetId: item.id,
-    summary: `Item de cataleg creat: ${item.displayName}`,
-    details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
-  });
-  await context.runtime.session.cancel();
-  await context.reply(`Item de cataleg creat correctament: ${item.displayName} (#${item.id}).`, buildCatalogAdminMenuOptions());
 }
 
 async function handleEditSession(
@@ -739,6 +782,130 @@ async function handleDeactivateSession(
   return true;
 }
 
+async function handleMediaSession(
+  context: TelegramCatalogAdminContext,
+  text: string,
+  stepKey: string,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const isEditing = typeof data.mediaId === 'number';
+  if (stepKey === 'media-type') {
+    const mediaType = text === catalogAdminLabels.keepCurrent ? String(data.mediaType) : parseMediaTypeLabel(text);
+    if (mediaType instanceof Error) {
+      await context.reply('Tria un tipus de media valid del teclat.', isEditing ? buildEditMediaTypeOptions() : buildMediaTypeOptions());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'url', data: { ...data, mediaType } });
+    await context.reply('Escriu la URL del media.', isEditing ? buildKeepCurrentKeyboard() : buildSingleCancelKeyboard());
+    return true;
+  }
+  if (stepKey === 'url') {
+    await context.runtime.session.advance({
+      stepKey: 'alt-text',
+      data: { ...data, url: text === catalogAdminLabels.keepCurrent ? String(data.url ?? '') : text },
+    });
+    await context.reply(
+      'Escriu el text alternatiu opcional o tria una opcio del teclat.',
+      isEditing ? buildEditOptionalKeyboard() : buildSkipOptionalKeyboard(),
+    );
+    return true;
+  }
+  if (stepKey === 'alt-text') {
+    await context.runtime.session.advance({
+      stepKey: 'sort-order',
+      data: {
+        ...data,
+        altText: text === catalogAdminLabels.keepCurrent ? asNullableString(data.altText) : text === catalogAdminLabels.skipOptional ? null : text,
+      },
+    });
+    await context.reply(
+      'Escriu l ordre del media o omet el camp per usar 0.',
+      isEditing ? buildEditOptionalKeyboard() : buildSkipOptionalKeyboard(),
+    );
+    return true;
+  }
+  if (stepKey === 'sort-order') {
+    const sortOrder = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.sortOrder) ?? 0 : parseOptionalNonNegativeInteger(text);
+    if (sortOrder instanceof Error) {
+      await context.reply(
+        'L ordre del media ha de ser un enter positiu o zero, o pots ometre el camp.',
+        isEditing ? buildEditOptionalKeyboard() : buildSkipOptionalKeyboard(),
+      );
+      return true;
+    }
+    const nextData = { ...data, sortOrder };
+    await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
+    await context.reply(buildMediaDraftSummary(nextData), isEditing ? buildMediaEditConfirmOptions() : buildMediaConfirmOptions());
+    return true;
+  }
+  if (stepKey === 'confirm') {
+    const expected = isEditing ? catalogAdminLabels.confirmMediaEdit : catalogAdminLabels.confirmMediaCreate;
+    const options = isEditing ? buildMediaEditConfirmOptions() : buildMediaConfirmOptions();
+    if (text !== expected) {
+      await context.reply('Per guardar el media, tria el boto de confirmacio o cancel.la el flux.', options);
+      return true;
+    }
+    const media = isEditing
+      ? await updateCatalogMedia({
+        repository: resolveCatalogRepository(context),
+        mediaId: Number(data.mediaId),
+        mediaType: String(data.mediaType) as CatalogMediaType,
+        url: String(data.url ?? ''),
+        altText: asNullableString(data.altText),
+        sortOrder: asNullableNumber(data.sortOrder) ?? 0,
+      })
+      : await createCatalogMedia({
+        repository: resolveCatalogRepository(context),
+        familyId: null,
+        itemId: Number(data.itemId),
+        mediaType: String(data.mediaType) as CatalogMediaType,
+        url: String(data.url ?? ''),
+        altText: asNullableString(data.altText),
+        ...(asNullableNumber(data.sortOrder) !== null ? { sortOrder: asNullableNumber(data.sortOrder)! } : {}),
+      });
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: isEditing ? 'catalog.media.updated' : 'catalog.media.created',
+      targetType: 'catalog-media',
+      targetId: media.id,
+      summary: isEditing ? `Media de cataleg actualitzat #${media.id}` : `Media de cataleg creat per l item #${media.itemId}`,
+      details: { itemId: media.itemId, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
+    });
+    await context.runtime.session.cancel();
+    await context.reply(
+      isEditing ? `Media actualitzat correctament (#${media.id}).` : `Media afegit correctament a l item #${media.itemId}.`,
+      buildCatalogAdminMenuOptions(),
+    );
+    return true;
+  }
+  return false;
+}
+
+async function handleMediaDeleteSession(
+  context: TelegramCatalogAdminContext,
+  text: string,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  if (text !== catalogAdminLabels.confirmMediaDelete) {
+    await context.reply('Per eliminar el media, tria el boto de confirmacio o cancel.la el flux.', buildMediaDeleteConfirmOptions());
+    return true;
+  }
+  await removeCatalogMedia({ repository: resolveCatalogRepository(context), mediaId: Number(data.mediaId) });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'catalog.media.deleted',
+    targetType: 'catalog-media',
+    targetId: Number(data.mediaId),
+    summary: `Media de cataleg eliminat #${Number(data.mediaId)}`,
+    details: { itemId: asNullableNumber(data.itemId) },
+  });
+  await context.runtime.session.cancel();
+  await context.reply(`Media eliminat correctament (#${Number(data.mediaId)}).`, buildCatalogAdminMenuOptions());
+  return true;
+}
+
 function buildCatalogAdminMenuOptions(): TelegramReplyOptions {
   return {
     replyKeyboard: [
@@ -832,6 +999,12 @@ function buildSkipOptionalKeyboard(): TelegramReplyOptions {
   };
 }
 
+function buildCreateOptionalKeyboard(currentValue: unknown): TelegramReplyOptions {
+  return currentValue === null || currentValue === undefined
+    ? buildSkipOptionalKeyboard()
+    : buildEditOptionalKeyboard();
+}
+
 function buildEditOptionalKeyboard(): TelegramReplyOptions {
   return {
     replyKeyboard: [[catalogAdminLabels.keepCurrent, catalogAdminLabels.skipOptional], [catalogAdminLabels.cancel]],
@@ -859,6 +1032,55 @@ function buildEditConfirmOptions(): TelegramReplyOptions {
 function buildDeactivateConfirmOptions(): TelegramReplyOptions {
   return {
     replyKeyboard: [[catalogAdminLabels.confirmDeactivate], [catalogAdminLabels.cancel]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildMediaTypeOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [
+      [catalogAdminLabels.mediaTypeImage, catalogAdminLabels.mediaTypeLink],
+      [catalogAdminLabels.mediaTypeDocument],
+      [catalogAdminLabels.cancel],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildEditMediaTypeOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [
+      [catalogAdminLabels.keepCurrent],
+      [catalogAdminLabels.mediaTypeImage, catalogAdminLabels.mediaTypeLink],
+      [catalogAdminLabels.mediaTypeDocument],
+      [catalogAdminLabels.cancel],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildMediaConfirmOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[catalogAdminLabels.confirmMediaCreate], [catalogAdminLabels.cancel]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildMediaEditConfirmOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[catalogAdminLabels.confirmMediaEdit], [catalogAdminLabels.cancel]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildMediaDeleteConfirmOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[catalogAdminLabels.confirmMediaDelete], [catalogAdminLabels.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -957,6 +1179,13 @@ async function formatCatalogItemList(context: TelegramCatalogAdminContext, items
 async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string> {
   const familyName = await loadFamilyName(context, item.familyId);
   const groupName = await loadGroupName(context, item.groupId);
+  const media = await resolveCatalogRepository(context).listMedia({ itemId: item.id });
+  const mediaLines = media.length === 0
+    ? ['Media: Cap media']
+    : [
+      `Media: ${media.length} element${media.length === 1 ? '' : 's'}`,
+      ...media.map((entry) => `- #${entry.id}: ${entry.mediaType} · ${entry.url}`),
+    ];
   return [
     `${item.displayName} (#${item.id})`,
     `Tipus: ${renderItemType(item.itemType)}`,
@@ -972,6 +1201,7 @@ async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, it
     `Durada: ${item.playTimeMinutes ?? 'Sense valor'}`,
     `Referencies externes: ${renderOptionalObject(item.externalRefs)}`,
     `Metadata: ${renderOptionalObject(item.metadata)}`,
+    ...mediaLines,
     `Estat: ${item.lifecycleStatus}`,
   ].join('\n');
 }
@@ -1024,6 +1254,19 @@ function parseItemTypeLabel(text: string): CatalogItemType | Error {
       return 'accessory';
     default:
       return new Error('invalid-item-type');
+  }
+}
+
+function parseMediaTypeLabel(text: string): CatalogMediaType | Error {
+  switch (text) {
+    case catalogAdminLabels.mediaTypeImage:
+      return 'image';
+    case catalogAdminLabels.mediaTypeLink:
+      return 'link';
+    case catalogAdminLabels.mediaTypeDocument:
+      return 'document';
+    default:
+      return new Error('invalid-media-type');
   }
 }
 
@@ -1102,6 +1345,17 @@ function parseOptionalPositiveInteger(text: string): number | null | Error {
   return value;
 }
 
+function parseOptionalNonNegativeInteger(text: string): number | null | Error {
+  if (text === catalogAdminLabels.skipOptional) {
+    return null;
+  }
+  const value = Number(text);
+  if (!Number.isInteger(value) || value < 0) {
+    return new Error('invalid-number');
+  }
+  return value;
+}
+
 function parseOptionalJsonObject(text: string): Record<string, unknown> | null | Error {
   if (text === catalogAdminLabels.skipOptional) {
     return null;
@@ -1128,6 +1382,14 @@ function parseItemId(callbackData: string, prefix: string): number {
     throw new Error('No s ha pogut identificar l item seleccionat.');
   }
   return value;
+}
+
+async function loadMediaOrThrow(context: TelegramCatalogAdminContext, mediaId: number) {
+  const media = (await resolveCatalogRepository(context).listMedia({})).find((entry) => entry.id === mediaId);
+  if (!media) {
+    throw new Error(`Catalog media ${mediaId} not found`);
+  }
+  return media;
 }
 
 async function loadItemOrThrow(context: TelegramCatalogAdminContext, itemId: number): Promise<CatalogItemRecord> {
@@ -1245,6 +1507,9 @@ function formatFamilyOption(family: CatalogFamilyRecord): string {
 }
 
 async function buildGroupPrompt(context: TelegramCatalogAdminContext, familyId: number | null): Promise<string> {
+  if (familyId === null) {
+    return 'Sense familia no hi ha grups compatibles. Continua sense grup o escriu /cancel.';
+  }
   const groups = await listCatalogGroups({ repository: resolveCatalogRepository(context), ...(familyId !== null ? { familyId } : {}) });
   if (groups.length === 0) {
     return 'No hi ha grups compatibles. Continua sense grup o escriu /cancel.';
@@ -1323,6 +1588,16 @@ function asLookupCandidates(value: unknown): CatalogLookupCandidate[] {
 
 function renderOptionalObject(value: Record<string, unknown> | null): string {
   return value ? JSON.stringify(value) : 'Sense valor';
+}
+
+function buildMediaDraftSummary(data: Record<string, unknown>): string {
+  return [
+    'Resum del media:',
+    `- Tipus: ${String(data.mediaType ?? '')}`,
+    `- URL: ${String(data.url ?? '')}`,
+    `- Text alternatiu: ${asNullableString(data.altText) ?? 'Sense valor'}`,
+    `- Ordre: ${asNullableNumber(data.sortOrder) ?? 0}`,
+  ].join('\n');
 }
 
 function isExactTitleMatch(left: string, right: string): boolean {

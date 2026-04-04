@@ -155,6 +155,28 @@ export function createDatabaseCatalogRepository({
 
       return result.map(mapCatalogMediaRow);
     },
+    async updateMedia(input) {
+      const updated = await database
+        .update(catalogMedia)
+        .set({
+          mediaType: input.mediaType,
+          url: input.url,
+          altText: input.altText,
+          sortOrder: input.sortOrder,
+          updatedAt: new Date(),
+        })
+        .where(eq(catalogMedia.id, input.mediaId))
+        .returning();
+      const row = updated[0];
+      if (!row) {
+        throw new Error(`Catalog media ${input.mediaId} not found`);
+      }
+      return mapCatalogMediaRow(row);
+    },
+    async deleteMedia({ mediaId }) {
+      const deleted = await database.delete(catalogMedia).where(eq(catalogMedia.id, mediaId)).returning();
+      return deleted.length > 0;
+    },
   };
 }
 

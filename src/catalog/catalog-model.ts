@@ -126,6 +126,14 @@ export interface CatalogRepository {
     sortOrder: number;
   }): Promise<CatalogMediaRecord>;
   listMedia(input: { familyId?: number; itemId?: number }): Promise<CatalogMediaRecord[]>;
+  updateMedia(input: {
+    mediaId: number;
+    mediaType: CatalogMediaType;
+    url: string;
+    altText: string | null;
+    sortOrder: number;
+  }): Promise<CatalogMediaRecord>;
+  deleteMedia(input: { mediaId: number }): Promise<boolean>;
 }
 
 export async function createCatalogFamily({
@@ -403,6 +411,48 @@ export async function createCatalogMedia({
     altText: normalizeOptionalText(altText),
     sortOrder: normalizeSortOrder(sortOrder),
   });
+}
+
+export async function updateCatalogMedia({
+  repository,
+  mediaId,
+  mediaType,
+  url,
+  altText,
+  sortOrder,
+}: {
+  repository: CatalogRepository;
+  mediaId: number;
+  mediaType: CatalogMediaType;
+  url: string;
+  altText?: string | null;
+  sortOrder?: number;
+}): Promise<CatalogMediaRecord> {
+  const existing = (await repository.listMedia({})).find((entry) => entry.id === mediaId);
+  if (!existing) {
+    throw new Error(`Catalog media ${mediaId} not found`);
+  }
+
+  return repository.updateMedia({
+    mediaId,
+    mediaType: normalizeMediaType(mediaType),
+    url: normalizeRequiredText(url, 'La URL del media es obligatoria'),
+    altText: normalizeOptionalText(altText),
+    sortOrder: normalizeSortOrder(sortOrder),
+  });
+}
+
+export async function removeCatalogMedia({
+  repository,
+  mediaId,
+}: {
+  repository: CatalogRepository;
+  mediaId: number;
+}): Promise<void> {
+  const deleted = await repository.deleteMedia({ mediaId });
+  if (!deleted) {
+    throw new Error(`Catalog media ${mediaId} not found`);
+  }
 }
 
 function normalizeSlug(slug: string): string {

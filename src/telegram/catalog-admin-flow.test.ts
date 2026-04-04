@@ -24,16 +24,20 @@ function createRepository({
   families = [],
   groups = [],
   items = [],
+  media = [],
 }: {
   families?: CatalogFamilyRecord[];
   groups?: CatalogGroupRecord[];
   items?: CatalogItemRecord[];
+  media?: CatalogMediaRecord[];
 } = {}): CatalogRepository {
   const familyMap = new Map(families.map((family) => [family.id, family]));
   const groupMap = new Map(groups.map((group) => [group.id, group]));
   const itemMap = new Map(items.map((item) => [item.id, item]));
+  const mediaMap = new Map(media.map((entry) => [entry.id, entry]));
   let nextFamilyId = Math.max(0, ...families.map((family) => family.id)) + 1;
   let nextItemId = Math.max(0, ...items.map((item) => item.id)) + 1;
+  let nextMediaId = Math.max(0, ...media.map((entry) => entry.id)) + 1;
 
   return {
     async createFamily(input) {
@@ -142,8 +146,8 @@ function createRepository({
       return next;
     },
     async createMedia(input): Promise<CatalogMediaRecord> {
-      return {
-        id: 1,
+      const entry: CatalogMediaRecord = {
+        id: nextMediaId,
         familyId: input.familyId,
         itemId: input.itemId,
         mediaType: input.mediaType,
@@ -153,9 +157,39 @@ function createRepository({
         createdAt: '2026-04-04T10:00:00.000Z',
         updatedAt: '2026-04-04T10:00:00.000Z',
       };
+      nextMediaId += 1;
+      mediaMap.set(entry.id, entry);
+      return entry;
     },
-    async listMedia() {
-      return [];
+    async listMedia({ familyId, itemId }) {
+      return Array.from(mediaMap.values()).filter((entry) => {
+        if (familyId !== undefined) {
+          return entry.familyId === familyId;
+        }
+        if (itemId !== undefined) {
+          return entry.itemId === itemId;
+        }
+        return true;
+      });
+    },
+    async updateMedia(input) {
+      const existing = mediaMap.get(input.mediaId);
+      if (!existing) {
+        throw new Error(`unknown media ${input.mediaId}`);
+      }
+      const next: CatalogMediaRecord = {
+        ...existing,
+        mediaType: input.mediaType,
+        url: input.url,
+        altText: input.altText,
+        sortOrder: input.sortOrder,
+        updatedAt: '2026-04-04T11:00:00.000Z',
+      };
+      mediaMap.set(next.id, next);
+      return next;
+    },
+    async deleteMedia({ mediaId }) {
+      return mediaMap.delete(mediaId);
     },
   };
 }
@@ -257,7 +291,7 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   assert.equal(replies.at(-1)?.message, 'Gestio de cataleg: tria una accio.');
 });
 
-test('handleTelegramCatalogAdminText creates a board game with only the minimum fields', async () => {
+test('handleTelegramCatalogAdminText creates a board game after reviewing optional fields', async () => {
   const repository = createRepository({
     families: [
       {
@@ -292,6 +326,50 @@ test('handleTelegramCatalogAdminText creates a board game with only the minimum 
   context.messageText = 'Root';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'Arkham Horror';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'group');
+
+  context.messageText = catalogAdminLabels.noGroup;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.confirmCreate;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.equal(getCurrentSession(), null);
@@ -396,6 +474,34 @@ test('handleTelegramCatalogAdminText creates a regular book through lookup first
 
   context.messageText = 'Mundodisco';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'group');
+
+  context.messageText = catalogAdminLabels.noGroup;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.confirmCreate;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.equal(getCurrentSession(), null);
   const created = await repository.findItemById(9);
@@ -473,6 +579,33 @@ test('handleTelegramCatalogAdminText offers Open Library matches for rpg books a
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'family');
   context.messageText = 'Dungeons and Dragons 5';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'group');
+  context.messageText = catalogAdminLabels.noGroup;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.keepCurrent;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.confirmCreate;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /Item de cataleg creat correctament: Manual del jugador \(2024\)/);
@@ -579,6 +712,33 @@ test('handleTelegramCatalogAdminText creates an rpg book with minimum fields whe
   await handleTelegramCatalogAdminText(context);
   context.messageText = catalogAdminLabels.noFamily;
 
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'group');
+  context.messageText = catalogAdminLabels.noGroup;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.confirmCreate;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession(), null);
 
@@ -700,6 +860,34 @@ test('handleTelegramCatalogAdminText lets rpg books pick a popular family or cre
 
   context.messageText = 'Dungeons and Dragons 5';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'group');
+
+  context.messageText = catalogAdminLabels.noGroup;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.confirmCreate;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession(), null);
 
   const createdWithExistingFamily = (await repository.listItems({ includeDeactivated: true }))
@@ -714,6 +902,34 @@ test('handleTelegramCatalogAdminText lets rpg books pick a popular family or cre
   context.messageText = 'Xanathar Guide';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'Shadowdark RPG';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'group');
+
+  context.messageText = catalogAdminLabels.noGroup;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.skipOptional;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.confirmCreate;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   const families = await repository.listFamilies();
@@ -894,6 +1110,141 @@ test('handleTelegramCatalogAdminText lists grouped catalog items and navigates f
   assert.match(replies.at(-1)?.message ?? '', /Grup: Second Edition/);
 });
 
+test('handleTelegramCatalogAdminCallback lets admins add item media and shows it in item details', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const auditRepository = createAuditRepository();
+  const { context, replies, getCurrentSession } = createContext({ repository, auditRepository });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Media: Cap media/);
+
+  context.callbackData = 'catalog_admin:add_media:3';
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  delete context.callbackData;
+  assert.equal(getCurrentSession()?.stepKey, 'media-type');
+
+  context.messageText = 'Imatge';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'https://example.com/root.jpg';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Portada del Root';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '2';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Guardar media';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.media.created');
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Media: 1 element/);
+  assert.match(replies.at(-1)?.message ?? '', /image · https:\/\/example.com\/root.jpg/);
+});
+
+test('handleTelegramCatalogAdminCallback lets admins edit and delete item media', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+    media: [
+      {
+        id: 8,
+        familyId: null,
+        itemId: 3,
+        mediaType: 'image',
+        url: 'https://example.com/root.jpg',
+        altText: 'Portada',
+        sortOrder: 0,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+  });
+  const auditRepository = createAuditRepository();
+  const { context, replies, getCurrentSession } = createContext({ repository, auditRepository });
+
+  context.callbackData = 'catalog_admin:edit_media:8';
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  delete context.callbackData;
+  assert.equal(getCurrentSession()?.stepKey, 'media-type');
+
+  context.messageText = 'Enllac';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'https://example.com/root';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Fitxa actualitzada';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = '3';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Guardar canvis media';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.media.updated');
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /link · https:\/\/example.com\/root/);
+
+  context.callbackData = 'catalog_admin:delete_media:8';
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  delete context.callbackData;
+  context.messageText = 'Confirmar eliminacio media';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.media.deleted');
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Media: Cap media/);
+});
+
 test('handleTelegramCatalogAdminText hides deactivated items from the normal catalog list', async () => {
   const repository = createRepository({
     items: [
@@ -1040,6 +1391,15 @@ test('handleTelegramCatalogAdminText falls back to minimum-field creation when l
   await handleTelegramCatalogAdminText(context);
   context.messageText = catalogAdminLabels.noFamily;
 
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'group');
+  context.messageText = catalogAdminLabels.noGroup;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  for (let step = 0; step < 11; step += 1) {
+    context.messageText = catalogAdminLabels.skipOptional;
+    assert.equal(await handleTelegramCatalogAdminText(context), true);
+  }
+  context.messageText = catalogAdminLabels.confirmCreate;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession(), null);
 

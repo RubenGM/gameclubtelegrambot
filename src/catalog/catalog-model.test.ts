@@ -9,7 +9,9 @@ import {
   deactivateCatalogItem,
   listCatalogItems,
   listCatalogGroups,
+  removeCatalogMedia,
   updateCatalogItem,
+  updateCatalogMedia,
   type CatalogFamilyRecord,
   type CatalogGroupRecord,
   type CatalogItemRecord,
@@ -195,6 +197,31 @@ function createRepository({
         }
         return true;
       });
+    },
+    async updateMedia(input: {
+      mediaId: number;
+      mediaType: CatalogMediaRecord['mediaType'];
+      url: string;
+      altText: string | null;
+      sortOrder: number;
+    }) {
+      const existing = media.get(input.mediaId);
+      if (!existing) {
+        throw new Error(`unknown media ${input.mediaId}`);
+      }
+      const next: CatalogMediaRecord = {
+        ...existing,
+        mediaType: input.mediaType,
+        url: input.url,
+        altText: input.altText,
+        sortOrder: input.sortOrder,
+        updatedAt: '2026-04-04T11:00:00.000Z',
+      };
+      media.set(next.id, next);
+      return next;
+    },
+    async deleteMedia({ mediaId }: { mediaId: number }) {
+      return media.delete(mediaId);
     },
   };
 }
@@ -415,6 +442,67 @@ test('createCatalogMedia requires exactly one owner reference', async () => {
       }),
     /El media ha d apuntar exactament a una familia o a un item/,
   );
+});
+
+test('updateCatalogMedia and removeCatalogMedia preserve ownership and lifecycle expectations', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 2,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+    media: [
+      {
+        id: 4,
+        familyId: null,
+        itemId: 2,
+        mediaType: 'image',
+        url: 'https://example.com/root.jpg',
+        altText: 'Portada',
+        sortOrder: 0,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+  });
+
+  const updated = await updateCatalogMedia({
+    repository,
+    mediaId: 4,
+    mediaType: 'link',
+    url: 'https://example.com/root',
+    altText: 'Fitxa',
+    sortOrder: 2,
+  });
+
+  assert.equal(updated.itemId, 2);
+  assert.equal(updated.mediaType, 'link');
+  assert.equal(updated.url, 'https://example.com/root');
+  assert.equal(updated.altText, 'Fitxa');
+  assert.equal(updated.sortOrder, 2);
+
+  await removeCatalogMedia({ repository, mediaId: 4 });
+  const remaining = await repository.listMedia({ itemId: 2 });
+  assert.equal(remaining.length, 0);
 });
 
 test('updateCatalogItem preserves identity while changing optional metadata', async () => {
