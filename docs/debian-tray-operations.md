@@ -2,6 +2,21 @@
 
 Aquest document descriu com instal·lar, arrencar i validar la safata Debian per operar `gameclubtelegrambot`.
 
+## Què és exactament
+
+La safata Debian d'aquest projecte no és un dashboard web separat.
+
+És una aplicació de safata del sistema amb aquests components:
+
+- entrypoint Node: `src/scripts/debian-tray.ts`
+- artefacte compilat: `dist/scripts/debian-tray.js`
+- runtime de safata: `src/tray/debian-tray-runtime.ts`
+- lògica de menú i accions: `src/tray/tray-app.ts`
+- host gràfic Python/AppIndicator: `scripts/debian-tray-host.py`
+- autostart de sessió: `deploy/autostart/gameclubtelegrambot-tray.desktop`
+
+El procés Node consulta l'estat del servei `systemd`, construeix el menú i llança el host Python, que és qui publica la icona `AyatanaAppIndicator` a la safata de Debian/GNOME.
+
 ## Prerequisits
 
 Abans de configurar la safata cal tenir completat el desplegament del servei del sistema.
@@ -18,6 +33,12 @@ La safata assumeix:
 - aplicació construïda a `/opt/gameclubtelegrambot/dist`
 - sessió gràfica Debian amb system tray compatible
 - `python3-gi` i `gir1.2-ayatanaappindicator3-0.1` disponibles
+
+També és recomanable verificar explícitament que existeix l'entrypoint compilat:
+
+```bash
+ls -l /opt/gameclubtelegrambot/dist/scripts/debian-tray.js
+```
 
 ## Preparació ràpida a GNOME Debian
 
@@ -44,11 +65,33 @@ Si després d'executar-lo la icona encara no apareix, normalment cal tancar sess
 
 ## Execució manual
 
+Normalment no cal obrir la safata manualment si s'està utilitzant l'entrypoint central:
+
+```bash
+./startup.sh --config-source ./config/runtime.json --operator-user "$USER"
+```
+
+Aquest flux intenta obrir la safata abans d'arrencar o reiniciar el bot.
+
 Per provar la safata manualment des d'una sessió gràfica:
 
 ```bash
 cd /opt/gameclubtelegrambot
 node dist/scripts/debian-tray.js
+```
+
+Equivalent via `npm` si ja estàs al directori del projecte amb `dist/` generat:
+
+```bash
+npm run tray:debian
+```
+
+Per defecte, aquest launcher es desacobla del terminal i continua en background.
+
+Si cal depurar-lo en foreground des del terminal actual:
+
+```bash
+GAMECLUB_TRAY_FOREGROUND=1 node dist/scripts/debian-tray.js
 ```
 
 El procés Node llança internament `scripts/debian-tray-host.py`, que publica una icona `AyatanaAppIndicator` al `StatusNotifierWatcher`, com fan aplicacions com Remmina.
@@ -82,6 +125,14 @@ install -m 0644 deploy/autostart/gameclubtelegrambot-tray.desktop ~/.config/auto
 
 Si la ruta d'instal·lació del projecte no és `/opt/gameclubtelegrambot`, cal editar la propietat `Exec=` abans de copiar el fitxer.
 
+L'entrada esperada és:
+
+```ini
+Exec=/usr/bin/node /opt/gameclubtelegrambot/dist/scripts/debian-tray.js
+```
+
+Si la instal·lació s'ha fet amb `./scripts/install-debian-stack.sh`, aquest ajust ja queda fet automàticament via `./scripts/enable-debian-tray.sh --install-autostart --app-root ...`.
+
 ## Flux operatiu esperat
 
 Quan la safata està activa:
@@ -90,6 +141,7 @@ Quan la safata està activa:
 - ofereix `Start`, `Stop`, `Restart`, `View last logs`, `Refresh` i `Quit tray`
 - refresca automàticament l'estat a l'interval configurat
 - refresca immediatament després d'una acció manual
+- el menú no opera el bot directament: opera `systemd`, i el servei del bot continua sent el procés real de producció
 
 ## Validació manual recomanada
 
@@ -183,9 +235,35 @@ journalctl -u gameclubtelegrambot.service -n 50 --no-pager
 - si `notify-send` no està disponible, els errors es mostren només via fallback mínim del sistema
 - `View last logs` depèn de `xdg-open` i de l'associació de fitxers de text de l'entorn d'escriptori
 
+## Checklist de diagnòstic ràpid
+
+Si "no apareix el tray", comprova en aquest ordre:
+
+1. que existeix `dist/scripts/debian-tray.js`
+2. que la sessió és gràfica Debian/GNOME i admet AppIndicator
+3. que estan instal·lats `python3-gi`, `gir1.2-ayatanaappindicator3-0.1` i `gnome-shell-extension-appindicator`
+4. que l'extensió AppIndicator està habilitada a la sessió actual
+5. que l'autostart `~/.config/autostart/gameclubtelegrambot-tray.desktop` existeix i apunta a la ruta correcta
+6. que l'usuari operador pertany a `gameclubbot-operators`
+7. que es pot arrencar manualment amb `cd /opt/gameclubtelegrambot && node dist/scripts/debian-tray.js`
+
+Comandes útils:
+
+```bash
+id
+ls -l ~/.config/autostart/gameclubtelegrambot-tray.desktop
+grep '^Exec=' ~/.config/autostart/gameclubtelegrambot-tray.desktop
+gnome-extensions list --enabled | grep -Ei 'appindicator|ayatana|kstatusnotifier'
+python3 --version
+node --version
+```
+
+Si l'entrypoint existeix però la icona no surt després d'instal·lar l'extensió, el cas més habitual és que calgui tancar sessió i tornar a entrar a GNOME.
+
 ## Relació amb altres peces del sistema
 
 - la safata depèn de `src/operations/service-control.ts`
+- l'entrada executable és `src/scripts/debian-tray.ts` i en producció `dist/scripts/debian-tray.js`
 - el procés real del bot continua governat per `systemd`
 - els permisos d'operació depenen de la regla `polkit` definida a `deploy/polkit/rules.d/50-gameclubtelegrambot.rules`
 

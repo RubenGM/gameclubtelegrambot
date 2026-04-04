@@ -12,6 +12,18 @@ Aquest paquet de desplegament prepara tres peces:
 
 ## Instal·lació ràpida de tota la pila
 
+L'entrypoint operatiu recomanat per al dia a dia és:
+
+```bash
+./startup.sh --config-source ./config/runtime.json --operator-user "$USER"
+```
+
+Aquest script orquestra el flux complet: prerequisits, desplegament/actualització, dependències locals si s'escauen, safata Debian i arrencada o reinici del servei.
+
+Internament reutilitza `./scripts/install-debian-stack.sh` per a la preparació del sistema.
+
+Si es vol executar només la fase d'instal·lació base sense la seqüència final de tray + reinici, es pot seguir fent servir directament:
+
 Per preparar en una sola passada aplicació, servei, permisos i safata a Debian:
 
 ```bash
@@ -31,6 +43,8 @@ Aquest script:
 - aplica les migracions pendents abans d'arrencar el servei
 - instal·la `systemd`, `polkit` i autostart de la safata
 - arrenca el servei si no s'indica `--no-start`
+
+La safata que instal·la aquest procés és l'app de system tray Debian documentada a `docs/debian-tray-operations.md`, no un dashboard web separat.
 
 ## Convencions operatives
 

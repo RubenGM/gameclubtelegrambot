@@ -483,8 +483,12 @@ Más adelante se documentarán:
 Documentación ya disponible:
 
 - `docs/debian-service-operations.md`
-- `docs/debian-tray-operations.md`
+- `docs/debian-tray-operations.md` — app de safata Debian per controlar `systemd` del bot
 - `docs/backup-restore-recovery.md`
+
+Entrada operativa central prevista:
+
+- `./startup.sh` — prepara prerequisits, desplega/actualitza servei, aixeca dependències locals quan toca, obre la safata Debian i arrenca o reinicia el bot
 
 ## Principios de implementación
 
