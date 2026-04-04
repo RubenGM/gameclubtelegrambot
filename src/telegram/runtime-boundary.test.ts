@@ -64,6 +64,11 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     services: {
       database: databaseConnection,
     },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      isApproved: true,
+      isAdmin: false,
+    }),
     createConversationSessionStore: () => ({
       loadSession: async (key) => sessionRecords.get(key) ?? null,
       saveSession: async (session) => {
@@ -153,15 +158,124 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'middleware:register',
     'middleware:register',
     'middleware:register',
+    'middleware:register',
     'register:/cancel',
     'register:/start',
     'register:/help',
     'runtime:database:1',
     'reply:Game Club Bot online. Escriu /start per comprovar que la connexio amb Telegram funciona.',
-    'reply:Aquest comandament nomes esta disponible en xat privat.',
+    'reply:Comandes disponibles en aquest xat:\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual\n\nPer veure totes les funcions, escriu-me en privat.',
     'start-polling',
     'stop-polling',
   ]);
+});
+
+test('createTelegramBoundary replies with a safe message and clears session on unexpected handler errors', async () => {
+  const replies: string[] = [];
+  let cancelCalls = 0;
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: undefined as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      isApproved: true,
+      isAdmin: false,
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => ({
+        key: 'telegram.session:-100:42',
+        flowKey: 'broken-flow',
+        stepKey: 'confirm',
+        data: {},
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        expiresAt: '2026-04-04T11:00:00.000Z',
+      }),
+      saveSession: async () => {},
+      deleteSession: async () => {
+        cancelCalls += 1;
+        return true;
+      },
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+      const commandHandlers = new Map<string, TelegramCommandHandler>();
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: (command, handler) => {
+          commandHandlers.set(command, handler);
+        },
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: -100,
+              type: 'group',
+            },
+            from: {
+              id: 42,
+            },
+            reply: async (message: string) => {
+              replies.push(message);
+            },
+          };
+
+          const failingCommand = async () => {
+            throw new Error('database timeout');
+          };
+
+          commandHandlers.set('explode', failingCommand as TelegramCommandHandler);
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              const handler = commandHandlers.get('explode');
+              if (!handler) {
+                throw new Error('explode handler not registered');
+              }
+
+              await handler(context as unknown as import('./command-registry.js').TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.equal(cancelCalls, 1);
+  assert.deepEqual(replies, ['S ha produit un error inesperat. Torna-ho a provar en uns moments.']);
 });
 
 test('createTelegramBoundary throws a predictable error when Telegram startup fails', async () => {

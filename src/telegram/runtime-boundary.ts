@@ -3,7 +3,9 @@ import { Bot, type Context } from 'grammy';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import {
+  TelegramInteractionError,
   registerTelegramCommands,
+  renderTelegramHelpMessage,
   type TelegramCommandDefinition,
   type TelegramCommandHandlerContext,
   type TelegramCommandHandler,
@@ -22,6 +24,10 @@ import {
   createAppMetadataConversationSessionStore,
   createDatabaseAppMetadataSessionStorage,
 } from './conversation-session-store.js';
+import {
+  createDatabaseTelegramActorStore,
+  type TelegramActor,
+} from './actor-store.js';
 
 export interface TelegramBoundaryStatus {
   bot: 'connected';
@@ -50,6 +56,7 @@ export interface TelegramRuntime {
   bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName'>;
   services: InfrastructureRuntimeServices;
   chat?: TelegramChatContext;
+  actor?: TelegramActor;
   session?: ConversationSessionRuntime;
 }
 
@@ -73,6 +80,10 @@ export interface CreateTelegramBoundaryOptions {
     chatId: number;
     services: InfrastructureRuntimeServices;
   }) => Promise<boolean>;
+  loadActor?: (options: {
+    telegramUserId: number;
+    services: InfrastructureRuntimeServices;
+  }) => Promise<TelegramActor>;
   createConversationSessionStore?: (options: {
     services: InfrastructureRuntimeServices;
   }) => ConversationSessionStore;
@@ -97,6 +108,8 @@ export async function createTelegramBoundary({
   services,
   logger,
   isNewsEnabledGroup = async () => false,
+  loadActor = ({ telegramUserId, services: runtimeServices }) =>
+    createDatabaseTelegramActorStore({ database: runtimeServices.database.db }).loadActor(telegramUserId),
   createConversationSessionStore = ({ services: runtimeServices }) =>
     createAppMetadataConversationSessionStore({
       storage: createDatabaseAppMetadataSessionStorage({
@@ -117,6 +130,7 @@ export async function createTelegramBoundary({
       services,
       logger,
       isNewsEnabledGroup,
+      loadActor,
       conversationSessionStore: createConversationSessionStore({ services }),
     })) {
       bot.use(middleware);
@@ -188,6 +202,7 @@ function createMiddlewarePipeline({
   services,
   logger,
   isNewsEnabledGroup,
+  loadActor,
   conversationSessionStore,
 }: {
   config: RuntimeConfig;
@@ -197,6 +212,10 @@ function createMiddlewarePipeline({
     chatId: number;
     services: InfrastructureRuntimeServices;
   }) => Promise<boolean>;
+  loadActor: (options: {
+    telegramUserId: number;
+    services: InfrastructureRuntimeServices;
+  }) => Promise<TelegramActor>;
   conversationSessionStore: ConversationSessionStore;
 }): TelegramMiddleware[] {
   return [
@@ -204,6 +223,7 @@ function createMiddlewarePipeline({
     createLoggingMiddleware({ logger }),
     createRuntimeContextMiddleware({ config, services }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
+    createActorMiddleware({ services, loadActor }),
     createConversationSessionMiddleware({ store: conversationSessionStore }),
   ];
 }
@@ -217,6 +237,17 @@ function createErrorHandlingMiddleware({
     try {
       await next();
     } catch (error) {
+      const safeMessage =
+        error instanceof TelegramInteractionError
+          ? error.message
+          : 'S ha produit un error inesperat. Torna-ho a provar en uns moments.';
+
+      if (context.runtime?.session) {
+        await context.runtime.session.cancel();
+      }
+
+      await context.reply(safeMessage);
+
       logger.error(
         {
           error: error instanceof Error ? error.message : String(error),
@@ -224,7 +255,6 @@ function createErrorHandlingMiddleware({
         },
         'Telegram update handling failed',
       );
-      throw error;
     }
   };
 }
@@ -236,6 +266,34 @@ function createLoggingMiddleware({
 }): TelegramMiddleware {
   return async (_context, next) => {
     logger.info({}, 'Telegram update received');
+    await next();
+  };
+}
+
+function createActorMiddleware({
+  services,
+  loadActor,
+}: {
+  services: InfrastructureRuntimeServices;
+  loadActor: (options: {
+    telegramUserId: number;
+    services: InfrastructureRuntimeServices;
+  }) => Promise<TelegramActor>;
+}): TelegramMiddleware {
+  return async (context, next) => {
+    if (!context.runtime?.chat) {
+      throw new Error('Telegram chat context missing before actor resolution');
+    }
+
+    if (!context.from) {
+      throw new Error('Telegram update does not include sender information');
+    }
+
+    context.runtime.actor = await loadActor({
+      telegramUserId: context.from.id,
+      services,
+    });
+
     await next();
   };
 }
@@ -340,6 +398,8 @@ function createDefaultCommands({
     {
       command: 'cancel',
       contexts: ['private', 'group', 'group-news'],
+      access: 'public',
+      description: 'Cancel.la el flux actual',
       handle: async (context) => {
         const cancelled = await context.runtime.session.cancel();
 
@@ -351,6 +411,8 @@ function createDefaultCommands({
     {
       command: 'start',
       contexts: ['private', 'group', 'group-news'],
+      access: 'public',
+      description: 'Comprova que el bot esta actiu',
       handle: async (context) => {
         await context.reply(
           `${publicName} online. Escriu /start per comprovar que la connexio amb Telegram funciona.`,
@@ -359,10 +421,15 @@ function createDefaultCommands({
     },
     {
       command: 'help',
-      contexts: ['private'],
+      contexts: ['private', 'group', 'group-news'],
+      access: 'public',
+      description: 'Mostra ajuda contextual',
       handle: async (context) => {
         await context.reply(
-          `${publicName} disponible en privat per a tota la gestio del club. En grup, les comandes quedaran limitades a consulta i avisos.`,
+          renderTelegramHelpMessage({
+            commands: createDefaultCommands({ publicName }),
+            context,
+          }),
         );
       },
     },
