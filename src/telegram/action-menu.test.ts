@@ -77,7 +77,7 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Taules', '/review_access'], ['/start', '/help']],
+    replyKeyboard: [['Activitats', 'Taules'], ['/review_access', '/start'], ['/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -102,7 +102,32 @@ test('resolveTelegramActionMenu exposes table reads to approved non-admin member
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['/tables', '/elevate_admin'], ['/start', '/help']],
+    replyKeyboard: [['Activitats', '/tables'], ['/elevate_admin', '/start'], ['/help']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+});
+
+test('resolveTelegramActionMenu exposes activities to admins in private chats', async () => {
+  const menu = resolveTelegramActionMenu({
+    context: createContext({
+      actor: {
+        telegramUserId: 99,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: true,
+        permissions: [],
+      },
+      chat: {
+        kind: 'private',
+        chatId: 1,
+      },
+    }),
+  });
+
+  assert.deepEqual(menu, {
+    replyKeyboard: [['Activitats', 'Taules'], ['/review_access', '/start'], ['/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });

@@ -144,6 +144,45 @@ export async function cancelScheduleEvent({
   });
 }
 
+export async function updateScheduleEvent({
+  repository,
+  eventId,
+  title,
+  description,
+  startsAt,
+  organizerTelegramUserId,
+  tableId,
+  capacity,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+  title: string;
+  description?: string | null;
+  startsAt: string;
+  organizerTelegramUserId: number;
+  tableId?: number | null;
+  capacity: number;
+}): Promise<ScheduleEventRecord> {
+  const event = await repository.findEventById(eventId);
+  if (!event) {
+    throw new Error(`Schedule event ${eventId} not found`);
+  }
+
+  if (event.lifecycleStatus === 'cancelled') {
+    throw new Error('No es pot editar una activitat cancel.lada');
+  }
+
+  return repository.updateEvent({
+    eventId,
+    title: normalizeTitle(title),
+    description: normalizeDescription(description),
+    startsAt: normalizeStartsAt(startsAt),
+    organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
+    tableId: normalizeTableId(tableId),
+    capacity: normalizeCapacity(capacity),
+  });
+}
+
 export async function setScheduleEventParticipantStatus({
   repository,
   eventId,

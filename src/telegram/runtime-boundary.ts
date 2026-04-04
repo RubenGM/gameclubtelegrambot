@@ -50,6 +50,11 @@ import {
   handleTelegramTableReadCommand,
   tableReadCallbackPrefixes,
 } from './table-read-flow.js';
+import {
+  handleTelegramScheduleCallback,
+  handleTelegramScheduleText,
+  scheduleCallbackPrefixes,
+} from './schedule-flow.js';
 
 export interface TelegramBoundaryStatus {
   bot: 'connected';
@@ -480,6 +485,7 @@ function registerHandlers({
   });
 
   registerMembershipCallbacks({ bot });
+  registerScheduleCallbacks({ bot });
   registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
   registerTextHandlers({ bot });
@@ -491,6 +497,10 @@ function registerTextHandlers({
   bot: TelegramBotLike;
 }): void {
   bot.onText(async (context) => {
+    if (await handleTelegramScheduleText(context)) {
+      return;
+    }
+
     if (await handleTelegramTableAdminText(context)) {
       return;
     }
@@ -542,6 +552,15 @@ function createDefaultCommands({
         });
 
         await context.reply(result.message);
+      },
+    },
+    {
+      command: 'schedule',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Gestiona les teves activitats del club',
+      handle: async (context) => {
+        await handleTelegramScheduleText({ ...context, messageText: '/schedule' });
       },
     },
     {
@@ -825,6 +844,18 @@ function registerTableReadCallbacks({
   for (const callbackPrefix of Object.values(tableReadCallbackPrefixes)) {
     bot.onCallback(callbackPrefix, async (context) => {
       await handleTelegramTableReadCallback(context);
+    });
+  }
+}
+
+function registerScheduleCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const callbackPrefix of Object.values(scheduleCallbackPrefixes)) {
+    bot.onCallback(callbackPrefix, async (context) => {
+      await handleTelegramScheduleCallback(context);
     });
   }
 }

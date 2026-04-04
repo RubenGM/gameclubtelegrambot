@@ -37,6 +37,12 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => !context.actor.isApproved && !context.actor.isBlocked,
   },
   {
+    id: 'schedule',
+    label: 'Activitats',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
+  },
+  {
     id: 'tables_read',
     label: '/tables',
     contexts: ['private'],
@@ -89,7 +95,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['tables', 'review_access'], ['start', 'help']],
+    rows: [['schedule', 'tables'], ['review_access', 'start'], ['help']],
   },
   {
     id: 'private-approved-default',
@@ -98,7 +104,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['tables_read', 'elevate_admin'], ['start', 'help']],
+    rows: [['schedule', 'tables_read'], ['elevate_admin', 'start'], ['help']],
   },
   {
     id: 'private-pending-default',
