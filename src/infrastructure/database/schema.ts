@@ -105,6 +105,50 @@ export const clubTables = pgTable('club_tables', {
   deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
 });
 
+export const catalogFamilies = pgTable('catalog_families', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  slug: varchar('slug', { length: 128 }).notNull().unique(),
+  displayName: varchar('display_name', { length: 255 }).notNull(),
+  description: text('description'),
+  familyKind: varchar('family_kind', { length: 32 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const catalogItems = pgTable('catalog_items', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  familyId: bigint('family_id', { mode: 'number' }).references(() => catalogFamilies.id),
+  itemType: varchar('item_type', { length: 32 }).notNull(),
+  displayName: varchar('display_name', { length: 255 }).notNull(),
+  originalName: varchar('original_name', { length: 255 }),
+  description: text('description'),
+  language: varchar('language', { length: 64 }),
+  publisher: varchar('publisher', { length: 255 }),
+  publicationYear: integer('publication_year'),
+  playerCountMin: integer('player_count_min'),
+  playerCountMax: integer('player_count_max'),
+  recommendedAge: integer('recommended_age'),
+  playTimeMinutes: integer('play_time_minutes'),
+  externalRefs: jsonb('external_refs'),
+  metadata: jsonb('metadata'),
+  lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('active'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
+});
+
+export const catalogMedia = pgTable('catalog_media', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  familyId: bigint('family_id', { mode: 'number' }).references(() => catalogFamilies.id),
+  itemId: bigint('item_id', { mode: 'number' }).references(() => catalogItems.id),
+  mediaType: varchar('media_type', { length: 32 }).notNull(),
+  url: text('url').notNull(),
+  altText: text('alt_text'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const scheduleEvents = pgTable('schedule_events', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   title: varchar('title', { length: 255 }).notNull(),
