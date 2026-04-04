@@ -64,6 +64,27 @@ export interface InspectBootstrapDatabaseStateOptions {
   connectDatabase?: (options: ConnectDatabaseOptions) => Promise<BootstrapDatabaseConnection>;
 }
 
+export type EnsureBootstrapDatabaseInitializationOutcome =
+  | 'initialized'
+  | 'repaired-marker'
+  | 'already-initialized';
+
+export interface EnsureBootstrapDatabaseInitializationOptions {
+  persistedConfig: RuntimeConfig;
+  inspectState?: (options: InspectBootstrapDatabaseStateOptions) => Promise<BootstrapDatabaseState>;
+  initializeDatabase?: (options: InitializeBootstrapDatabaseOptions) => Promise<void>;
+  repairMarker?: (options: RepairBootstrapInitializationMarkerOptions) => Promise<void>;
+}
+
+export interface RepairBootstrapInitializationMarkerOptions {
+  persistedConfig: RuntimeConfig;
+  connectDatabase?: (options: ConnectDatabaseOptions) => Promise<BootstrapDatabaseConnection>;
+  runInTransaction?: (
+    connection: BootstrapDatabaseConnection,
+    handler: (tx: BootstrapDatabaseTransaction) => Promise<void>,
+  ) => Promise<void>;
+}
+
 export class BootstrapDatabaseInitializationError extends Error {
   constructor(message: string) {
     super(message);
@@ -131,6 +152,37 @@ export async function rollbackBootstrapDatabaseInitialization({
   }
 }
 
+export async function ensureBootstrapDatabaseInitialization({
+  persistedConfig,
+  inspectState = inspectBootstrapDatabaseState,
+  initializeDatabase = initializeBootstrapDatabase,
+  repairMarker = repairBootstrapInitializationMarker,
+}: EnsureBootstrapDatabaseInitializationOptions): Promise<EnsureBootstrapDatabaseInitializationOutcome> {
+  const state = await inspectState({ persistedConfig });
+
+  if (
+    state.marker?.firstAdminTelegramUserId === persistedConfig.bootstrap.firstAdmin.telegramUserId &&
+    state.firstAdminExists &&
+    state.approvedAdminCount >= 1
+  ) {
+    return 'already-initialized';
+  }
+
+  if (!state.marker && !state.firstAdminExists && state.approvedAdminCount === 0) {
+    await initializeDatabase({ persistedConfig });
+    return 'initialized';
+  }
+
+  if (!state.marker && state.firstAdminExists && state.approvedAdminCount >= 1) {
+    await repairMarker({ persistedConfig });
+    return 'repaired-marker';
+  }
+
+  throw new BootstrapDatabaseInitializationError(
+    'Bootstrap database state is inconsistent and cannot be repaired automatically',
+  );
+}
+
 export async function inspectBootstrapDatabaseState({
   persistedConfig,
   connectDatabase = connectPostgresDatabase,
@@ -172,6 +224,30 @@ export async function inspectBootstrapDatabaseState({
       firstAdminExists: firstAdminResult.length > 0,
       approvedAdminCount: Number(approvedAdminCountResult[0]?.count ?? 0),
     };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function repairBootstrapInitializationMarker({
+  persistedConfig,
+  connectDatabase = connectPostgresDatabase,
+  runInTransaction = defaultRunInTransaction,
+}: RepairBootstrapInitializationMarkerOptions): Promise<void> {
+  const connection = await connectDatabase({
+    connectionString: createPostgresConnectionString(persistedConfig.database),
+    ssl: persistedConfig.database.ssl,
+    logger: {
+      error: () => {},
+    },
+  });
+
+  try {
+    await runInTransaction(connection, async (tx) => {
+      await tx.setInitializationMarker({
+        firstAdminTelegramUserId: persistedConfig.bootstrap.firstAdmin.telegramUserId,
+      });
+    });
   } finally {
     await connection.close();
   }

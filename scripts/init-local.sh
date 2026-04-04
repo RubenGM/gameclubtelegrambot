@@ -102,6 +102,7 @@ done
 docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1
 
 GAMECLUB_CONFIG_PATH=config/runtime.local.json npm run db:migrate
+GAMECLUB_CONFIG_PATH=config/runtime.local.json node --import tsx src/scripts/ensure-local-bootstrap.ts
 
 printf '\nPreparacio local completada.\n'
 printf 'Base de dades local: postgres://%s:%s@127.0.0.1:%s/%s\n' "$POSTGRES_USER" "$POSTGRES_PASSWORD" "${POSTGRES_PORT:-55432}" "$POSTGRES_DB"

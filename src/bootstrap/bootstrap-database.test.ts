@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   bootstrapInitializationMarkerKey,
+  ensureBootstrapDatabaseInitialization,
   initializeBootstrapDatabase,
   inspectBootstrapDatabaseState,
   rollbackBootstrapDatabaseInitialization,
@@ -188,4 +189,72 @@ test('inspectBootstrapDatabaseState reads the initialization marker and first ad
   assert.equal(state.firstAdminExists, true);
   assert.equal(state.approvedAdminCount, 1);
   assert.deepEqual(events, ['select:marker', 'select:approved-count', 'select:first-admin', 'close']);
+});
+
+test('ensureBootstrapDatabaseInitialization initializes a fresh database', async () => {
+  const events: string[] = [];
+
+  const outcome = await ensureBootstrapDatabaseInitialization({
+    persistedConfig,
+    inspectState: async () => ({
+      marker: null,
+      firstAdminExists: false,
+      approvedAdminCount: 0,
+    }),
+    initializeDatabase: async () => {
+      events.push('initialize');
+    },
+    repairMarker: async () => {
+      events.push('repair');
+    },
+  });
+
+  assert.equal(outcome, 'initialized');
+  assert.deepEqual(events, ['initialize']);
+});
+
+test('ensureBootstrapDatabaseInitialization repairs a missing marker when first admin already exists', async () => {
+  const events: string[] = [];
+
+  const outcome = await ensureBootstrapDatabaseInitialization({
+    persistedConfig,
+    inspectState: async () => ({
+      marker: null,
+      firstAdminExists: true,
+      approvedAdminCount: 1,
+    }),
+    initializeDatabase: async () => {
+      events.push('initialize');
+    },
+    repairMarker: async () => {
+      events.push('repair');
+    },
+  });
+
+  assert.equal(outcome, 'repaired-marker');
+  assert.deepEqual(events, ['repair']);
+});
+
+test('ensureBootstrapDatabaseInitialization is a no-op when database is already initialized', async () => {
+  const events: string[] = [];
+
+  const outcome = await ensureBootstrapDatabaseInitialization({
+    persistedConfig,
+    inspectState: async () => ({
+      marker: {
+        firstAdminTelegramUserId: persistedConfig.bootstrap.firstAdmin.telegramUserId,
+      },
+      firstAdminExists: true,
+      approvedAdminCount: 1,
+    }),
+    initializeDatabase: async () => {
+      events.push('initialize');
+    },
+    repairMarker: async () => {
+      events.push('repair');
+    },
+  });
+
+  assert.equal(outcome, 'already-initialized');
+  assert.deepEqual(events, []);
 });
