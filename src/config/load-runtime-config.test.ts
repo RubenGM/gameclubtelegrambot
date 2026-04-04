@@ -26,8 +26,8 @@ const validConfigJson = JSON.stringify({
   bootstrap: {
     firstAdmin: {
       telegramUserId: 123456789,
-      username: 'rubengm',
-      displayName: 'Ruben Gonzalez',
+      username: 'club_admin',
+      displayName: 'Club Administrator',
     },
   },
   notifications: {
@@ -87,7 +87,7 @@ test('loadRuntimeConfig applies defaults for schema version, notification defaul
         bootstrap: {
           firstAdmin: {
             telegramUserId: 123456789,
-            displayName: 'Ruben Gonzalez',
+            displayName: 'Club Administrator',
           },
         },
       }),

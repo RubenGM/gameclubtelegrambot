@@ -27,8 +27,8 @@ const persistedConfig: RuntimeConfig = {
   bootstrap: {
     firstAdmin: {
       telegramUserId: 123456789,
-      username: 'rubengm',
-      displayName: 'Ruben Gonzalez',
+      username: 'club_admin',
+      displayName: 'Club Administrator',
     },
   },
   notifications: {
@@ -76,7 +76,7 @@ test('initializeBootstrapDatabase migrates and inserts the first approved admin 
   assert.deepEqual(events, [
     'migrate',
     'transaction:start',
-    'insert-admin:123456789:rubengm',
+    'insert-admin:123456789:club_admin',
     'transaction:commit',
     'close',
   ]);

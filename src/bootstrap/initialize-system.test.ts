@@ -26,8 +26,8 @@ const validCandidate = bootstrapConfigCandidateSchema.parse({
   bootstrap: {
     firstAdmin: {
       telegramUserId: 123456789,
-      username: 'rubengm',
-      displayName: 'Ruben Gonzalez',
+      username: 'club_admin',
+      displayName: 'Club Administrator',
     },
   },
   notifications: {

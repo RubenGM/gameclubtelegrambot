@@ -17,10 +17,23 @@ export interface PromptOptions {
 }
 
 export interface RunBootstrapWizardOptions {
+  defaults?: Partial<BootstrapWizardDefaults>;
   io: WizardIo;
 }
 
-const defaultWizardValues = {
+export interface BootstrapWizardDefaults {
+  databaseHost: string;
+  databasePort: number;
+  databaseName: string;
+  databaseUser: string;
+  databasePassword?: string;
+  databaseSsl: boolean;
+  groupAnnouncementsEnabled: boolean;
+  eventRemindersEnabled: boolean;
+  eventReminderLeadHours: number;
+}
+
+const defaultWizardValues: BootstrapWizardDefaults = {
   databaseHost: '127.0.0.1',
   databasePort: 55432,
   databaseName: 'gameclub',
@@ -31,7 +44,15 @@ const defaultWizardValues = {
   eventReminderLeadHours: 24,
 } as const;
 
-export async function runBootstrapWizard({ io }: RunBootstrapWizardOptions): Promise<BootstrapConfigCandidate | null> {
+export async function runBootstrapWizard({
+  defaults: providedDefaults,
+  io,
+}: RunBootstrapWizardOptions): Promise<BootstrapConfigCandidate | null> {
+  const defaults: BootstrapWizardDefaults = {
+    ...defaultWizardValues,
+    ...providedDefaults,
+  };
+
   io.writeLine('Assistente de configuracio inicial de Game Club Telegram Bot');
   io.writeLine('Respon les preguntes seguents. Pots acceptar els valors per defecte quan apareguin.');
 
@@ -45,21 +66,25 @@ export async function runBootstrapWizard({ io }: RunBootstrapWizardOptions): Pro
     },
     database: {
       host: await promptRequiredText(io, 'Host de PostgreSQL', {
-        defaultValue: defaultWizardValues.databaseHost,
+        defaultValue: defaults.databaseHost,
       }),
       port: await promptInteger(io, 'Port de PostgreSQL', {
-        defaultValue: String(defaultWizardValues.databasePort),
+        defaultValue: String(defaults.databasePort),
         min: 1,
         max: 65535,
       }),
       name: await promptRequiredText(io, 'Nom de la base de dades', {
-        defaultValue: defaultWizardValues.databaseName,
+        defaultValue: defaults.databaseName,
       }),
       user: await promptRequiredText(io, 'Usuari de la base de dades', {
-        defaultValue: defaultWizardValues.databaseUser,
+        defaultValue: defaults.databaseUser,
       }),
-      password: await promptRequiredText(io, 'Contrasenya de la base de dades', { secret: true }),
-      ssl: defaultWizardValues.databaseSsl,
+      password: await promptRequiredText(io, 'Contrasenya de la base de dades',
+        defaults.databasePassword !== undefined
+          ? { defaultValue: defaults.databasePassword, secret: true }
+          : { secret: true },
+      ),
+      ssl: defaults.databaseSsl,
     },
     adminElevation: {
       password: await promptRequiredText(io, 'Contrasenya d elevacio administrativa', {
@@ -81,17 +106,17 @@ export async function runBootstrapWizard({ io }: RunBootstrapWizardOptions): Pro
     notifications: {
       defaults: {
         groupAnnouncementsEnabled: await promptBoolean(io, 'Activar anuncis de grup per defecte', {
-          defaultValue: defaultWizardValues.groupAnnouncementsEnabled,
+          defaultValue: defaults.groupAnnouncementsEnabled,
         }),
         eventRemindersEnabled: await promptBoolean(
           io,
           'Activar recordatoris d esdeveniments per defecte',
           {
-            defaultValue: defaultWizardValues.eventRemindersEnabled,
+            defaultValue: defaults.eventRemindersEnabled,
           },
         ),
         eventReminderLeadHours: await promptInteger(io, 'Antelacio dels recordatoris en hores', {
-          defaultValue: String(defaultWizardValues.eventReminderLeadHours),
+          defaultValue: String(defaults.eventReminderLeadHours),
           min: 1,
           max: 168,
         }),
@@ -114,7 +139,7 @@ export async function runBootstrapWizard({ io }: RunBootstrapWizardOptions): Pro
     return null;
   }
 
-  io.writeLine('Configuracio validada en memoria. La persistencia a disc es gestionara en el pas seguent.');
+  io.writeLine('Configuracio validada. A continuacio es persistira a disc i s inicialitzara el sistema.');
   return candidate;
 }
 

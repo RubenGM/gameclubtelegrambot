@@ -162,7 +162,7 @@ Los miembros podrán crear actividades indicando, como mínimo:
 
 Ejemplo:
 
-`Sábado 4 de abril - 16:00 - RubénGM - Dungeons & Dragons - 5 personas - Mesa TV`
+`Sábado 4 de abril - 16:00 - club_admin - Dungeons & Dragons - 5 personas - Mesa TV`
 
 Comportamiento esperado:
 

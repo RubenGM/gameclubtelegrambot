@@ -84,8 +84,8 @@ El contracte runtime actual inclou:
   "bootstrap": {
     "firstAdmin": {
       "telegramUserId": 123456789,
-      "username": "rubengm",
-      "displayName": "Rubén González"
+      "username": "club_admin",
+      "displayName": "Club Administrator"
     }
   },
   "notifications": {

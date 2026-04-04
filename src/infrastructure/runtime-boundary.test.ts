@@ -26,7 +26,7 @@ const runtimeConfig = {
   bootstrap: {
     firstAdmin: {
       telegramUserId: 123456789,
-      displayName: 'Ruben Gonzalez',
+      displayName: 'Club Administrator',
     },
   },
   notifications: {

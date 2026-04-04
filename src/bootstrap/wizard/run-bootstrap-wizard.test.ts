@@ -21,7 +21,7 @@ test('runBootstrapWizard collects a complete runtime config candidate with defau
         'admin-secret',
         '123456789',
         '',
-        'Rubén González',
+        'Club Administrator',
         '',
         '',
         '',
@@ -92,7 +92,7 @@ test('runBootstrapWizard retries invalid answers with clear guidance', async () 
         '0',
         '123456789',
         '',
-        'Rubén González',
+        'Club Administrator',
         'maybe',
         'n',
         '',
@@ -132,7 +132,7 @@ test('runBootstrapWizard returns null when the operator rejects the final confir
         'admin-secret',
         '123456789',
         '',
-        'Rubén González',
+        'Club Administrator',
         '',
         '',
         '',
@@ -144,6 +144,49 @@ test('runBootstrapWizard returns null when the operator rejects the final confir
   });
 
   assert.equal(config, null);
+});
+
+test('runBootstrapWizard can accept secret and database defaults loaded externally', async () => {
+  const prompts: string[] = [];
+
+  const config = await runBootstrapWizard({
+    defaults: {
+      databaseHost: '127.0.0.1',
+      databasePort: 55432,
+      databaseName: 'gameclub',
+      databaseUser: 'gameclub_user',
+      databasePassword: 'postgres-local-secret',
+      databaseSsl: false,
+      groupAnnouncementsEnabled: true,
+      eventRemindersEnabled: true,
+      eventReminderLeadHours: 24,
+    },
+    io: createIoDouble(
+      [
+        'Game Club Bot',
+        'Game Club',
+        'telegram-secret-token',
+        '',
+        '',
+        '',
+        '',
+        '',
+        'admin-secret',
+        '123456789',
+        '',
+        'Club Administrator',
+        '',
+        '',
+        '',
+      ],
+      [true],
+      prompts,
+      [],
+    ),
+  });
+
+  assert.equal(config?.database.password, 'postgres-local-secret');
+  assert.match(prompts[7] ?? '', /Contrasenya de la base de dades/);
 });
 
 function createIoDouble(

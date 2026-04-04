@@ -5,6 +5,7 @@ import {
   rollbackBootstrapDatabaseInitialization,
 } from '../bootstrap/bootstrap-database.js';
 import { initializeSystemFromCandidate } from '../bootstrap/initialize-system.js';
+import { loadWizardDefaults } from '../bootstrap/wizard/default-wizard-values.js';
 import { runBootstrapWizard } from '../bootstrap/wizard/run-bootstrap-wizard.js';
 import { createTerminalWizardIo } from '../bootstrap/wizard/terminal-wizard-io.js';
 import { defaultRuntimeConfigPath } from '../config/runtime-config.js';
@@ -16,7 +17,8 @@ const logger = pino({
 const io = createTerminalWizardIo();
 
 try {
-  const result = await runBootstrapWizard({ io });
+  const defaults = await loadWizardDefaults();
+  const result = await runBootstrapWizard({ defaults, io });
 
   if (result) {
     const configPath = process.env.GAMECLUB_CONFIG_PATH ?? defaultRuntimeConfigPath;

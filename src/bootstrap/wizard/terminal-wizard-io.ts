@@ -84,6 +84,10 @@ async function askHiddenQuestion(terminal: Interface, mutableStdout: MutableStdo
 
 function formatPromptLabel(label: string, defaultValue?: string): string {
   if (defaultValue !== undefined) {
+    if (label.toLowerCase().includes('contrasenya') || label.toLowerCase().includes('token')) {
+      return `${label} ([valor per defecte disponible]): `;
+    }
+
     return `${label} (${defaultValue}): `;
   }
 
