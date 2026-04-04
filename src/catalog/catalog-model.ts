@@ -13,9 +13,20 @@ export interface CatalogFamilyRecord {
   updatedAt: string;
 }
 
+export interface CatalogGroupRecord {
+  id: number;
+  familyId: number | null;
+  slug: string;
+  displayName: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CatalogItemRecord {
   id: number;
   familyId: number | null;
+  groupId: number | null;
   itemType: CatalogItemType;
   displayName: string;
   originalName: string | null;
@@ -56,8 +67,17 @@ export interface CatalogRepository {
   }): Promise<CatalogFamilyRecord>;
   findFamilyById(familyId: number): Promise<CatalogFamilyRecord | null>;
   listFamilies(): Promise<CatalogFamilyRecord[]>;
+  createGroup(input: {
+    familyId: number | null;
+    slug: string;
+    displayName: string;
+    description: string | null;
+  }): Promise<CatalogGroupRecord>;
+  findGroupById(groupId: number): Promise<CatalogGroupRecord | null>;
+  listGroups(input: { familyId?: number }): Promise<CatalogGroupRecord[]>;
   createItem(input: {
     familyId: number | null;
+    groupId: number | null;
     itemType: CatalogItemType;
     displayName: string;
     originalName: string | null;
@@ -75,8 +95,28 @@ export interface CatalogRepository {
   findItemById(itemId: number): Promise<CatalogItemRecord | null>;
   listItems(input: {
     familyId?: number;
+    groupId?: number;
     includeDeactivated: boolean;
   }): Promise<CatalogItemRecord[]>;
+  updateItem(input: {
+    itemId: number;
+    familyId: number | null;
+    groupId: number | null;
+    itemType: CatalogItemType;
+    displayName: string;
+    originalName: string | null;
+    description: string | null;
+    language: string | null;
+    publisher: string | null;
+    publicationYear: number | null;
+    playerCountMin: number | null;
+    playerCountMax: number | null;
+    recommendedAge: number | null;
+    playTimeMinutes: number | null;
+    externalRefs: Record<string, unknown> | null;
+    metadata: Record<string, unknown> | null;
+  }): Promise<CatalogItemRecord>;
+  deactivateItem(input: { itemId: number }): Promise<CatalogItemRecord>;
   createMedia(input: {
     familyId: number | null;
     itemId: number | null;
@@ -109,9 +149,48 @@ export async function createCatalogFamily({
   });
 }
 
+export async function createCatalogGroup({
+  repository,
+  familyId,
+  slug,
+  displayName,
+  description,
+}: {
+  repository: CatalogRepository;
+  familyId: number | null;
+  slug: string;
+  displayName: string;
+  description?: string | null;
+}): Promise<CatalogGroupRecord> {
+  if (familyId !== null) {
+    const family = await repository.findFamilyById(familyId);
+    if (!family) {
+      throw new Error(`Catalog family ${familyId} not found`);
+    }
+  }
+
+  return repository.createGroup({
+    familyId,
+    slug: normalizeSlug(slug),
+    displayName: normalizeRequiredText(displayName, 'El nom visible del grup es obligatori'),
+    description: normalizeOptionalText(description),
+  });
+}
+
+export async function listCatalogGroups({
+  repository,
+  familyId,
+}: {
+  repository: CatalogRepository;
+  familyId?: number;
+}): Promise<CatalogGroupRecord[]> {
+  return repository.listGroups({ ...(familyId !== undefined ? { familyId } : {}) });
+}
+
 export async function createCatalogItem({
   repository,
   familyId,
+  groupId,
   itemType,
   displayName,
   originalName,
@@ -128,6 +207,7 @@ export async function createCatalogItem({
 }: {
   repository: CatalogRepository;
   familyId: number | null;
+  groupId?: number | null;
   itemType: CatalogItemType;
   displayName: string;
   originalName?: string | null;
@@ -142,12 +222,7 @@ export async function createCatalogItem({
   externalRefs?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
 }): Promise<CatalogItemRecord> {
-  if (familyId !== null) {
-    const family = await repository.findFamilyById(familyId);
-    if (!family) {
-      throw new Error(`Catalog family ${familyId} not found`);
-    }
-  }
+  await ensureFamilyAndGroupConsistency({ repository, familyId, groupId: groupId ?? null });
 
   const normalizedPlayerCountMin = normalizePositiveInteger(playerCountMin, 'El minim de jugadors ha de ser un enter positiu');
   const normalizedPlayerCountMax = normalizePositiveInteger(playerCountMax, 'El maxim de jugadors ha de ser un enter positiu');
@@ -161,6 +236,7 @@ export async function createCatalogItem({
 
   return repository.createItem({
     familyId,
+    groupId: groupId ?? null,
     itemType: normalizeItemType(itemType),
     displayName: normalizeRequiredText(displayName, 'El nom visible de l item es obligatori'),
     originalName: normalizeOptionalText(originalName),
@@ -180,16 +256,109 @@ export async function createCatalogItem({
 export async function listCatalogItems({
   repository,
   familyId,
+  groupId,
   includeDeactivated = false,
 }: {
   repository: CatalogRepository;
   familyId?: number;
+  groupId?: number;
   includeDeactivated?: boolean;
 }): Promise<CatalogItemRecord[]> {
   return repository.listItems({
     ...(familyId !== undefined ? { familyId } : {}),
+    ...(groupId !== undefined ? { groupId } : {}),
     includeDeactivated,
   });
+}
+
+export async function updateCatalogItem({
+  repository,
+  itemId,
+  familyId,
+  groupId,
+  itemType,
+  displayName,
+  originalName,
+  description,
+  language,
+  publisher,
+  publicationYear,
+  playerCountMin,
+  playerCountMax,
+  recommendedAge,
+  playTimeMinutes,
+  externalRefs,
+  metadata,
+}: {
+  repository: CatalogRepository;
+  itemId: number;
+  familyId: number | null;
+  groupId?: number | null;
+  itemType: CatalogItemType;
+  displayName: string;
+  originalName?: string | null;
+  description?: string | null;
+  language?: string | null;
+  publisher?: string | null;
+  publicationYear?: number | null;
+  playerCountMin?: number | null;
+  playerCountMax?: number | null;
+  recommendedAge?: number | null;
+  playTimeMinutes?: number | null;
+  externalRefs?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+}): Promise<CatalogItemRecord> {
+  const existing = await repository.findItemById(itemId);
+  if (!existing) {
+    throw new Error(`Catalog item ${itemId} not found`);
+  }
+  await ensureFamilyAndGroupConsistency({ repository, familyId, groupId: groupId ?? null });
+
+  const normalizedPlayerCountMin = normalizePositiveInteger(playerCountMin, 'El minim de jugadors ha de ser un enter positiu');
+  const normalizedPlayerCountMax = normalizePositiveInteger(playerCountMax, 'El maxim de jugadors ha de ser un enter positiu');
+  if (
+    normalizedPlayerCountMin !== null &&
+    normalizedPlayerCountMax !== null &&
+    normalizedPlayerCountMax < normalizedPlayerCountMin
+  ) {
+    throw new Error('El maxim de jugadors no pot ser inferior al minim');
+  }
+
+  return repository.updateItem({
+    itemId,
+    familyId,
+    groupId: groupId ?? null,
+    itemType: normalizeItemType(itemType),
+    displayName: normalizeRequiredText(displayName, 'El nom visible de l item es obligatori'),
+    originalName: normalizeOptionalText(originalName),
+    description: normalizeOptionalText(description),
+    language: normalizeOptionalText(language),
+    publisher: normalizeOptionalText(publisher),
+    publicationYear: normalizePositiveInteger(publicationYear, 'L any de publicacio ha de ser un enter positiu'),
+    playerCountMin: normalizedPlayerCountMin,
+    playerCountMax: normalizedPlayerCountMax,
+    recommendedAge: normalizePositiveInteger(recommendedAge, 'L edat recomanada ha de ser un enter positiu'),
+    playTimeMinutes: normalizePositiveInteger(playTimeMinutes, 'La durada ha de ser un enter positiu'),
+    externalRefs: normalizeObject(externalRefs),
+    metadata: normalizeObject(metadata),
+  });
+}
+
+export async function deactivateCatalogItem({
+  repository,
+  itemId,
+}: {
+  repository: CatalogRepository;
+  itemId: number;
+}): Promise<CatalogItemRecord> {
+  const existing = await repository.findItemById(itemId);
+  if (!existing) {
+    throw new Error(`Catalog item ${itemId} not found`);
+  }
+  if (existing.lifecycleStatus === 'deactivated') {
+    return existing;
+  }
+  return repository.deactivateItem({ itemId });
 }
 
 export async function createCatalogMedia({
@@ -242,6 +411,34 @@ function normalizeSlug(slug: string): string {
     throw new Error('El slug de la familia es obligatori');
   }
   return normalized;
+}
+
+async function ensureFamilyAndGroupConsistency({
+  repository,
+  familyId,
+  groupId,
+}: {
+  repository: CatalogRepository;
+  familyId: number | null;
+  groupId: number | null;
+}): Promise<void> {
+  if (familyId !== null) {
+    const family = await repository.findFamilyById(familyId);
+    if (!family) {
+      throw new Error(`Catalog family ${familyId} not found`);
+    }
+  }
+  if (groupId === null) {
+    return;
+  }
+
+  const group = await repository.findGroupById(groupId);
+  if (!group) {
+    throw new Error(`Catalog group ${groupId} not found`);
+  }
+  if (group.familyId !== familyId) {
+    throw new Error('La familia de l item ha de coincidir amb la del grup seleccionat');
+  }
 }
 
 function normalizeRequiredText(value: string, message: string): string {

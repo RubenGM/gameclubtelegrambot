@@ -115,9 +115,20 @@ export const catalogFamilies = pgTable('catalog_families', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const catalogGroups = pgTable('catalog_groups', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  familyId: bigint('family_id', { mode: 'number' }).references(() => catalogFamilies.id),
+  slug: varchar('slug', { length: 128 }).notNull().unique(),
+  displayName: varchar('display_name', { length: 255 }).notNull(),
+  description: text('description'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const catalogItems = pgTable('catalog_items', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   familyId: bigint('family_id', { mode: 'number' }).references(() => catalogFamilies.id),
+  groupId: bigint('group_id', { mode: 'number' }).references(() => catalogGroups.id),
   itemType: varchar('item_type', { length: 32 }).notNull(),
   displayName: varchar('display_name', { length: 255 }).notNull(),
   originalName: varchar('original_name', { length: 255 }),

@@ -1,14 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { catalogFamilies, catalogItems, catalogMedia } from '../infrastructure/database/schema.js';
+import { catalogFamilies, catalogGroups, catalogItems, catalogMedia } from '../infrastructure/database/schema.js';
 import { createDatabaseCatalogRepository } from './catalog-store.js';
 
 const catalogFamiliesTable = catalogFamilies as unknown;
+const catalogGroupsTable = catalogGroups as unknown;
 const catalogItemsTable = catalogItems as unknown;
 const catalogMediaTable = catalogMedia as unknown;
 
-test('createDatabaseCatalogRepository persists family and item relations', async () => {
+test('createDatabaseCatalogRepository persists family, group and item relations', async () => {
   const repository = createDatabaseCatalogRepository({
     database: {
       insert: (table: { [key: string]: unknown }) => {
@@ -33,10 +34,33 @@ test('createDatabaseCatalogRepository persists family and item relations', async
           };
         }
 
+        if ((table as unknown) === catalogGroupsTable) {
+          return {
+            values: (values: Record<string, unknown>) => {
+              assert.equal(values.familyId, 1);
+              assert.equal(values.slug, 'second-edition');
+              return {
+                returning: async () => [
+                  {
+                    id: 4,
+                    familyId: 1,
+                    slug: 'second-edition',
+                    displayName: 'Second Edition',
+                    description: null,
+                    createdAt: new Date('2026-04-04T10:00:00.000Z'),
+                    updatedAt: new Date('2026-04-04T10:00:00.000Z'),
+                  },
+                ],
+              };
+            },
+          };
+        }
+
         if ((table as unknown) === catalogItemsTable) {
           return {
             values: (values: Record<string, unknown>) => {
               assert.equal(values.familyId, 1);
+              assert.equal(values.groupId, 4);
               assert.equal(values.itemType, 'expansion');
               assert.ok(values.externalRefs);
               return {
@@ -44,6 +68,7 @@ test('createDatabaseCatalogRepository persists family and item relations', async
                   {
                     id: 2,
                     familyId: 1,
+                    groupId: 4,
                     itemType: 'expansion',
                     displayName: 'Dunwich Horror Expansion',
                     originalName: null,
@@ -79,8 +104,15 @@ test('createDatabaseCatalogRepository persists family and item relations', async
     description: null,
     familyKind: 'board-game-line',
   });
+  const group = await repository.createGroup({
+    familyId: 1,
+    slug: 'second-edition',
+    displayName: 'Second Edition',
+    description: null,
+  });
   const item = await repository.createItem({
     familyId: 1,
+    groupId: 4,
     itemType: 'expansion',
     displayName: 'Dunwich Horror Expansion',
     originalName: null,
@@ -97,7 +129,9 @@ test('createDatabaseCatalogRepository persists family and item relations', async
   });
 
   assert.equal(family.id, 1);
+  assert.equal(group.id, 4);
   assert.equal(item.familyId, 1);
+  assert.equal(item.groupId, 4);
   assert.deepEqual(item.externalRefs, { bggId: '123' });
 });
 
