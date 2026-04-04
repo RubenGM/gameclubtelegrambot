@@ -77,7 +77,7 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['/review_access', '/start'], ['/help']],
+    replyKeyboard: [['Taules', '/review_access'], ['/start', '/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });

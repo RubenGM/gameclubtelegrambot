@@ -108,6 +108,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
           events.push(`register:callback:${callbackPrefix}`);
           callbackHandlers.set(callbackPrefix, handler);
         },
+        onText: () => {},
         sendPrivateMessage: async () => {},
         startPolling: async () => {
           const context: TelegramContextLike = {
@@ -222,6 +223,9 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:menu:help',
     'register:callback:approve_access:',
     'register:callback:reject_access:',
+    'register:callback:table_admin:inspect:',
+    'register:callback:table_admin:edit:',
+    'register:callback:table_admin:deactivate:',
     'runtime:database:1',
     'reply:Hem registrat la teva sollicitud d accés. Un administrador la revisara al mes aviat possible.',
     'reply:Benvingut a Game Club Bot. Escriu /help per veure les opcions disponibles.',
@@ -294,6 +298,7 @@ test('createTelegramBoundary replies with a safe message and clears session on u
           commandHandlers.set(command, handler);
         },
         onCallback: () => {},
+        onText: () => {},
         sendPrivateMessage: async () => {},
         startPolling: async () => {
           const context: TelegramContextLike = {
@@ -373,6 +378,7 @@ test('createTelegramBoundary throws a predictable error when Telegram startup fa
           use: () => {},
           onCommand: () => {},
           onCallback: () => {},
+          onText: () => {},
           sendPrivateMessage: async () => {},
           startPolling: async () => {
             throw new Error('Unauthorized');
@@ -487,6 +493,7 @@ test('cancel restores the default action menu after an active flow', async () =>
           commandHandlers.set(command, handler);
         },
         onCallback: () => {},
+        onText: () => {},
         sendPrivateMessage: async () => {},
         startPolling: async () => {
           const context: TelegramContextLike = {
@@ -548,6 +555,111 @@ test('cancel restores the default action menu after an active flow', async () =>
   ]);
 
   await telegram.stop();
+});
+
+test('createTelegramBoundary routes plain text keyboard actions for admin table management', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: undefined as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: true,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+      const textHandlers: TelegramCommandHandler[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: (handler: TelegramCommandHandler) => {
+          textHandlers.push(handler);
+        },
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 99,
+            },
+            messageText: 'Taules',
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push({ message, ...(options ? { options } : {}) });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              const textHandler = textHandlers[0];
+              if (!textHandler) {
+                throw new Error('text handler not registered');
+              }
+
+              await textHandler(context as unknown as import('./command-registry.js').TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.deepEqual(replies, [
+    {
+      message: 'Gestio de taules: tria una accio.',
+      options: {
+        replyKeyboard: [['Crear taula', 'Llistar taules'], ['Editar taula', 'Desactivar taula'], ['/start']],
+        resizeKeyboard: true,
+        persistentKeyboard: true,
+      },
+    },
+  ]);
 });
 
 test('formatStartMessage shows version only to admins', async () => {

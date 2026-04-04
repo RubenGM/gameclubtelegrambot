@@ -43,6 +43,12 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isApproved && !context.actor.isAdmin,
   },
   {
+    id: 'tables',
+    label: 'Taules',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'review_access',
     label: '/review_access',
     contexts: ['private'],
@@ -77,7 +83,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['review_access', 'start'], ['help']],
+    rows: [['tables', 'review_access'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',

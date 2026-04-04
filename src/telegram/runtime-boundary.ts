@@ -40,6 +40,11 @@ import {
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { elevateApprovedUserToAdmin } from '../membership/admin-elevation.js';
 import { createDatabaseAdminElevationRepository } from '../membership/admin-elevation-store.js';
+import {
+  handleTelegramTableAdminCallback,
+  handleTelegramTableAdminText,
+  tableAdminCallbackPrefixes,
+} from './table-admin-flow.js';
 
 export interface TelegramBoundaryStatus {
   bot: 'connected';
@@ -100,6 +105,7 @@ export interface TelegramBotLike {
   use(middleware: TelegramMiddleware): void;
   onCommand(command: string, handler: TelegramCommandHandler): void;
   onCallback(callbackPrefix: string, handler: TelegramCommandHandler): void;
+  onText(handler: TelegramCommandHandler): void;
   sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
   startPolling(): Promise<void>;
   stopPolling(): Promise<void>;
@@ -224,6 +230,20 @@ function createGrammyTelegramBot({
         context.callbackData = context.callbackQuery.data;
         await handler(createTelegramCommandContext(context));
         await context.answerCallbackQuery();
+      });
+    },
+    onText(handler) {
+      bot.on('message:text', async (context) => {
+        if (!context.runtime?.chat) {
+          throw new Error('Telegram text message received before chat context resolution');
+        }
+
+        context.messageText = context.msg?.text ?? context.message?.text;
+        if (!context.messageText || context.messageText.startsWith('/')) {
+          return;
+        }
+
+        await handler(createTelegramCommandContext(context));
       });
     },
     async sendPrivateMessage(telegramUserId, message) {
@@ -455,6 +475,20 @@ function registerHandlers({
   });
 
   registerMembershipCallbacks({ bot });
+  registerTableAdminCallbacks({ bot });
+  registerTextHandlers({ bot });
+}
+
+function registerTextHandlers({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  bot.onText(async (context) => {
+    if (await handleTelegramTableAdminText(context)) {
+      return;
+    }
+  });
 }
 
 function createDefaultCommands({
@@ -752,6 +786,20 @@ function registerMembershipCallbacks({
       await context.runtime.bot.sendPrivateMessage(applicantTelegramUserId, result.applicantMessage);
     }
   });
+}
+
+function registerTableAdminCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  const callbackPrefixes = Object.values(tableAdminCallbackPrefixes);
+
+  for (const callbackPrefix of callbackPrefixes) {
+    bot.onCallback(callbackPrefix, async (context) => {
+      await handleTelegramTableAdminCallback(context);
+    });
+  }
 }
 
 async function handleReviewAccess(context: TelegramCommandHandlerContext): Promise<void> {
