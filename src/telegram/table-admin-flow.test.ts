@@ -354,7 +354,8 @@ test('handleTelegramTableAdminCallback edits a table with keyboard shortcuts for
       deactivatedAt: null,
     },
   ]);
-  const { context, getCurrentSession } = createContext({ repository });
+  const auditRepository = createAuditRepository();
+  const { context, getCurrentSession } = createContext({ repository, auditRepository });
 
   context.callbackData = `${tableAdminCallbackPrefixes.edit}3`;
   assert.equal(await handleTelegramTableAdminCallback(context), true);
@@ -384,6 +385,8 @@ test('handleTelegramTableAdminCallback edits a table with keyboard shortcuts for
     updatedAt: '2026-04-04T11:00:00.000Z',
     deactivatedAt: null,
   });
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'table.updated');
+  assert.equal(auditRepository.__events.at(-1)?.targetId, '3');
 });
 
 test('handleTelegramTableAdminCallback deactivates a table only after explicit confirmation', async () => {

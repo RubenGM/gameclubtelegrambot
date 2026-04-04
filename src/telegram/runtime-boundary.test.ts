@@ -57,9 +57,10 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }
   >();
   const statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }> = [];
+  const auditEvents: Array<{ actionKey: string; targetType: string; targetId: string }> = [];
   const databaseConnection = {
     pool: undefined as never,
-    db: createMembershipDatabaseStub({ membershipUsers, statusAuditLog }) as never,
+    db: createMembershipDatabaseStub({ membershipUsers, statusAuditLog, auditEvents }) as never,
     close: async () => {},
   };
 
@@ -255,6 +256,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     statusAuditLog.map((entry) => `${entry.telegramUserId}:${entry.nextStatus}`),
     ['42:pending', '42:approved'],
   );
+  assert.deepEqual(auditEvents, [{ actionKey: 'membership.approved', targetType: 'membership-user', targetId: '42' }]);
 });
 
 test('createTelegramBoundary registers member-facing table callbacks', async () => {
@@ -848,12 +850,14 @@ test('formatStartMessage shows version only to admins', async () => {
 function createMembershipDatabaseStub({
   membershipUsers,
   statusAuditLog,
+  auditEvents,
 }: {
   membershipUsers: Map<
     number,
     { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }
   >;
   statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }>;
+  auditEvents: Array<{ actionKey: string; targetType: string; targetId: string }>;
 }) {
   return {
     select(selection: Record<string, unknown>) {
@@ -882,6 +886,15 @@ function createMembershipDatabaseStub({
             statusAuditLog.push({
               telegramUserId: Number(value.subjectTelegramUserId),
               nextStatus: String(value.nextStatus),
+            });
+            return Promise.resolve();
+          }
+
+          if ('actionKey' in value && 'targetType' in value && 'targetId' in value) {
+            auditEvents.push({
+              actionKey: String(value.actionKey),
+              targetType: String(value.targetType),
+              targetId: String(value.targetId),
             });
             return Promise.resolve();
           }

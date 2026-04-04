@@ -752,13 +752,36 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
       cancellationReason: null,
     },
   ]);
-  const { context, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+  const auditRepository = createAuditRepository();
+  const { context, getCurrentSession } = createContext({ scheduleRepository, auditRepository, actorTelegramUserId: 42 });
 
   context.callbackData = `${scheduleCallbackPrefixes.selectEdit}3`;
   const handled = await handleTelegramScheduleCallback(context);
 
   assert.equal(handled, true);
   assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-edit', stepKey: 'title', data: { eventId: 3 } });
+
+  delete context.callbackData;
+  context.messageText = 'Root Deluxe';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.skipOptional;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '2026-04-06';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '17:30';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '240';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '5';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.noTable;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.confirmEdit;
+  assert.equal(await handleTelegramScheduleText(context), true);
+
+  assert.equal((await scheduleRepository.findEventById(3))?.title, 'Root Deluxe');
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.updated');
+  assert.equal(auditRepository.__events.at(-1)?.targetId, '3');
 });
 
 test('handleTelegramScheduleCallback denies editing foreign activities to non-admins', async () => {
