@@ -924,10 +924,24 @@ async function formatCatalogItemList(context: TelegramCatalogAdminContext, items
     }
   }
 
-  if (standaloneItems.length > 0) {
+  const standaloneItemsWithFamily = standaloneItems.filter((item) => item.familyId !== null);
+  const standaloneItemsWithoutFamily = standaloneItems.filter((item) => item.familyId === null);
+
+  for (const family of families) {
+    const familyItems = standaloneItemsWithFamily.filter((item) => item.familyId === family.id);
+    if (familyItems.length === 0) {
+      continue;
+    }
+    lines.push(`Familia: ${family.displayName} (#${family.id})`);
+    for (const item of familyItems) {
+      lines.push(`- ${item.displayName} (#${item.id}) · ${renderItemType(item.itemType)}`);
+    }
+  }
+
+  if (standaloneItemsWithoutFamily.length > 0) {
     lines.push('Sense grup:');
-    for (const item of standaloneItems) {
-      lines.push(`- ${item.displayName} (#${item.id}) · ${renderItemType(item.itemType)} · ${item.familyId ? familyNames.get(item.familyId) ?? `Familia #${item.familyId}` : 'Sense familia'}`);
+    for (const item of standaloneItemsWithoutFamily) {
+      lines.push(`- ${item.displayName} (#${item.id}) · ${renderItemType(item.itemType)} · Sense familia`);
     }
   }
 

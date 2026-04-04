@@ -952,6 +952,77 @@ test('handleTelegramCatalogAdminText hides deactivated items from the normal cat
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
 });
 
+test('handleTelegramCatalogAdminText groups standalone items under their family instead of Sense grup', async () => {
+  const repository = createRepository({
+    families: [
+      {
+        id: 1,
+        slug: 'mundodisco',
+        displayName: 'Mundodisco',
+        description: null,
+        familyKind: 'generic-line',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+    items: [
+      {
+        id: 2,
+        familyId: 1,
+        groupId: null,
+        itemType: 'book',
+        displayName: 'El color de la magia',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 3,
+        familyId: 1,
+        groupId: null,
+        itemType: 'book',
+        displayName: 'Mort',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies } = createContext({ repository });
+
+  context.messageText = catalogAdminLabels.list;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.match(replies.at(-1)?.message ?? '', /Familia: Mundodisco/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense grup:/);
+  assert.match(replies.at(-1)?.message ?? '', /El color de la magia/);
+  assert.match(replies.at(-1)?.message ?? '', /Mort/);
+});
+
 test('handleTelegramCatalogAdminText falls back to minimum-field creation when lookup fails', async () => {
   const repository = createRepository();
   const catalogLookupService: CatalogLookupService = {
