@@ -145,3 +145,18 @@ export const scheduleEventParticipants = pgTable(
     ),
   }),
 );
+
+export const venueEvents = pgTable('venue_events', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+  occupancyScope: varchar('occupancy_scope', { length: 16 }).notNull(),
+  impactLevel: varchar('impact_level', { length: 16 }).notNull(),
+  lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('scheduled'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  cancellationReason: text('cancellation_reason'),
+});

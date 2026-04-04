@@ -50,6 +50,13 @@
       "when": 1775311477951,
       "tag": "0006_striped_victor_mancha",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1775312629580,
+      "tag": "0007_safe_red_shift",
+      "breakpoints": true
     }
   ]
 }
