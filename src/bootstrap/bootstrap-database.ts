@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 
 import type { RuntimeConfig } from '../config/runtime-config.js';
@@ -8,15 +8,30 @@ import {
   type ConnectDatabaseOptions,
   type DatabaseConnection,
 } from '../infrastructure/database/connection.js';
-import { users } from '../infrastructure/database/schema.js';
+import { appMetadata, users } from '../infrastructure/database/schema.js';
+
+export const bootstrapInitializationMarkerKey = 'bootstrap.initialization';
+
+export interface BootstrapInitializationMarker {
+  firstAdminTelegramUserId: number;
+}
+
+export interface BootstrapDatabaseState {
+  marker: BootstrapInitializationMarker | null;
+  firstAdminExists: boolean;
+  approvedAdminCount: number;
+}
 
 export interface BootstrapDatabaseTransaction {
   countExistingApprovedAdmins(): Promise<number>;
+  hasApprovedAdmin(telegramUserId: number): Promise<boolean>;
   insertFirstApprovedAdmin(input: {
     telegramUserId: number;
     username?: string | undefined;
     displayName: string;
   }): Promise<void>;
+  setInitializationMarker(input: BootstrapInitializationMarker): Promise<void>;
+  clearInitializationMarker(): Promise<void>;
   deleteFirstAdminByTelegramUserId(telegramUserId: number): Promise<void>;
 }
 
@@ -42,6 +57,11 @@ export interface RollbackBootstrapDatabaseInitializationOptions {
     connection: BootstrapDatabaseConnection,
     handler: (tx: BootstrapDatabaseTransaction) => Promise<void>,
   ) => Promise<void>;
+}
+
+export interface InspectBootstrapDatabaseStateOptions {
+  persistedConfig: RuntimeConfig;
+  connectDatabase?: (options: ConnectDatabaseOptions) => Promise<BootstrapDatabaseConnection>;
 }
 
 export class BootstrapDatabaseInitializationError extends Error {
@@ -77,6 +97,9 @@ export async function initializeBootstrapDatabase({
       }
 
       await tx.insertFirstApprovedAdmin(persistedConfig.bootstrap.firstAdmin);
+      await tx.setInitializationMarker({
+        firstAdminTelegramUserId: persistedConfig.bootstrap.firstAdmin.telegramUserId,
+      });
     });
   } finally {
     await connection.close();
@@ -98,10 +121,57 @@ export async function rollbackBootstrapDatabaseInitialization({
 
   try {
     await runInTransaction(connection, async (tx) => {
+      await tx.clearInitializationMarker();
       await tx.deleteFirstAdminByTelegramUserId(
         persistedConfig.bootstrap.firstAdmin.telegramUserId,
       );
     });
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function inspectBootstrapDatabaseState({
+  persistedConfig,
+  connectDatabase = connectPostgresDatabase,
+}: InspectBootstrapDatabaseStateOptions): Promise<BootstrapDatabaseState> {
+  const connection = await connectDatabase({
+    connectionString: createPostgresConnectionString(persistedConfig.database),
+    ssl: persistedConfig.database.ssl,
+    logger: {
+      error: () => {},
+    },
+  });
+
+  try {
+    if (!connection.db) {
+      throw new Error('Bootstrap database connection does not expose a Drizzle instance');
+    }
+
+    const markerResult = await connection.db
+      .select({ value: appMetadata.value })
+      .from(appMetadata)
+      .where(eq(appMetadata.key, bootstrapInitializationMarkerKey));
+    const approvedAdminCountResult = await connection.db
+      .select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(eq(users.isApproved, true));
+    const firstAdminResult = await connection.db
+      .select({ telegramUserId: users.telegramUserId })
+      .from(users)
+      .where(
+        and(
+          eq(users.telegramUserId, persistedConfig.bootstrap.firstAdmin.telegramUserId),
+          eq(users.isApproved, true),
+          eq(users.isAdmin, true),
+        ),
+      );
+
+    return {
+      marker: parseInitializationMarker(markerResult[0]?.value),
+      firstAdminExists: firstAdminResult.length > 0,
+      approvedAdminCount: Number(approvedAdminCountResult[0]?.count ?? 0),
+    };
   } finally {
     await connection.close();
   }
@@ -138,6 +208,20 @@ async function defaultRunInTransaction(
 
         return Number(result[0]?.count ?? 0);
       },
+      async hasApprovedAdmin(telegramUserId) {
+        const result = await transaction
+          .select({ telegramUserId: users.telegramUserId })
+          .from(users)
+          .where(
+            and(
+              eq(users.telegramUserId, telegramUserId),
+              eq(users.isApproved, true),
+              eq(users.isAdmin, true),
+            ),
+          );
+
+        return result.length > 0;
+      },
       async insertFirstApprovedAdmin(input) {
         await transaction.insert(users).values({
           telegramUserId: input.telegramUserId,
@@ -148,6 +232,24 @@ async function defaultRunInTransaction(
           approvedAt: new Date(),
         });
       },
+      async setInitializationMarker(input) {
+        await transaction
+          .insert(appMetadata)
+          .values({
+            key: bootstrapInitializationMarkerKey,
+            value: JSON.stringify(input),
+          })
+          .onConflictDoUpdate({
+            target: appMetadata.key,
+            set: {
+              value: JSON.stringify(input),
+              updatedAt: sql`now()`,
+            },
+          });
+      },
+      async clearInitializationMarker() {
+        await transaction.delete(appMetadata).where(eq(appMetadata.key, bootstrapInitializationMarkerKey));
+      },
       async deleteFirstAdminByTelegramUserId(telegramUserId) {
         await transaction.delete(users).where(eq(users.telegramUserId, telegramUserId));
       },
@@ -155,4 +257,25 @@ async function defaultRunInTransaction(
 
     await handler(tx);
   });
+}
+
+function parseInitializationMarker(rawValue: string | undefined): BootstrapInitializationMarker | null {
+  if (!rawValue) {
+    return null;
+  }
+
+  const parsedValue: unknown = JSON.parse(rawValue);
+
+  if (
+    typeof parsedValue === 'object' &&
+    parsedValue !== null &&
+    'firstAdminTelegramUserId' in parsedValue &&
+    typeof parsedValue.firstAdminTelegramUserId === 'number'
+  ) {
+    return {
+      firstAdminTelegramUserId: parsedValue.firstAdminTelegramUserId,
+    };
+  }
+
+  throw new Error('Bootstrap initialization marker contains invalid JSON payload');
 }

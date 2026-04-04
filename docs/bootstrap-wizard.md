@@ -23,7 +23,7 @@ Entry point:
 
 `src/scripts/bootstrap-wizard.ts`
 
-El wizard està separat del camí principal del bot (`src/main.ts`) i no arrenca ni Telegram ni PostgreSQL.
+El wizard continua tenint entrypoint propi a `src/scripts/bootstrap-wizard.ts`, però el camí principal del bot (`src/main.ts`) ara també pot derivar automàticament cap al bootstrap quan detecta un primer arrencada real.
 
 ## Decisions tècniques
 
@@ -120,6 +120,7 @@ Decisió tècnica:
 
 - el fitxer es prepara primer en un `.tmp` amb permisos restrictius
 - després s'executen migracions i seed a base de dades
+- dins de la inicialització de base de dades també s'escriu el marcador durable `bootstrap.initialization` a `app_metadata`
 - només al final es promociona el fitxer temporal a la ruta definitiva
 - si la promoció final del fitxer falla, s'intenta rollback del seed del primer admin i s'elimina el temporal
 
@@ -226,3 +227,9 @@ Es comprova:
 - protecció contra reinitialització accidental abans fins i tot d'arribar al wizard
 - detecció explícita d'instal·lació ja inicialitzada
 - UX de rerun i recuperació més guiada per a l'operador
+
+Estat actual després de `GAM-20`:
+
+- `src/main.ts` resol l'estat `fresh` / `initialized` / `ambiguous` abans d'arrencar
+- `src/scripts/bootstrap-wizard.ts` també fa preflight i bloqueja reruns sobre sistemes ja inicialitzats o ambigus
+- el marcador durable de bootstrap viu a `app_metadata` i es valida contra el primer administrador persistit

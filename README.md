@@ -19,6 +19,8 @@ Ya existe un asistente interactivo de primer arranque en terminal que persiste l
 
 La integración inicial de Telegram ya autentica el bot, levanta `long polling` y expone una respuesta mínima para `/start`.
 
+El arranque principal ahora distingue entre primer arranque, sistema ya inicializado y estados ambiguos de bootstrap antes de decidir si debe lanzar el asistente inicial o el runtime normal.
+
 El runtime principal también registra shutdown controlado y manejo definido para `SIGINT`, `SIGTERM`, `uncaughtException` y `unhandledRejection`.
 
 ## Puesta en marcha local
@@ -66,7 +68,9 @@ La ruta puede sobreescribirse con la variable de entorno:
 
 - `GAMECLUB_CONFIG_PATH`
 
-Si el archivo no existe, el JSON es inválido o algún campo no cumple el contrato, el proceso aborta el arranque con un error fatal claro.
+Si el archivo no existe y el proceso dispone de terminal interactiva, el arranque entra automáticamente en el flujo de bootstrap inicial.
+
+Si el archivo no existe pero no hay TTY interactiva, si el JSON es inválido o si el sistema detecta un estado ambiguo de bootstrap, el proceso aborta el arranque con un error fatal claro.
 
 Si la configuración es válida pero `PostgreSQL` no responde o rechaza la conexión, el proceso también aborta el arranque con un error fatal predecible.
 
@@ -113,7 +117,7 @@ La aplicación valida primero la configuración runtime y después verifica cone
 
 Durante el arranque y la parada se registran hitos explícitos para facilitar diagnóstico operativo.
 
-La primera migración generada crea la tabla `app_metadata`, que actúa como base mínima para validar el workflow de esquema y migraciones desde esta fase inicial.
+La primera migración generada crea la tabla `app_metadata`, que ahora también guarda el marcador durable de inicialización del bootstrap para distinguir una instalación válida de un estado parcial o inconsistente.
 
 El objetivo del proyecto es centralizar desde Telegram la operativa habitual del club:
 

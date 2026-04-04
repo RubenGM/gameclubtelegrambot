@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { initializeBootstrapDatabase, rollbackBootstrapDatabaseInitialization } from './bootstrap-database.js';
+import {
+  bootstrapInitializationMarkerKey,
+  initializeBootstrapDatabase,
+  inspectBootstrapDatabaseState,
+  rollbackBootstrapDatabaseInitialization,
+} from './bootstrap-database.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 
 const persistedConfig: RuntimeConfig = {
@@ -60,6 +65,7 @@ test('initializeBootstrapDatabase migrates and inserts the first approved admin 
       events.push('transaction:start');
       await handler({
         countExistingApprovedAdmins: async () => 0,
+        hasApprovedAdmin: async () => false,
         insertFirstApprovedAdmin: async (input: {
           telegramUserId: number;
           username?: string | undefined;
@@ -67,6 +73,10 @@ test('initializeBootstrapDatabase migrates and inserts the first approved admin 
         }) => {
           events.push(`insert-admin:${input.telegramUserId}:${input.username}`);
         },
+        setInitializationMarker: async (input) => {
+          events.push(`set-marker:${input.firstAdminTelegramUserId}`);
+        },
+        clearInitializationMarker: async () => {},
         deleteFirstAdminByTelegramUserId: async () => {},
       });
       events.push('transaction:commit');
@@ -77,6 +87,7 @@ test('initializeBootstrapDatabase migrates and inserts the first approved admin 
     'migrate',
     'transaction:start',
     'insert-admin:123456789:club_admin',
+    'set-marker:123456789',
     'transaction:commit',
     'close',
   ]);
@@ -92,14 +103,17 @@ test('initializeBootstrapDatabase rejects reruns when an approved admin already 
         }),
         runMigrations: async () => {},
         runInTransaction: async (_connection, handler) => {
-          await handler({
-            countExistingApprovedAdmins: async () => 1,
-            insertFirstApprovedAdmin: async () => {
-              throw new Error('should not insert');
-            },
-            deleteFirstAdminByTelegramUserId: async () => {},
-          });
-        },
+            await handler({
+              countExistingApprovedAdmins: async () => 1,
+              hasApprovedAdmin: async () => false,
+              insertFirstApprovedAdmin: async () => {
+                throw new Error('should not insert');
+              },
+              setInitializationMarker: async () => {},
+              clearInitializationMarker: async () => {},
+              deleteFirstAdminByTelegramUserId: async () => {},
+            });
+          },
       }),
     /already contains an approved administrator/,
   );
@@ -118,7 +132,12 @@ test('rollbackBootstrapDatabaseInitialization deletes the seeded first admin', a
     runInTransaction: async (_connection, handler) => {
       await handler({
         countExistingApprovedAdmins: async () => 0,
+        hasApprovedAdmin: async () => false,
         insertFirstApprovedAdmin: async () => {},
+        setInitializationMarker: async () => {},
+        clearInitializationMarker: async () => {
+          events.push('clear-marker');
+        },
         deleteFirstAdminByTelegramUserId: async (telegramUserId: number) => {
           events.push(`delete-admin:${telegramUserId}`);
         },
@@ -126,5 +145,47 @@ test('rollbackBootstrapDatabaseInitialization deletes the seeded first admin', a
     },
   });
 
-  assert.deepEqual(events, ['delete-admin:123456789', 'close']);
+  assert.deepEqual(events, ['clear-marker', 'delete-admin:123456789', 'close']);
+});
+
+test('inspectBootstrapDatabaseState reads the initialization marker and first admin state', async () => {
+  const events: string[] = [];
+
+  const state = await inspectBootstrapDatabaseState({
+    persistedConfig,
+    connectDatabase: async () => ({
+      db: {
+        select: (selection: Record<string, unknown>) => ({
+          from: (table: { [key: string]: unknown }) => ({
+            where: async () => {
+              if (table === undefined) {
+                throw new Error('unexpected table');
+              }
+
+              if ('value' in selection) {
+                events.push('select:marker');
+                return [{ value: JSON.stringify({ firstAdminTelegramUserId: 123456789 }) }];
+              }
+
+              if ('count' in selection) {
+                events.push('select:approved-count');
+                return [{ count: 1 }];
+              }
+
+              events.push('select:first-admin');
+              return [{ telegramUserId: 123456789 }];
+            },
+          }),
+        }),
+      } as never,
+      close: async () => {
+        events.push('close');
+      },
+    }),
+  });
+
+  assert.equal(state.marker?.firstAdminTelegramUserId, 123456789);
+  assert.equal(state.firstAdminExists, true);
+  assert.equal(state.approvedAdminCount, 1);
+  assert.deepEqual(events, ['select:marker', 'select:approved-count', 'select:first-admin', 'close']);
 });
