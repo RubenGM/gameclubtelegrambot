@@ -15,7 +15,7 @@ La base técnica inicial ya está creada.
 - integración real con `Telegram Bot API` mediante `grammY` y `long polling`
 - arranque inicial del proceso con límites explícitos para Telegram y base de datos
 
-Todavía no está implementado el asistente de bootstrap inicial.
+Ya existe un asistente interactivo de primer arranque en terminal. La persistencia definitiva del resultado se completara en el siguiente ticket de bootstrap.
 
 La integración inicial de Telegram ya autentica el bot, levanta `long polling` y expone una respuesta mínima para `/start`.
 
@@ -34,6 +34,7 @@ Comandos principales:
 - `npm run typecheck`
 - `npm run build`
 - `npm run start`
+- `npm run bootstrap:wizard`
 - `npm run db:generate`
 - `npm run db:migrate`
 
@@ -81,6 +82,8 @@ La estructura runtime actual cubre:
 - `featureFlags`
 
 Hay una guía más concreta en `docs/runtime-configuration.md`.
+
+Tambien hay una guía específica del asistente interactivo en `docs/bootstrap-wizard.md`.
 
 ## Persistencia y migraciones
 
