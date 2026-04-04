@@ -1,3 +1,4 @@
+import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramActor } from './actor-store.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
@@ -25,6 +26,7 @@ export interface TelegramCommandRuntime {
   services: InfrastructureRuntimeServices;
   chat: TelegramChatContext;
   actor: TelegramActor;
+  authorization: AuthorizationService;
   session: ConversationSessionRuntime;
 }
 

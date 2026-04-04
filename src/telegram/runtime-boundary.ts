@@ -1,6 +1,7 @@
 import { Bot, type Context } from 'grammy';
 
 import { APP_VERSION } from '../app-version.js';
+import { createAuthorizationService } from '../authorization/service.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import {
@@ -83,6 +84,7 @@ export interface TelegramRuntime {
   services: InfrastructureRuntimeServices;
   chat?: TelegramChatContext;
   actor?: TelegramActor;
+  authorization?: ReturnType<typeof createAuthorizationService>;
   session?: ConversationSessionRuntime;
 }
 
@@ -339,6 +341,14 @@ function createActorMiddleware({
     context.runtime.actor = await loadActor({
       telegramUserId: context.from.id,
       services,
+    });
+    context.runtime.authorization = createAuthorizationService({
+      subject: {
+        actorId: context.runtime.actor.telegramUserId,
+        status: context.runtime.actor.status,
+        isAdmin: context.runtime.actor.isAdmin,
+        permissions: context.runtime.actor.permissions,
+      },
     });
 
     await next();

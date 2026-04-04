@@ -49,6 +49,14 @@ function createContext({
         isAdmin,
         permissions: [],
       },
+      authorization: {
+        authorize: (permissionKey: string) => ({
+          allowed: permissionKey === 'test.allow',
+          permissionKey,
+          reason: permissionKey === 'test.allow' ? 'global-allow' : 'no-match',
+        }),
+        can: (permissionKey: string) => permissionKey === 'test.allow',
+      },
       session: {
         current: null,
         start: async () => {
