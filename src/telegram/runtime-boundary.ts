@@ -41,6 +41,11 @@ import { createDatabaseMembershipAccessRepository } from '../membership/access-f
 import { elevateApprovedUserToAdmin } from '../membership/admin-elevation.js';
 import { createDatabaseAdminElevationRepository } from '../membership/admin-elevation-store.js';
 import {
+  handleTelegramCatalogAdminCallback,
+  handleTelegramCatalogAdminText,
+  catalogAdminCallbackPrefixes,
+} from './catalog-admin-flow.js';
+import {
   handleTelegramTableAdminCallback,
   handleTelegramTableAdminText,
   tableAdminCallbackPrefixes,
@@ -493,6 +498,7 @@ function registerHandlers({
   registerScheduleCallbacks({ bot });
   registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
+  registerCatalogAdminCallbacks({ bot });
   registerVenueEventAdminCallbacks({ bot });
   registerTextHandlers({ bot });
 }
@@ -512,6 +518,10 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramTableAdminText(context)) {
+      return;
+    }
+
+    if (await handleTelegramCatalogAdminText(context)) {
       return;
     }
   });
@@ -589,6 +599,15 @@ function createDefaultCommands({
       description: 'Gestiona esdeveniments del local',
       handle: async (context) => {
         await handleTelegramVenueEventAdminText({ ...context, messageText: '/venue_events' });
+      },
+    },
+    {
+      command: 'catalog',
+      contexts: ['private'],
+      access: 'admin',
+      description: 'Gestiona el cataleg manual del club',
+      handle: async (context) => {
+        await handleTelegramCatalogAdminText({ ...context, messageText: '/catalog' });
       },
     },
     {
@@ -853,6 +872,22 @@ function registerTableAdminCallbacks({
       await handleTelegramTableAdminCallback(context);
     });
   }
+}
+
+function registerCatalogAdminCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  bot.onCallback(catalogAdminCallbackPrefixes.inspect, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.edit, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.deactivate, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
 }
 
 function registerTableReadCallbacks({
