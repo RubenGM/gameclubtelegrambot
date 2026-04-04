@@ -1,46 +1,109 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-
-import SysTrayPackage, { type ClickEvent, type Menu, type MenuItem } from 'systray2';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import type { TrayActionId, TrayMenuItem, TrayRuntime, TrayStatusIndicator } from './tray-app.js';
 
-const SysTray = SysTrayPackage as unknown as typeof import('systray2').default;
+type HostMessage =
+  | { type: 'ready' }
+  | { type: 'click'; actionId: TrayActionId }
+  | { type: 'error'; message: string };
 
-const trayIconBase64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO0p6YQAAAAASUVORK5CYII=';
+type HostCommand =
+  | {
+      type: 'snapshot';
+      status: TrayStatusIndicator;
+      tooltip: string;
+      items: TrayMenuItem[];
+    }
+  | { type: 'quit' };
 
-export function createDebianTrayRuntime(): TrayRuntime {
-  return new DebianTrayRuntime();
+export interface TrayHostProcessLike {
+  stdout: {
+    on(event: 'data', listener: (chunk: string | Buffer) => void): unknown;
+  };
+  stderr: {
+    on(event: 'data', listener: (chunk: string | Buffer) => void): unknown;
+  };
+  stdin: {
+    write(chunk: string): boolean;
+  };
+  once(event: 'exit', listener: (code: number | null, signal: string | null) => void): unknown;
+  kill(signal?: NodeJS.Signals | number): boolean;
+}
+
+export interface CreateDebianTrayRuntimeOptions {
+  spawnHost?: () => Promise<TrayHostProcessLike>;
+}
+
+export function createDebianTrayRuntime(
+  options: CreateDebianTrayRuntimeOptions = {},
+): TrayRuntime {
+  return new DebianTrayRuntime(options.spawnHost ?? spawnDebianTrayHost);
 }
 
 class DebianTrayRuntime implements TrayRuntime {
-  private systray: import('systray2').default | null = null;
+  private host: TrayHostProcessLike | null = null;
   private items: TrayMenuItem[] = [];
   private tooltip = 'Game Club Bot';
   private status: TrayStatusIndicator = 'unknown';
   private actionHandler: ((actionId: TrayActionId) => Promise<void>) | null = null;
 
+  constructor(private readonly spawnHost: () => Promise<TrayHostProcessLike>) {}
+
   async start(): Promise<void> {
-    const tray = new SysTray({
-      menu: this.createMenu(),
-      debug: false,
-      copyDir: false,
+    const host = await this.spawnHost();
+    this.host = host;
+
+    host.stderr.on('data', () => {
+      // Best effort only. The controlling app already has operator-facing error paths.
     });
 
-    tray.onClick(async (event: ClickEvent) => {
-      const actionId = parseActionId(event.item);
-      if (!actionId || !this.actionHandler) {
-        return;
-      }
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let buffer = '';
 
-      await this.actionHandler(actionId);
+      host.once('exit', (code, signal) => {
+        if (!settled) {
+          settled = true;
+          reject(new Error(`El host de safata ha finalitzat abans d estar llest (code=${code}, signal=${signal}).`));
+        }
+      });
+
+      host.stdout.on('data', (chunk) => {
+        buffer += chunk.toString();
+
+        while (true) {
+          const newlineIndex = buffer.indexOf('\n');
+          if (newlineIndex < 0) {
+            break;
+          }
+
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line) {
+            continue;
+          }
+
+          const message = parseHostMessage(line);
+          if (!message) {
+            continue;
+          }
+
+          if (!settled && message.type === 'ready') {
+            settled = true;
+            resolve();
+            continue;
+          }
+
+          void this.handleHostMessage(message);
+        }
+      });
     });
 
-    await tray.ready();
-    this.systray = tray;
+    await this.pushSnapshot();
   }
 
   onAction(handler: (actionId: TrayActionId) => Promise<void>): void {
@@ -49,17 +112,17 @@ class DebianTrayRuntime implements TrayRuntime {
 
   async setMenu(items: TrayMenuItem[]): Promise<void> {
     this.items = items;
-    await this.syncMenu();
+    await this.pushSnapshot();
   }
 
   async setStatus(state: TrayStatusIndicator): Promise<void> {
     this.status = state;
-    await this.syncMenu();
+    await this.pushSnapshot();
   }
 
   async setTooltip(text: string): Promise<void> {
     this.tooltip = text;
-    await this.syncMenu();
+    await this.pushSnapshot();
   }
 
   async showNotification(title: string, message: string): Promise<void> {
@@ -74,82 +137,91 @@ class DebianTrayRuntime implements TrayRuntime {
   }
 
   async stop(): Promise<void> {
-    if (!this.systray || this.systray.killed) {
+    if (!this.host) {
       return;
     }
 
-    await this.systray.kill(false);
-    this.systray = null;
+    this.sendCommand({ type: 'quit' });
+    this.host.kill('SIGTERM');
+    this.host = null;
   }
 
-  private createMenu(): Menu {
-    return {
-      icon: trayIconBase64,
-      title: trayTitle(this.status),
+  private async handleHostMessage(message: HostMessage): Promise<void> {
+    if (message.type === 'click' && this.actionHandler) {
+      await this.actionHandler(message.actionId);
+    }
+  }
+
+  private async pushSnapshot(): Promise<void> {
+    if (!this.host) {
+      return;
+    }
+
+    this.sendCommand({
+      type: 'snapshot',
+      status: this.status,
       tooltip: this.tooltip,
-      items: this.items.map(toSystrayMenuItem),
-    };
-  }
-
-  private async syncMenu(): Promise<void> {
-    if (!this.systray || this.systray.killed) {
-      return;
-    }
-
-    await this.systray.sendAction({
-      type: 'update-menu',
-      menu: this.createMenu(),
+      items: this.items,
     });
   }
+
+  private sendCommand(command: HostCommand): void {
+    if (!this.host) {
+      return;
+    }
+
+    this.host.stdin.write(`${JSON.stringify(command)}\n`);
+  }
 }
 
-function toSystrayMenuItem(item: TrayMenuItem): MenuItem {
-  return {
-    title: item.title,
-    tooltip: `action:${item.id}`,
-    enabled: item.enabled,
-  };
-}
+function parseHostMessage(line: string): HostMessage | null {
+  try {
+    const parsed = JSON.parse(line) as HostMessage;
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') {
+      return null;
+    }
 
-function parseActionId(item: MenuItem): TrayActionId | null {
-  const tooltip = item.tooltip ?? '';
-  if (!tooltip.startsWith('action:')) {
+    if (parsed.type === 'ready') {
+      return parsed;
+    }
+
+    if (
+      parsed.type === 'click' &&
+      (parsed.actionId === 'status' ||
+        parsed.actionId === 'start' ||
+        parsed.actionId === 'stop' ||
+        parsed.actionId === 'restart' ||
+        parsed.actionId === 'logs' ||
+        parsed.actionId === 'refresh' ||
+        parsed.actionId === 'quit')
+    ) {
+      return parsed;
+    }
+
+    if (parsed.type === 'error' && typeof parsed.message === 'string') {
+      return parsed;
+    }
+
+    return null;
+  } catch {
     return null;
   }
-
-  const actionId = tooltip.slice('action:'.length);
-  if (
-    actionId === 'status' ||
-    actionId === 'start' ||
-    actionId === 'stop' ||
-    actionId === 'restart' ||
-    actionId === 'logs' ||
-    actionId === 'refresh' ||
-    actionId === 'quit'
-  ) {
-    return actionId;
-  }
-
-  return null;
 }
 
-function trayTitle(state: TrayStatusIndicator): string {
-  switch (state) {
-    case 'active':
-      return 'GC active';
-    case 'inactive':
-      return 'GC off';
-    case 'failed':
-      return 'GC failed';
-    case 'activating':
-      return 'GC starting';
-    case 'deactivating':
-      return 'GC stopping';
-    case 'busy':
-      return 'GC busy';
-    default:
-      return 'GC unknown';
-  }
+async function spawnDebianTrayHost(): Promise<TrayHostProcessLike> {
+  const projectRoot = resolveProjectRoot();
+  const helperPath = join(projectRoot, 'scripts', 'debian-tray-host.py');
+  const child = spawn('python3', [helperPath], {
+    cwd: projectRoot,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  return child as unknown as TrayHostProcessLike;
+}
+
+function resolveProjectRoot(): string {
+  const currentFile = fileURLToPath(import.meta.url);
+  return join(dirname(currentFile), '..', '..');
 }
 
 async function trySpawnDetached(

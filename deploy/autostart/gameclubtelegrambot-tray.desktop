@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Game Club Bot Tray
+Comment=Controla l'estat del servei Game Club Telegram Bot des de la safata
+Exec=/usr/bin/node /opt/gameclubtelegrambot/dist/scripts/debian-tray.js
+Icon=utilities-terminal
+Terminal=false
+Categories=Utility;
+StartupNotify=false
