@@ -6,7 +6,7 @@ const defaultNotificationDefaults = {
   eventReminderLeadHours: 24,
 } as const;
 
-export const runtimeConfigSchema = z.object({
+export const bootstrapConfigCandidateSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   bot: z.object({
     publicName: z.string().trim().min(1),
@@ -25,7 +25,7 @@ export const runtimeConfigSchema = z.object({
     ssl: z.boolean(),
   }),
   adminElevation: z.object({
-    passwordHash: z.string().trim().min(1),
+    password: z.string().trim().min(1),
   }),
   bootstrap: z.object({
     firstAdmin: z.object({
@@ -48,6 +48,4 @@ export const runtimeConfigSchema = z.object({
   featureFlags: z.record(z.string(), z.boolean()).default({}),
 });
 
-export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
-
-export const defaultRuntimeConfigPath = 'config/runtime.json';
+export type BootstrapConfigCandidate = z.infer<typeof bootstrapConfigCandidateSchema>;

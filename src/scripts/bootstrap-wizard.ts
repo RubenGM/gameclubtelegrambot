@@ -1,7 +1,13 @@
 import pino from 'pino';
 
+import {
+  initializeBootstrapDatabase,
+  rollbackBootstrapDatabaseInitialization,
+} from '../bootstrap/bootstrap-database.js';
+import { initializeSystemFromCandidate } from '../bootstrap/initialize-system.js';
 import { runBootstrapWizard } from '../bootstrap/wizard/run-bootstrap-wizard.js';
 import { createTerminalWizardIo } from '../bootstrap/wizard/terminal-wizard-io.js';
+import { defaultRuntimeConfigPath } from '../config/runtime-config.js';
 
 const logger = pino({
   name: 'gameclubtelegrambot',
@@ -13,7 +19,27 @@ try {
   const result = await runBootstrapWizard({ io });
 
   if (result) {
-    logger.info({}, 'Bootstrap wizard completed with a valid in-memory configuration candidate');
+    const configPath = process.env.GAMECLUB_CONFIG_PATH ?? defaultRuntimeConfigPath;
+
+    const initialization = await initializeSystemFromCandidate({
+      candidate: result,
+      configPath,
+      logger,
+      initializeDatabase: async ({ persistedConfig }) => {
+        await initializeBootstrapDatabase({ persistedConfig });
+      },
+      rollbackDatabaseInitialization: async ({ persistedConfig }) => {
+        await rollbackBootstrapDatabaseInitialization({ persistedConfig });
+      },
+    });
+
+    logger.info(
+      {
+        configPath,
+        firstAdminTelegramUserId: initialization.config.bootstrap.firstAdmin.telegramUserId,
+      },
+      'Bootstrap wizard completed and persisted the initialized system',
+    );
   } else {
     logger.info({}, 'Bootstrap wizard cancelled by the operator before persistence');
   }

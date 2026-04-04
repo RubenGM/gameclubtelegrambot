@@ -23,6 +23,8 @@ fi
 
 mkdir -p config
 
+npm install
+
 if [ ! -f .env.postgres.local ]; then
   POSTGRES_PASSWORD="$(openssl rand -hex 16)"
   cat > .env.postgres.local <<EOF
@@ -39,6 +41,7 @@ set +a
 
 if [ ! -f config/runtime.local.json ]; then
   ADMIN_PASSWORD="$(openssl rand -hex 16)"
+  ADMIN_PASSWORD_HASH="$(GAMECLUB_SECRET_TO_HASH="$ADMIN_PASSWORD" node --import tsx -e "import { hashSecret } from './src/security/password-hash.ts'; const secret = process.env.GAMECLUB_SECRET_TO_HASH; if (!secret) throw new Error('Missing secret to hash'); console.log(await hashSecret(secret));")"
   TELEGRAM_TOKEN="${GAMECLUB_TELEGRAM_TOKEN:-REPLACE_WITH_REAL_TELEGRAM_TOKEN}"
   FIRST_ADMIN_TELEGRAM_USER_ID="${GAMECLUB_FIRST_ADMIN_TELEGRAM_USER_ID:-1}"
   FIRST_ADMIN_USERNAME="${GAMECLUB_FIRST_ADMIN_USERNAME:-club_admin}"
@@ -63,7 +66,7 @@ if [ ! -f config/runtime.local.json ]; then
     "ssl": false
   },
   "adminElevation": {
-    "password": "${ADMIN_PASSWORD}"
+    "passwordHash": "${ADMIN_PASSWORD_HASH}"
   },
   "bootstrap": {
     "firstAdmin": {
@@ -86,7 +89,6 @@ if [ ! -f config/runtime.local.json ]; then
 EOF
 fi
 
-npm install
 docker compose up -d postgres
 
 for _ in $(seq 1 30); do
@@ -105,6 +107,10 @@ printf '\nPreparacio local completada.\n'
 printf 'Base de dades local: postgres://%s:%s@127.0.0.1:%s/%s\n' "$POSTGRES_USER" "$POSTGRES_PASSWORD" "${POSTGRES_PORT:-55432}" "$POSTGRES_DB"
 printf 'Configuracio runtime: config/runtime.local.json\n'
 printf 'Per arrancar el bot: npm run start:local\n'
+
+if [ -n "${ADMIN_PASSWORD:-}" ]; then
+  printf 'Contrasenya d elevacio administrativa generada: %s\n' "$ADMIN_PASSWORD"
+fi
 
 if grep -q 'REPLACE_WITH_REAL_TELEGRAM_TOKEN' config/runtime.local.json; then
   printf 'Encara falta posar el token real de Telegram a config/runtime.local.json\n'

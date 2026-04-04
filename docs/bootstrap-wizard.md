@@ -4,11 +4,14 @@ Aquest document descriu les decisions tècniques del wizard interactiu de primer
 
 ## Objectiu actual
 
-El wizard de `GAM-18` recull tota la configuració obligatòria i construeix un `RuntimeConfig` complet en memòria.
+El wizard recull tota la configuració obligatòria, construeix un candidat complet en memòria i, després de la confirmació final, inicialitza el sistema de forma usable.
 
-No persisteix encara el fitxer a disc.
+Actualment això inclou:
 
-Aquesta persistència queda explícitament per al ticket següent (`GAM-19`).
+- persistir `config/runtime.json` o la ruta indicada a `GAMECLUB_CONFIG_PATH`
+- hashejar `adminElevation.password` abans d'escriure el fitxer final
+- executar migracions pendents
+- crear el primer administrador aprovat a la base de dades
 
 ## Punt d'entrada
 
@@ -106,6 +109,42 @@ Si l'operador rebutja el resum:
 - no es persisteix res
 - no es deixa cap efecte lateral
 
+### 7. Persistència i seeding acoblats
+
+La inicialització completa només es dona per bona quan s'han completat tots dos passos:
+
+- persistència del fitxer runtime final
+- creació del primer administrador aprovat a la base de dades
+
+Decisió tècnica:
+
+- el fitxer es prepara primer en un `.tmp` amb permisos restrictius
+- després s'executen migracions i seed a base de dades
+- només al final es promociona el fitxer temporal a la ruta definitiva
+- si la promoció final del fitxer falla, s'intenta rollback del seed del primer admin i s'elimina el temporal
+
+Objectiu:
+
+- evitar un sistema mig inicialitzat i ambigu tant com sigui possible dins dels límits de fitxer + BD sense una transacció distribuïda real
+
+### 8. Contrasenya d'elevació no persistida en clar
+
+El wizard demana `adminElevation.password` en clar només de manera transitòria.
+
+Abans d'escriure configuració a disc:
+
+- es deriva `adminElevation.passwordHash`
+- el valor en clar no s'escriu al JSON final
+
+Format actual del hash:
+
+`scrypt:<cost>:<blockSize>:<parallelization>:<saltHex>:<derivedKeyHex>`
+
+Rao:
+
+- la contrasenya només servirà després per validació, no per ser recuperada
+- el ticket demanava explícitament no persistir-la en clar si el disseny no ho requeria
+
 ## Ordre actual de preguntes
 
 1. Nom públic del bot
@@ -131,6 +170,9 @@ Fitxers principals:
 - `src/bootstrap/wizard/run-bootstrap-wizard.ts`
 - `src/bootstrap/wizard/terminal-wizard-io.ts`
 - `src/scripts/bootstrap-wizard.ts`
+- `src/bootstrap/initialize-system.ts`
+- `src/bootstrap/bootstrap-database.ts`
+- `src/security/password-hash.ts`
 
 Separació de responsabilitats:
 
@@ -145,6 +187,18 @@ Separació de responsabilitats:
 - `bootstrap-wizard.ts`
   - actua com a entrypoint executable
   - manté el wizard separat del runtime del servei
+  - orquestra la inicialització completa després de la confirmació final
+- `initialize-system.ts`
+  - transforma el candidat en configuració runtime persistible
+  - hasheja la contrasenya d'elevació
+  - escriu el fitxer temporal i el promociona a definitiu
+  - coordina rollback si el pas final falla
+- `bootstrap-database.ts`
+  - executa migracions
+  - crea el primer administrador aprovat en transacció
+  - pot eliminar aquest primer admin si cal compensar una fallada final de persistència
+- `password-hash.ts`
+  - encapsula el hash `scrypt` del secret d'elevació
 
 ## Proves
 
@@ -159,12 +213,16 @@ Es comprova:
 - reintents en cas d'entrada invàlida
 - emmascarament de secrets al resum
 - cancel·lació per manca de confirmació final
+- persistència segura del fitxer runtime
+- hash no reversible del secret d'elevació
+- seeding i rollback del primer administrador
 
 ## Decisions obertes per al següent ticket
 
 `GAM-19` haurà de decidir i implementar:
 
-- on s'escriu exactament el fitxer final
-- com es protegeix la reinitialització accidental
-- com es crea el primer administrador aprovat a la persistència real
-- com es connecta la confirmació del wizard amb l'escriptura efectiva del JSON
+`GAM-20` haurà de reforçar sobretot:
+
+- protecció contra reinitialització accidental abans fins i tot d'arribar al wizard
+- detecció explícita d'instal·lació ja inicialitzada
+- UX de rerun i recuperació més guiada per a l'operador

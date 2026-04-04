@@ -16,7 +16,7 @@
     "ssl": false
   },
   "adminElevation": {
-    "password": "replace-with-generated-admin-password"
+    "passwordHash": "replace-with-generated-admin-password-hash"
   },
   "bootstrap": {
     "firstAdmin": {

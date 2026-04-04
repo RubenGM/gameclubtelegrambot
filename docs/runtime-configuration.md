@@ -48,7 +48,7 @@ El contracte runtime actual inclou:
 - `database.user`
 - `database.password`
 - `database.ssl`
-- `adminElevation.password`
+- `adminElevation.passwordHash`
 - `bootstrap.firstAdmin.telegramUserId`
 - `bootstrap.firstAdmin.username` opcional
 - `bootstrap.firstAdmin.displayName`
@@ -79,7 +79,7 @@ El contracte runtime actual inclou:
     "ssl": false
   },
   "adminElevation": {
-    "password": "admin-secret"
+    "passwordHash": "scrypt:16384:8:1:..."
   },
   "bootstrap": {
     "firstAdmin": {
@@ -109,7 +109,8 @@ El contracte runtime actual inclou:
 - Si en el futur canvia la ruta o el format, caldrà documentar explícitament la migració.
 - El mateix contracte runtime s'utilitza per obrir la connexió de l'aplicació i per executar migracions explícites.
 - `bot.*` descriu metadata visible del club i del bot; no ha de barrejar-se amb secrets.
-- `telegram.*`, `database.*` i `adminElevation.*` són configuració operativa o secrets explícits.
+- `telegram.*` i `database.*` són configuració operativa; `adminElevation.passwordHash` és un secret derivat persistit, no la contrasenya en clar.
+- el runtime final mai no necessita recuperar la contrasenya d'elevació original; només necessita poder verificar-la en el futur.
 - `bootstrap.firstAdmin.*` descriu la identitat inicial que el wizard ha de persistir; el sistema no l'ha d'inferir a partir del primer usuari que escriu al bot.
 - `bootstrap.firstAdmin.telegramUserId` és la identitat canònica; `username` només és ajuda humana i no s'ha d'usar com a clau única.
 - `notifications.defaults.*` defineix defaults explícits per al primer arrencada; no s'han d'inferir implícitament a partir de feature flags o del context del xat.

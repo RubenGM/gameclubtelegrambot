@@ -21,7 +21,7 @@ const validConfigJson = JSON.stringify({
     ssl: false,
   },
   adminElevation: {
-    password: 'admin-secret',
+    passwordHash: 'hashed:admin-secret',
   },
   bootstrap: {
     firstAdmin: {
@@ -82,7 +82,7 @@ test('loadRuntimeConfig applies defaults for schema version, notification defaul
           ssl: false,
         },
         adminElevation: {
-          password: 'admin-secret',
+          passwordHash: 'hashed:admin-secret',
         },
         bootstrap: {
           firstAdmin: {
@@ -165,7 +165,7 @@ test('loadRuntimeConfig fails when required configuration fields are invalid', a
               ssl: false,
             },
             adminElevation: {
-              password: '',
+              passwordHash: '',
             },
             bootstrap: {
               firstAdmin: {
@@ -187,7 +187,7 @@ test('loadRuntimeConfig fails when required configuration fields are invalid', a
       assert.match(message, /bot\.publicName/);
       assert.match(message, /telegram\.token/);
       assert.match(message, /database\.port/);
-      assert.match(message, /adminElevation\.password/);
+      assert.match(message, /adminElevation\.passwordHash/);
       assert.match(message, /bootstrap\.firstAdmin\.telegramUserId/);
       assert.match(message, /bootstrap\.firstAdmin\.displayName/);
       assert.match(message, /notifications\.defaults\.eventReminderLeadHours/);

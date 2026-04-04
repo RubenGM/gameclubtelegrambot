@@ -23,7 +23,7 @@ const runtimeConfig = {
     ssl: false,
   },
   adminElevation: {
-    password: 'admin-secret',
+    passwordHash: 'hashed:admin-secret',
   },
   bootstrap: {
     firstAdmin: {

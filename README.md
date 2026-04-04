@@ -15,7 +15,7 @@ La base técnica inicial ya está creada.
 - integración real con `Telegram Bot API` mediante `grammY` y `long polling`
 - arranque inicial del proceso con límites explícitos para Telegram y base de datos
 
-Ya existe un asistente interactivo de primer arranque en terminal. La persistencia definitiva del resultado se completara en el siguiente ticket de bootstrap.
+Ya existe un asistente interactivo de primer arranque en terminal que persiste la configuracion validada y crea el primer administrador aprobado.
 
 La integración inicial de Telegram ya autentica el bot, levanta `long polling` y expone una respuesta mínima para `/start`.
 
@@ -84,6 +84,8 @@ La estructura runtime actual cubre:
 Hay una guía más concreta en `docs/runtime-configuration.md`.
 
 Tambien hay una guía específica del asistente interactivo en `docs/bootstrap-wizard.md`.
+
+El fichero runtime persistido ya no guarda la contrasena de elevacion administrativa en texto plano. Ahora guarda `adminElevation.passwordHash`.
 
 ## Persistencia y migraciones
 

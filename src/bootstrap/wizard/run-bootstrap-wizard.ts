@@ -1,4 +1,7 @@
-import { runtimeConfigSchema, type RuntimeConfig } from '../../config/runtime-config.js';
+import {
+  bootstrapConfigCandidateSchema,
+  type BootstrapConfigCandidate,
+} from './bootstrap-config-candidate.js';
 
 export interface WizardIo {
   prompt(options: PromptOptions): Promise<string>;
@@ -28,11 +31,11 @@ const defaultWizardValues = {
   eventReminderLeadHours: 24,
 } as const;
 
-export async function runBootstrapWizard({ io }: RunBootstrapWizardOptions): Promise<RuntimeConfig | null> {
+export async function runBootstrapWizard({ io }: RunBootstrapWizardOptions): Promise<BootstrapConfigCandidate | null> {
   io.writeLine('Assistente de configuracio inicial de Game Club Telegram Bot');
   io.writeLine('Respon les preguntes seguents. Pots acceptar els valors per defecte quan apareguin.');
 
-  const candidate = runtimeConfigSchema.parse({
+  const candidate = bootstrapConfigCandidateSchema.parse({
     bot: {
       publicName: await promptRequiredText(io, 'Nom public del bot'),
       clubName: await promptRequiredText(io, 'Nom del club'),
@@ -206,7 +209,7 @@ async function promptBoolean(
   }
 }
 
-function renderConfigSummary(config: RuntimeConfig): string {
+function renderConfigSummary(config: BootstrapConfigCandidate): string {
   return [
     `- Schema version: ${config.schemaVersion}`,
     `- Nom public del bot: ${config.bot.publicName}`,
