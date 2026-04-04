@@ -70,3 +70,13 @@ export const userPermissionAuditLog = pgTable('user_permission_audit_log', {
   reason: text('reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const userStatusAuditLog = pgTable('user_status_audit_log', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  subjectTelegramUserId: bigint('subject_telegram_user_id', { mode: 'number' }).notNull(),
+  previousStatus: varchar('previous_status', { length: 16 }),
+  nextStatus: varchar('next_status', { length: 16 }).notNull(),
+  changedByTelegramUserId: bigint('changed_by_telegram_user_id', { mode: 'number' }).notNull(),
+  reason: text('reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});

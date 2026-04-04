@@ -15,6 +15,20 @@
       "when": 1775261806084,
       "tag": "0001_hesitant_war_machine",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775292493023,
+      "tag": "0002_watery_mojo",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1775292493024,
+      "tag": "0003_far_mayday",
+      "breakpoints": true
     }
   ]
 }

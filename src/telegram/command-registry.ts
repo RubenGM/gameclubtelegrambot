@@ -2,6 +2,7 @@ import type { TelegramActor } from './actor-store.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
+import type { TelegramReplyOptions } from './runtime-boundary.js';
 
 export class TelegramInteractionError extends Error {
   cancelSession: boolean;
@@ -19,6 +20,7 @@ export interface TelegramCommandRuntime {
   bot: {
     publicName: string;
     clubName: string;
+    sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
   chat: TelegramChatContext;
@@ -27,7 +29,14 @@ export interface TelegramCommandRuntime {
 }
 
 export interface TelegramCommandHandlerContext {
-  reply(message: string): Promise<unknown>;
+  from?: {
+    id: number;
+    username?: string;
+    first_name?: string;
+  };
+  messageText?: string;
+  callbackData?: string;
+  reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: TelegramCommandRuntime;
   __replies?: string[];
 }

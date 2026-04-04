@@ -28,6 +28,7 @@ function createContext({
       bot: {
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
+        sendPrivateMessage: async () => {},
       },
       services: {
         database: {

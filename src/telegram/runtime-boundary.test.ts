@@ -2,10 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildAdminReplyKeyboard,
+  buildAdminStartInlineKeyboard,
   createTelegramBoundary,
+  formatStartMessage,
   TelegramStartupError,
   type TelegramContextLike,
+  type TelegramReplyOptions,
   type TelegramMiddleware,
+  toGrammyReplyOptions,
 } from './runtime-boundary.js';
 import type { TelegramCommandHandler } from './command-registry.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
@@ -49,9 +54,14 @@ const runtimeConfig = {
 test('createTelegramBoundary reports a connected bot when long polling starts', async () => {
   const events: string[] = [];
   const sessionRecords = new Map<string, ConversationSessionRecord>();
+  const membershipUsers = new Map<
+    number,
+    { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }
+  >();
+  const statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }> = [];
   const databaseConnection = {
     pool: undefined as never,
-    db: undefined as never,
+    db: createMembershipDatabaseStub({ membershipUsers, statusAuditLog }) as never,
     close: async () => {},
   };
 
@@ -66,10 +76,10 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     },
     loadActor: async ({ telegramUserId }) => ({
       telegramUserId,
-      status: 'approved',
-      isApproved: true,
+      status: telegramUserId === 42 ? 'pending' : 'approved',
+      isApproved: telegramUserId !== 42,
       isBlocked: false,
-      isAdmin: false,
+      isAdmin: telegramUserId === 99,
       permissions: [],
     }),
     createConversationSessionStore: () => ({
@@ -83,6 +93,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     createBot: ({ token }) => {
       const middlewares: TelegramMiddleware[] = [];
       const commandHandlers = new Map<string, TelegramCommandHandler>();
+      const callbackHandlers = new Map<string, TelegramCommandHandler>();
 
       events.push(`token:${token}`);
 
@@ -95,17 +106,30 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
           events.push(`register:/${command}`);
           commandHandlers.set(command, handler);
         },
+        onCallback: (callbackPrefix, handler) => {
+          events.push(`register:callback:${callbackPrefix}`);
+          callbackHandlers.set(callbackPrefix, handler);
+        },
+        sendPrivateMessage: async () => {},
         startPolling: async () => {
           const context: TelegramContextLike = {
             chat: {
-              id: -100,
-              type: 'group',
+              id: 100,
+              type: 'private',
             },
             from: {
               id: 42,
+              username: 'new_member',
+              first_name: 'New',
             },
-            reply: async (message: string) => {
+            reply: async (message: string, options?: TelegramReplyOptions) => {
               events.push(`reply:${message}`);
+              if (options?.inlineKeyboard) {
+                events.push(`buttons:${options.inlineKeyboard.flat().map((button) => button.text).join('|')}`);
+              }
+              if (options?.replyKeyboard) {
+                events.push(`reply-keyboard:${options.replyKeyboard.flat().join('|')}`);
+              }
             },
           };
 
@@ -120,13 +144,39 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
             if (middlewareIndex === middlewares.length) {
               events.push(`runtime:database:${Number((context.runtime as { services: { database: unknown } }).services.database === databaseConnection)}`);
               const startHandler = commandHandlers.get('start');
+              const accessHandler = commandHandlers.get('access');
+              const reviewHandler = commandHandlers.get('review_access');
+              const approveHandler = callbackHandlers.get('approve_access:');
               if (!startHandler) {
                 throw new Error('start handler not registered');
+              }
+              if (!accessHandler || !reviewHandler || !approveHandler) {
+                throw new Error('membership handlers not registered');
               }
 
               const commandContext = context as unknown as import('./command-registry.js').TelegramCommandHandlerContext;
 
+              await accessHandler(commandContext);
               await startHandler(commandContext);
+              context.from = {
+                id: 99,
+                username: 'club_admin',
+                first_name: 'Admin',
+              };
+              if (context.runtime?.actor) {
+                context.runtime.actor = {
+                  telegramUserId: 99,
+                  status: 'approved',
+                  isApproved: true,
+                  isBlocked: false,
+                  isAdmin: true,
+                  permissions: [],
+                };
+              }
+              context.messageText = '/review_access';
+              await reviewHandler(commandContext);
+              context.callbackData = 'approve_access:42';
+              await approveHandler(commandContext);
               await commandHandlers.get('help')?.(commandContext);
               return;
             }
@@ -162,15 +212,32 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'middleware:register',
     'middleware:register',
     'middleware:register',
+    'register:/access',
+    'register:/review_access',
+    'register:/approve',
+    'register:/reject',
     'register:/cancel',
     'register:/start',
     'register:/help',
+    'register:callback:menu:review_access',
+    'register:callback:menu:help',
+    'register:callback:approve_access:',
+    'register:callback:reject_access:',
     'runtime:database:1',
-    'reply:Game Club Bot online. Escriu /start per comprovar que la connexio amb Telegram funciona.',
-    'reply:Comandes disponibles en aquest xat:\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual\n\nPer veure totes les funcions, escriu-me en privat.',
+    'reply:Hem registrat la teva sollicitud d accés. Un administrador la revisara al mes aviat possible.',
+    'reply:Benvingut a Game Club Bot. Escriu /help per veure les opcions disponibles.',
+    'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
+    'buttons:Aprovar|Rebutjar',
+    'reply:Usuari aprovat correctament.',
+    'reply:Comandes disponibles en aquest xat:\n/access - Sollicita accés al club\n/review_access - Revisa sollicituds pendents\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
     'start-polling',
     'stop-polling',
   ]);
+  assert.equal(membershipUsers.get(42)?.status, 'approved');
+  assert.deepEqual(
+    statusAuditLog.map((entry) => `${entry.telegramUserId}:${entry.nextStatus}`),
+    ['42:pending', '42:approved'],
+  );
 });
 
 test('createTelegramBoundary replies with a safe message and clears session on unexpected handler errors', async () => {
@@ -226,6 +293,8 @@ test('createTelegramBoundary replies with a safe message and clears session on u
         onCommand: (command, handler) => {
           commandHandlers.set(command, handler);
         },
+        onCallback: () => {},
+        sendPrivateMessage: async () => {},
         startPolling: async () => {
           const context: TelegramContextLike = {
             chat: {
@@ -303,6 +372,8 @@ test('createTelegramBoundary throws a predictable error when Telegram startup fa
         createBot: () => ({
           use: () => {},
           onCommand: () => {},
+          onCallback: () => {},
+          sendPrivateMessage: async () => {},
           startPolling: async () => {
             throw new Error('Unauthorized');
           },
@@ -316,3 +387,174 @@ test('createTelegramBoundary throws a predictable error when Telegram startup fa
     },
   );
 });
+
+test('toGrammyReplyOptions converts inline keyboards to grammY reply markup', async () => {
+  assert.deepEqual(
+    toGrammyReplyOptions({
+      inlineKeyboard: [
+        [
+          { text: 'Aprovar', callbackData: 'approve_access:42' },
+          { text: 'Rebutjar', callbackData: 'reject_access:42' },
+        ],
+      ],
+    }),
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: 'Aprovar', callback_data: 'approve_access:42' },
+            { text: 'Rebutjar', callback_data: 'reject_access:42' },
+          ],
+        ],
+      },
+    },
+  );
+});
+
+test('toGrammyReplyOptions converts reply keyboard to grammY reply markup', async () => {
+  assert.deepEqual(
+    toGrammyReplyOptions({
+      replyKeyboard: [['/review_access', '/help']],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    }),
+    {
+      reply_markup: {
+        keyboard: [[{ text: '/review_access' }, { text: '/help' }]],
+        resize_keyboard: true,
+        is_persistent: true,
+      },
+    },
+  );
+});
+
+test('formatStartMessage shows version only to admins', async () => {
+  assert.match(
+    formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: true }),
+    /Game Club Bot online \(v0.1.0\)/,
+  );
+  assert.equal(
+    formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false }),
+    'Benvingut a Game Club Bot. Escriu /help per veure les opcions disponibles.',
+  );
+});
+
+test('buildAdminStartInlineKeyboard exposes admin shortcuts in start message', async () => {
+  assert.deepEqual(buildAdminStartInlineKeyboard(), [
+    [
+      { text: 'Revisar accessos', callbackData: 'menu:review_access' },
+      { text: 'Ajuda', callbackData: 'menu:help' },
+    ],
+  ]);
+});
+
+test('buildAdminReplyKeyboard exposes admin reply shortcuts', async () => {
+  assert.deepEqual(buildAdminReplyKeyboard(), [['/review_access', '/help']]);
+});
+
+test('admin start reply options expose both inline and reply keyboard shortcuts', async () => {
+  assert.deepEqual(
+    toGrammyReplyOptions({
+      inlineKeyboard: buildAdminStartInlineKeyboard(),
+      replyKeyboard: buildAdminReplyKeyboard(),
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    }),
+    {
+      reply_markup: {
+        keyboard: [[{ text: '/review_access' }, { text: '/help' }]],
+        resize_keyboard: true,
+        is_persistent: true,
+      },
+    },
+  );
+});
+
+function createMembershipDatabaseStub({
+  membershipUsers,
+  statusAuditLog,
+}: {
+  membershipUsers: Map<
+    number,
+    { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }
+  >;
+  statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }>;
+}) {
+  return {
+    select(selection: Record<string, unknown>) {
+      return {
+        from() {
+          return {
+            where: async () => {
+              if ('permissionKey' in selection) {
+                return [];
+              }
+
+              if ('status' in selection && 'displayName' in selection) {
+                return Array.from(membershipUsers.values());
+              }
+
+              return [];
+            },
+          };
+        },
+      };
+    },
+    insert() {
+      return {
+        values(value: Record<string, unknown>) {
+          if ('nextStatus' in value) {
+            statusAuditLog.push({
+              telegramUserId: Number(value.subjectTelegramUserId),
+              nextStatus: String(value.nextStatus),
+            });
+            return Promise.resolve();
+          }
+
+          const record = {
+            telegramUserId: Number(value.telegramUserId),
+            username: (value.username as string | null | undefined) ?? null,
+            displayName: String(value.displayName),
+            status: String(value.status),
+            isAdmin: Boolean(value.isAdmin),
+          };
+          membershipUsers.set(record.telegramUserId, record);
+
+          return {
+            onConflictDoUpdate() {
+              return {
+                returning: async () => [record],
+              };
+            },
+          };
+        },
+      };
+    },
+    update() {
+      return {
+        set(value: Record<string, unknown>) {
+          return {
+            where() {
+              return {
+                returning: async () => {
+                  const existing = membershipUsers.get(42);
+                  if (!existing) {
+                    return [];
+                  }
+
+                  const next = {
+                    ...existing,
+                    status: String(value.status),
+                    isAdmin: value.isAdmin === undefined ? existing.isAdmin : Boolean(value.isAdmin),
+                  };
+                  membershipUsers.set(42, next);
+                  return [next];
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+}
