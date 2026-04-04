@@ -34,6 +34,8 @@ export const venueEventAdminLabels = {
   cancel: 'Cancel.lar esdeveniment',
   skipOptional: 'Ometre',
   keepCurrent: 'Mantenir valor actual',
+  allDay: 'Tot el dia',
+  specificTime: 'Especificar horari',
   scopePartial: 'Impacte parcial',
   scopeFull: 'Ocupacio total',
   impactLow: 'Impacte baix',
@@ -175,16 +177,39 @@ async function handleCreateSession(context: TelegramVenueEventAdminContext, text
   }
   if (stepKey === 'description') {
     await context.runtime.session.advance({ stepKey: 'start-date', data: { ...data, description: text === venueEventAdminLabels.skipOptional ? null : text } });
-    await context.reply('Escriu la data d inici en format YYYY-MM-DD.', buildSingleCancelKeyboard());
+    await context.reply('Escriu la data d inici en format dd/MM o dd/MM/yyyy.', buildDateOptions(context));
     return true;
   }
   if (stepKey === 'start-date') {
     const date = parseDate(text);
     if (date instanceof Error) {
-      await context.reply('La data ha de tenir format YYYY-MM-DD.', buildSingleCancelKeyboard());
+      await context.reply('La data ha de tenir format dd/MM o dd/MM/yyyy.', buildDateOptions(context));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'start-time', data: { ...data, startDate: date } });
+    await context.runtime.session.advance({ stepKey: 'time-mode', data: { ...data, startDate: date } });
+    await context.reply('Vols indicar un esdeveniment de tot el dia o especificar l horari?', buildTimeModeOptions());
+    return true;
+  }
+  if (stepKey === 'time-mode') {
+    if (text === venueEventAdminLabels.allDay) {
+      await context.runtime.session.advance({
+        stepKey: 'scope',
+        data: {
+          ...data,
+          allDay: true,
+          startTime: '00:00',
+          endDate: String(data.startDate ?? ''),
+          endTime: '00:00',
+        },
+      });
+      await context.reply('Selecciona l abast d ocupacio del local.', buildScopeOptions());
+      return true;
+    }
+    if (text !== venueEventAdminLabels.specificTime) {
+      await context.reply('Tria una de les opcions del teclat.', buildTimeModeOptions());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'start-time', data: { ...data, allDay: false } });
     await context.reply('Escriu l hora d inici en format HH:MM.', buildSingleCancelKeyboard());
     return true;
   }
@@ -195,13 +220,13 @@ async function handleCreateSession(context: TelegramVenueEventAdminContext, text
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'end-date', data: { ...data, startTime: time } });
-    await context.reply('Escriu la data de finalitzacio en format YYYY-MM-DD.', buildSingleCancelKeyboard());
+    await context.reply('Escriu la data de finalitzacio en format dd/MM o dd/MM/yyyy.', buildDateOptions(context));
     return true;
   }
   if (stepKey === 'end-date') {
     const date = parseDate(text);
     if (date instanceof Error) {
-      await context.reply('La data ha de tenir format YYYY-MM-DD.', buildSingleCancelKeyboard());
+      await context.reply('La data ha de tenir format dd/MM o dd/MM/yyyy.', buildDateOptions(context));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'end-time', data: { ...data, endDate: date } });
@@ -250,12 +275,14 @@ async function handleCreateSession(context: TelegramVenueEventAdminContext, text
       await context.reply('Per guardar l esdeveniment, tria el boto de confirmacio o cancel.la el flux.', buildCreateConfirmOptions());
       return true;
     }
+    const startsAt = data.allDay === true ? buildAllDayStart(String(data.startDate ?? '')) : buildTimestamp(String(data.startDate ?? ''), String(data.startTime ?? ''));
+    const endsAt = data.allDay === true ? buildAllDayEnd(String(data.startDate ?? '')) : buildTimestamp(String(data.endDate ?? ''), String(data.endTime ?? ''));
     const created = await createVenueEvent({
       repository: resolveVenueEventRepository(context),
       name: String(data.name ?? ''),
       description: asNullableString(data.description),
-      startsAt: buildTimestamp(String(data.startDate ?? ''), String(data.startTime ?? '')),
-      endsAt: buildTimestamp(String(data.endDate ?? ''), String(data.endTime ?? '')),
+      startsAt,
+      endsAt,
       occupancyScope: String(data.occupancyScope ?? 'partial') as 'partial' | 'full',
       impactLevel: String(data.impactLevel ?? 'medium') as 'low' | 'medium' | 'high',
     });
@@ -276,16 +303,39 @@ async function handleEditSession(context: TelegramVenueEventAdminContext, text: 
   }
   if (stepKey === 'description') {
     await context.runtime.session.advance({ stepKey: 'start-date', data: { ...data, description: text === venueEventAdminLabels.keepCurrent ? event.description : text === venueEventAdminLabels.skipOptional ? null : text } });
-    await context.reply('Escriu la data d inici en format YYYY-MM-DD o mantingues el valor actual.', buildKeepCurrentOptions());
+    await context.reply('Escriu la data d inici en format dd/MM o dd/MM/yyyy, o mantingues el valor actual.', buildEditDateOptions(context));
     return true;
   }
   if (stepKey === 'start-date') {
     const value = text === venueEventAdminLabels.keepCurrent ? event.startsAt.slice(0, 10) : parseDate(text);
     if (value instanceof Error) {
-      await context.reply('La data ha de tenir format YYYY-MM-DD.', buildKeepCurrentOptions());
+      await context.reply('La data ha de tenir format dd/MM o dd/MM/yyyy.', buildEditDateOptions(context));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'start-time', data: { ...data, startDate: value } });
+    await context.runtime.session.advance({ stepKey: 'time-mode', data: { ...data, startDate: value } });
+    await context.reply('Vols indicar un esdeveniment de tot el dia o especificar l horari?', buildEditTimeModeOptions());
+    return true;
+  }
+  if (stepKey === 'time-mode') {
+    if (text === venueEventAdminLabels.allDay) {
+      await context.runtime.session.advance({
+        stepKey: 'scope',
+        data: {
+          ...data,
+          allDay: true,
+          startTime: '00:00',
+          endDate: String(data.startDate ?? event.startsAt.slice(0, 10)),
+          endTime: '00:00',
+        },
+      });
+      await context.reply('Selecciona l abast d ocupacio del local o mantingues el valor actual.', buildEditScopeOptions());
+      return true;
+    }
+    if (text !== venueEventAdminLabels.specificTime) {
+      await context.reply('Tria una de les opcions del teclat.', buildEditTimeModeOptions());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'start-time', data: { ...data, allDay: false } });
     await context.reply('Escriu l hora d inici en format HH:MM o mantingues el valor actual.', buildKeepCurrentOptions());
     return true;
   }
@@ -296,13 +346,13 @@ async function handleEditSession(context: TelegramVenueEventAdminContext, text: 
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'end-date', data: { ...data, startTime: value } });
-    await context.reply('Escriu la data de finalitzacio en format YYYY-MM-DD o mantingues el valor actual.', buildKeepCurrentOptions());
+    await context.reply('Escriu la data de finalitzacio en format dd/MM o dd/MM/yyyy, o mantingues el valor actual.', buildEditDateOptions(context));
     return true;
   }
   if (stepKey === 'end-date') {
     const value = text === venueEventAdminLabels.keepCurrent ? event.endsAt.slice(0, 10) : parseDate(text);
     if (value instanceof Error) {
-      await context.reply('La data ha de tenir format YYYY-MM-DD.', buildKeepCurrentOptions());
+      await context.reply('La data ha de tenir format dd/MM o dd/MM/yyyy.', buildEditDateOptions(context));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'end-time', data: { ...data, endDate: value } });
@@ -356,8 +406,8 @@ async function handleEditSession(context: TelegramVenueEventAdminContext, text: 
       eventId: event.id,
       name: String(data.name ?? event.name),
       description: asNullableString(data.description),
-      startsAt: buildTimestamp(String(data.startDate ?? event.startsAt.slice(0, 10)), String(data.startTime ?? event.startsAt.slice(11, 16))),
-      endsAt: buildTimestamp(String(data.endDate ?? event.endsAt.slice(0, 10)), String(data.endTime ?? event.endsAt.slice(11, 16))),
+      startsAt: data.allDay === true ? buildAllDayStart(String(data.startDate ?? event.startsAt.slice(0, 10))) : buildTimestamp(String(data.startDate ?? event.startsAt.slice(0, 10)), String(data.startTime ?? event.startsAt.slice(11, 16))),
+      endsAt: data.allDay === true ? buildAllDayEnd(String(data.startDate ?? event.startsAt.slice(0, 10))) : buildTimestamp(String(data.endDate ?? event.endsAt.slice(0, 10)), String(data.endTime ?? event.endsAt.slice(11, 16))),
       occupancyScope: String(data.occupancyScope ?? event.occupancyScope) as 'partial' | 'full',
       impactLevel: String(data.impactLevel ?? event.impactLevel) as 'low' | 'medium' | 'high',
     });
@@ -425,6 +475,18 @@ function buildSingleCancelKeyboard(): TelegramReplyOptions {
 function buildDescriptionOptions(): TelegramReplyOptions {
   return { replyKeyboard: [[venueEventAdminLabels.skipOptional], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
 }
+function buildDateOptions(context: TelegramVenueEventAdminContext): TelegramReplyOptions {
+  return { replyKeyboard: [...buildUpcomingDateRows(resolveBotLanguage(context)), [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+}
+function buildTimeModeOptions(): TelegramReplyOptions {
+  return { replyKeyboard: [[venueEventAdminLabels.allDay, venueEventAdminLabels.specificTime], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+}
+function buildEditDateOptions(context: TelegramVenueEventAdminContext): TelegramReplyOptions {
+  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], ...buildUpcomingDateRows(resolveBotLanguage(context)), [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+}
+function buildEditTimeModeOptions(): TelegramReplyOptions {
+  return { replyKeyboard: [[venueEventAdminLabels.allDay, venueEventAdminLabels.specificTime], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+}
 function buildKeepCurrentOptions(): TelegramReplyOptions {
   return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
 }
@@ -454,26 +516,19 @@ function buildCancelConfirmOptions(): TelegramReplyOptions {
 }
 
 function formatVenueEventListMessage(events: VenueEventRecord[]): string {
-  return ['Esdeveniments del local:'].concat(events.map((event) => `- ${event.name} (${formatTimestamp(event.startsAt)} - ${formatTimestamp(event.endsAt)})`)).join('\n');
+  return ['Esdeveniments del local:'].concat(events.map((event) => `- ${event.name} (${formatVenueEventTimeSummary(event)})`)).join('\n');
 }
 
 function formatVenueEventDetails(event: VenueEventRecord): string {
-  return [
-    event.name,
-    `Inici: ${formatTimestamp(event.startsAt)}`,
-    `Final: ${formatTimestamp(event.endsAt)}`,
-    `Ocupacio: ${event.occupancyScope}`,
-    `Impacte: ${event.impactLevel}`,
-    `Descripcio: ${event.description ?? 'Sense descripcio'}`,
-  ].join('\n');
+  return [event.name, `Horari: ${formatVenueEventTimeSummary(event)}`, `Ocupacio: ${event.occupancyScope}`, `Impacte: ${event.impactLevel}`, `Descripcio: ${event.description ?? 'Sense descripcio'}`].join('\n');
 }
 
 function formatDraftSummary(data: Record<string, unknown>): string {
+  const allDay = data.allDay === true;
   return [
     `Nom: ${String(data.name ?? '')}`,
     `Descripcio: ${asNullableString(data.description) ?? 'Sense descripcio'}`,
-    `Inici: ${formatTimestamp(buildTimestamp(String(data.startDate ?? ''), String(data.startTime ?? '')))}`,
-    `Final: ${formatTimestamp(buildTimestamp(String(data.endDate ?? ''), String(data.endTime ?? '')))}`,
+    `Horari: ${allDay ? `Tot el dia (${formatVenueEventDateLabel(String(data.startDate ?? ''))})` : `${formatTimestamp(buildTimestamp(String(data.startDate ?? ''), String(data.startTime ?? '')))} - ${formatTimestamp(buildTimestamp(String(data.endDate ?? ''), String(data.endTime ?? '')))}`}`,
     `Ocupacio: ${String(data.occupancyScope ?? '')}`,
     `Impacte: ${String(data.impactLevel ?? '')}`,
   ].join('\n');
@@ -484,7 +539,35 @@ function parseVenueEventId(callbackData: string, prefix: string): number {
   if (!Number.isInteger(candidate) || candidate <= 0) throw new Error('No s ha pogut identificar l esdeveniment seleccionat.');
   return candidate;
 }
-function parseDate(value: string): string | Error { return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : new Error('invalid-date'); }
+function parseDate(value: string): string | Error {
+  const normalizedValue = value.includes(',') ? value.slice(value.indexOf(',') + 1).trim() : value;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
+    return normalizedValue;
+  }
+
+  const match = normalizedValue.match(/^(\d{2})\/(\d{2})(?:\/(\d{4}))?$/);
+  if (!match) {
+    return new Error('invalid-date');
+  }
+
+  const [, dayText, monthText, yearText] = match;
+  const year = Number(yearText ?? String(new Date().getUTCFullYear()));
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    Number.isNaN(candidate.getTime()) ||
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() !== month - 1 ||
+    candidate.getUTCDate() !== day
+  ) {
+    return new Error('invalid-date');
+  }
+
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
 function parseTime(value: string): string | Error { return /^\d{2}:\d{2}$/.test(value) ? value : new Error('invalid-time'); }
 function parseScopeLabel(value: string): 'partial' | 'full' | Error {
   if (value === venueEventAdminLabels.scopePartial) return 'partial';
@@ -498,6 +581,12 @@ function parseImpactLabel(value: string): 'low' | 'medium' | 'high' | Error {
   return new Error('invalid-impact');
 }
 function buildTimestamp(date: string, time: string): string { return `${date}T${time}:00.000Z`; }
+function buildAllDayStart(date: string): string { return buildTimestamp(date, '00:00'); }
+function buildAllDayEnd(date: string): string {
+  const end = new Date(buildTimestamp(date, '00:00'));
+  end.setUTCDate(end.getUTCDate() + 1);
+  return end.toISOString();
+}
 function validateRange(data: Record<string, unknown>): string | null {
   const startsAt = new Date(buildTimestamp(String(data.startDate ?? ''), String(data.startTime ?? ''))).getTime();
   const endsAt = new Date(buildTimestamp(String(data.endDate ?? ''), String(data.endTime ?? ''))).getTime();
@@ -505,6 +594,65 @@ function validateRange(data: Record<string, unknown>): string | null {
 }
 function formatTimestamp(value: string): string { return value.slice(0, 16).replace('T', ' '); }
 function asNullableString(value: unknown): string | null { return typeof value === 'string' ? value : null; }
+
+function formatVenueEventTimeSummary(event: VenueEventRecord): string {
+  if (isAllDayVenueEvent(event)) {
+    return `Tot el dia (${formatVenueEventDateLabel(event.startsAt.slice(0, 10))})`;
+  }
+  return `${formatTimestamp(event.startsAt)} - ${formatTimestamp(event.endsAt)}`;
+}
+
+function isAllDayVenueEvent(event: VenueEventRecord): boolean {
+  const starts = new Date(event.startsAt);
+  const ends = new Date(event.endsAt);
+  return starts.getUTCHours() === 0 && starts.getUTCMinutes() === 0 && ends.getUTCHours() === 0 && ends.getUTCMinutes() === 0 && ends.getTime() - starts.getTime() === 24 * 60 * 60 * 1000;
+}
+
+function formatVenueEventDateLabel(value: string): string {
+  return value.split('-').reverse().join('/');
+}
+
+function buildUpcomingDateRows(language: string, now = new Date()): string[][] {
+  const rows: string[][] = [];
+  const values: string[] = [];
+
+  for (let index = 0; index < 6; index += 1) {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + index));
+    values.push(formatUpcomingDateLabel(date, language));
+  }
+
+  for (let index = 0; index < values.length; index += 2) {
+    rows.push(values.slice(index, index + 2));
+  }
+
+  return rows;
+}
+
+function formatUpcomingDateLabel(date: Date, language: string): string {
+  const weekday = new Intl.DateTimeFormat(resolveLanguageLocale(language), { weekday: 'long', timeZone: 'UTC' }).format(date);
+  return `${capitalizeFirstLetter(weekday)}, ${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function resolveLanguageLocale(language: string): string {
+  switch (language) {
+    case 'ca':
+      return 'ca-ES';
+    case 'es':
+      return 'es-ES';
+    case 'en':
+      return 'en-GB';
+    default:
+      return language;
+  }
+}
+
+function capitalizeFirstLetter(value: string): string {
+  return value.length === 0 ? value : value[0]!.toUpperCase() + value.slice(1);
+}
+
+function resolveBotLanguage(context: TelegramVenueEventAdminContext): string {
+  return context.runtime.bot.language ?? 'ca';
+}
 
 async function notifyVenueEventImpact({
   context,

@@ -205,12 +205,35 @@ test('handleTelegramVenueEventAdminText creates a venue event through keyboard-g
   await handleTelegramVenueEventAdminText(context);
   context.messageText = venueEventAdminLabels.skipOptional;
   await handleTelegramVenueEventAdminText(context);
-  context.messageText = '2026-04-12';
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [['Dissabte, 04/04', 'Diumenge, 05/04'], ['Dilluns, 06/04', 'Dimarts, 07/04'], ['Dimecres, 08/04', 'Dijous, 09/04'], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = 'Diumenge, 05/04';
   await handleTelegramVenueEventAdminText(context);
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [[venueEventAdminLabels.allDay, venueEventAdminLabels.specificTime], [venueEventAdminLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = venueEventAdminLabels.specificTime;
+  await handleTelegramVenueEventAdminText(context);
+  assert.deepEqual(getCurrentSession(), { flowKey: 'venue-event-admin-create', stepKey: 'start-time', data: { name: 'Campionat regional', description: null, startDate: '2026-04-05', allDay: false } });
+
   context.messageText = '15:00';
   await handleTelegramVenueEventAdminText(context);
-  context.messageText = '2026-04-12';
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [['Dissabte, 04/04', 'Diumenge, 05/04'], ['Dilluns, 06/04', 'Dimarts, 07/04'], ['Dimecres, 08/04', 'Dijous, 09/04'], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = 'Diumenge, 05/04';
   await handleTelegramVenueEventAdminText(context);
+  assert.deepEqual(getCurrentSession(), { flowKey: 'venue-event-admin-create', stepKey: 'end-time', data: { name: 'Campionat regional', description: null, startDate: '2026-04-05', allDay: false, startTime: '15:00', endDate: '2026-04-05' } });
   context.messageText = '21:00';
   await handleTelegramVenueEventAdminText(context);
   context.messageText = venueEventAdminLabels.scopeFull;
@@ -223,6 +246,31 @@ test('handleTelegramVenueEventAdminText creates a venue event through keyboard-g
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /Esdeveniment del local creat correctament: Campionat regional/);
   assert.match(replies.at(-1)?.message ?? '', /Impacte: high/);
+});
+
+test('handleTelegramVenueEventAdminText creates an all-day venue event when selected', async () => {
+  const { context, replies, getCurrentSession } = createContext();
+
+  context.messageText = venueEventAdminLabels.create;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = 'Jornada de prototips';
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.skipOptional;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = 'Dimecres, 08/04';
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.allDay;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.scopePartial;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.impactMedium;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.confirmCreate;
+  await handleTelegramVenueEventAdminText(context);
+
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /Horari: Tot el dia/);
+  assert.match(replies.at(-1)?.message ?? '', /Esdeveniment del local creat correctament: Jornada de prototips/);
 });
 
 test('handleTelegramVenueEventAdminText sends private warnings when a created venue event overlaps scheduled activities', async () => {
@@ -325,6 +373,8 @@ test('handleTelegramVenueEventAdminText sends private warnings when a created ve
   await handleTelegramVenueEventAdminText(context);
   context.messageText = '2026-04-12';
   await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.specificTime;
+  await handleTelegramVenueEventAdminText(context);
   context.messageText = '15:00';
   await handleTelegramVenueEventAdminText(context);
   context.messageText = '2026-04-12';
@@ -354,6 +404,8 @@ test('handleTelegramVenueEventAdminText keeps the end time step active when the 
   context.messageText = venueEventAdminLabels.skipOptional;
   await handleTelegramVenueEventAdminText(context);
   context.messageText = '2026-04-12';
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.specificTime;
   await handleTelegramVenueEventAdminText(context);
   context.messageText = '15:00';
   await handleTelegramVenueEventAdminText(context);
@@ -393,14 +445,44 @@ test('handleTelegramVenueEventAdminCallback edits an existing venue event with k
   await handleTelegramVenueEventAdminText(context);
   context.messageText = venueEventAdminLabels.keepCurrent;
   await handleTelegramVenueEventAdminText(context);
-  context.messageText = venueEventAdminLabels.keepCurrent;
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [[venueEventAdminLabels.keepCurrent], ['Dissabte, 04/04', 'Diumenge, 05/04'], ['Dilluns, 06/04', 'Dimarts, 07/04'], ['Dimecres, 08/04', 'Dijous, 09/04'], [venueEventAdminLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = 'Diumenge, 05/04';
   await handleTelegramVenueEventAdminText(context);
-  context.messageText = venueEventAdminLabels.keepCurrent;
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [[venueEventAdminLabels.allDay, venueEventAdminLabels.specificTime], [venueEventAdminLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = venueEventAdminLabels.specificTime;
   await handleTelegramVenueEventAdminText(context);
-  context.messageText = venueEventAdminLabels.keepCurrent;
-  await handleTelegramVenueEventAdminText(context);
+  assert.deepEqual(getCurrentSession(), { flowKey: 'venue-event-admin-edit', stepKey: 'start-time', data: { eventId: 3, name: 'Mercat solidari', description: null, startDate: '2026-04-05', allDay: false } });
+
   context.messageText = '15:00';
   await handleTelegramVenueEventAdminText(context);
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [[venueEventAdminLabels.keepCurrent], ['Dissabte, 04/04', 'Diumenge, 05/04'], ['Dilluns, 06/04', 'Dimarts, 07/04'], ['Dimecres, 08/04', 'Dijous, 09/04'], [venueEventAdminLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = 'Dilluns, 06/04';
+  await handleTelegramVenueEventAdminText(context);
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [[venueEventAdminLabels.keepCurrent], [venueEventAdminLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = venueEventAdminLabels.keepCurrent;
+  await handleTelegramVenueEventAdminText(context);
+  assert.deepEqual(getCurrentSession(), { flowKey: 'venue-event-admin-edit', stepKey: 'scope', data: { eventId: 3, name: 'Mercat solidari', description: null, startDate: '2026-04-05', allDay: false, startTime: '15:00', endDate: '2026-04-06', endTime: '13:00' } });
+
   context.messageText = venueEventAdminLabels.keepCurrent;
   await handleTelegramVenueEventAdminText(context);
   context.messageText = venueEventAdminLabels.keepCurrent;
@@ -410,7 +492,47 @@ test('handleTelegramVenueEventAdminCallback edits an existing venue event with k
 
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /Esdeveniment del local actualitzat correctament: Mercat solidari/);
-  assert.match(replies.at(-1)?.message ?? '', /Final: 2026-04-12 15:00/);
+  assert.match(replies.at(-1)?.message ?? '', /Horari: 2026-04-05 15:00 - 2026-04-06 13:00/);
+});
+
+test('handleTelegramVenueEventAdminCallback edits an existing venue event as all-day', async () => {
+  const venueEventRepository = createVenueEventRepository([
+    {
+      id: 5,
+      name: 'Sessio nocturna',
+      description: null,
+      startsAt: '2026-04-12T20:00:00.000Z',
+      endsAt: '2026-04-12T23:00:00.000Z',
+      occupancyScope: 'partial',
+      impactLevel: 'medium',
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, getCurrentSession, replies } = createContext({ venueEventRepository });
+
+  context.callbackData = `${venueEventAdminCallbackPrefixes.edit}5`;
+  await handleTelegramVenueEventAdminCallback(context);
+  context.messageText = venueEventAdminLabels.keepCurrent;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.keepCurrent;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.allDay;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.scopePartial;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.impactMedium;
+  await handleTelegramVenueEventAdminText(context);
+  context.messageText = venueEventAdminLabels.confirmEdit;
+  await handleTelegramVenueEventAdminText(context);
+
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /Horari: Tot el dia \(05\/04\/2026\)/);
 });
 
 test('handleTelegramVenueEventAdminCallback cancels a venue event only after explicit confirmation', async () => {
