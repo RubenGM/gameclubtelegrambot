@@ -1,0 +1,1 @@
+ALTER TABLE "schedule_events" ADD COLUMN "duration_minutes" integer DEFAULT 180 NOT NULL;

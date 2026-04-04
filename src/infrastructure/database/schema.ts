@@ -98,6 +98,7 @@ export const scheduleEvents = pgTable('schedule_events', {
   title: varchar('title', { length: 255 }).notNull(),
   description: text('description'),
   startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  durationMinutes: integer('duration_minutes').notNull().default(180),
   organizerTelegramUserId: bigint('organizer_telegram_user_id', { mode: 'number' })
     .notNull()
     .references(() => users.telegramUserId),

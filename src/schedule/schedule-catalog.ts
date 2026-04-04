@@ -6,6 +6,7 @@ export interface ScheduleEventRecord {
   title: string;
   description: string | null;
   startsAt: string;
+  durationMinutes: number;
   organizerTelegramUserId: number;
   createdByTelegramUserId: number;
   tableId: number | null;
@@ -34,6 +35,7 @@ export interface ScheduleRepository {
     title: string;
     description: string | null;
     startsAt: string;
+    durationMinutes: number;
     organizerTelegramUserId: number;
     createdByTelegramUserId: number;
     tableId: number | null;
@@ -50,6 +52,7 @@ export interface ScheduleRepository {
     title: string;
     description: string | null;
     startsAt: string;
+    durationMinutes: number;
     organizerTelegramUserId: number;
     tableId: number | null;
     capacity: number;
@@ -74,6 +77,7 @@ export async function createScheduleEvent({
   title,
   description,
   startsAt,
+  durationMinutes,
   organizerTelegramUserId,
   createdByTelegramUserId,
   tableId,
@@ -83,6 +87,7 @@ export async function createScheduleEvent({
   title: string;
   description?: string | null;
   startsAt: string;
+  durationMinutes: number;
   organizerTelegramUserId: number;
   createdByTelegramUserId: number;
   tableId?: number | null;
@@ -92,6 +97,7 @@ export async function createScheduleEvent({
     title: normalizeTitle(title),
     description: normalizeDescription(description),
     startsAt: normalizeStartsAt(startsAt),
+    durationMinutes: normalizeDurationMinutes(durationMinutes),
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
     createdByTelegramUserId: normalizeTelegramUserId(createdByTelegramUserId, 'creador'),
     tableId: normalizeTableId(tableId),
@@ -159,6 +165,7 @@ export async function updateScheduleEvent({
   title,
   description,
   startsAt,
+  durationMinutes,
   organizerTelegramUserId,
   tableId,
   capacity,
@@ -168,6 +175,7 @@ export async function updateScheduleEvent({
   title: string;
   description?: string | null;
   startsAt: string;
+  durationMinutes: number;
   organizerTelegramUserId: number;
   tableId?: number | null;
   capacity: number;
@@ -186,6 +194,7 @@ export async function updateScheduleEvent({
     title: normalizeTitle(title),
     description: normalizeDescription(description),
     startsAt: normalizeStartsAt(startsAt),
+    durationMinutes: normalizeDurationMinutes(durationMinutes),
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
     tableId: normalizeTableId(tableId),
     capacity: normalizeCapacity(capacity),
@@ -341,6 +350,73 @@ export async function getScheduleEventAttendance({
   };
 }
 
+export async function detectScheduleConflicts({
+  repository,
+  eventId,
+  actorTelegramUserId,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+  actorTelegramUserId: number;
+}): Promise<{
+  overlappingEventIds: number[];
+  impactedTelegramUserIds: number[];
+  conflicts: Array<{
+    eventId: number;
+    overlappingEventId: number;
+    impactedTelegramUserIds: number[];
+  }>;
+}> {
+  const event = await repository.findEventById(eventId);
+  if (!event) {
+    throw new Error(`Schedule event ${eventId} not found`);
+  }
+
+  const candidates = (await repository.listEvents({ includeCancelled: false })).filter(
+    (candidate) => candidate.id !== eventId,
+  );
+  const conflicts: Array<{ eventId: number; overlappingEventId: number; impactedTelegramUserIds: number[] }> = [];
+
+  for (const candidate of candidates) {
+    if (!eventsOverlap(event, candidate)) {
+      continue;
+    }
+
+    const subjectAttendance = await getScheduleEventAttendance({ repository, eventId });
+    const candidateAttendance = await getScheduleEventAttendance({ repository, eventId: candidate.id });
+    const impactedTelegramUserIds = Array.from(
+      new Set([
+        event.organizerTelegramUserId,
+        candidate.organizerTelegramUserId,
+        ...subjectAttendance.activeParticipantTelegramUserIds,
+        ...candidateAttendance.activeParticipantTelegramUserIds,
+      ]),
+    )
+      .filter((telegramUserId) => telegramUserId !== actorTelegramUserId)
+      .sort((left, right) => left - right);
+
+    if (impactedTelegramUserIds.length > 0) {
+      conflicts.push({
+        eventId,
+        overlappingEventId: candidate.id,
+        impactedTelegramUserIds,
+      });
+    }
+  }
+
+  return {
+    overlappingEventIds: conflicts.map((conflict) => conflict.overlappingEventId),
+    impactedTelegramUserIds: Array.from(new Set(conflicts.flatMap((conflict) => conflict.impactedTelegramUserIds))).sort(
+      (left, right) => left - right,
+    ),
+    conflicts,
+  };
+}
+
+export function getScheduleEventEndsAt(event: Pick<ScheduleEventRecord, 'startsAt' | 'durationMinutes'>): string {
+  return new Date(new Date(event.startsAt).getTime() + event.durationMinutes * 60000).toISOString();
+}
+
 function normalizeTitle(title: string): string {
   const normalized = title.trim();
   if (!normalized) {
@@ -390,4 +466,24 @@ function normalizeCapacity(capacity: number): number {
   }
 
   return capacity;
+}
+
+function normalizeDurationMinutes(durationMinutes: number): number {
+  if (!Number.isInteger(durationMinutes) || durationMinutes <= 0) {
+    throw new Error('La durada ha de ser un enter positiu en minuts');
+  }
+
+  return durationMinutes;
+}
+
+function eventsOverlap(
+  left: Pick<ScheduleEventRecord, 'startsAt' | 'durationMinutes'>,
+  right: Pick<ScheduleEventRecord, 'startsAt' | 'durationMinutes'>,
+): boolean {
+  const leftStart = new Date(left.startsAt).getTime();
+  const leftEnd = new Date(getScheduleEventEndsAt(left)).getTime();
+  const rightStart = new Date(right.startsAt).getTime();
+  const rightEnd = new Date(getScheduleEventEndsAt(right)).getTime();
+
+  return leftStart < rightEnd && rightStart < leftEnd;
 }

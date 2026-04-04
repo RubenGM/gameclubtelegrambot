@@ -1,7 +1,9 @@
 import {
   cancelScheduleEvent,
   createScheduleEvent,
+  detectScheduleConflicts,
   getScheduleEventAttendance,
+  getScheduleEventEndsAt,
   joinScheduleEvent,
   leaveScheduleEvent,
   listScheduleEvents,
@@ -43,6 +45,7 @@ export const scheduleLabels = {
   skipOptional: 'Ometre',
   keepCurrent: 'Mantenir valor actual',
   noTable: 'Sense taula',
+  keepCurrentDuration: 'Mantenir durada actual',
   confirmCreate: 'Guardar activitat',
   confirmEdit: 'Guardar canvis',
   confirmCancel: 'Confirmar cancel.lacio',
@@ -261,7 +264,18 @@ async function handleCreateSession(
       await context.reply('L hora ha de tenir format HH:MM.', buildSingleCancelKeyboard());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time } });
+    await context.runtime.session.advance({ stepKey: 'duration', data: { ...data, time } });
+    await context.reply('Escriu la durada en minuts com a numero enter positiu.', buildSingleCancelKeyboard());
+    return true;
+  }
+
+  if (stepKey === 'duration') {
+    const durationMinutes = parsePositiveInteger(text);
+    if (durationMinutes instanceof Error) {
+      await context.reply('La durada ha de ser un enter positiu en minuts.', buildSingleCancelKeyboard());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
     await context.reply('Escriu la capacitat com a numero enter positiu.', buildSingleCancelKeyboard());
     return true;
   }
@@ -299,6 +313,7 @@ async function handleCreateSession(
       title: String(data.title ?? ''),
       description: asNullableString(data.description),
       startsAt: buildStartsAt(String(data.date ?? ''), String(data.time ?? '')),
+      durationMinutes: Number(data.durationMinutes),
       organizerTelegramUserId: context.runtime.actor.telegramUserId,
       createdByTelegramUserId: context.runtime.actor.telegramUserId,
       tableId: asNullableNumber(data.tableId),
@@ -309,6 +324,7 @@ async function handleCreateSession(
       `Activitat creada correctament: ${created.title}\n${await formatScheduleEventView(context, created)}`,
       buildScheduleMenuOptions(),
     );
+    await notifyScheduleConflicts({ context, eventId: created.id });
     return true;
   }
 
@@ -353,7 +369,17 @@ async function handleEditSession(
       await context.reply('L hora ha de tenir format HH:MM.', buildEditTitleOptions());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time } });
+    await context.runtime.session.advance({ stepKey: 'duration', data: { ...data, time } });
+    await context.reply('Escriu la durada en minuts o mantingues el valor actual.', buildEditDurationOptions());
+    return true;
+  }
+  if (stepKey === 'duration') {
+    const durationMinutes = text === scheduleLabels.keepCurrent ? event.durationMinutes : parsePositiveInteger(text);
+    if (durationMinutes instanceof Error) {
+      await context.reply('La durada ha de ser un enter positiu en minuts.', buildEditDurationOptions());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
     await context.reply('Escriu la capacitat com a numero enter positiu o mantingues el valor actual.', buildEditTitleOptions());
     return true;
   }
@@ -394,6 +420,7 @@ async function handleEditSession(
       title: String(data.title ?? event.title),
       description: asNullableString(data.description),
       startsAt: buildStartsAt(String(data.date ?? event.startsAt.slice(0, 10)), String(data.time ?? event.startsAt.slice(11, 16))),
+      durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
       organizerTelegramUserId: event.organizerTelegramUserId,
       tableId: asNullableNumber(data.tableId),
       capacity: Number(data.capacity ?? event.capacity),
@@ -403,6 +430,7 @@ async function handleEditSession(
       `Activitat actualitzada correctament: ${updated.title}\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId) })}`,
       buildScheduleMenuOptions(),
     );
+    await notifyScheduleConflicts({ context, eventId: updated.id });
     return true;
   }
 
@@ -546,6 +574,14 @@ function buildEditTitleOptions(): TelegramReplyOptions {
   };
 }
 
+function buildEditDurationOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[scheduleLabels.keepCurrent], [scheduleLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
 function buildCreateConfirmOptions(): TelegramReplyOptions {
   return {
     replyKeyboard: [[scheduleLabels.confirmCreate], [scheduleLabels.cancelFlow]],
@@ -616,6 +652,7 @@ async function formatScheduleEventView(
 
   return [
     formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) }),
+    `Final: ${getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')}`,
     `Places ocupades: ${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`,
     `Places lliures: ${attendance.snapshot.availableSeats}`,
     `Assistents: ${attendance.activeParticipantTelegramUserIds.length > 0 ? attendance.activeParticipantTelegramUserIds.join(', ') : 'Cap'}`,
@@ -664,6 +701,7 @@ async function formatDraftSummary(
     `Titol: ${String(data.title ?? '')}`,
     `Descripcio: ${asNullableString(data.description) ?? 'Sense descripcio'}`,
     `Inici: ${buildStartsAt(String(data.date ?? ''), String(data.time ?? '')).slice(0, 16).replace('T', ' ')}`,
+    `Durada: ${Number(data.durationMinutes)} min`,
     `Places: ${Number(data.capacity)}`,
     `Taula: ${(await loadTableName(context, asNullableNumber(data.tableId))) ?? 'Sense taula'}`,
     ...(organizerTelegramUserId ? [`Organitzador: ${organizerTelegramUserId}`] : []),
@@ -679,11 +717,15 @@ function parseTime(value: string): string | Error {
 }
 
 function parseCapacity(value: string): number | Error {
+  return parsePositiveInteger(value, 'invalid-capacity');
+}
+
+function parsePositiveInteger(value: string, code = 'invalid-positive-integer'): number | Error {
   if (!/^\d+$/.test(value)) {
-    return new Error('invalid-capacity');
+    return new Error(code);
   }
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : new Error('invalid-capacity');
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : new Error(code);
 }
 
 function buildStartsAt(date: string, time: string): string {
@@ -716,4 +758,42 @@ function asNullableString(value: unknown): string | null {
 
 function asNullableNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null;
+}
+
+async function notifyScheduleConflicts({
+  context,
+  eventId,
+}: {
+  context: TelegramScheduleContext;
+  eventId: number;
+}): Promise<void> {
+  const conflicts = await detectScheduleConflicts({
+    repository: resolveScheduleRepository(context),
+    eventId,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+  });
+
+  if (conflicts.overlappingEventIds.length === 0) {
+    return;
+  }
+
+  const subjectEvent = await loadEventOrThrow(context, eventId);
+  const overlappingEvents = await Promise.all(conflicts.overlappingEventIds.map((id) => loadEventOrThrow(context, id)));
+  const overlapSummary = overlappingEvents
+    .map((event) => `${event.title} (${event.startsAt.slice(0, 16).replace('T', ' ')} - ${getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')})`)
+    .join('\n- ');
+
+  await Promise.all(
+    conflicts.impactedTelegramUserIds.map((telegramUserId) =>
+      context.runtime.bot.sendPrivateMessage(
+        telegramUserId,
+        [
+          'S ha detectat un possible conflicte amb les teves reserves del club.',
+          `Nova activitat o canvi: ${subjectEvent.title} (${subjectEvent.startsAt.slice(0, 16).replace('T', ' ')} - ${getScheduleEventEndsAt(subjectEvent).slice(0, 16).replace('T', ' ')})`,
+          `Altres activitats afectades:\n- ${overlapSummary}`,
+          'El bot no ha bloquejat la reserva. Si us plau, coordina-t hi manualment amb la resta de persones implicades.',
+        ].join('\n'),
+      ),
+    ),
+  );
 }

@@ -29,6 +29,7 @@ function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): Sc
         organizerTelegramUserId: input.organizerTelegramUserId,
         createdByTelegramUserId: input.createdByTelegramUserId,
         tableId: input.tableId,
+        durationMinutes: input.durationMinutes,
         capacity: input.capacity,
         lifecycleStatus: 'scheduled',
         createdAt,
@@ -59,6 +60,7 @@ function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): Sc
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
+        durationMinutes: input.durationMinutes,
         capacity: input.capacity,
         updatedAt: '2026-04-04T11:00:00.000Z',
       };
@@ -130,6 +132,7 @@ function createContext({
   isAdmin?: boolean;
 } = {}) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const privateMessages: Array<{ telegramUserId: number; message: string }> = [];
   let currentSession: { flowKey: string; stepKey: string; data: Record<string, unknown> } | null = null;
 
   const context: TelegramScheduleContext = {
@@ -204,7 +207,11 @@ function createContext({
     tableRepository,
   };
 
-  return { context, replies, getCurrentSession: () => currentSession };
+  context.runtime.bot.sendPrivateMessage = async (telegramUserId: number, message: string) => {
+    privateMessages.push({ telegramUserId, message });
+  };
+
+  return { context, replies, privateMessages, getCurrentSession: () => currentSession };
 }
 
 test('handleTelegramScheduleText opens the schedule menu from the keyboard action', async () => {
@@ -258,6 +265,10 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
 
   context.messageText = '16:00';
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'duration');
+
+  context.messageText = '180';
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
 
   context.messageText = '5';
@@ -286,6 +297,7 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
       tableId: null,
+      durationMinutes: 180,
       capacity: 3,
       lifecycleStatus: 'scheduled',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -323,6 +335,7 @@ test('handleTelegramScheduleCallback shows activity attendance and allows joinin
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
       tableId: null,
+      durationMinutes: 180,
       capacity: 3,
       lifecycleStatus: 'scheduled',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -356,6 +369,7 @@ test('handleTelegramScheduleCallback joins and leaves an activity updating atten
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
       tableId: null,
+      durationMinutes: 180,
       capacity: 3,
       lifecycleStatus: 'scheduled',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -389,6 +403,7 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
       tableId: null,
+      durationMinutes: 180,
       capacity: 4,
       lifecycleStatus: 'scheduled',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -417,6 +432,7 @@ test('handleTelegramScheduleCallback denies editing foreign activities to non-ad
       organizerTelegramUserId: 11,
       createdByTelegramUserId: 11,
       tableId: null,
+      durationMinutes: 180,
       capacity: 4,
       lifecycleStatus: 'scheduled',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -445,6 +461,7 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
       organizerTelegramUserId: 11,
       createdByTelegramUserId: 11,
       tableId: null,
+      durationMinutes: 180,
       capacity: 4,
       lifecycleStatus: 'scheduled',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -464,4 +481,119 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /Activitat cancel.lada correctament: Ark Nova/);
+});
+
+test('handleTelegramScheduleText sends private conflict notifications after creating an overlapping activity', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 30,
+      title: 'Terraforming Mars',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await scheduleRepository.upsertParticipant({ eventId: 30, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active' });
+  await scheduleRepository.upsertParticipant({ eventId: 30, participantTelegramUserId: 55, actorTelegramUserId: 55, status: 'active' });
+  const { context, privateMessages } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Ark Nova';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = '2026-04-05';
+  await handleTelegramScheduleText(context);
+  context.messageText = '17:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = '120';
+  await handleTelegramScheduleText(context);
+  context.messageText = '4';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.noTable;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.confirmCreate;
+  await handleTelegramScheduleText(context);
+
+  assert.deepEqual(privateMessages.map((item) => item.telegramUserId).sort((a, b) => a - b), [42, 55]);
+  assert.match(privateMessages[0]?.message ?? '', /possible conflicte/);
+  assert.match(privateMessages[0]?.message ?? '', /Ark Nova/);
+  assert.match(privateMessages[0]?.message ?? '', /Terraforming Mars/);
+});
+
+test('handleTelegramScheduleText sends private conflict notifications after editing into an overlap', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 40,
+      title: 'Gaia Project',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+    {
+      id: 41,
+      title: 'Catan',
+      description: null,
+      startsAt: '2026-04-05T20:00:00.000Z',
+      organizerTelegramUserId: 77,
+      createdByTelegramUserId: 77,
+      tableId: null,
+      durationMinutes: 120,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await scheduleRepository.upsertParticipant({ eventId: 40, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active' });
+  await scheduleRepository.upsertParticipant({ eventId: 40, participantTelegramUserId: 55, actorTelegramUserId: 55, status: 'active' });
+  const { context, privateMessages } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+
+  context.callbackData = `${scheduleCallbackPrefixes.selectEdit}41`;
+  await handleTelegramScheduleCallback(context);
+  context.messageText = scheduleLabels.keepCurrent;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.keepCurrent;
+  await handleTelegramScheduleText(context);
+  context.messageText = '2026-04-05';
+  await handleTelegramScheduleText(context);
+  context.messageText = '17:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = '180';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.keepCurrent;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.keepCurrent;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.confirmEdit;
+  await handleTelegramScheduleText(context);
+
+  assert.deepEqual(privateMessages.map((item) => item.telegramUserId).sort((a, b) => a - b), [42, 55]);
+  assert.match(privateMessages[0]?.message ?? '', /possible conflicte/);
+  assert.match(privateMessages[0]?.message ?? '', /Catan/);
+  assert.match(privateMessages[0]?.message ?? '', /Gaia Project/);
 });

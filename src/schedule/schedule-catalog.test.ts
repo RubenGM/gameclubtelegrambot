@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   cancelScheduleEvent,
   createScheduleEvent,
+  detectScheduleConflicts,
   getScheduleCapacitySnapshot,
   getScheduleEventAttendance,
   joinScheduleEvent,
@@ -30,6 +31,7 @@ function createRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRe
         organizerTelegramUserId: input.organizerTelegramUserId,
         createdByTelegramUserId: input.createdByTelegramUserId,
         tableId: input.tableId,
+        durationMinutes: input.durationMinutes,
         capacity: input.capacity,
         lifecycleStatus: 'scheduled',
         createdAt,
@@ -61,6 +63,7 @@ function createRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRe
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
+        durationMinutes: input.durationMinutes,
         capacity: input.capacity,
         updatedAt: '2026-04-04T11:00:00.000Z',
       };
@@ -120,6 +123,7 @@ test('createScheduleEvent creates a scheduled activity with organizer ownership 
     organizerTelegramUserId: 42,
     createdByTelegramUserId: 99,
     tableId: 7,
+    durationMinutes: 180,
     capacity: 5,
   });
 
@@ -129,6 +133,7 @@ test('createScheduleEvent creates a scheduled activity with organizer ownership 
   assert.equal(event.organizerTelegramUserId, 42);
   assert.equal(event.createdByTelegramUserId, 99);
   assert.equal(event.tableId, 7);
+  assert.equal(event.durationMinutes, 180);
   assert.equal(event.capacity, 5);
   assert.equal(event.lifecycleStatus, 'scheduled');
 
@@ -157,6 +162,7 @@ test('createScheduleEvent rejects non-positive seat capacity', async () => {
         startsAt: '2026-04-05T16:00:00.000Z',
         organizerTelegramUserId: 42,
         createdByTelegramUserId: 42,
+        durationMinutes: 180,
         capacity: 0,
       }),
     /La capacitat ha de ser un enter positiu/,
@@ -173,6 +179,7 @@ test('setScheduleEventParticipantStatus keeps participants separate from the bas
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
       tableId: null,
+      durationMinutes: 180,
       capacity: 2,
       lifecycleStatus: 'scheduled',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -230,6 +237,7 @@ test('cancelScheduleEvent preserves identity and prevents further participant ac
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
       tableId: null,
+      durationMinutes: 180,
       capacity: 4,
       lifecycleStatus: 'scheduled',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -275,6 +283,7 @@ test('joinScheduleEvent prevents duplicate seats and reports current attendance'
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
       tableId: null,
+      durationMinutes: 180,
       capacity: 3,
       lifecycleStatus: 'scheduled',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -332,6 +341,7 @@ test('leaveScheduleEvent frees the seat and rejects leaving when not joined', as
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
       tableId: null,
+      durationMinutes: 180,
       capacity: 2,
       lifecycleStatus: 'scheduled',
       createdAt: '2026-04-04T10:00:00.000Z',
@@ -381,4 +391,73 @@ test('leaveScheduleEvent frees the seat and rejects leaving when not joined', as
       }),
     /No estas apuntat a aquesta activitat/,
   );
+});
+
+test('detectScheduleConflicts finds overlapping activities and impacted recipients without blocking creation', async () => {
+  const repository = createRepository([
+    {
+      id: 20,
+      title: 'Dune Imperium',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: 1,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+    {
+      id: 21,
+      title: 'Ark Nova',
+      description: null,
+      startsAt: '2026-04-05T17:00:00.000Z',
+      organizerTelegramUserId: 77,
+      createdByTelegramUserId: 77,
+      tableId: 2,
+      durationMinutes: 120,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+    {
+      id: 22,
+      title: 'Heat',
+      description: null,
+      startsAt: '2026-04-05T20:30:00.000Z',
+      organizerTelegramUserId: 88,
+      createdByTelegramUserId: 88,
+      tableId: null,
+      durationMinutes: 60,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await setScheduleEventParticipantStatus({ repository, eventId: 20, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active' });
+  await setScheduleEventParticipantStatus({ repository, eventId: 20, participantTelegramUserId: 55, actorTelegramUserId: 55, status: 'active' });
+  await setScheduleEventParticipantStatus({ repository, eventId: 21, participantTelegramUserId: 77, actorTelegramUserId: 77, status: 'active' });
+  await setScheduleEventParticipantStatus({ repository, eventId: 21, participantTelegramUserId: 66, actorTelegramUserId: 66, status: 'active' });
+
+  const conflicts = await detectScheduleConflicts({
+    repository,
+    eventId: 21,
+    actorTelegramUserId: 77,
+  });
+
+  assert.deepEqual(conflicts.overlappingEventIds, [20]);
+  assert.deepEqual(conflicts.impactedTelegramUserIds, [42, 55, 66]);
 });
