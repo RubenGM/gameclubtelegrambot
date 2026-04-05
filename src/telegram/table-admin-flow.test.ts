@@ -8,6 +8,7 @@ import type { ConversationSessionRecord } from './conversation-session.js';
 import {
   handleTelegramTableAdminCallback,
   handleTelegramTableAdminText,
+  handleTelegramTableAdminStartText,
   tableAdminLabels,
   tableAdminCallbackPrefixes,
   type TelegramTableAdminContext,
@@ -337,8 +338,33 @@ test('handleTelegramTableAdminCallback inspects an existing table from the inlin
   const handled = await handleTelegramTableAdminCallback(context);
 
   assert.equal(handled, true);
-  assert.match(replies.at(-1)?.message ?? '', /Mesa principal \(#7\)/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Mesa principal<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /Capacitat recomanada: 6/);
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+});
+
+test('handleTelegramTableAdminStartText opens the linked admin table details from /start', async () => {
+  const { context, replies } = createContext({
+    repository: createRepository([
+      {
+        id: 7,
+        displayName: 'Mesa principal',
+        description: 'Prop del taulell',
+        recommendedCapacity: 6,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ]),
+  });
+  context.messageText = '/start table_admin_7';
+
+  const handled = await handleTelegramTableAdminStartText(context);
+
+  assert.equal(handled, true);
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.match(replies.at(-1)?.message ?? '', /<b>Mesa principal<\/b>/);
 });
 
 test('handleTelegramTableAdminCallback edits a table with keyboard shortcuts for existing values', async () => {

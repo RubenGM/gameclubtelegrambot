@@ -129,7 +129,7 @@ export async function handleTelegramTableAdminCallback(
   if (callbackData.startsWith(tableAdminCallbackPrefixes.inspect)) {
     const tableId = parseTableId(callbackData, tableAdminCallbackPrefixes.inspect);
     const table = await loadTableOrThrow(context, tableId);
-    await context.reply(formatTableDetails(table));
+    await context.reply(formatTableDetails(table), { parseMode: 'HTML' });
     return true;
   }
 
@@ -143,7 +143,7 @@ export async function handleTelegramTableAdminCallback(
     });
     await context.reply(
       `${formatTableDetails(table)}\n\nEscriu el nou nom visible o tria una opcio del teclat.`,
-      buildEditNameOptions(),
+      { ...buildEditNameOptions(), parseMode: 'HTML' },
     );
     return true;
   }
@@ -158,12 +158,23 @@ export async function handleTelegramTableAdminCallback(
     });
     await context.reply(
       `${formatTableDetails(table)}\n\nSi la desactives, deixara d aparéixer a la gestio operativa futura pero es mantindra per a consultes historiques.`,
-      buildDeactivateConfirmOptions(),
+      { ...buildDeactivateConfirmOptions(), parseMode: 'HTML' },
     );
     return true;
   }
 
   return false;
+}
+
+export async function handleTelegramTableAdminStartText(context: TelegramTableAdminContext): Promise<boolean> {
+  const tableId = parseStartPayload(context.messageText, 'table_admin_');
+  if (tableId === null || context.runtime.chat.kind !== 'private' || !canManageTables(context)) {
+    return false;
+  }
+
+  const table = await loadTableOrThrow(context, tableId);
+  await context.reply(formatTableDetails(table), { parseMode: 'HTML' });
+  return true;
 }
 
 function canManageTables(context: TelegramTableAdminContext): boolean {
@@ -560,24 +571,19 @@ async function replyWithTableList(
     return;
   }
 
-  const inlineKeyboard = tables.map((table) => [
-    {
-      text: mode === 'list' ? `Veure ${table.displayName}` : table.displayName,
-      callbackData:
-        mode === 'list'
-          ? `${tableAdminCallbackPrefixes.inspect}${table.id}`
-          : mode === 'edit'
-            ? `${tableAdminCallbackPrefixes.edit}${table.id}`
-            : `${tableAdminCallbackPrefixes.deactivate}${table.id}`,
-    },
-  ]);
+  if (mode === 'list') {
+    await context.reply(formatTableListMessage(tables), { parseMode: 'HTML' });
+    return;
+  }
 
-  await context.reply(
-    mode === 'list'
-      ? formatTableListMessage(tables)
-      : `Tria la taula que vols ${mode === 'edit' ? 'editar' : 'desactivar'}.`,
-    { inlineKeyboard },
-  );
+  await context.reply(`Tria la taula que vols ${mode === 'edit' ? 'editar' : 'desactivar'}.`, {
+    inlineKeyboard: tables.map((table) => [{
+      text: table.displayName,
+      callbackData: mode === 'edit'
+        ? `${tableAdminCallbackPrefixes.edit}${table.id}`
+        : `${tableAdminCallbackPrefixes.deactivate}${table.id}`,
+    }]),
+  });
 }
 
 function formatTableListMessage(tables: ClubTableRecord[]): string {
@@ -642,6 +648,16 @@ function resolveTableRepository(context: TelegramTableAdminContext): ClubTableRe
   return createDatabaseClubTableRepository({
     database: context.runtime.services.database.db as never,
   });
+}
+
+function parseStartPayload(messageText: string | undefined, prefix: string): number | null {
+  const payload = messageText?.trim().split(/\s+/).slice(1).join(' ');
+  if (!payload || !payload.startsWith(prefix)) {
+    return null;
+  }
+
+  const value = Number(payload.slice(prefix.length));
+  return Number.isInteger(value) && value > 0 ? value : null;
 }
 
 function hasOwn(data: Record<string, unknown>, key: string): boolean {

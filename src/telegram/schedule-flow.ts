@@ -3,6 +3,7 @@ import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { formatCalendarMessage, loadUpcomingCalendarEntries } from './calendar-summary.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 import {
   cancelScheduleEvent,
   createScheduleEvent,
@@ -1099,14 +1100,10 @@ async function replyWithInspectableEventList(
   }
 
   const listMessage = await formatScheduleListWithVenueImpact(context, filteredEvents);
-  const inlineKeyboard: NonNullable<TelegramReplyOptions['inlineKeyboard']> = dayKey
-    ? filteredEvents.map((event) => [{ text: `Veure ${event.title}`, callbackData: `${scheduleCallbackPrefixes.inspect}${event.id}` }])
-    : buildScheduleDayButtons(filteredEvents, resolveBotLanguage(context));
-
   if (options.includeMenuKeyboard) {
-    await context.reply(listMessage, { parseMode: 'HTML', inlineKeyboard, ...buildScheduleMenuOptions() });
+    await context.reply(listMessage, { parseMode: 'HTML', ...buildScheduleMenuOptions() });
   } else {
-    await context.reply(listMessage, { parseMode: 'HTML', inlineKeyboard });
+    await context.reply(listMessage, { parseMode: 'HTML' });
   }
   return true;
 }
@@ -1389,7 +1386,7 @@ async function formatScheduleListWithVenueImpact(
         repository: resolveScheduleRepository(context),
         eventId: event.id,
       });
-      lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)}) · ${formatParticipantCount(attendance.snapshot.occupiedSeats, attendance.snapshot.capacity)}`);
+      lines.push(`- <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${event.id}`))}"><b>${escapeHtml(event.title)}</b></a> (${formatEventTime(event.startsAt)}) · ${formatParticipantCount(attendance.snapshot.occupiedSeats, attendance.snapshot.capacity)}`);
       if (event.description) {
         lines.push(`  <i>${escapeHtml(event.description)}</i>`);
       }

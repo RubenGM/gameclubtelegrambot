@@ -10,6 +10,7 @@ import { createDatabaseVenueEventRepository } from '../venue-events/venue-event-
 import type { ScheduleRepository } from '../schedule/schedule-catalog.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import { buildVenueEventImpactSignal } from '../venue-events/venue-event-impact-signals.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 import type { TelegramActor } from './actor-store.js';
 import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramChatContext } from './chat-context.js';
@@ -122,7 +123,7 @@ export async function handleTelegramVenueEventAdminCallback(context: TelegramVen
   if (callbackData.startsWith(venueEventAdminCallbackPrefixes.inspect)) {
     const eventId = parseVenueEventId(callbackData, venueEventAdminCallbackPrefixes.inspect);
     const event = await loadVenueEventOrThrow(context, eventId);
-    await context.reply(formatVenueEventDetails(event));
+    await context.reply(formatVenueEventDetails(event), { parseMode: 'HTML' });
     return true;
   }
 
@@ -130,7 +131,7 @@ export async function handleTelegramVenueEventAdminCallback(context: TelegramVen
     const eventId = parseVenueEventId(callbackData, venueEventAdminCallbackPrefixes.edit);
     const event = await loadVenueEventOrThrow(context, eventId);
     await context.runtime.session.start({ flowKey: editFlowKey, stepKey: 'name', data: { eventId } });
-    await context.reply(`${formatVenueEventDetails(event)}\n\nEscriu el nou nom o tria una opcio del teclat.`, buildKeepCurrentOptions());
+    await context.reply(`${formatVenueEventDetails(event)}\n\nEscriu el nou nom o tria una opcio del teclat.`, { ...buildKeepCurrentOptions(), parseMode: 'HTML' });
     return true;
   }
 
@@ -138,11 +139,22 @@ export async function handleTelegramVenueEventAdminCallback(context: TelegramVen
     const eventId = parseVenueEventId(callbackData, venueEventAdminCallbackPrefixes.cancel);
     const event = await loadVenueEventOrThrow(context, eventId);
     await context.runtime.session.start({ flowKey: cancelFlowKey, stepKey: 'confirm', data: { eventId } });
-    await context.reply(`${formatVenueEventDetails(event)}\n\nAquest esdeveniment deixara d afectar les vistes operatives futures.`, buildCancelConfirmOptions());
+    await context.reply(`${formatVenueEventDetails(event)}\n\nAquest esdeveniment deixara d afectar les vistes operatives futures.`, { ...buildCancelConfirmOptions(), parseMode: 'HTML' });
     return true;
   }
 
   return false;
+}
+
+export async function handleTelegramVenueEventAdminStartText(context: TelegramVenueEventAdminContext): Promise<boolean> {
+  const eventId = parseStartPayload(context.messageText, 'venue_event_admin_');
+  if (eventId === null || context.runtime.chat.kind !== 'private' || !canManageVenueEvents(context)) {
+    return false;
+  }
+
+  const event = await loadVenueEventOrThrow(context, eventId);
+  await context.reply(formatVenueEventDetails(event), { parseMode: 'HTML' });
+  return true;
 }
 
 function canManageVenueEvents(context: TelegramVenueEventAdminContext): boolean {
@@ -287,7 +299,7 @@ async function handleCreateSession(context: TelegramVenueEventAdminContext, text
       impactLevel: String(data.impactLevel ?? 'medium') as 'low' | 'medium' | 'high',
     });
     await context.runtime.session.cancel();
-    await context.reply(`Esdeveniment del local creat correctament: ${created.name}\n${formatVenueEventDetails(created)}`, buildVenueEventMenuOptions());
+    await context.reply(`Esdeveniment del local creat correctament: ${created.name}\n${formatVenueEventDetails(created)}`, { ...buildVenueEventMenuOptions(), parseMode: 'HTML' });
     await notifyVenueEventImpact({ context, venueEventId: created.id, changeType: 'created' });
     return true;
   }
@@ -412,7 +424,7 @@ async function handleEditSession(context: TelegramVenueEventAdminContext, text: 
       impactLevel: String(data.impactLevel ?? event.impactLevel) as 'low' | 'medium' | 'high',
     });
     await context.runtime.session.cancel();
-    await context.reply(`Esdeveniment del local actualitzat correctament: ${updated.name}\n${formatVenueEventDetails(updated)}`, buildVenueEventMenuOptions());
+    await context.reply(`Esdeveniment del local actualitzat correctament: ${updated.name}\n${formatVenueEventDetails(updated)}`, { ...buildVenueEventMenuOptions(), parseMode: 'HTML' });
     await notifyVenueEventImpact({ context, venueEventId: updated.id, changeType: 'updated' });
     return true;
   }
@@ -426,7 +438,7 @@ async function handleCancelSession(context: TelegramVenueEventAdminContext, text
   }
   const cancelled = await cancelVenueEvent({ repository: resolveVenueEventRepository(context), eventId: Number(data.eventId) });
   await context.runtime.session.cancel();
-  await context.reply(`Esdeveniment del local cancel.lat correctament: ${cancelled.name}`, buildVenueEventMenuOptions());
+  await context.reply(`Esdeveniment del local cancel.lat correctament: ${cancelled.name}`, { ...buildVenueEventMenuOptions(), parseMode: 'HTML' });
   await notifyVenueEventImpact({ context, venueEventId: cancelled.id, changeType: 'cancelled' });
   return true;
 }
@@ -438,8 +450,9 @@ async function replyWithVenueEventList(context: TelegramVenueEventAdminContext, 
     return;
   }
   await context.reply(formatVenueEventListMessage(events), {
+    parseMode: 'HTML',
     inlineKeyboard: events.map((event) => [{
-      text: `${mode === 'list' ? 'Veure' : mode === 'edit' ? 'Editar' : 'Cancel.lar'} ${event.name}`,
+      text: mode === 'list' ? event.name : `${mode === 'edit' ? 'Editar' : 'Cancel.lar'} ${event.name}`,
       callbackData: `${mode === 'list' ? venueEventAdminCallbackPrefixes.inspect : mode === 'edit' ? venueEventAdminCallbackPrefixes.edit : venueEventAdminCallbackPrefixes.cancel}${event.id}`,
     }]),
   });
@@ -516,11 +529,11 @@ function buildCancelConfirmOptions(): TelegramReplyOptions {
 }
 
 function formatVenueEventListMessage(events: VenueEventRecord[]): string {
-  return ['Esdeveniments del local:'].concat(events.map((event) => `- ${event.name} (${formatVenueEventTimeSummary(event)})`)).join('\n');
+  return ['Esdeveniments del local:'].concat(events.map((event) => `- <a href="${buildTelegramStartUrl(`venue_event_admin_${event.id}`)}"><b>${escapeHtml(event.name)}</b></a> (${formatVenueEventTimeSummary(event)})`)).join('\n');
 }
 
 function formatVenueEventDetails(event: VenueEventRecord): string {
-  return [event.name, `Horari: ${formatVenueEventTimeSummary(event)}`, `Ocupacio: ${event.occupancyScope}`, `Impacte: ${event.impactLevel}`, `Descripcio: ${event.description ?? 'Sense descripcio'}`].join('\n');
+  return [escapeHtml(event.name), `Horari: ${formatVenueEventTimeSummary(event)}`, `Ocupacio: ${escapeHtml(event.occupancyScope)}`, `Impacte: ${escapeHtml(event.impactLevel)}`, `Descripcio: ${escapeHtml(event.description ?? 'Sense descripcio')}`].join('\n');
 }
 
 function formatDraftSummary(data: Record<string, unknown>): string {
@@ -539,6 +552,26 @@ function parseVenueEventId(callbackData: string, prefix: string): number {
   if (!Number.isInteger(candidate) || candidate <= 0) throw new Error('No s ha pogut identificar l esdeveniment seleccionat.');
   return candidate;
 }
+
+function parseStartPayload(messageText: string | undefined, prefix: string): number | null {
+  const payload = messageText?.trim().split(/\s+/).slice(1).join(' ');
+  if (!payload || !payload.startsWith(prefix)) {
+    return null;
+  }
+
+  const value = Number(payload.slice(prefix.length));
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function parseDate(value: string): string | Error {
   const normalizedValue = value.includes(',') ? value.slice(value.indexOf(',') + 1).trim() : value;
 

@@ -446,7 +446,6 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
     message: '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 0/3 participants\n  <i>Ocells i engines</i>',
     options: {
       parseMode: 'HTML',
-      inlineKeyboard: [[{ text: 'Veure Diumenge 05/04', callbackData: 'schedule:day:2026-04-05' }]],
       replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['/start', '/help']],
       resizeKeyboard: true,
       persistentKeyboard: true,

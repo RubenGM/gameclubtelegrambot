@@ -24,12 +24,7 @@ export async function handleTelegramTableReadCommand(
   }
 
   await context.reply(formatTelegramTableListMessage({ tables, audience: 'member' }), {
-    inlineKeyboard: tables.map((table) => [
-      {
-        text: `Veure ${table.displayName}`,
-        callbackData: `${tableReadCallbackPrefixes.inspect}${table.id}`,
-      },
-    ]),
+    parseMode: 'HTML',
   });
 }
 
@@ -51,7 +46,26 @@ export async function handleTelegramTableReadCallback(
     throw new Error(`Club table ${tableId} not found`);
   }
 
-  await context.reply(formatTelegramTableDetails({ table, audience: 'member' }));
+  await context.reply(formatTelegramTableDetails({ table, audience: 'member' }), { parseMode: 'HTML' });
+  return true;
+}
+
+export async function handleTelegramTableReadStartText(context: TelegramTableReadContext): Promise<boolean> {
+  const tableId = parseStartPayload(context.messageText, 'table_read_');
+  if (tableId === null || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
+    return false;
+  }
+
+  const table = await getClubTable({
+    repository: resolveTableRepository(context),
+    tableId,
+  });
+
+  if (!table || table.lifecycleStatus !== 'active') {
+    throw new Error(`Club table ${tableId} not found`);
+  }
+
+  await context.reply(formatTelegramTableDetails({ table, audience: 'member' }), { parseMode: 'HTML' });
   return true;
 }
 
@@ -72,4 +86,14 @@ function resolveTableRepository(context: TelegramTableReadContext): ClubTableRep
   return createDatabaseClubTableRepository({
     database: context.runtime.services.database.db as never,
   });
+}
+
+function parseStartPayload(messageText: string | undefined, prefix: string): number | null {
+  const payload = messageText?.trim().split(/\s+/).slice(1).join(' ');
+  if (!payload || !payload.startsWith(prefix)) {
+    return null;
+  }
+
+  const value = Number(payload.slice(prefix.length));
+  return Number.isInteger(value) && value > 0 ? value : null;
 }

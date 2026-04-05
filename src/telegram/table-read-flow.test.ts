@@ -7,6 +7,7 @@ import type { TelegramReplyOptions } from './runtime-boundary.js';
 import {
   handleTelegramTableReadCallback,
   handleTelegramTableReadCommand,
+  handleTelegramTableReadStartText,
 } from './table-read-flow.js';
 
 function createRepository(initialTables: ClubTableRecord[]): ClubTableRepository {
@@ -117,9 +118,9 @@ test('handleTelegramTableReadCommand lists only active tables with inline detail
 
   assert.deepEqual(replies, [
     {
-      message: 'Taules disponibles:\n- Mesa TV',
+      message: 'Taules disponibles:\n- <a href="https://t.me/cawatest_bot?start=table_read_1"><b>Mesa TV</b></a>',
       options: {
-        inlineKeyboard: [[{ text: 'Veure Mesa TV', callbackData: 'table_read:inspect:1' }]],
+        parseMode: 'HTML',
       },
     },
   ]);
@@ -146,7 +147,39 @@ test('handleTelegramTableReadCallback shows member-facing table details without 
   assert.equal(handled, true);
   assert.deepEqual(replies, [
     {
-      message: 'Mesa TV\nDescripcio: Prop del televisor\nCapacitat recomanada: 6',
+      message: '<a href="https://t.me/cawatest_bot?start=table_read_1"><b>Mesa TV</b></a>\nDescripcio: Prop del televisor\nCapacitat recomanada: 6',
+      options: {
+        parseMode: 'HTML',
+      },
+    },
+  ]);
+});
+
+test('handleTelegramTableReadStartText opens the linked member table details from /start', async () => {
+  const repository = createRepository([
+    {
+      id: 1,
+      displayName: 'Mesa TV',
+      description: 'Prop del televisor',
+      recommendedCapacity: 6,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const { context, replies } = createContext(repository);
+  context.messageText = '/start table_read_1';
+
+  const handled = await handleTelegramTableReadStartText(context);
+
+  assert.equal(handled, true);
+  assert.deepEqual(replies, [
+    {
+      message: '<a href="https://t.me/cawatest_bot?start=table_read_1"><b>Mesa TV</b></a>\nDescripcio: Prop del televisor\nCapacitat recomanada: 6',
+      options: {
+        parseMode: 'HTML',
+      },
     },
   ]);
 });

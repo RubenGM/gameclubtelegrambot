@@ -21,6 +21,7 @@ import {
   type TelegramCatalogLoanContext,
 } from './catalog-loan-flow.js';
 import type { TelegramInlineButton, TelegramReplyOptions } from './runtime-boundary.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 
 const catalogReadFlowKey = 'catalog-read';
 const catalogReadPageSize = 5;
@@ -65,6 +66,34 @@ export async function handleTelegramCatalogReadCommand(context: TelegramCatalogR
 
   await persistCatalogReadState(context, state);
   await renderCatalogReadState(context, state);
+}
+
+export async function handleTelegramCatalogReadStartText(context: TelegramCatalogReadContext): Promise<boolean> {
+  const itemId = parseStartPayload(context.messageText, 'catalog_read_item_');
+  if (itemId === null || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
+    return false;
+  }
+
+  const { families, groups, items, media } = await loadCatalogData(context);
+  const item = itemById(items, itemId);
+  if (!item) {
+    throw new Error(`Catalog item ${itemId} not found`);
+  }
+
+  const family = item.familyId !== null ? familyById(families, item.familyId) ?? null : null;
+  const group = item.groupId !== null ? groupById(groups, item.groupId) ?? null : null;
+  const loan = await loadActiveLoanByItemId(context, item.id);
+  await context.reply(
+    formatMemberCatalogItemDetails({
+      item,
+      family,
+      group,
+      media: media.filter((entry) => entry.itemId === item.id).sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id),
+      availabilityLines: await formatLoanAvailabilityLines(context, loan),
+    }),
+    { inlineKeyboard: buildLoanDetailButtons({ loan, itemId: item.id, canEdit: loan ? canEditLoan(context, loan) : false }), parseMode: 'HTML' },
+  );
+  return true;
 }
 
 export async function handleTelegramCatalogReadCallback(context: TelegramCatalogReadContext): Promise<boolean> {
@@ -174,7 +203,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
     }
     await context.reply(
       `${formatMemberCatalogOverview({ families, groups, items })}\n\n${formatEntryPage(page.items, page.page, page.totalPages)}`,
-      buildListNavigationOptions(buttonRows, state, page.totalPages > 1),
+      { ...buildListNavigationOptions(buttonRows, state, page.totalPages > 1), parseMode: 'HTML' },
     );
     return;
   }
@@ -188,7 +217,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
 
     const page = paginateEntries(results, state.page);
     const lines = [`Resultats per a "${state.query}":`, formatEntryPage(page.items, page.page, page.totalPages)];
-    await context.reply(lines.join('\n'), buildListNavigationOptions(await buildBrowseButtonRows(context, page.items), state, page.totalPages > 1));
+    await context.reply(lines.join('\n'), { ...buildListNavigationOptions(await buildBrowseButtonRows(context, page.items), state, page.totalPages > 1), parseMode: 'HTML' });
     return;
   }
 
@@ -234,10 +263,10 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
     const loanLines = ['Els meus préstecs:'];
     for (const loan of page.items) {
       const item = await catalog.findItemById(loan.itemId);
-      loanLines.push(`- ${item?.displayName ?? `Item ${loan.itemId}`} · ${loan.dueAt ?? 'Sense data'}`);
+      loanLines.push(`- ${item ? `<a href="${buildTelegramStartUrl(`catalog_read_item_${item.id}`)}"><b>${escapeHtml(item.displayName)}</b></a>` : `Item ${loan.itemId}`} · ${loan.dueAt ?? 'Sense data'}`);
     }
     const loanRows = await buildLoanRows(context, page.items);
-    await context.reply(loanLines.join('\n'), buildListNavigationOptions(loanRows, state, page.totalPages > 1));
+    await context.reply(loanLines.join('\n'), { ...buildListNavigationOptions(loanRows, state, page.totalPages > 1), parseMode: 'HTML' });
     return;
   }
 
@@ -345,13 +374,40 @@ function formatEntryPage(entries: CatalogBrowseEntry[], page: number, totalPages
   }
 
   for (const entry of entries) {
-    lines.push(`- ${entry.label} · ${entry.subtitle}`);
+    lines.push(`- ${formatCatalogBrowseEntryLabel(entry)} · ${entry.subtitle}`);
   }
   return lines.join('\n');
 }
 
+function formatCatalogBrowseEntryLabel(entry: CatalogBrowseEntry): string {
+  if (entry.kind !== 'item') {
+    return entry.label;
+  }
+
+  return `<a href="${buildTelegramStartUrl(`catalog_read_item_${entry.id}`)}"><b>${escapeHtml(entry.label)}</b></a>`;
+}
+
 function formatLoanDate(value: string): string {
   return value.slice(0, 10).split('-').reverse().join('/');
+}
+
+function parseStartPayload(messageText: string | undefined, prefix: string): number | null {
+  const payload = messageText?.trim().split(/\s+/).slice(1).join(' ');
+  if (!payload || !payload.startsWith(prefix)) {
+    return null;
+  }
+
+  const value = Number(payload.slice(prefix.length));
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 async function buildOverviewEntries(context: TelegramCatalogReadContext, { families, items, activeLoansByItemId }: { families: CatalogFamilyRecord[]; items: CatalogItemRecord[]; activeLoansByItemId: Map<number, CatalogLoanRecord>; }): Promise<CatalogBrowseEntry[]> {

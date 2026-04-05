@@ -10,6 +10,7 @@ import {
   catalogReadCallbackPrefixes,
   handleTelegramCatalogReadCallback,
   handleTelegramCatalogReadCommand,
+  handleTelegramCatalogReadStartText,
 } from './catalog-read-flow.js';
 
 function createRepository({
@@ -331,6 +332,7 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
   assert.match(replies[0]?.message ?? '', /Resultats per a "Game"/);
   assert.match(replies[0]?.message ?? '', /Pàgina 1\/2/);
   assert.match(replies[0]?.message ?? '', /Prestat a Marta/);
+  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=catalog_read_item_1"><b>Game 1<\/b><\/a>/);
   assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[0]?.text, 'Game 1');
   assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[1]?.text, 'Retornar');
 
@@ -342,4 +344,35 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
   assert.match(replies[0]?.message ?? '', /<b>Disponibilitat:<\/b> En préstec/);
   assert.match(replies[0]?.message ?? '', /<b>Té:<\/b> Marta/);
   assert.match(replies[0]?.message ?? '', /<b>Retorn previst:<\/b> 10\/04\/2026/);
+});
+
+test('handleTelegramCatalogReadStartText opens linked item details from /start', async () => {
+  const repository = createRepository({
+    items: [
+      buildItem(1, 'Game 1', { metadata: { loanStatus: 'loaned', borrowedBy: 'Marta', loanDueAt: '2026-04-10' } }),
+    ],
+  });
+  const loanRepository = createLoanRepository([
+    {
+      id: 1,
+      itemId: 1,
+      borrowerTelegramUserId: 99,
+      borrowerDisplayName: 'Usuari 99',
+      loanedByTelegramUserId: 7,
+      dueAt: '2026-04-10T00:00:00.000Z',
+      notes: null,
+      returnedAt: null,
+      returnedByTelegramUserId: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  const { context, replies } = createContext(repository, loanRepository);
+  context.messageText = '/start catalog_read_item_1';
+
+  const handled = await handleTelegramCatalogReadStartText(context);
+
+  assert.equal(handled, true);
+  assert.equal(replies[0]?.options?.parseMode, 'HTML');
+  assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
 });

@@ -51,6 +51,7 @@ import {
 import {
   handleTelegramCatalogReadCallback,
   handleTelegramCatalogReadCommand,
+  handleTelegramCatalogReadStartText,
   catalogReadCallbackPrefixes,
 } from './catalog-read-flow.js';
 import {
@@ -65,16 +66,19 @@ import {
 import {
   handleTelegramTableAdminCallback,
   handleTelegramTableAdminText,
+  handleTelegramTableAdminStartText,
   tableAdminCallbackPrefixes,
 } from './table-admin-flow.js';
 import {
   handleTelegramTableReadCallback,
   handleTelegramTableReadCommand,
+  handleTelegramTableReadStartText,
   tableReadCallbackPrefixes,
 } from './table-read-flow.js';
 import {
   handleTelegramVenueEventAdminCallback,
   handleTelegramVenueEventAdminText,
+  handleTelegramVenueEventAdminStartText,
   venueEventAdminCallbackPrefixes,
 } from './venue-event-admin-flow.js';
 import {
@@ -753,7 +757,19 @@ function createDefaultCommands({
         if (await handleTelegramScheduleStartText({ ...context })) {
           return;
         }
+        if (await handleTelegramTableReadStartText({ ...context })) {
+          return;
+        }
+        if (await handleTelegramTableAdminStartText({ ...context })) {
+          return;
+        }
+        if (await handleTelegramCatalogReadStartText({ ...context })) {
+          return;
+        }
         if (await handleTelegramCatalogAdminStartText({ ...context })) {
+          return;
+        }
+        if (await handleTelegramVenueEventAdminStartText({ ...context })) {
           return;
         }
 

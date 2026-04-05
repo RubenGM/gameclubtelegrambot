@@ -7,6 +7,7 @@ import type { VenueEventRecord, VenueEventRepository } from '../venue-events/ven
 import type { ScheduleRepository } from '../schedule/schedule-catalog.js';
 import {
   handleTelegramVenueEventAdminCallback,
+  handleTelegramVenueEventAdminStartText,
   handleTelegramVenueEventAdminText,
   venueEventAdminCallbackPrefixes,
   venueEventAdminLabels,
@@ -271,6 +272,38 @@ test('handleTelegramVenueEventAdminText creates an all-day venue event when sele
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /Horari: Tot el dia/);
   assert.match(replies.at(-1)?.message ?? '', /Esdeveniment del local creat correctament: Jornada de prototips/);
+});
+
+test('handleTelegramVenueEventAdminText lists linked venue events and /start opens details', async () => {
+  const { context, replies } = createContext({
+    venueEventRepository: createVenueEventRepository([
+      {
+        id: 9,
+        name: 'Concert <live>',
+        description: null,
+        startsAt: '2026-04-12T18:00:00.000Z',
+        endsAt: '2026-04-12T20:00:00.000Z',
+        occupancyScope: 'full',
+        impactLevel: 'high',
+        lifecycleStatus: 'scheduled',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        cancelledAt: null,
+        cancellationReason: null,
+      },
+    ]),
+  });
+
+  context.messageText = venueEventAdminLabels.list;
+  assert.equal(await handleTelegramVenueEventAdminText(context), true);
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=venue_event_admin_9"><b>Concert &lt;live&gt;<\/b><\/a>/);
+
+  replies.length = 0;
+  context.messageText = '/start venue_event_admin_9';
+  assert.equal(await handleTelegramVenueEventAdminStartText(context), true);
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.match(replies.at(-1)?.message ?? '', /^Concert &lt;live&gt;/);
 });
 
 test('handleTelegramVenueEventAdminText sends private warnings when a created venue event overlaps scheduled activities', async () => {
