@@ -838,6 +838,53 @@ test('handleTelegramScheduleCallback opens a selected day with activity buttons'
   });
 });
 
+test('handleTelegramScheduleText separates different day groups with a blank line', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Wingspan',
+      description: 'Ocells i engines',
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+    {
+      id: 8,
+      title: 'Blood Bowl',
+      description: null,
+      startsAt: '2026-04-06T15:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 2,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+  context.messageText = scheduleLabels.list;
+
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(
+    replies.at(-1)?.message,
+    '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 0/3 participants\n  <i>Ocells i engines</i>\n\n<b>06/04/2026</b>\n- <b>Blood Bowl</b> (15:00) · 0/2 participants',
+  );
+});
+
 test('handleTelegramScheduleText includes venue impact hints in the activity list when the local is affected', async () => {
   const scheduleRepository = createScheduleRepository([
     {

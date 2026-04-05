@@ -963,6 +963,9 @@ function formatScheduleListMessage(events: ScheduleEventRecord[]): string {
   const lines: string[] = [];
 
   for (const [dayKey, dayEvents] of groupedEvents) {
+    if (lines.length > 0) {
+      lines.push('');
+    }
     lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
     for (const event of dayEvents) {
       lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)}) · ${event.capacity} places`);
@@ -1340,6 +1343,9 @@ async function formatScheduleListWithVenueImpact(
   const groupedEvents = groupScheduleEventsByDay(sortScheduleEvents(events));
 
   for (const [dayKey, dayEvents] of groupedEvents) {
+    if (lines.length > 0) {
+      lines.push('');
+    }
     lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
     for (const event of dayEvents) {
       const attendance = await getScheduleEventAttendance({
