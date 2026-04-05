@@ -20,6 +20,7 @@ import {
   catalogAdminCallbackPrefixes,
   catalogAdminLabels,
   handleTelegramCatalogAdminCallback,
+  handleTelegramCatalogAdminStartText,
   handleTelegramCatalogAdminText,
   type TelegramCatalogAdminContext,
 } from './catalog-admin-flow.js';
@@ -332,13 +333,13 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   context.messageText = catalogAdminLabels.openMenu;
 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /tria una categoria o cerca per nom/);
+  assert.match(replies.at(-1)?.message ?? '', /No hi ha cap item de cataleg disponible ara mateix\./);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     [catalogAdminLabels.create, catalogAdminLabels.list],
     [catalogAdminLabels.edit, catalogAdminLabels.deactivate],
+    [catalogAdminLabels.searchByName],
     [catalogAdminLabels.start],
   ]);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Cerca per nom'));
 });
 
 test('handleTelegramCatalogAdminText creates a board game and opens edit mode immediately', async () => {
@@ -1248,8 +1249,16 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
 
   context.messageText = catalogAdminLabels.list;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /tria una categoria o cerca per nom/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Arkham Horror'));
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
+  assert.match(replies.at(-1)?.message ?? '', /Grup: Second Edition/);
+  assert.match(replies.at(-1)?.message ?? '', /------/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Arkham Horror Core Set<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Joc de taula · Disponible<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Dunwich Expansion<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Expansio · Prestat a Anna · des de 04\/04\/2026<\/i>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.inspectGroup}11`));
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}7`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -1437,8 +1446,11 @@ test('handleTelegramCatalogAdminText hides deactivated items from the normal cat
   context.messageText = catalogAdminLabels.list;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.match(replies.at(-1)?.message ?? '', /tria una categoria o cerca per nom/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Actiu/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
+  assert.match(replies.at(-1)?.message ?? '', /Sense grup/);
+  assert.match(replies.at(-1)?.message ?? '', /------/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=catalog_admin_item_1"><b>Actiu<\/b><\/a> · <i>Llibre RPG · Sense familia<\/i>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
 });
 
@@ -1519,11 +1531,20 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
   ]);
   const { context, replies } = createContext({ repository, catalogLoanRepository });
 
-  context.messageText = catalogAdminLabels.list;
+  context.messageText = catalogAdminLabels.openMenu;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.match(replies.at(-1)?.message ?? '', /tria una categoria o cerca per nom/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Mundodisco'));
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
+  assert.match(replies.at(-1)?.message ?? '', /Familia: Mundodisco/);
+  assert.match(replies.at(-1)?.message ?? '', /------/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=catalog_admin_item_2"><b>El color de la magia<\/b><\/a>/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Disponible<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=catalog_admin_item_3"><b>Mort<\/b><\/a>/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Prestat a Anna · des de 04\/04\/2026<\/i>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.text === 'El color de la magia')?.callbackData, `${catalogAdminCallbackPrefixes.inspect}2`);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.text === 'Mort')?.callbackData, `${catalogAdminCallbackPrefixes.inspect}3`);
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}1`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -1618,11 +1639,47 @@ test('handleTelegramCatalogAdminText can search catalog items by name', async ()
   context.messageText = 'Mort';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /Resultats per a "Mort"/);
-  assert.match(replies.at(-1)?.message ?? '', /Prestat a Pau/);
-  assert.match(replies.at(-1)?.message ?? '', /des de 04\/04\/2026/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Mort<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Prestat a Pau · des de 04\/04\/2026<\/i>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /#3/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.text === 'Mort')?.callbackData, `${catalogAdminCallbackPrefixes.inspect}3`);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
   assert.ok(!replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Emportar'));
+});
+
+test('handleTelegramCatalogAdminStartText opens an item detail from deep link payload', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 2,
+        familyId: null,
+        groupId: null,
+        itemType: 'book',
+        displayName: 'El color de la magia',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies } = createContext({ repository });
+
+  context.messageText = '/start catalog_admin_item_2';
+  assert.equal(await handleTelegramCatalogAdminStartText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /<b>El color de la magia<\/b>/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar item'));
 });
 
 test('handleTelegramCatalogAdminText falls back to minimum-field creation when lookup fails', async () => {

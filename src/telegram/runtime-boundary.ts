@@ -45,6 +45,7 @@ import { createDatabaseAdminElevationRepository } from '../membership/admin-elev
 import {
   handleTelegramCatalogAdminCallback,
   handleTelegramCatalogAdminText,
+  handleTelegramCatalogAdminStartText,
   catalogAdminCallbackPrefixes,
 } from './catalog-admin-flow.js';
 import {
@@ -748,6 +749,10 @@ function createDefaultCommands({
       access: 'public',
       description: 'Comprova que el bot esta actiu',
       handle: async (context) => {
+        if (await handleTelegramCatalogAdminStartText({ ...context })) {
+          return;
+        }
+
         await context.reply(
           formatStartMessage({
             publicName,
