@@ -70,6 +70,51 @@ export const scheduleLabels = {
 
 const defaultScheduleDurationMinutes = 180;
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function formatHtmlField(label: string, value: string): string {
+  return `<b>${escapeHtml(label)}:</b> ${value}`;
+}
+
+function getUtcDayStartIso(date = new Date()): string {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).toISOString();
+}
+
+function getEventDayKey(startsAt: string): string {
+  return startsAt.slice(0, 10);
+}
+
+function formatDayHeading(dayKey: string): string {
+  return dayKey.split('-').reverse().join('/');
+}
+
+function formatEventTime(startsAt: string): string {
+  return startsAt.slice(11, 16);
+}
+
+function sortScheduleEvents(events: ScheduleEventRecord[]): ScheduleEventRecord[] {
+  return events.slice().sort((left, right) => left.startsAt.localeCompare(right.startsAt));
+}
+
+function groupScheduleEventsByDay(events: ScheduleEventRecord[]): Map<string, ScheduleEventRecord[]> {
+  const groups = new Map<string, ScheduleEventRecord[]>();
+  for (const event of events) {
+    const dayKey = getEventDayKey(event.startsAt);
+    const bucket = groups.get(dayKey) ?? [];
+    bucket.push(event);
+    groups.set(dayKey, bucket);
+  }
+
+  return groups;
+}
+
 export interface TelegramScheduleContext {
   messageText?: string | undefined;
   callbackData?: string | undefined;
@@ -143,7 +188,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
   if (callbackData.startsWith(scheduleCallbackPrefixes.inspect)) {
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.inspect, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
-    await context.reply(await formatScheduleEventView(context, event), buildAttendanceActionOptions(context, event, await isActorAttending(context, event.id)));
+    await context.reply(await formatScheduleEventView(context, event), { ...buildAttendanceActionOptions(context, event, await isActorAttending(context, event.id)), parseMode: 'HTML' });
     return true;
   }
 
@@ -157,8 +202,8 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
       actorTelegramUserId: context.runtime.actor.telegramUserId,
     });
     await context.reply(
-      `T has apuntat correctament a ${event.title}\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
-      buildAttendanceActionOptions(context, event, true),
+      `T'has apuntat correctament a <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
+      { ...buildAttendanceActionOptions(context, event, true), parseMode: 'HTML' },
     );
     return true;
   }
@@ -173,8 +218,8 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
       actorTelegramUserId: context.runtime.actor.telegramUserId,
     });
     await context.reply(
-      `Has sortit correctament de ${event.title}\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
-      buildAttendanceActionOptions(context, event, false),
+      `Has sortit correctament de <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
+      { ...buildAttendanceActionOptions(context, event, false), parseMode: 'HTML' },
     );
     return true;
   }
@@ -194,7 +239,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     });
     await context.reply(
       `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) })}\n\nEscriu el nou titol o tria una opcio del teclat.`,
-      buildEditTitleOptions(),
+      { ...buildEditTitleOptions(), parseMode: 'HTML' },
     );
     return true;
   }
@@ -214,7 +259,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     });
     await context.reply(
       `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) })}\n\nConfirma si vols cancel.lar aquesta activitat.`,
-      buildCancelConfirmOptions(),
+      { ...buildCancelConfirmOptions(), parseMode: 'HTML' },
     );
     return true;
   }
@@ -360,8 +405,8 @@ async function handleCreateSession(
     });
     await context.runtime.session.cancel();
     await context.reply(
-      `Activitat creada correctament: ${created.title}\n${await formatScheduleEventView(context, created)}`,
-      buildScheduleMenuOptions(),
+      `Activitat creada correctament: <b>${escapeHtml(created.title)}</b>\n${await formatScheduleEventView(context, created)}`,
+      { ...buildScheduleMenuOptions(), parseMode: 'HTML' },
     );
     await notifyScheduleConflicts({ context, eventId: created.id });
     return true;
@@ -485,8 +530,8 @@ async function handleEditSession(
     });
     await context.runtime.session.cancel();
     await context.reply(
-      `Activitat actualitzada correctament: ${updated.title}\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId) })}`,
-      buildScheduleMenuOptions(),
+      `Activitat actualitzada correctament: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId) })}`,
+      { ...buildScheduleMenuOptions(), parseMode: 'HTML' },
     );
     await notifyScheduleConflicts({ context, eventId: updated.id });
     return true;
@@ -523,7 +568,7 @@ async function handleCancelSession(
     },
   });
   await context.runtime.session.cancel();
-  await context.reply(`Activitat cancel.lada correctament: ${cancelled.title}`, buildScheduleMenuOptions());
+  await context.reply(`Activitat cancel.lada correctament: <b>${escapeHtml(cancelled.title)}</b>`, { ...buildScheduleMenuOptions(), parseMode: 'HTML' });
   return true;
 }
 
@@ -614,8 +659,7 @@ async function replyWithManageableEventList(
   context: TelegramScheduleContext,
   mode: 'edit' | 'cancel',
 ): Promise<boolean> {
-  const repository = resolveScheduleRepository(context);
-  const events = (await listScheduleEvents({ repository })).filter((event) => canManageEvent(context.runtime.actor, context.runtime.authorization, event));
+  const events = (await loadUpcomingScheduleEvents(context)).filter((event) => canManageEvent(context.runtime.actor, context.runtime.authorization, event));
   if (events.length === 0) {
     await context.reply(
       mode === 'edit'
@@ -627,6 +671,7 @@ async function replyWithManageableEventList(
   }
 
   await context.reply(formatScheduleListMessage(events), {
+    parseMode: 'HTML',
     inlineKeyboard: events.map((event) => [
       {
         text: `${mode === 'edit' ? 'Editar' : 'Cancel.lar'} ${event.title}`,
@@ -836,17 +881,27 @@ function chunkTableButtons(tableNames: string[]): string[][] {
 }
 
 function formatScheduleListMessage(events: ScheduleEventRecord[]): string {
-  return ['Activitats disponibles:'].concat(events.map((event) => `- ${event.title} (${formatTimestamp(event.startsAt)})`)).join('\n');
+  const groupedEvents = groupScheduleEventsByDay(sortScheduleEvents(events));
+  const lines = ['<b>Activitats disponibles:</b>'];
+
+  for (const [dayKey, dayEvents] of groupedEvents) {
+    lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
+    for (const event of dayEvents) {
+      lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)})`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 function formatScheduleEventDetails({ event, tableName }: { event: ScheduleEventRecord; tableName: string | null }): string {
   return [
-    event.title,
-    `Inici: ${formatTimestamp(event.startsAt)}`,
-    `Durada: ${event.durationMinutes} min`,
-    `Places: ${event.capacity}`,
-    `Taula: ${tableName ?? 'Sense taula'}`,
-    `Descripcio: ${event.description ?? 'Sense descripcio'}`,
+    `<b>${escapeHtml(event.title)}</b>`,
+    formatHtmlField('Inici', formatTimestamp(event.startsAt)),
+    formatHtmlField('Durada', `${event.durationMinutes} min`),
+    formatHtmlField('Places', String(event.capacity)),
+    formatHtmlField('Taula', escapeHtml(tableName ?? 'Sense taula')),
+    formatHtmlField('Descripcio', escapeHtml(event.description ?? 'Sense descripcio')),
   ].join('\n');
 }
 
@@ -864,16 +919,16 @@ async function formatScheduleEventView(
 
   return [
     formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) }),
-    `Final: ${getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')}`,
-    `Places ocupades: ${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`,
-    `Places lliures: ${attendance.snapshot.availableSeats}`,
-    `Assistents: ${participantLabels.length > 0 ? participantLabels.join(', ') : 'Cap'}`,
+    formatHtmlField('Final', getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')),
+    formatHtmlField('Places ocupades', `${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`),
+    formatHtmlField('Places lliures', String(attendance.snapshot.availableSeats)),
+    formatHtmlField('Assistents', participantLabels.length > 0 ? participantLabels.map(escapeHtml).join(', ') : 'Cap'),
     ...(relevantVenueEvents.length > 0
       ? [
-          'Esdeveniments del local rellevants:',
+          '<b>Esdeveniments del local rellevants:</b>',
           ...relevantVenueEvents.map(
             (venueEvent) =>
-              `- ${venueEvent.name} (${formatTimestamp(venueEvent.startsAt)} - ${formatTimestamp(venueEvent.endsAt)}, ocupacio ${venueEvent.occupancyScope}, impacte ${venueEvent.impactLevel})`,
+              `- ${escapeHtml(venueEvent.name)} (${formatTimestamp(venueEvent.startsAt)} - ${formatTimestamp(venueEvent.endsAt)}, ocupacio ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`,
           ),
           'Aixo no bloqueja automaticament l activitat; serveix com a context per decidir millor.',
         ]
@@ -882,7 +937,7 @@ async function formatScheduleEventView(
 }
 
 async function replyWithInspectableEventList(context: TelegramScheduleContext): Promise<boolean> {
-  const events = await listScheduleEvents({ repository: resolveScheduleRepository(context) });
+  const events = await loadUpcomingScheduleEvents(context);
   if (events.length === 0) {
     await context.reply('No hi ha activitats programades ara mateix.', buildScheduleMenuOptions());
     return true;
@@ -891,6 +946,7 @@ async function replyWithInspectableEventList(context: TelegramScheduleContext): 
   const listMessage = await formatScheduleListWithVenueImpact(context, events);
 
   await context.reply(listMessage, {
+    parseMode: 'HTML',
     inlineKeyboard: events.map((event) => [{ text: `Veure ${event.title}`, callbackData: `${scheduleCallbackPrefixes.inspect}${event.id}` }]),
   });
   return true;
@@ -1101,20 +1157,53 @@ async function listRelevantVenueEventsForScheduleEvent(
   });
 }
 
+async function loadUpcomingScheduleEvents(context: TelegramScheduleContext): Promise<ScheduleEventRecord[]> {
+  await deletePastScheduleEvents(context);
+  const events = await listScheduleEvents({
+    repository: resolveScheduleRepository(context),
+    includeCancelled: false,
+    startsAtFrom: getUtcDayStartIso(),
+  });
+  return sortScheduleEvents(events);
+}
+
+async function deletePastScheduleEvents(context: TelegramScheduleContext): Promise<void> {
+  const repository = resolveScheduleRepository(context);
+  const cutoff = getUtcDayStartIso();
+  const pastEvents = await listScheduleEvents({
+    repository,
+    includeCancelled: false,
+    startsAtTo: cutoff,
+  });
+
+  for (const event of pastEvents.filter((entry) => entry.startsAt < cutoff)) {
+    await cancelScheduleEvent({
+      repository,
+      eventId: event.id,
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      reason: 'Expired automatically',
+    });
+  }
+}
+
 async function formatScheduleListWithVenueImpact(
   context: TelegramScheduleContext,
   events: ScheduleEventRecord[],
 ): Promise<string> {
-  const lines = ['Activitats disponibles:'];
+  const lines = ['<b>Activitats disponibles:</b>'];
+  const groupedEvents = groupScheduleEventsByDay(sortScheduleEvents(events));
 
-  for (const event of events) {
-    lines.push(`- ${event.title} (${formatTimestamp(event.startsAt)})`);
-    const relevantVenueEvents = await listRelevantVenueEventsForScheduleEvent(context, event);
-    if (relevantVenueEvents.length > 0) {
-      const summary = relevantVenueEvents
-        .map((venueEvent) => `${venueEvent.name} (ocupacio ${venueEvent.occupancyScope}, impacte ${venueEvent.impactLevel})`)
-        .join(', ');
-      lines.push(`  Impacte local: ${summary}`);
+  for (const [dayKey, dayEvents] of groupedEvents) {
+    lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
+    for (const event of dayEvents) {
+      lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)})`);
+      const relevantVenueEvents = await listRelevantVenueEventsForScheduleEvent(context, event);
+      if (relevantVenueEvents.length > 0) {
+        const summary = relevantVenueEvents
+          .map((venueEvent) => `${escapeHtml(venueEvent.name)} (ocupacio ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`)
+          .join(', ');
+        lines.push(`  <b>Impacte local:</b> ${summary}`);
+      }
     }
   }
 

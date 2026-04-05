@@ -50,7 +50,10 @@ export function createDatabaseScheduleRepository({
       }
 
       const query = database.select().from(scheduleEvents);
-      const result = filters.length > 0 ? await query.where(and(...filters)) : await query.orderBy(asc(scheduleEvents.startsAt));
+      const orderedQuery = filters.length > 0
+        ? query.where(and(...filters)).orderBy(asc(scheduleEvents.startsAt))
+        : query.orderBy(asc(scheduleEvents.startsAt));
+      const result = await orderedQuery;
 
       return result.map(mapScheduleEventRow);
     },

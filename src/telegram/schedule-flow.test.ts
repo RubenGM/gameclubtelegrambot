@@ -16,9 +16,10 @@ import {
   type TelegramScheduleContext,
 } from './schedule-flow.js';
 
-function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRepository {
+function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRepository & { __cancelledEventIds: number[] } {
   const events = new Map(initialEvents.map((event) => [event.id, event]));
   const participants = new Map<string, ScheduleParticipantRecord>();
+  const cancelledEventIds: number[] = [];
   let nextEventId = Math.max(0, ...initialEvents.map((event) => event.id)) + 1;
 
   return {
@@ -48,8 +49,12 @@ function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): Sc
     async findEventById(eventId: number) {
       return events.get(eventId) ?? null;
     },
-    async listEvents({ includeCancelled }) {
-      return Array.from(events.values()).filter((event) => includeCancelled || event.lifecycleStatus === 'scheduled');
+    async listEvents({ includeCancelled, startsAtFrom, startsAtTo }) {
+      return Array.from(events.values())
+        .filter((event) => includeCancelled || event.lifecycleStatus === 'scheduled')
+        .filter((event) => (startsAtFrom ? event.startsAt >= startsAtFrom : true))
+        .filter((event) => (startsAtTo ? event.startsAt <= startsAtTo : true))
+        .sort((left, right) => left.startsAt.localeCompare(right.startsAt));
     },
     async updateEvent(input) {
       const existing = events.get(input.eventId);
@@ -75,6 +80,7 @@ function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): Sc
       if (!existing) {
         throw new Error(`unknown event ${input.eventId}`);
       }
+      cancelledEventIds.push(input.eventId);
       const next: ScheduleEventRecord = {
         ...existing,
         lifecycleStatus: 'cancelled',
@@ -107,6 +113,7 @@ function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): Sc
       participants.set(key, next);
       return next;
     },
+    __cancelledEventIds: cancelledEventIds,
   };
 }
 
@@ -437,11 +444,11 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   context.messageText = scheduleLabels.confirmCreate;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
-  assert.match(replies.at(-1)?.message ?? '', /Activitat creada correctament: Dungeons & Dragons/);
-  assert.match(replies.at(-1)?.message ?? '', /Mesa TV/);
-  assert.match(replies.at(-1)?.message ?? '', /Inici: 05\/04\/2026 16:00/);
-  assert.match(replies.at(-1)?.message ?? '', /Durada: 180 min/);
-  assert.match(replies.at(-1)?.message ?? '', /Assistents: Ada \(@ada\)/);
+  assert.match(replies.at(-1)?.message ?? '', /Activitat creada correctament: <b>Dungeons &amp; Dragons<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Taula:<\/b> Mesa TV/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Inici:<\/b> 05\/04\/2026 16:00/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Durada:<\/b> 180 min/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\)/);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.created');
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
 });
@@ -683,6 +690,40 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
       cancelledByTelegramUserId: null,
       cancellationReason: null,
     },
+    {
+      id: 5,
+      title: 'ahir',
+      description: null,
+      startsAt: '2026-04-04T12:15:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 5,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+    {
+      id: 6,
+      title: 'Ravenloft',
+      description: null,
+      startsAt: '2026-04-05T18:30:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
   ]);
   await scheduleRepository.upsertParticipant({
     eventId: 4,
@@ -696,9 +737,11 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
   const handled = await handleTelegramScheduleText(context);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message, 'Activitats disponibles:\n- Wingspan (05/04/2026 16:00)');
+  assert.equal(scheduleRepository.__cancelledEventIds.includes(5), true);
+  assert.equal(replies.at(-1)?.message, '<b>Activitats disponibles:</b>\n<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00)\n- <b>Ravenloft</b> (18:30)');
   assert.deepEqual(replies.at(-1)?.options, {
-    inlineKeyboard: [[{ text: 'Veure Wingspan', callbackData: 'schedule:inspect:4' }]],
+    parseMode: 'HTML',
+    inlineKeyboard: [[{ text: 'Veure Wingspan', callbackData: 'schedule:inspect:4' }], [{ text: 'Veure Ravenloft', callbackData: 'schedule:inspect:6' }]],
   });
 });
 
@@ -742,7 +785,7 @@ test('handleTelegramScheduleText includes venue impact hints in the activity lis
   context.messageText = scheduleLabels.list;
 
   assert.equal(await handleTelegramScheduleText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Impacte local: Campionat regional \(ocupacio full, impacte high\)/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Impacte local:<\/b> Campionat regional \(ocupacio full, impacte high\)/);
 });
 
 test('handleTelegramScheduleCallback shows activity attendance and allows joining when seats remain', async () => {
@@ -772,9 +815,10 @@ test('handleTelegramScheduleCallback shows activity attendance and allows joinin
   const handled = await handleTelegramScheduleCallback(context);
 
   assert.equal(handled, true);
-  assert.match(replies.at(-1)?.message ?? '', /Assistents: Ada \(@ada\)/);
-  assert.match(replies.at(-1)?.message ?? '', /Places ocupades: 1\/3/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\)/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Places ocupades:<\/b> 1\/3/);
   assert.deepEqual(replies.at(-1)?.options, {
+    parseMode: 'HTML',
     inlineKeyboard: [[{ text: 'Apuntar-me', callbackData: 'schedule:join:6' }]],
   });
 });
@@ -820,7 +864,7 @@ test('handleTelegramScheduleCallback shows overlapping venue event context in th
   context.callbackData = `${scheduleCallbackPrefixes.inspect}16`;
 
   assert.equal(await handleTelegramScheduleCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Esdeveniments del local rellevants:/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Esdeveniments del local rellevants:<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /Campionat regional/);
   assert.match(replies.at(-1)?.message ?? '', /ocupacio full, impacte high/);
   assert.match(replies.at(-1)?.message ?? '', /Aixo no bloqueja automaticament l activitat/);
@@ -851,13 +895,13 @@ test('handleTelegramScheduleCallback joins and leaves an activity updating atten
 
   context.callbackData = `${scheduleCallbackPrefixes.join}12`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /T has apuntat correctament a Root/);
-  assert.match(replies.at(-1)?.message ?? '', /Assistents: Ada \(@ada\), Biel/);
+  assert.match(replies.at(-1)?.message ?? '', /T'has apuntat correctament a <b>Root<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\), Biel/);
 
   context.callbackData = `${scheduleCallbackPrefixes.leave}12`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Has sortit correctament de Root/);
-  assert.match(replies.at(-1)?.message ?? '', /Assistents: Ada \(@ada\)/);
+  assert.match(replies.at(-1)?.message ?? '', /Has sortit correctament de <b>Root<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\)/);
 });
 
 test('handleTelegramScheduleCallback lets an organizer edit their own activity', async () => {
@@ -971,7 +1015,7 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
   context.messageText = scheduleLabels.confirmCancel;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
-  assert.match(replies.at(-1)?.message ?? '', /Activitat cancel.lada correctament: Ark Nova/);
+  assert.match(replies.at(-1)?.message ?? '', /Activitat cancel.lada correctament: <b>Ark Nova<\/b>/);
 });
 
 test('handleTelegramScheduleText sends private conflict notifications after creating an overlapping activity', async () => {
