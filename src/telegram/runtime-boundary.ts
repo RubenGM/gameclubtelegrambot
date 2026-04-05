@@ -80,6 +80,7 @@ import {
 import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleText,
+  handleTelegramScheduleStartText,
   scheduleCallbackPrefixes,
 } from './schedule-flow.js';
 
@@ -749,6 +750,9 @@ function createDefaultCommands({
       access: 'public',
       description: 'Comprova que el bot esta actiu',
       handle: async (context) => {
+        if (await handleTelegramScheduleStartText({ ...context })) {
+          return;
+        }
         if (await handleTelegramCatalogAdminStartText({ ...context })) {
           return;
         }

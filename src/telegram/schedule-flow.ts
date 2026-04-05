@@ -42,6 +42,7 @@ import type { NewsGroupRepository } from '../news/news-group-catalog.js';
 const createFlowKey = 'schedule-create';
 const editFlowKey = 'schedule-edit';
 const cancelFlowKey = 'schedule-cancel';
+const scheduleStartPayloadPrefix = 'schedule_event_';
 
 export const scheduleCallbackPrefixes = {
   inspect: 'schedule:inspect:',
@@ -189,6 +190,20 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
   }
 
   return false;
+}
+
+export async function handleTelegramScheduleStartText(context: TelegramScheduleContext): Promise<boolean> {
+  const eventId = parseScheduleStartPayload(context.messageText);
+  if (eventId === null || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
+    return false;
+  }
+
+  const event = await loadEventOrThrow(context, eventId);
+  await context.reply(await formatScheduleEventView(context, event), {
+    ...buildScheduleDetailActionOptions(context, event, await isActorAttending(context, event.id)),
+    parseMode: 'HTML',
+  });
+  return true;
 }
 
 export async function handleTelegramScheduleCallback(context: TelegramScheduleContext): Promise<boolean> {
@@ -984,6 +999,20 @@ function formatScheduleListMessage(events: ScheduleEventRecord[]): string {
   }
 
   return lines.join('\n');
+}
+
+function parseScheduleStartPayload(messageText: string | undefined): number | null {
+  const payload = messageText?.trim().split(/\s+/).slice(1).join(' ');
+  if (!payload || !payload.startsWith(scheduleStartPayloadPrefix)) {
+    return null;
+  }
+
+  const eventId = Number(payload.slice(scheduleStartPayloadPrefix.length));
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    return null;
+  }
+
+  return eventId;
 }
 
 function buildScheduleDayButtons(events: ScheduleEventRecord[], language: string): NonNullable<TelegramReplyOptions['inlineKeyboard']> {

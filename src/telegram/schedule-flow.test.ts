@@ -11,6 +11,7 @@ import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import {
   handleTelegramScheduleCallback,
+  handleTelegramScheduleStartText,
   handleTelegramScheduleText,
   scheduleCallbackPrefixes,
   scheduleLabels,
@@ -451,6 +452,34 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
       persistentKeyboard: true,
     },
   });
+});
+
+test('handleTelegramScheduleStartText opens an activity detail from a deep link payload', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Wingspan',
+      description: 'Ocells i engines',
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository });
+
+  context.messageText = '/start schedule_event_4';
+  assert.equal(await handleTelegramScheduleStartText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Wingspan<\/b>/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar activitat'));
 });
 
 test('handleTelegramScheduleText creates an activity through keyboard-guided conversation steps', async () => {

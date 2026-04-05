@@ -4,9 +4,11 @@ import { createDatabaseVenueEventRepository } from '../venue-events/venue-event-
 import { listVenueEvents, type VenueEventRecord, type VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
 import type { ClubTableRepository } from '../tables/table-catalog.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 
 export type CalendarEntry =
   | {
+      id: number;
       kind: 'schedule';
       startsAt: string;
       endsAt: string;
@@ -49,6 +51,7 @@ export async function loadUpcomingCalendarEntries({
     scheduleEvents.map(async (event) => {
       const tableName = event.tableId ? await loadTableName(database, tableRepository, tableNames, event.tableId) : null;
       return {
+        id: event.id,
         kind: 'schedule' as const,
         startsAt: event.startsAt,
         endsAt: getScheduleEventEndsAt(event),
@@ -98,7 +101,7 @@ function formatCalendarEntry(entry: CalendarEntry): string {
 
   if (entry.kind === 'schedule') {
     const tableSuffix = entry.tableName ? ` · Taula ${escapeHtml(entry.tableName)}` : '';
-    return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} ${escapeHtml(entry.title)} · ${entry.capacity}p${tableSuffix}${descriptionLine}`;
+    return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${entry.id}`))}"><b>${escapeHtml(entry.title)}</b></a> · ${entry.capacity}p${tableSuffix}${descriptionLine}`;
   }
 
   if (entry.allDay) {

@@ -10,6 +10,7 @@ import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { resolveTelegramActionMenu } from './action-menu.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 
 export const calendarLabels = {
   openMenu: 'Calendari',
@@ -78,6 +79,7 @@ async function loadUpcomingCalendarEntries(context: TelegramCalendarContext): Pr
     scheduleEvents.map(async (event) => {
       const tableName = event.tableId ? await loadTableName(context, event.tableId, tableNames) : null;
       return {
+        id: event.id,
         kind: 'schedule' as const,
         startsAt: event.startsAt,
         endsAt: getScheduleEventEndsAt(event),
@@ -127,7 +129,7 @@ function formatCalendarEntry(entry: CalendarEntry): string {
 
   if (entry.kind === 'schedule') {
     const tableSuffix = entry.tableName ? ` · Taula ${escapeHtml(entry.tableName)}` : '';
-    return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} ${escapeHtml(entry.title)} · ${entry.capacity}p${tableSuffix}${descriptionLine}`;
+    return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${entry.id}`))}"><b>${escapeHtml(entry.title)}</b></a> · ${entry.capacity}p${tableSuffix}${descriptionLine}`;
   }
 
   if (entry.allDay) {
@@ -248,5 +250,5 @@ interface CalendarEntryBase {
 }
 
 type CalendarEntry =
-  | (CalendarEntryBase & { kind: 'schedule'; tableName: string | null; capacity: number })
+  | (CalendarEntryBase & { id: number; kind: 'schedule'; tableName: string | null; capacity: number })
   | (CalendarEntryBase & { kind: 'venue'; allDay: boolean });

@@ -29,6 +29,7 @@ import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { buildLoanDetailButtons, buildLoanItemButton, formatLoanAvailabilityLines, resolveLoanBorrowerDisplayName, type TelegramCatalogLoanContext } from './catalog-loan-flow.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 import {
   escapeHtml,
   formatCatalogDescriptionLine,
@@ -49,7 +50,6 @@ const deactivateFlowKey = 'catalog-admin-deactivate';
 const mediaFlowKey = 'catalog-admin-media';
 const mediaDeleteFlowKey = 'catalog-admin-media-delete';
 const browseFlowKey = 'catalog-admin-browse';
-const catalogAdminDeepLinkUsername = 'cawatest_bot';
 const catalogAdminStartPayloadPrefix = 'catalog_admin_item_';
 
 export const catalogAdminCallbackPrefixes = {
@@ -1615,7 +1615,7 @@ async function formatCatalogListItemLine(
 }
 
 function buildCatalogAdminItemDeepLink(itemId: number): string {
-  return `https://t.me/${catalogAdminDeepLinkUsername}?start=${catalogAdminStartPayloadPrefix}${itemId}`;
+  return buildTelegramStartUrl(`${catalogAdminStartPayloadPrefix}${itemId}`);
 }
 
 function parseCatalogAdminStartPayload(messageText: string | undefined): number | null {
