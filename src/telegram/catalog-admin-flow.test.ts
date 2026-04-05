@@ -333,6 +333,11 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /tria una categoria o cerca per nom/);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
+    [catalogAdminLabels.create, catalogAdminLabels.list],
+    [catalogAdminLabels.edit, catalogAdminLabels.deactivate],
+    [catalogAdminLabels.start],
+  ]);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Cerca per nom'));
 });
 
@@ -367,31 +372,34 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
     async importByTitle(title) {
       importCalls.push(title);
       return {
-        familyId: null,
-        groupId: null,
-        itemType: 'board-game',
-        displayName: 'Root',
-        originalName: 'Root',
-        description: null,
-        language: null,
-        publisher: 'Dire Wolf',
-        publicationYear: 2024,
-        playerCountMin: 1,
-        playerCountMax: 4,
-        recommendedAge: null,
-        playTimeMinutes: 60,
-        externalRefs: {
-          wikipediaUrl: 'https://en.wikipedia.org/wiki/Root_(board_game)',
-        },
-        metadata: {
-          source: 'wikipedia',
-          wikipediaUrl: 'https://en.wikipedia.org/wiki/Root_(board_game)',
-          wikidataId: 'Q36910373',
-          designers: ['Cole Wehrle'],
-          illustrators: ['Kyle Ferrin'],
-          genres: ['Board game'],
-          notes: [],
-          editionType: null,
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: 'Root',
+          originalName: 'Root',
+          description: null,
+          language: null,
+          publisher: 'Dire Wolf',
+          publicationYear: 2024,
+          playerCountMin: 1,
+          playerCountMax: 4,
+          recommendedAge: null,
+          playTimeMinutes: 60,
+          externalRefs: {
+            wikipediaUrl: 'https://en.wikipedia.org/wiki/Root_(board_game)',
+          },
+          metadata: {
+            source: 'wikipedia',
+            wikipediaUrl: 'https://en.wikipedia.org/wiki/Root_(board_game)',
+            wikidataId: 'Q36910373',
+            designers: ['Cole Wehrle'],
+            illustrators: ['Kyle Ferrin'],
+            genres: ['Board game'],
+            notes: [],
+            editionType: null,
+          },
         },
       };
     },
@@ -406,34 +414,19 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
 
   context.messageText = 'Root';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.match(replies.at(-3)?.message ?? '', /Buscant a Wikipedia/);
+  assert.match(replies.at(-2)?.message ?? '', /Seleccionant la millor opcio/);
   assert.match(replies.at(-1)?.message ?? '', /He importat dades de Wikipedia/);
-  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Arkham Horror');
-  assert.equal(getCurrentSession()?.stepKey, 'family');
-  assert.deepEqual(importCalls, ['Root']);
-
-  context.messageText = 'Forest Shuffle';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.equal(getCurrentSession()?.stepKey, 'group');
-
-  context.messageText = catalogAdminLabels.noGroup;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-
-  assert.equal(getCurrentSession()?.stepKey, "confirm");
-  context.messageText = catalogAdminLabels.confirmCreate;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-
-  assert.equal(getCurrentSession()?.stepKey, 'select-field');
-  assert.match(replies.at(-1)?.message ?? '', /Ara el pots editar camp a camp/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Resum de l item:<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Nom:<\/b>/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], catalogAdminLabels.editFieldDisplayName);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  assert.deepEqual(importCalls, ['Root']);
 
   context.messageText = catalogAdminLabels.editFieldPublisher;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'Devir';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-
-  context.messageText = catalogAdminLabels.confirmEdit;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.equal(getCurrentSession()?.stepKey, 'confirm');
 
   context.messageText = catalogAdminLabels.confirmEdit;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
@@ -443,12 +436,34 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
   const created = await repository.findItemById(1);
   assert.equal(created?.displayName, 'Root');
   assert.equal(created?.itemType, 'board-game');
-  const createdFamily = (await repository.listFamilies()).find((family) => family.displayName === 'Forest Shuffle');
-  assert.ok(createdFamily);
-  assert.equal(created?.familyId, createdFamily?.id);
+  assert.equal(created?.familyId, null);
   assert.equal(created?.groupId, null);
   assert.equal(created?.publisher, 'Devir');
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.updated');
+});
+
+test('handleTelegramCatalogAdminText shows a simple error when Wikipedia import fails', async () => {
+  const repository = createRepository();
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle() {
+      return {
+        ok: false,
+        error: { type: 'connection', message: 'down' },
+      };
+    },
+  };
+  const { context, replies, getCurrentSession } = createContext({ repository, wikipediaBoardGameImportService });
+
+  context.messageText = catalogAdminLabels.create;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.typeBoardGame;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Unknown Game';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.match(replies.at(-2)?.message ?? '', /Buscant a Wikipedia/);
+  assert.match(replies.at(-1)?.message ?? '', /No he pogut connectar amb Wikipedia/);
+  assert.equal(getCurrentSession()?.stepKey, 'family');
 });
 
 test('handleTelegramCatalogAdminText creates a regular book through lookup first and then family by name', async () => {
@@ -1041,39 +1056,37 @@ test('handleTelegramCatalogAdminCallback edits items through a field menu and de
   delete context.callbackData;
   assert.match(replies.at(-1)?.message ?? '', /Quin camp vols editar primer/);
 
-  context.messageText = 'Nom visible';
+  context.messageText = catalogAdminLabels.editFieldDisplayName;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'Root Deluxe';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  context.messageText = 'Editorial';
+  context.messageText = catalogAdminLabels.editFieldPublisher;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'Leder Games';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  context.messageText = 'Edat recomanada';
+  context.messageText = catalogAdminLabels.editFieldRecommendedAge;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '10';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  context.messageText = 'Durada';
+  context.messageText = catalogAdminLabels.editFieldPlayTimeMinutes;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '90';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  context.messageText = 'Referencies externes';
+  context.messageText = catalogAdminLabels.editFieldExternalRefs;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '{"bggId":1234}';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  context.messageText = 'Metadata';
+  context.messageText = catalogAdminLabels.editFieldMetadata;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '{"complexity":"medium"}';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   context.messageText = 'Guardar canvis';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = catalogAdminLabels.confirmEdit;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.equal((await repository.findItemById(3))?.displayName, 'Root Deluxe');
@@ -1132,8 +1145,6 @@ test('handleTelegramCatalogAdminText skips player prompts for books and clears l
   context.messageText = 'Guardar canvis';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Jugadors:/);
-  context.messageText = catalogAdminLabels.confirmEdit;
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.equal((await repository.findItemById(5))?.playerCountMin, null);
   assert.equal((await repository.findItemById(5))?.playerCountMax, null);

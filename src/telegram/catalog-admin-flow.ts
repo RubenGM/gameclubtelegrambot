@@ -24,7 +24,7 @@ import {
   type CatalogItemType,
   type CatalogRepository,
 } from '../catalog/catalog-model.js';
-import type { WikipediaBoardGameCatalogDraft, WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import type { WikipediaBoardGameImportResult, WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
@@ -325,15 +325,57 @@ async function handleCreateSession(
     const itemType = String(data.itemType) as CatalogItemType;
     const nextData = { ...data, displayName: text };
     if (itemType === 'board-game') {
-      const importedDraft = await importWikipediaBoardGameDraft(context, text);
-      const importedData = importedDraft ? { ...nextData, ...importedDraft, itemType: 'board-game' as const, displayName: importedDraft.displayName || text } : nextData;
-      await context.runtime.session.advance({ stepKey: 'family', data: importedData });
-      await context.reply(
-        importedDraft
-          ? `He importat dades de Wikipedia per ${importedData.displayName}. Ara tria la familia.`
-          : await buildFamilyPrompt(context, itemType),
-        await buildFamilyOptions(context, itemType),
-      );
+      await context.reply('Buscant a Wikipedia el joc i la millor coincidencia...', buildSingleCancelKeyboard());
+      const importResult = await importWikipediaBoardGameDraft(context, text);
+      if (importResult.ok) {
+        const importedData = {
+          ...nextData,
+          ...importResult.draft,
+          itemType: 'board-game' as const,
+          displayName: importResult.draft.displayName || text,
+        };
+        const item = await createCatalogItem({
+          repository: resolveCatalogRepository(context),
+          familyId: importedData.familyId,
+          groupId: importedData.groupId,
+          itemType: importedData.itemType,
+          displayName: importedData.displayName,
+          originalName: importedData.originalName,
+          description: importedData.description,
+          language: importedData.language,
+          publisher: importedData.publisher,
+          publicationYear: importedData.publicationYear,
+          playerCountMin: importedData.playerCountMin,
+          playerCountMax: importedData.playerCountMax,
+          recommendedAge: importedData.recommendedAge,
+          playTimeMinutes: importedData.playTimeMinutes,
+          externalRefs: importedData.externalRefs,
+          metadata: importedData.metadata,
+        });
+        await appendAuditEvent({
+          repository: resolveAuditRepository(context),
+          actorTelegramUserId: context.runtime.actor.telegramUserId,
+          actionKey: 'catalog.item.created',
+          targetType: 'catalog-item',
+          targetId: item.id,
+          summary: `Item de cataleg creat: ${item.displayName}`,
+          details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
+        });
+        await context.runtime.session.start({
+          flowKey: editFlowKey,
+          stepKey: 'select-field',
+          data: { itemId: item.id },
+        });
+        await context.reply('Seleccionant la millor opcio i descarregant els detalls finals...', buildEditFieldMenuOptions(item.itemType));
+        await context.reply(
+          `He importat dades de Wikipedia per ${item.displayName}.\n\n${await formatDraftSummary(context, importedData)}\n\nTria un camp del teclat o guarda els canvis quan hagis acabat.`,
+          { ...buildEditFieldMenuOptions(item.itemType), parseMode: 'HTML' },
+        );
+        return true;
+      }
+
+      await context.runtime.session.advance({ stepKey: 'family', data: nextData });
+      await context.reply(importWikipediaErrorMessage(importResult), await buildFamilyOptions(context, itemType));
       return true;
     }
     const lookupCandidates = await searchCatalogLookupCandidates(context, {
@@ -441,7 +483,7 @@ async function handleCreateSession(
       await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
       await context.reply(`${await formatDraftSummary(context, nextData)}
 
-Tria una opcio per confirmar o cancel.lar.`, buildCreateConfirmOptions());
+Tria una opcio per confirmar o cancel.lar.`, { ...buildCreateConfirmOptions(), parseMode: 'HTML' });
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'original-name', data: nextData });
@@ -567,19 +609,19 @@ Tria una opcio per confirmar o cancel.lar.`, buildCreateConfirmOptions());
     await context.reply('Escriu metadata addicional en JSON o tria una opcio del teclat.', buildCreateOptionalKeyboard(asNullableObject(data.metadata)));
     return true;
   }
-  if (stepKey === 'metadata') {
-    const metadata = text === catalogAdminLabels.keepCurrent ? asNullableObject(data.metadata) : parseOptionalJsonObject(text);
-    if (metadata instanceof Error) {
-      await context.reply('La metadata ha de ser un objecte JSON valid o omet el camp.', buildCreateOptionalKeyboard(asNullableObject(data.metadata)));
-      return true;
-    }
-    const nextData = { ...data, metadata };
-    await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(`${await formatDraftSummary(context, nextData)}
+    if (stepKey === 'metadata') {
+      const metadata = text === catalogAdminLabels.keepCurrent ? asNullableObject(data.metadata) : parseOptionalJsonObject(text);
+      if (metadata instanceof Error) {
+        await context.reply('La metadata ha de ser un objecte JSON valid o omet el camp.', buildCreateOptionalKeyboard(asNullableObject(data.metadata)));
+        return true;
+      }
+      const nextData = { ...data, metadata };
+      await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
+      await context.reply(`${await formatDraftSummary(context, nextData)}
 
 Tria una opcio per confirmar o cancel.lar.`, buildCreateConfirmOptions());
-    return true;
-  }
+      return true;
+    }
   if (stepKey === 'confirm') {
     if (text !== catalogAdminLabels.confirmCreate) {
       await context.reply('Per guardar l item, tria el boto de confirmacio o cancel.la el flux.', buildCreateConfirmOptions());
@@ -641,10 +683,7 @@ async function handleEditSession(
   const item = await loadItemOrThrow(context, itemId);
   if (stepKey === 'select-field') {
     if (text === catalogAdminLabels.confirmEdit) {
-      await context.runtime.session.advance({ stepKey: 'confirm', data });
-      await context.reply(`${await formatDraftSummary(context, buildCatalogItemDraft(item, data))}
-
-Tria una opcio per confirmar o cancel.lar.`, buildEditConfirmOptions());
+      await saveEditDraftAndReturn(context, item, data);
       return true;
     }
     const currentItemType = getDraftItemType(item, data);
@@ -817,51 +856,6 @@ Tria una opcio per confirmar o cancel.lar.`, buildEditConfirmOptions());
       return true;
     }
     return updateEditDraftAndReturn(context, item, data, { metadata });
-  }
-  if (stepKey === 'confirm') {
-    if (text !== catalogAdminLabels.confirmEdit) {
-      await context.reply('Per guardar els canvis, tria el boto de confirmacio o cancel.la el flux.', buildEditConfirmOptions());
-      return true;
-    }
-    const draft = buildCatalogItemDraft(item, data);
-    const updated = await updateCatalogItem({
-      repository: resolveCatalogRepository(context),
-      itemId,
-      familyId: draft.familyId,
-      groupId: draft.groupId,
-      itemType: draft.itemType,
-      displayName: draft.displayName,
-      originalName: draft.originalName,
-      description: draft.description,
-      language: draft.language,
-      publisher: draft.publisher,
-      publicationYear: draft.publicationYear,
-      playerCountMin: draft.playerCountMin,
-      playerCountMax: draft.playerCountMax,
-      recommendedAge: draft.recommendedAge,
-      playTimeMinutes: draft.playTimeMinutes,
-      externalRefs: draft.externalRefs,
-      metadata: draft.metadata,
-    });
-    await appendAuditEvent({
-      repository: resolveAuditRepository(context),
-      actorTelegramUserId: context.runtime.actor.telegramUserId,
-      actionKey: 'catalog.item.updated',
-      targetType: 'catalog-item',
-      targetId: updated.id,
-      summary: `Item de cataleg actualitzat: ${updated.displayName}`,
-      details: {
-        previousDisplayName: item.displayName,
-        displayName: updated.displayName,
-        previousFamilyId: item.familyId,
-        familyId: updated.familyId,
-        previousGroupId: item.groupId,
-        groupId: updated.groupId,
-      },
-    });
-    await context.runtime.session.cancel();
-    await context.reply(`Item de cataleg actualitzat correctament: ${updated.displayName} (#${updated.id}).`, buildCatalogAdminMenuOptions());
-    return true;
   }
   return false;
 }
@@ -1242,8 +1236,9 @@ async function showCatalogBrowseMenu(context: TelegramCatalogAdminContext): Prom
   ];
 
   await context.reply(lines.join('\n'), {
-      inlineKeyboard: [
-        ...families.map((family) => [{
+    ...buildCatalogAdminMenuOptions(),
+    inlineKeyboard: [
+      ...families.map((family) => [{
         text: family.displayName,
         callbackData: `${catalogAdminCallbackPrefixes.browseFamily}${family.id}`,
       }]),
@@ -1412,6 +1407,52 @@ async function updateEditDraftAndReturn(
   return true;
 }
 
+async function saveEditDraftAndReturn(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const draft = buildCatalogItemDraft(item, data);
+  const updated = await updateCatalogItem({
+    repository: resolveCatalogRepository(context),
+    itemId: item.id,
+    familyId: draft.familyId,
+    groupId: draft.groupId,
+    itemType: draft.itemType,
+    displayName: draft.displayName,
+    originalName: draft.originalName,
+    description: draft.description,
+    language: draft.language,
+    publisher: draft.publisher,
+    publicationYear: draft.publicationYear,
+    playerCountMin: draft.playerCountMin,
+    playerCountMax: draft.playerCountMax,
+    recommendedAge: draft.recommendedAge,
+    playTimeMinutes: draft.playTimeMinutes,
+    externalRefs: draft.externalRefs,
+    metadata: draft.metadata,
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'catalog.item.updated',
+    targetType: 'catalog-item',
+    targetId: updated.id,
+    summary: `Item de cataleg actualitzat: ${updated.displayName}`,
+    details: {
+      previousDisplayName: item.displayName,
+      displayName: updated.displayName,
+      previousFamilyId: item.familyId,
+      familyId: updated.familyId,
+      previousGroupId: item.groupId,
+      groupId: updated.groupId,
+    },
+  });
+  await context.runtime.session.cancel();
+  await context.reply(`Item de cataleg actualitzat correctament: ${updated.displayName} (#${updated.id}).`, buildCatalogAdminMenuOptions());
+  return true;
+}
+
 async function withCompatibleGroup(
   context: TelegramCatalogAdminContext,
   item: CatalogItemRecord,
@@ -1536,23 +1577,23 @@ async function formatDraftSummary(context: TelegramCatalogAdminContext, data: Re
   const groupName = await loadGroupName(context, asNullableNumber(data.groupId));
   const itemType = String(data.itemType ?? 'board-game') as CatalogItemType;
   return [
-    'Resum de l item:',
-    `- Nom: ${String(data.displayName ?? '')}`,
-    `- Tipus: ${renderCatalogItemType(itemType)}`,
-    `- Familia: ${familyName ?? 'Sense familia'}`,
-    `- Grup: ${groupName ?? 'Sense grup'}`,
-    `- Nom original: ${asNullableString(data.originalName) ?? 'Sense valor'}`,
-    `- Descripcio: ${asNullableString(data.description) ?? 'Sense descripcio'}`,
-    `- Llengua: ${asNullableString(data.language) ?? 'Sense valor'}`,
-    `- Editorial: ${asNullableString(data.publisher) ?? 'Sense valor'}`,
-    `- Any publicacio: ${asNullableNumber(data.publicationYear) ?? 'Sense valor'}`,
+    '<b>Resum de l item:</b>',
+    formatHtmlField('Nom', escapeHtml(String(data.displayName ?? ''))),
+    formatHtmlField('Tipus', escapeHtml(renderCatalogItemType(itemType))),
+    formatHtmlField('Familia', escapeHtml(familyName ?? 'Sense familia')),
+    formatHtmlField('Grup', escapeHtml(groupName ?? 'Sense grup')),
+    formatHtmlField('Nom original', escapeHtml(asNullableString(data.originalName) ?? 'Sense valor')),
+    formatHtmlField('Descripcio', escapeHtml(asNullableString(data.description) ?? 'Sense descripcio')),
+    formatHtmlField('Llengua', escapeHtml(asNullableString(data.language) ?? 'Sense valor')),
+    formatHtmlField('Editorial', escapeHtml(asNullableString(data.publisher) ?? 'Sense valor')),
+    formatHtmlField('Any publicacio', escapeHtml(String(asNullableNumber(data.publicationYear) ?? 'Sense valor'))),
     ...(itemTypeSupportsPlayers(itemType)
-      ? [`- Jugadors: ${renderCatalogPlayerRange(asNullableNumber(data.playerCountMin), asNullableNumber(data.playerCountMax))}`]
+      ? [formatHtmlField('Jugadors', escapeHtml(renderCatalogPlayerRange(asNullableNumber(data.playerCountMin), asNullableNumber(data.playerCountMax))))]
       : []),
-    `- Edat recomanada: ${asNullableNumber(data.recommendedAge) ?? 'Sense valor'}`,
-    `- Durada: ${asNullableNumber(data.playTimeMinutes) ?? 'Sense valor'}`,
-    `- Referencies externes: ${renderCatalogOptionalObject(asNullableObject(data.externalRefs))}`,
-    `- Metadata: ${renderCatalogOptionalObject(asNullableObject(data.metadata))}`,
+    formatHtmlField('Edat recomanada', escapeHtml(String(asNullableNumber(data.recommendedAge) ?? 'Sense valor'))),
+    formatHtmlField('Durada', escapeHtml(String(asNullableNumber(data.playTimeMinutes) ?? 'Sense valor'))),
+    formatHtmlField('Referencies externes', escapeHtml(renderCatalogOptionalObject(asNullableObject(data.externalRefs)))),
+    formatHtmlField('Metadata', escapeHtml(renderCatalogOptionalObject(asNullableObject(data.metadata)))),
   ].join('\n');
 }
 
@@ -2113,10 +2154,28 @@ function resolveWikipediaBoardGameImportService(context: TelegramCatalogAdminCon
 async function importWikipediaBoardGameDraft(
   context: TelegramCatalogAdminContext,
   title: string,
-): Promise<WikipediaBoardGameCatalogDraft | null> {
+): Promise<WikipediaBoardGameImportResult> {
   try {
     return await resolveWikipediaBoardGameImportService(context).importByTitle(title);
   } catch {
-    return null;
+    return {
+      ok: false,
+      error: {
+        type: 'connection',
+        message: 'No he pogut connectar amb Wikipedia en aquest moment.',
+      },
+    };
   }
+}
+
+function importWikipediaErrorMessage(result: Extract<WikipediaBoardGameImportResult, { ok: false }>): string {
+  if (result.error.type === 'not-found') {
+    return 'No he trobat aquest joc a Wikipedia. Continuem manualment.';
+  }
+
+  if (result.error.type === 'connection') {
+    return 'No he pogut connectar amb Wikipedia. Continuem manualment.';
+  }
+
+  return 'No he pogut importar les dades de Wikipedia. Continuem manualment.';
 }

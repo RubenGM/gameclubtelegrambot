@@ -32,6 +32,7 @@ import {
   type TelegramActor,
 } from './actor-store.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
+import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import {
   approveMembershipRequest,
   listPendingMembershipRequests,
@@ -127,6 +128,7 @@ export interface TelegramRuntime {
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
+  wikipediaBoardGameImportService: ReturnType<typeof createWikipediaBoardGameImportService>;
   chat?: TelegramChatContext;
   actor?: TelegramActor;
   authorization?: ReturnType<typeof createAuthorizationService>;
@@ -445,6 +447,7 @@ function createRuntimeContextMiddleware({
         ...(bot.sendGroupMessage ? { sendGroupMessage: bot.sendGroupMessage.bind(bot) } : {}),
       },
       services,
+      wikipediaBoardGameImportService: createWikipediaBoardGameImportService(),
     };
 
     await next();
