@@ -44,6 +44,7 @@ export const scheduleCallbackPrefixes = {
   inspect: 'schedule:inspect:',
   join: 'schedule:join:',
   leave: 'schedule:leave:',
+  day: 'schedule:day:',
   selectEdit: 'schedule:select_edit:',
   selectCancel: 'schedule:select_cancel:',
   tableSelection: 'schedule:table:',
@@ -227,6 +228,12 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
       `Has sortit correctament de <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
       { ...buildScheduleDetailActionOptions(context, event, false), parseMode: 'HTML' },
     );
+    return true;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.day)) {
+    const dayKey = parseDayKey(callbackData, scheduleCallbackPrefixes.day);
+    await replyWithInspectableEventList(context, { dayKey });
     return true;
   }
 
@@ -968,6 +975,11 @@ function formatScheduleListMessage(events: ScheduleEventRecord[]): string {
   return lines.join('\n');
 }
 
+function buildScheduleDayButtons(events: ScheduleEventRecord[], language: string): NonNullable<TelegramReplyOptions['inlineKeyboard']> {
+  const dayKeys = Array.from(new Set(events.map((event) => event.startsAt.slice(0, 10))));
+  return dayKeys.map((dayKey) => [{ text: formatScheduleDayButtonLabel(dayKey, language), callbackData: `${scheduleCallbackPrefixes.day}${dayKey}` }]);
+}
+
 function formatScheduleEventDetails({ event, tableName }: { event: ScheduleEventRecord; tableName: string | null }): string {
   return [
     `<b>${escapeHtml(event.title)}</b>`,
@@ -1031,7 +1043,7 @@ function buildScheduleDetailActionOptions(context: TelegramScheduleContext, even
 
 async function replyWithInspectableEventList(
   context: TelegramScheduleContext,
-  options: { includeMenuKeyboard?: boolean } = {},
+  options: { includeMenuKeyboard?: boolean; dayKey?: string } = {},
 ): Promise<boolean> {
   const events = await loadUpcomingScheduleEvents(context);
   if (events.length === 0) {
@@ -1039,13 +1051,23 @@ async function replyWithInspectableEventList(
     return true;
   }
 
-  const listMessage = await formatScheduleListWithVenueImpact(context, events);
+  const dayKey = options.dayKey;
+  const filteredEvents = dayKey ? events.filter((event) => event.startsAt.startsWith(dayKey)) : events;
+  if (filteredEvents.length === 0) {
+    await context.reply('No hi ha activitats programades per aquest dia.', buildScheduleMenuOptions());
+    return true;
+  }
 
-  await context.reply(listMessage, {
-    parseMode: 'HTML',
-    inlineKeyboard: events.map((event) => [{ text: `Veure ${event.title}`, callbackData: `${scheduleCallbackPrefixes.inspect}${event.id}` }]),
-    ...(options.includeMenuKeyboard ? buildScheduleMenuOptions() : {}),
-  });
+  const listMessage = await formatScheduleListWithVenueImpact(context, filteredEvents);
+  const inlineKeyboard: NonNullable<TelegramReplyOptions['inlineKeyboard']> = dayKey
+    ? filteredEvents.map((event) => [{ text: `Veure ${event.title}`, callbackData: `${scheduleCallbackPrefixes.inspect}${event.id}` }])
+    : buildScheduleDayButtons(filteredEvents, resolveBotLanguage(context));
+
+  if (options.includeMenuKeyboard) {
+    await context.reply(listMessage, { parseMode: 'HTML', inlineKeyboard, ...buildScheduleMenuOptions() });
+  } else {
+    await context.reply(listMessage, { parseMode: 'HTML', inlineKeyboard });
+  }
   return true;
 }
 
@@ -1224,6 +1246,20 @@ function parseEntityId(callbackData: string, prefix: string, kind: string): numb
     throw new Error(`No s ha pogut identificar la ${kind} seleccionada.`);
   }
   return candidate;
+}
+
+function parseDayKey(callbackData: string, prefix: string): string {
+  const dayKey = callbackData.slice(prefix.length);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+    throw new Error('No s ha pogut identificar el dia seleccionat.');
+  }
+  return dayKey;
+}
+
+function formatScheduleDayButtonLabel(dayKey: string, language: string): string {
+  const date = new Date(`${dayKey}T00:00:00.000Z`);
+  const weekday = new Intl.DateTimeFormat(resolveLanguageLocale(language), { weekday: 'long', timeZone: 'UTC' }).format(date);
+  return `Veure ${capitalizeFirstLetter(weekday)} ${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function parseTableSelection(callbackData: string): number | null {

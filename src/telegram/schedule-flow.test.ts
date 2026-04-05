@@ -395,7 +395,7 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
     message: '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 0/3 participants\n  <i>Ocells i engines</i>',
     options: {
       parseMode: 'HTML',
-      inlineKeyboard: [[{ text: 'Veure Wingspan', callbackData: 'schedule:inspect:4' }]],
+      inlineKeyboard: [[{ text: 'Veure Diumenge 05/04', callbackData: 'schedule:day:2026-04-05' }]],
       replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['/start', '/help']],
       resizeKeyboard: true,
       persistentKeyboard: true,
@@ -766,6 +766,72 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
   assert.equal(handled, true);
   assert.equal(scheduleRepository.__cancelledEventIds.includes(5), true);
   assert.equal(replies.at(-1)?.message, '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 1/3 participants\n  <i>Ocells i engines</i>\n- <b>Ravenloft</b> (18:30) · 1/4 participants\n  <i>Cementiri i vampirs</i>');
+  assert.deepEqual(replies.at(-1)?.options, {
+    parseMode: 'HTML',
+    inlineKeyboard: [[{ text: 'Veure Diumenge 05/04', callbackData: 'schedule:day:2026-04-05' }]],
+  });
+});
+
+test('handleTelegramScheduleCallback opens a selected day with activity buttons', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Wingspan',
+      description: 'Ocells i engines',
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+    {
+      id: 6,
+      title: 'Ravenloft',
+      description: 'Cementiri i vampirs',
+      startsAt: '2026-04-05T18:30:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+    {
+      id: 7,
+      title: 'Blood Bowl',
+      description: null,
+      startsAt: '2026-04-06T15:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 2,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+
+  context.callbackData = `${scheduleCallbackPrefixes.day}2026-04-05`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+
+  assert.equal(replies.at(-1)?.message, '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 0/3 participants\n  <i>Ocells i engines</i>\n- <b>Ravenloft</b> (18:30) · 0/4 participants\n  <i>Cementiri i vampirs</i>');
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
     inlineKeyboard: [[{ text: 'Veure Wingspan', callbackData: 'schedule:inspect:4' }], [{ text: 'Veure Ravenloft', callbackData: 'schedule:inspect:6' }]],
