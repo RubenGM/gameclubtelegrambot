@@ -31,6 +31,7 @@ import {
   createDatabaseTelegramActorStore,
   type TelegramActor,
 } from './actor-store.js';
+import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import {
   approveMembershipRequest,
   listPendingMembershipRequests,
@@ -180,7 +181,14 @@ export async function createTelegramBoundary({
   config,
   services,
   logger,
-  isNewsEnabledGroup = async () => false,
+  isNewsEnabledGroup = async ({ chatId, services: runtimeServices }) => {
+    const database = runtimeServices.database.db as { select?: unknown } | undefined;
+    if (typeof database?.select !== 'function') {
+      return false;
+    }
+
+    return createDatabaseNewsGroupRepository({ database: runtimeServices.database.db }).isNewsEnabledGroup(chatId);
+  },
   loadActor = ({ telegramUserId, services: runtimeServices }) =>
     createDatabaseTelegramActorStore({ database: runtimeServices.database.db }).loadActor(telegramUserId),
   createConversationSessionStore = ({ services: runtimeServices }) =>

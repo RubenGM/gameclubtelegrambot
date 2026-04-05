@@ -255,3 +255,38 @@ export const venueEvents = pgTable('venue_events', {
   cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
   cancellationReason: text('cancellation_reason'),
 });
+
+export const newsGroups = pgTable(
+  'news_groups',
+  {
+    chatId: bigint('chat_id', { mode: 'number' }).primaryKey(),
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    metadata: jsonb('metadata'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    enabledAt: timestamp('enabled_at', { withTimezone: true }),
+    disabledAt: timestamp('disabled_at', { withTimezone: true }),
+  },
+  (table) => ({
+    enabledLookup: index('news_groups_is_enabled_idx').on(table.isEnabled),
+  }),
+);
+
+export const newsGroupSubscriptions = pgTable(
+  'news_group_subscriptions',
+  {
+    chatId: bigint('chat_id', { mode: 'number' })
+      .notNull()
+      .references(() => newsGroups.chatId),
+    categoryKey: varchar('category_key', { length: 128 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueSubscription: uniqueIndex('news_group_subscriptions_unique_subscription').on(
+      table.chatId,
+      table.categoryKey,
+    ),
+    categoryLookup: index('news_group_subscriptions_category_key_idx').on(table.categoryKey),
+  }),
+);

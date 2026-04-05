@@ -13,32 +13,34 @@ test('createDatabaseScheduleRepository lists only scheduled events by default', 
     database: {
       select: () => ({
         from: (table: { [key: string]: unknown }) => ({
-          where: async () => {
-            if ((table as unknown) !== scheduleEventsTable) {
-              throw new Error('unexpected table');
-            }
+          where: () => ({
+            orderBy: async () => {
+              if ((table as unknown) !== scheduleEventsTable) {
+                throw new Error('unexpected table');
+              }
 
-            events.push('list:scheduled');
-            return [
-              {
-                id: 1,
-                title: 'Terraforming Mars',
-                description: null,
-                startsAt: new Date('2026-04-05T16:00:00.000Z'),
-                durationMinutes: 180,
-                organizerTelegramUserId: 42,
-                createdByTelegramUserId: 42,
-                tableId: null,
-                capacity: 5,
-                lifecycleStatus: 'scheduled',
-                createdAt: new Date('2026-04-04T10:00:00.000Z'),
-                updatedAt: new Date('2026-04-04T10:00:00.000Z'),
-                cancelledAt: null,
-                cancelledByTelegramUserId: null,
-                cancellationReason: null,
-              },
-            ];
-          },
+              events.push('list:scheduled');
+              return [
+                {
+                  id: 1,
+                  title: 'Terraforming Mars',
+                  description: null,
+                  startsAt: new Date('2026-04-05T16:00:00.000Z'),
+                  durationMinutes: 180,
+                  organizerTelegramUserId: 42,
+                  createdByTelegramUserId: 42,
+                  tableId: null,
+                  capacity: 5,
+                  lifecycleStatus: 'scheduled',
+                  createdAt: new Date('2026-04-04T10:00:00.000Z'),
+                  updatedAt: new Date('2026-04-04T10:00:00.000Z'),
+                  cancelledAt: null,
+                  cancelledByTelegramUserId: null,
+                  cancellationReason: null,
+                },
+              ];
+            },
+          }),
           orderBy: async () => {
             throw new Error('expected filtered listing to go through where()');
           },

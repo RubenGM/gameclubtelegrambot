@@ -234,6 +234,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:schedule:inspect:',
     'register:callback:schedule:join:',
     'register:callback:schedule:leave:',
+    'register:callback:schedule:day:',
     'register:callback:schedule:select_edit:',
     'register:callback:schedule:select_cancel:',
     'register:callback:schedule:table:',
@@ -282,6 +283,93 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
   assert.deepEqual(auditEvents, [{ actionKey: 'membership.approved', targetType: 'membership-user', targetId: '42' }]);
 });
 
+test('createTelegramBoundary marks configured news groups as group-news chats', async () => {
+  const events: string[] = [];
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createNewsGroupDatabaseStub() as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: () => {},
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: -200,
+              type: 'group',
+            },
+            from: {
+              id: 42,
+            },
+            reply: async () => {},
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              events.push(`chat-kind:${context.runtime?.chat?.kind ?? 'missing'}`);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.deepEqual(events, ['chat-kind:group-news']);
+
+  await telegram.stop();
+});
+
 test('createTelegramBoundary registers member-facing table callbacks', async () => {
   const events: string[] = [];
 
@@ -294,7 +382,7 @@ test('createTelegramBoundary registers member-facing table callbacks', async () 
     services: {
       database: {
         pool: undefined as never,
-        db: undefined as never,
+        db: createEmptyScheduleDatabaseStub() as never,
         close: async () => {},
       },
     },
@@ -348,7 +436,7 @@ test('createTelegramBoundary replies with a safe message and clears session on u
     services: {
       database: {
         pool: undefined as never,
-        db: undefined as never,
+        db: createEmptyScheduleDatabaseStub() as never,
         close: async () => {},
       },
     },
@@ -537,7 +625,7 @@ test('cancel restores the default action menu after an active flow', async () =>
     services: {
       database: {
         pool: undefined as never,
-        db: undefined as never,
+        db: createEmptyScheduleDatabaseStub() as never,
         close: async () => {},
       },
     },
@@ -660,7 +748,7 @@ test('createTelegramBoundary routes plain text keyboard actions for admin table 
     services: {
       database: {
         pool: undefined as never,
-        db: undefined as never,
+        db: createEmptyScheduleDatabaseStub() as never,
         close: async () => {},
       },
     },
@@ -765,7 +853,7 @@ test('createTelegramBoundary routes plain text keyboard actions for schedule man
     services: {
       database: {
         pool: undefined as never,
-        db: undefined as never,
+        db: createEmptyScheduleDatabaseStub() as never,
         close: async () => {},
       },
     },
@@ -848,7 +936,7 @@ test('createTelegramBoundary routes plain text keyboard actions for schedule man
   assert.equal(telegram.status.bot, 'connected');
   assert.deepEqual(replies, [
     {
-      message: 'Gestio d activitats: tria una accio.',
+      message: 'No hi ha activitats programades ara mateix.',
       options: {
         replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['/start', '/help']],
         resizeKeyboard: true,
@@ -963,6 +1051,77 @@ function createMembershipDatabaseStub({
                 },
               };
             },
+          };
+        },
+      };
+    },
+  };
+}
+
+function createNewsGroupDatabaseStub() {
+  return {
+    select(selection: Record<string, unknown> = {}) {
+      return {
+        from(table: { [key: string]: unknown }) {
+          return {
+            where: async () => {
+              if ('isEnabled' in selection) {
+                return [{ isEnabled: true }];
+              }
+
+              if ('chatId' in selection && 'categoryKey' in selection) {
+                return [
+                  {
+                    chatId: -200,
+                    isEnabled: true,
+                    metadata: null,
+                    createdAt: new Date('2026-04-04T10:00:00.000Z'),
+                    updatedAt: new Date('2026-04-04T10:00:00.000Z'),
+                    enabledAt: new Date('2026-04-04T10:00:00.000Z'),
+                    disabledAt: null,
+                  },
+                ];
+              }
+
+              if ('chatId' in selection) {
+                return [
+                  {
+                    chatId: -200,
+                    isEnabled: true,
+                    metadata: null,
+                    createdAt: new Date('2026-04-04T10:00:00.000Z'),
+                    updatedAt: new Date('2026-04-04T10:00:00.000Z'),
+                    enabledAt: new Date('2026-04-04T10:00:00.000Z'),
+                    disabledAt: null,
+                  },
+                ];
+              }
+
+              return [];
+            },
+            innerJoin() {
+              return this;
+            },
+            orderBy() {
+              return Promise.resolve([]);
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+function createEmptyScheduleDatabaseStub() {
+  return {
+    select() {
+      return {
+        from() {
+          return {
+            where: () => ({
+              orderBy: async () => [],
+            }),
+            orderBy: async () => [],
           };
         },
       };
