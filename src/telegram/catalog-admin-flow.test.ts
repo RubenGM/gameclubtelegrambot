@@ -1205,7 +1205,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Categoria:<\/b> Arkham Horror/);
   assert.match(replies.at(-1)?.message ?? '', /Arkham Horror Core Set/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Arkham Horror Core Set'));
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.text === 'Arkham Horror Core Set')?.callbackData, `${catalogAdminCallbackPrefixes.inspect}3`);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Dunwich Expansion'));
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}4`;
@@ -1217,7 +1217,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
 });
 
-test('handleTelegramCatalogAdminCallback lets admins add item media and shows it in item details', async () => {
+test('handleTelegramCatalogAdminCallback shows item details without add media action', async () => {
   const repository = createRepository({
     items: [
       {
@@ -1252,30 +1252,8 @@ test('handleTelegramCatalogAdminCallback lets admins add item media and shows it
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Media:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Descripcio:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Emportar'));
-
-  context.callbackData = 'catalog_admin:add_media:3';
-  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  delete context.callbackData;
-  assert.equal(getCurrentSession()?.stepKey, 'media-type');
-
-  context.messageText = 'Imatge';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = 'https://example.com/root.jpg';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = 'Portada del Root';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = '2';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = 'Guardar media';
-  assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.equal(getCurrentSession(), null);
-  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.media.created');
-
-  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
-  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Media: 1 element/);
-  assert.match(replies.at(-1)?.message ?? '', /image · https:\/\/example.com\/root.jpg/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar item'));
+  assert.ok(!replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Afegir media'));
 });
 
 test('handleTelegramCatalogAdminCallback lets admins edit and delete item media', async () => {
@@ -1592,7 +1570,7 @@ test('handleTelegramCatalogAdminText can search catalog items by name', async ()
   assert.match(replies.at(-1)?.message ?? '', /Resultats per a "Mort"/);
   assert.match(replies.at(-1)?.message ?? '', /Prestat a Pau/);
   assert.match(replies.at(-1)?.message ?? '', /des de 04\/04\/2026/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Mort'));
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.text === 'Mort')?.callbackData, `${catalogAdminCallbackPrefixes.inspect}3`);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
   assert.ok(!replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Emportar'));
 });

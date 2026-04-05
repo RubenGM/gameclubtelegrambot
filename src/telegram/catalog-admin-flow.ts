@@ -56,7 +56,6 @@ export const catalogAdminCallbackPrefixes = {
   inspectGroup: 'catalog_admin:inspect_group:',
   edit: 'catalog_admin:edit:',
   deactivate: 'catalog_admin:deactivate:',
-  addMedia: 'catalog_admin:add_media:',
   editMedia: 'catalog_admin:edit_media:',
   deleteMedia: 'catalog_admin:delete_media:',
 } as const;
@@ -200,7 +199,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     await context.reply(await formatCatalogItemDetails(context, item), {
       parseMode: 'HTML',
       inlineKeyboard: [
-        [{ text: 'Afegir media', callbackData: `${catalogAdminCallbackPrefixes.addMedia}${item.id}` }],
+        [{ text: 'Editar item', callbackData: `${catalogAdminCallbackPrefixes.edit}${item.id}` }],
         ...media.flatMap((entry) => [[
           { text: `Editar media #${entry.id}`, callbackData: `${catalogAdminCallbackPrefixes.editMedia}${entry.id}` },
           { text: `Eliminar media #${entry.id}`, callbackData: `${catalogAdminCallbackPrefixes.deleteMedia}${entry.id}` },
@@ -228,7 +227,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     await context.runtime.session.start({ flowKey: editFlowKey, stepKey: 'select-field', data: { itemId } });
     await context.reply(`${await formatCatalogItemDetails(context, item)}
 
-Quin camp vols editar primer?`, buildEditFieldMenuOptions(item.itemType));
+Quin camp vols editar primer?`, { ...buildEditFieldMenuOptions(item.itemType), parseMode: 'HTML' });
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.deactivate)) {
@@ -237,16 +236,7 @@ Quin camp vols editar primer?`, buildEditFieldMenuOptions(item.itemType));
     await context.runtime.session.start({ flowKey: deactivateFlowKey, stepKey: 'confirm', data: { itemId } });
     await context.reply(`${await formatCatalogItemDetails(context, item)}
 
-Si el desactives, deixara d aparéixer als fluxos operatius futurs pero es mantindra per a consultes historiques.`, buildDeactivateConfirmOptions());
-    return true;
-  }
-  if (callbackData.startsWith(catalogAdminCallbackPrefixes.addMedia)) {
-    const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.addMedia);
-    const item = await loadItemOrThrow(context, itemId);
-    await context.runtime.session.start({ flowKey: mediaFlowKey, stepKey: 'media-type', data: { itemId } });
-    await context.reply(`${await formatCatalogItemDetails(context, item)}
-
-Selecciona el tipus de media que vols afegir.`, buildMediaTypeOptions());
+Si el desactives, deixara d aparéixer als fluxos operatius futurs pero es mantindra per a consultes historiques.`, { ...buildDeactivateConfirmOptions(), parseMode: 'HTML' });
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.editMedia)) {
@@ -1280,7 +1270,7 @@ async function showCatalogFamilyBrowse(context: TelegramCatalogAdminContext, fam
     }
   }
 
-  const itemRows = await Promise.all(items.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName)));
+  const itemRows = await Promise.all(items.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName, catalogAdminCallbackPrefixes.inspect)));
   await context.reply(lines.join('\n'), {
     parseMode: 'HTML',
     inlineKeyboard: [
@@ -1327,7 +1317,7 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
   await context.reply(lines.join('\n'), {
     parseMode: 'HTML',
     inlineKeyboard: [
-      ...await Promise.all(matches.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName))),
+      ...await Promise.all(matches.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName, catalogAdminCallbackPrefixes.inspect))),
       [{ text: 'Tornar al cataleg', callbackData: catalogAdminCallbackPrefixes.browseMenu }],
     ],
   });

@@ -202,16 +202,21 @@ export function canEditLoan(context: TelegramCatalogLoanContext, loan: CatalogLo
   return context.runtime.actor.isAdmin || loan.loanedByTelegramUserId === context.runtime.actor.telegramUserId;
 }
 
-export function buildLoanItemButton(loan: CatalogLoanRecord | null, itemId: number, itemLabel: string): TelegramInlineButton[] {
+export function buildLoanItemButton(
+  loan: CatalogLoanRecord | null,
+  itemId: number,
+  itemLabel: string,
+  inspectCallbackPrefix: string = 'catalog_read:item:',
+): TelegramInlineButton[] {
   if (!loan) {
     return [
-      { text: itemLabel, callbackData: `catalog_read:item:${itemId}` },
+      { text: itemLabel, callbackData: `${inspectCallbackPrefix}${itemId}` },
       { text: 'Emportar', callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` },
     ];
   }
 
   return [
-    { text: itemLabel, callbackData: `catalog_read:item:${itemId}` },
+    { text: itemLabel, callbackData: `${inspectCallbackPrefix}${itemId}` },
     { text: 'Retornar', callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` },
   ];
 }
