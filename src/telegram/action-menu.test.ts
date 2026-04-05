@@ -30,6 +30,7 @@ function createContext({
     authorization,
     chat,
     session,
+    language: 'ca' as const,
   };
 }
 
@@ -52,7 +53,7 @@ test('resolveTelegramActionMenu returns pending private user actions by default'
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['/access', '/start'], ['/help']],
+    replyKeyboard: [['/access', 'Idioma', '/start'], ['/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -77,7 +78,7 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['/review_access'], ['/start', '/help']],
+    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['/review_access'], ['Idioma'], ['/start', '/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -102,7 +103,7 @@ test('resolveTelegramActionMenu exposes table reads to approved non-admin member
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['/tables', '/elevate_admin'], ['/start', '/help']],
+    replyKeyboard: [['Activitats'], ['/tables', '/elevate_admin'], ['Idioma'], ['/start', '/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -127,7 +128,7 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['/review_access'], ['/start', '/help']],
+    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['/review_access'], ['Idioma'], ['/start', '/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });

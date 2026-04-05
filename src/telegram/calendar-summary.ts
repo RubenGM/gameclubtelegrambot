@@ -5,6 +5,7 @@ import { listVenueEvents, type VenueEventRecord, type VenueEventRepository } fro
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
 import type { ClubTableRepository } from '../tables/table-catalog.js';
 import { buildTelegramStartUrl } from './deep-links.js';
+import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 
 export type CalendarEntry =
   | {
@@ -80,6 +81,7 @@ export async function loadUpcomingCalendarEntries({
 }
 
 export function formatCalendarMessage(entries: CalendarEntry[], language: string): string {
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
   const rows: string[] = [];
   let currentDay: string | null = null;
 
@@ -90,22 +92,23 @@ export function formatCalendarMessage(entries: CalendarEntry[], language: string
       rows.push('');
       rows.push(`<b>${escapeHtml(formatCalendarDayHeader(dayKey, language))}</b>`);
     }
-    rows.push(formatCalendarEntry(entry));
+    rows.push(formatCalendarEntry(entry, language));
   }
 
   return rows.join('\n');
 }
 
-function formatCalendarEntry(entry: CalendarEntry): string {
+function formatCalendarEntry(entry: CalendarEntry, language: string): string {
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
   const descriptionLine = entry.description ? `\n  <i>${escapeHtml(entry.description)}</i>` : '';
 
   if (entry.kind === 'schedule') {
-    const tableSuffix = entry.tableName ? ` · Taula ${escapeHtml(entry.tableName)}` : '';
+    const tableSuffix = entry.tableName ? ` · ${texts.calendar.table} ${escapeHtml(entry.tableName)}` : '';
     return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${entry.id}`))}"><b>${escapeHtml(entry.title)}</b></a> · ${entry.capacity}p${tableSuffix}${descriptionLine}`;
   }
 
   if (entry.allDay) {
-    return `- Tot el dia ${escapeHtml(entry.title)}${descriptionLine}`;
+    return `- ${texts.calendar.allDay} ${escapeHtml(entry.title)}${descriptionLine}`;
   }
 
   return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} ${escapeHtml(entry.title)}${descriptionLine}`;

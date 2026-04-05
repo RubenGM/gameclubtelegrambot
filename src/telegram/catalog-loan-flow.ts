@@ -7,6 +7,7 @@ import type { MembershipAccessRepository, MembershipUserRecord } from '../member
 import { escapeHtml, formatHtmlField } from './catalog-presentation.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramInlineButton, TelegramReplyOptions } from './runtime-boundary.js';
+import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 
 const loanEditFlowKey = 'catalog-loan-edit';
 
@@ -25,6 +26,9 @@ export type TelegramCatalogLoanContext = TelegramCommandHandlerContext & {
 
 type LoanDisplayContext = {
   runtime: {
+    bot?: {
+      language?: string;
+    };
     services: {
       database: {
         db: unknown;
@@ -35,6 +39,8 @@ type LoanDisplayContext = {
 };
 
 export async function handleTelegramCatalogLoanCallback(context: TelegramCatalogLoanContext): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogLoan;
   const callbackData = context.callbackData;
   if (!callbackData) {
     return false;
@@ -62,7 +68,7 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
       notes: null,
     });
 
-    await context.reply(`Has prestat ${item.displayName}.`, await buildItemLoanNavigationOptions(context, created.itemId));
+    await context.reply(texts.hasBorrowed.replace('{item}', item.displayName), await buildItemLoanNavigationOptions(context, created.itemId, language));
     return true;
   }
 
@@ -79,7 +85,7 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
       returnedByTelegramUserId: context.runtime.actor.telegramUserId,
     });
     const item = await resolveCatalogItem(context, returned.itemId);
-    await context.reply(`Has retornat ${item?.displayName ?? 'l item'}.`, await buildItemLoanNavigationOptions(context, returned.itemId));
+    await context.reply(texts.hasReturned.replace('{item}', item?.displayName ?? (language === 'es' ? 'el item' : language === 'en' ? 'the item' : 'l item')), await buildItemLoanNavigationOptions(context, returned.itemId, language));
     return true;
   }
 
@@ -91,7 +97,7 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
       throw new Error(`Catalog loan ${loanId} not found`);
     }
     if (!canEditLoan(context, loan)) {
-      await context.reply('No tens permisos per editar aquest prestec.');
+      await context.reply(texts.noPermission);
       return true;
     }
 
@@ -102,7 +108,7 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
     });
 
     await context.reply(
-      `Editant ${loan.borrowerDisplayName} · introdueix les notes o escriu "-" per deixar-les buides.`,
+      texts.editPrompt.replace('{name}', loan.borrowerDisplayName),
       buildSingleCancelKeyboard(),
     );
     return true;
@@ -118,6 +124,9 @@ export async function handleTelegramCatalogLoanText(context: TelegramCatalogLoan
     return false;
   }
 
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogLoan;
+
   const repository = resolveLoanRepository(context);
   const loanId = asNumber(session.data.loanId);
   if (loanId === null) {
@@ -132,7 +141,7 @@ export async function handleTelegramCatalogLoanText(context: TelegramCatalogLoan
   }
   if (!canEditLoan(context, loan)) {
     await context.runtime.session.cancel();
-    await context.reply('No tens permisos per editar aquest prestec.');
+    await context.reply(texts.noPermission);
     return true;
   }
 
@@ -141,7 +150,7 @@ export async function handleTelegramCatalogLoanText(context: TelegramCatalogLoan
       stepKey: 'dueAt',
       data: { loanId, notes: normalizeOptionalInput(text) },
     });
-    await context.reply('Introdueix la data de retorn prevista (YYYY-MM-DD, dd/MM/yyyy) o escriu "-" per deixar-la buida.');
+    await context.reply(texts.dueDatePrompt);
     return true;
   }
 
@@ -156,7 +165,7 @@ export async function handleTelegramCatalogLoanText(context: TelegramCatalogLoan
     await context.runtime.session.cancel();
     const updated = await repository.findLoanById(loanId);
     await context.reply(
-      `Prestec actualitzat.${updated ? `\nNotes: ${updated.notes ?? 'Sense notes'}\nRetorn previst: ${updated.dueAt ?? 'Sense data'}` : ''}`,
+      `${texts.updated}${updated ? `\n${language === 'es' ? 'Notas' : language === 'en' ? 'Notes' : 'Notes'}: ${updated.notes ?? texts.noNotes}\n${texts.availabilityExpected}: ${updated.dueAt ?? texts.noDate}` : ''}`,
       buildSingleCancelKeyboard(),
     );
     return true;
@@ -176,26 +185,29 @@ export async function loadActiveLoansByBorrower(context: TelegramCatalogLoanCont
 }
 
 export async function formatLoanAvailabilityLines(context: LoanDisplayContext, loan: CatalogLoanRecord | null): Promise<string[]> {
+  const language = normalizeBotLanguage(context.runtime.bot?.language, 'ca');
+  const texts = createTelegramI18n(language).catalogLoan;
   if (!loan) {
-    return [formatHtmlField('Disponibilitat', 'Disponible')];
+    return [formatHtmlField(texts.availabilityAvailable, texts.available)];
   }
 
   const lines = [
-    formatHtmlField('Disponibilitat', 'En préstec'),
-    formatHtmlField('Té', escapeHtml(await resolveLoanBorrowerDisplayName(context, loan))),
-    formatHtmlField('Des de', formatLoanDate(loan.createdAt)),
+    formatHtmlField(texts.availabilityAvailable, texts.availabilityLoaned),
+    formatHtmlField(texts.availabilityHas, escapeHtml(await resolveLoanBorrowerDisplayName(context, loan))),
+    formatHtmlField(texts.availabilityFrom, formatLoanDate(loan.createdAt)),
   ];
   if (loan.dueAt) {
-    lines.push(formatHtmlField('Retorn previst', formatLoanDate(loan.dueAt)));
+    lines.push(formatHtmlField(texts.availabilityExpected, formatLoanDate(loan.dueAt)));
   }
   if (loan.notes) {
-    lines.push(formatHtmlField('Notes', escapeHtml(loan.notes)));
+    lines.push(formatHtmlField(texts.availabilityNotes, escapeHtml(loan.notes)));
   }
   return lines;
 }
 
-export function formatLoanSubtitle(loan: CatalogLoanRecord): string {
-  return loan.dueAt ? `En préstec · fins ${loan.dueAt}` : 'En préstec';
+export function formatLoanSubtitle(loan: CatalogLoanRecord, language: 'ca' | 'es' | 'en' = 'ca'): string {
+  const texts = createTelegramI18n(language).catalogLoan;
+  return loan.dueAt ? `${texts.availabilityLoaned} · ${texts.availabilityExpected} ${loan.dueAt}` : texts.availabilityLoaned;
 }
 
 export function canEditLoan(context: TelegramCatalogLoanContext, loan: CatalogLoanRecord): boolean {
@@ -207,17 +219,19 @@ export function buildLoanItemButton(
   itemId: number,
   itemLabel: string,
   inspectCallbackPrefix: string = 'catalog_read:item:',
+  language: 'ca' | 'es' | 'en' = 'ca',
 ): TelegramInlineButton[] {
+  const texts = createTelegramI18n(language).catalogLoan;
   if (!loan) {
     return [
       { text: itemLabel, callbackData: `${inspectCallbackPrefix}${itemId}` },
-      { text: 'Emportar', callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` },
+      { text: texts.emportar, callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` },
     ];
   }
 
   return [
     { text: itemLabel, callbackData: `${inspectCallbackPrefix}${itemId}` },
-    { text: 'Retornar', callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` },
+    { text: texts.retornar, callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` },
   ];
 }
 
@@ -225,43 +239,48 @@ export function buildLoanDetailButtons({
   loan,
   itemId,
   canEdit,
+  language = 'ca',
 }: {
   loan: CatalogLoanRecord | null;
   itemId: number;
   canEdit: boolean;
+  language?: 'ca' | 'es' | 'en';
 }): TelegramInlineButton[][] {
+  const texts = createTelegramI18n(language).catalogLoan;
   const rows: TelegramInlineButton[][] = [];
   if (loan) {
-    rows.push([{ text: 'Retornar', callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` }]);
+    rows.push([{ text: texts.retornar, callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` }]);
     if (canEdit) {
-      rows.push([{ text: 'Editar préstec', callbackData: `${catalogLoanCallbackPrefixes.edit}${loan.id}` }]);
+      rows.push([{ text: texts.editarPrestec, callbackData: `${catalogLoanCallbackPrefixes.edit}${loan.id}` }]);
     }
   } else {
-    rows.push([{ text: 'Emportar', callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` }]);
+    rows.push([{ text: texts.emportar, callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` }]);
   }
 
-  rows.push([{ text: 'Veure préstecs', callbackData: catalogLoanCallbackPrefixes.openMyLoans }]);
-  rows.push([{ text: 'Veure cataleg', callbackData: 'catalog_read:overview' }]);
+  rows.push([{ text: texts.veurePrestecs, callbackData: catalogLoanCallbackPrefixes.openMyLoans }]);
+  rows.push([{ text: texts.veureCataleg, callbackData: 'catalog_read:overview' }]);
   return rows;
 }
 
 export async function showMyLoans(context: TelegramCatalogLoanContext): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogLoan;
   const loans = await loadActiveLoansByBorrower(context, context.runtime.actor.telegramUserId);
   if (loans.length === 0) {
-    await context.reply('No tens cap préstec actiu.');
+    await context.reply(texts.noLoans);
     return;
   }
 
   const catalog = resolveCatalogRepository(context);
-  const lines = ['Els meus préstecs:'];
+  const lines = [texts.myLoans + ':'];
   const rows: TelegramReplyOptions['inlineKeyboard'] = [];
 
   for (const loan of loans) {
     const item = await catalog.findItemById(loan.itemId);
-    lines.push(`- ${item?.displayName ?? `Item ${loan.itemId}`} · ${formatLoanSubtitle(loan)}`);
+    lines.push(`- ${item?.displayName ?? `Item ${loan.itemId}`} · ${formatLoanSubtitle(loan, language)}`);
     rows.push([
       { text: item?.displayName ?? `Item ${loan.itemId}`, callbackData: `catalog_read:item:${loan.itemId}` },
-      { text: 'Retornar', callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` },
+      { text: texts.retornar, callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` },
     ]);
   }
 
@@ -281,9 +300,10 @@ function buildSingleCancelKeyboard(): TelegramReplyOptions {
 async function buildItemLoanNavigationOptions(
   context: TelegramCatalogLoanContext,
   itemId: number,
+  language: 'ca' | 'es' | 'en' = 'ca',
 ): Promise<TelegramReplyOptions> {
   const loan = await loadActiveLoanByItemId(context, itemId);
-  const inlineKeyboard = buildLoanDetailButtons({ loan, itemId, canEdit: loan ? canEditLoan(context, loan) : false });
+  const inlineKeyboard = buildLoanDetailButtons({ loan, itemId, canEdit: loan ? canEditLoan(context, loan) : false, language });
   return { inlineKeyboard };
 }
 

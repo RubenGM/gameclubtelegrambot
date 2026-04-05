@@ -4,6 +4,7 @@ import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-bo
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import { createTelegramI18n, type BotLanguage } from './i18n.js';
 
 export class TelegramInteractionError extends Error {
   cancelSession: boolean;
@@ -21,7 +22,7 @@ export interface TelegramCommandRuntime {
   bot: {
     publicName: string;
     clubName: string;
-    language?: string;
+    language?: BotLanguage;
     sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
@@ -53,6 +54,7 @@ export interface TelegramCommandDefinition {
   contexts: TelegramChatContextKind[];
   access?: TelegramCommandAccess;
   description?: string;
+  descriptionByLanguage?: Partial<Record<BotLanguage, string>>;
   handle: TelegramCommandHandler;
 }
 
@@ -69,14 +71,15 @@ export function registerTelegramCommands({
 }): void {
   for (const command of commands) {
     bot.onCommand(command.command, async (context) => {
+      const language = context.runtime.bot.language ?? 'ca';
       if (!command.contexts.includes(context.runtime.chat.kind)) {
-        await context.reply(restrictionMessageFor(command.contexts));
+        await context.reply(restrictionMessageFor(command.contexts, language));
         return;
       }
 
       const access = command.access ?? 'public';
       if (!hasRequiredAccess(context, access)) {
-        await context.reply(accessDeniedMessageFor(access));
+        await context.reply(accessDeniedMessageFor(access, language));
         return;
       }
 
@@ -105,24 +108,29 @@ export function renderTelegramHelpMessage({
   commands: TelegramCommandDefinition[];
   context: TelegramCommandHandlerContext;
 }): string {
+  const language = context.runtime.bot.language ?? 'ca';
+  const i18n = createTelegramI18n(language);
   const visibleCommands = commands.filter((command) => {
     const access = command.access ?? 'public';
     return (
-      command.description &&
+      (command.description || command.descriptionByLanguage) &&
       command.contexts.includes(context.runtime.chat.kind) &&
       hasRequiredAccess(context, access)
     );
   });
 
-  const lines = ['Comandes disponibles en aquest xat:'];
+  const lines: string[] = [i18n.common.helpHeader];
 
   for (const command of visibleCommands) {
-    lines.push(`/${command.command} - ${command.description}`);
+    const description = command.descriptionByLanguage?.[language] ?? command.description;
+    if (description) {
+      lines.push(`/${command.command} - ${description}`);
+    }
   }
 
   if (context.runtime.chat.kind !== 'private') {
     lines.push('');
-    lines.push('Per veure totes les funcions, escriu-me en privat.');
+    lines.push(i18n.common.helpFooterPrivate);
   }
 
   return lines.join('\n');
@@ -143,22 +151,24 @@ function hasRequiredAccess(
   return context.runtime.actor.isAdmin;
 }
 
-function accessDeniedMessageFor(access: TelegramCommandAccess): string {
+function accessDeniedMessageFor(access: TelegramCommandAccess, language: BotLanguage): string {
+  const i18n = createTelegramI18n(language);
   if (access === 'approved') {
-    return 'Necessites aprovacio del club abans de poder fer aquesta accio.';
+    return i18n.common.accessDeniedApproved;
   }
 
   if (access === 'admin') {
-    return 'Aquesta accio nomes esta disponible per a administradors del club.';
+    return i18n.common.accessDeniedAdmin;
   }
 
-  return 'No tens permisos per fer aquesta accio.';
+  return i18n.common.accessDeniedGeneric;
 }
 
-function restrictionMessageFor(contexts: TelegramChatContextKind[]): string {
+function restrictionMessageFor(contexts: TelegramChatContextKind[], language: BotLanguage): string {
+  const i18n = createTelegramI18n(language);
   if (contexts.length === 1 && contexts[0] === 'private') {
-    return 'Aquest comandament nomes esta disponible en xat privat.';
+    return i18n.common.privateOnly;
   }
 
-  return 'Aquest comandament no esta disponible en aquest context de xat.';
+  return i18n.common.contextRestricted;
 }

@@ -4,6 +4,8 @@ import { APP_VERSION } from '../app-version.js';
 import { createAuthorizationService } from '../authorization/service.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
+import { createAppMetadataTelegramLanguagePreferenceStore } from './language-preference-store.js';
+import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import {
   TelegramInteractionError,
   registerTelegramCommands,
@@ -81,6 +83,7 @@ import {
   handleTelegramVenueEventAdminStartText,
   venueEventAdminCallbackPrefixes,
 } from './venue-event-admin-flow.js';
+import { handleTelegramLanguageCommand, handleTelegramLanguageText } from './language-flow.js';
 import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleText,
@@ -172,6 +175,12 @@ export interface CreateTelegramBoundaryOptions {
   createConversationSessionStore?: (options: {
     services: InfrastructureRuntimeServices;
   }) => ConversationSessionStore;
+  createLanguagePreferenceStore?: (options: {
+    services: InfrastructureRuntimeServices;
+  }) => {
+    loadLanguage(telegramUserId: number): Promise<'ca' | 'es' | 'en' | null>;
+    saveLanguage(telegramUserId: number, language: 'ca' | 'es' | 'en'): Promise<void>;
+  };
   createBot?: (options: CreateTelegramBotOptions) => TelegramBotLike;
 }
 
@@ -208,6 +217,12 @@ export async function createTelegramBoundary({
         database: runtimeServices.database.db,
       }),
     }),
+  createLanguagePreferenceStore = ({ services: runtimeServices }) =>
+    createAppMetadataTelegramLanguagePreferenceStore({
+      storage: createDatabaseAppMetadataSessionStorage({
+        database: runtimeServices.database.db,
+      }),
+    }),
   createBot = createGrammyTelegramBot,
 }: CreateTelegramBoundaryOptions): Promise<TelegramBoundary> {
   try {
@@ -225,6 +240,7 @@ export async function createTelegramBoundary({
       isNewsEnabledGroup,
       loadActor,
       conversationSessionStore: createConversationSessionStore({ services }),
+      languagePreferenceStore: createLanguagePreferenceStore({ services }),
     })) {
       bot.use(middleware);
     }
@@ -331,6 +347,7 @@ function createMiddlewarePipeline({
   isNewsEnabledGroup,
   loadActor,
   conversationSessionStore,
+  languagePreferenceStore,
 }: {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
@@ -345,6 +362,9 @@ function createMiddlewarePipeline({
     services: InfrastructureRuntimeServices;
   }) => Promise<TelegramActor>;
   conversationSessionStore: ConversationSessionStore;
+  languagePreferenceStore: {
+    loadLanguage(telegramUserId: number): Promise<'ca' | 'es' | 'en' | null>;
+  };
 }): TelegramMiddleware[] {
   return [
     createErrorHandlingMiddleware({ logger }),
@@ -352,6 +372,7 @@ function createMiddlewarePipeline({
     createRuntimeContextMiddleware({ config, services, bot }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
     createActorMiddleware({ services, loadActor }),
+    createLanguageMiddleware({ config, languagePreferenceStore }),
     createConversationSessionMiddleware({ store: conversationSessionStore }),
   ];
 }
@@ -368,7 +389,7 @@ function createErrorHandlingMiddleware({
       const safeMessage =
         error instanceof TelegramInteractionError
           ? error.message
-          : 'S ha produit un error inesperat. Torna-ho a provar en uns moments.';
+          : createTelegramI18n(normalizeBotLanguage(context.runtime?.bot.language, 'ca')).common.unexpectedError;
 
       if (context.runtime?.session) {
         await context.runtime.session.cancel();
@@ -429,6 +450,27 @@ function createActorMiddleware({
         permissions: context.runtime.actor.permissions,
       },
     });
+
+    await next();
+  };
+}
+
+function createLanguageMiddleware({
+  config,
+  languagePreferenceStore,
+}: {
+  config: RuntimeConfig;
+  languagePreferenceStore: {
+    loadLanguage(telegramUserId: number): Promise<'ca' | 'es' | 'en' | null>;
+  };
+}): TelegramMiddleware {
+  return async (context, next) => {
+    if (!context.runtime?.bot || !context.runtime.actor) {
+      throw new Error('Telegram actor context missing before language resolution');
+    }
+
+    const storedLanguage = await languagePreferenceStore.loadLanguage(context.runtime.actor.telegramUserId);
+    context.runtime.bot.language = normalizeBotLanguage(storedLanguage ?? config.bot.language, config.bot.language);
 
     await next();
   };
@@ -549,6 +591,10 @@ function registerTextHandlers({
   bot: TelegramBotLike;
 }): void {
   bot.onText(async (context) => {
+    if (await handleTelegramLanguageText(context)) {
+      return;
+    }
+
     if (await handleTelegramCatalogLoanText(context)) {
       return;
     }
@@ -589,7 +635,7 @@ function createDefaultCommands({
       access: 'public',
       description: 'Eleva privilegis amb contrasenya',
       handle: async (context) => {
-        const password = parseCommandSecret(context.messageText, 'elevate_admin');
+        const password = parseCommandSecret(context.messageText, 'elevate_admin', context.runtime.bot.language ?? 'ca');
         const repository = createDatabaseAdminElevationRepository({
           database: context.runtime.services.database.db,
         });
@@ -620,6 +666,15 @@ function createDefaultCommands({
         });
 
         await context.reply(result.message);
+      },
+    },
+    {
+      command: 'language',
+      contexts: ['private', 'group', 'group-news'],
+      access: 'public',
+      description: 'Canvia l idioma del bot',
+      handle: async (context) => {
+        await handleTelegramLanguageCommand(context);
       },
     },
     {
@@ -696,7 +751,7 @@ function createDefaultCommands({
       access: 'admin',
       description: 'Aprova una sollicitud',
       handle: async (context) => {
-        const applicantTelegramUserId = parseCommandTarget(context.messageText, 'approve');
+        const applicantTelegramUserId = parseCommandTarget(context.messageText, 'approve', context.runtime.bot.language ?? 'ca');
         const repository = createDatabaseMembershipAccessRepository({
           database: context.runtime.services.database.db,
         });
@@ -718,7 +773,7 @@ function createDefaultCommands({
       access: 'admin',
       description: 'Rebutja una sollicitud',
       handle: async (context) => {
-        const applicantTelegramUserId = parseCommandTarget(context.messageText, 'reject');
+        const applicantTelegramUserId = parseCommandTarget(context.messageText, 'reject', context.runtime.bot.language ?? 'ca');
         const repository = createDatabaseMembershipAccessRepository({
           database: context.runtime.services.database.db,
         });
@@ -741,9 +796,10 @@ function createDefaultCommands({
       description: 'Cancel.la el flux actual',
       handle: async (context) => {
         const cancelled = await context.runtime.session.cancel();
+        const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
 
         await context.reply(
-          cancelled ? 'Flux cancel.lat correctament.' : 'No hi ha cap flux actiu per cancel.lar.',
+          cancelled ? i18n.common.flowCancelled : i18n.common.noActiveFlowToCancel,
           buildReplyOptionsForCurrentActionMenu(context),
         );
       },
@@ -778,6 +834,7 @@ function createDefaultCommands({
             publicName,
             version: APP_VERSION,
             isAdmin: context.runtime.actor.isAdmin,
+            language: context.runtime.bot.language ?? 'ca',
           }),
           buildReplyOptionsForCurrentActionMenu(context),
         );
@@ -800,35 +857,49 @@ function createDefaultCommands({
   ];
 }
 
-function parseCommandTarget(messageText: string | undefined, command: string): number {
+function parseCommandTarget(
+  messageText: string | undefined,
+  command: string,
+  language: 'ca' | 'es' | 'en' = 'ca',
+): number {
   const candidate = messageText?.trim().split(/\s+/)[1];
   const telegramUserId = Number(candidate);
 
   if (!candidate || !Number.isInteger(telegramUserId) || telegramUserId <= 0) {
     throw new TelegramInteractionError(
-      `Has d indicar un Telegram user ID valid amb /${command} <telegramUserId>.`,
+      createTelegramI18n(language).common.invalidTelegramUserId.replace('{command}', command),
     );
   }
 
   return telegramUserId;
 }
 
-function parseCommandSecret(messageText: string | undefined, command: string): string {
+function parseCommandSecret(
+  messageText: string | undefined,
+  command: string,
+  language: 'ca' | 'es' | 'en' = 'ca',
+): string {
   const secret = messageText?.trim().split(/\s+/).slice(1).join(' ');
 
   if (!secret) {
-    throw new TelegramInteractionError(`Has d indicar la contrasenya amb /${command} <contrasenya>.`);
+    throw new TelegramInteractionError(
+      createTelegramI18n(language).common.invalidPassword.replace('{command}', command),
+    );
   }
 
   return secret;
 }
 
-function parseCallbackTarget(callbackData: string | undefined, callbackPrefix: string): number {
+function parseCallbackTarget(
+  callbackData: string | undefined,
+  callbackPrefix: string,
+  language: 'ca' | 'es' | 'en' = 'ca',
+): number {
   const candidate = callbackData?.slice(callbackPrefix.length);
   const telegramUserId = Number(candidate);
 
   if (!candidate || !Number.isInteger(telegramUserId) || telegramUserId <= 0) {
-    throw new TelegramInteractionError('No s ha pogut identificar l usuari destinatari d aquesta accio.');
+    throw new TelegramInteractionError(createTelegramI18n(language).common.invalidCallbackTarget);
   }
 
   return telegramUserId;
@@ -890,16 +961,17 @@ export function formatStartMessage({
   publicName,
   version,
   isAdmin,
+  language,
 }: {
   publicName: string;
   version: string;
   isAdmin: boolean;
+  language: 'ca' | 'es' | 'en';
 }): string {
-  if (isAdmin) {
-    return `${publicName} online (v${version}). Escriu /help per veure les opcions disponibles.`;
-  }
-
-  return `Benvingut a ${publicName}. Escriu /help per veure les opcions disponibles.`;
+  const i18n = createTelegramI18n(language);
+  return (isAdmin ? i18n.common.startMessageAdmin : i18n.common.startMessagePublic)
+    .replace('{publicName}', publicName)
+    .replace('{version}', version);
 }
 
 function registerMembershipCallbacks({
@@ -924,7 +996,7 @@ function registerMembershipCallbacks({
   });
 
   bot.onCallback('approve_access:', async (context) => {
-    const applicantTelegramUserId = parseCallbackTarget(context.callbackData, 'approve_access:');
+    const applicantTelegramUserId = parseCallbackTarget(context.callbackData, 'approve_access:', context.runtime.bot.language ?? 'ca');
     const repository = createDatabaseMembershipAccessRepository({
       database: context.runtime.services.database.db,
     });
@@ -941,7 +1013,7 @@ function registerMembershipCallbacks({
   });
 
   bot.onCallback('reject_access:', async (context) => {
-    const applicantTelegramUserId = parseCallbackTarget(context.callbackData, 'reject_access:');
+    const applicantTelegramUserId = parseCallbackTarget(context.callbackData, 'reject_access:', context.runtime.bot.language ?? 'ca');
     const repository = createDatabaseMembershipAccessRepository({
       database: context.runtime.services.database.db,
     });
@@ -1080,38 +1152,37 @@ function registerVenueEventAdminCallbacks({
 }
 
 async function handleReviewAccess(context: TelegramCommandHandlerContext): Promise<void> {
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
   const repository = createDatabaseMembershipAccessRepository({
     database: context.runtime.services.database.db,
   });
   const result = await listPendingMembershipRequests({ repository });
 
   if (result.pendingUsers.length === 0) {
-    await context.reply('No hi ha cap sollicitud pendent ara mateix.');
+    await context.reply(i18n.common.noPendingRequests);
     return;
   }
 
-  await context.reply(
-    ['Sollicituds pendents:']
-      .concat(
-        result.pendingUsers.map(
-          (user) =>
-            `- ${user.displayName} (${user.username ? `@${user.username}` : user.telegramUserId}) -> /approve ${user.telegramUserId} o /reject ${user.telegramUserId}`,
-        ),
-      )
-      .join('\n'),
-    {
-      inlineKeyboard: result.pendingUsers.map((user) => [
-        {
-          text: 'Aprovar',
-          callbackData: `approve_access:${user.telegramUserId}`,
-        },
-        {
-          text: 'Rebutjar',
-          callbackData: `reject_access:${user.telegramUserId}`,
-        },
-      ]),
-    },
-  );
+  const lines = [
+    i18n.common.pendingRequestsHeader,
+    ...result.pendingUsers.map(
+      (user) =>
+        `- ${user.displayName} (${user.username ? `@${user.username}` : user.telegramUserId}) -> /approve ${user.telegramUserId} o /reject ${user.telegramUserId}`,
+    ),
+  ] as string[];
+
+  await context.reply(lines.join('\n'), {
+    inlineKeyboard: result.pendingUsers.map((user) => [
+      {
+        text: i18n.common.approveButton,
+        callbackData: `approve_access:${user.telegramUserId}`,
+      },
+      {
+        text: i18n.common.rejectButton,
+        callbackData: `reject_access:${user.telegramUserId}`,
+      },
+    ]),
+  });
 }
 
 function buildReplyOptionsForCurrentActionMenu(
@@ -1123,6 +1194,7 @@ function buildReplyOptionsForCurrentActionMenu(
       authorization: context.runtime.authorization,
       chat: context.runtime.chat,
       session: context.runtime.session.current,
+      language: context.runtime.bot.language ?? 'ca',
     },
   });
 }

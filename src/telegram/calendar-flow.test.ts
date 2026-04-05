@@ -13,11 +13,13 @@ function createContext({
   venueEventRepository,
   tableRepository,
   now = new Date('2026-04-04T10:00:00.000Z'),
+  language = 'ca',
 }: {
   scheduleRepository: ScheduleRepository;
   venueEventRepository: VenueEventRepository;
   tableRepository: ClubTableRepository;
   now?: Date;
+  language?: 'ca' | 'es' | 'en';
 }) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const context: TelegramCalendarContext = {
@@ -51,7 +53,7 @@ function createContext({
       bot: {
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
-        language: 'ca',
+        language,
       },
     },
     scheduleRepository,
@@ -181,4 +183,37 @@ test('handleTelegramCalendarText shows upcoming activities and venue events grou
   assert.match(replies.at(-1)?.message ?? '', /<i>Campanya oberta<\/i>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Dimecres 8 abril<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /Tot el dia Jornada oberta JdT Vermut Edition/);
+});
+
+test('handleTelegramCalendarText accepts Spanish calendar menu label', async () => {
+  const scheduleRepository: ScheduleRepository = {
+    async createEvent() { throw new Error('not implemented'); },
+    async findEventById() { return null; },
+    async listEvents() { return []; },
+    async updateEvent() { throw new Error('not implemented'); },
+    async cancelEvent() { throw new Error('not implemented'); },
+    async findParticipant() { return null; },
+    async listParticipants() { return []; },
+    async upsertParticipant() { throw new Error('not implemented'); },
+  };
+  const venueEventRepository: VenueEventRepository = {
+    async createVenueEvent() { throw new Error('not implemented'); },
+    async findVenueEventById() { return null; },
+    async listVenueEvents() { return []; },
+    async updateVenueEvent() { throw new Error('not implemented'); },
+    async cancelVenueEvent() { throw new Error('not implemented'); },
+  };
+  const tableRepository: ClubTableRepository = {
+    async createTable() { throw new Error('not implemented'); },
+    async findTableById() { return null; },
+    async listTables() { return []; },
+    async updateTable() { throw new Error('not implemented'); },
+    async deactivateTable() { throw new Error('not implemented'); },
+  };
+
+  const { context, replies } = createContext({ scheduleRepository, venueEventRepository, tableRepository, language: 'es' });
+  context.messageText = 'Calendario';
+
+  assert.equal(await handleTelegramCalendarText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /No hay actividades ni eventos cercanos ahora mismo\./);
 });

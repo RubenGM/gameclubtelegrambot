@@ -256,6 +256,7 @@ function createContext({
   catalogLookupService,
   wikipediaBoardGameImportService,
   isAdmin = true,
+  language = 'ca',
 }: {
   repository?: CatalogRepository;
   catalogLoanRepository?: CatalogLoanRepository;
@@ -264,6 +265,7 @@ function createContext({
   catalogLookupService?: CatalogLookupService;
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   isAdmin?: boolean;
+  language?: 'ca' | 'es' | 'en';
 } = {}) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions | undefined }> = [];
   let currentSession: { flowKey: string; stepKey: string; data: Record<string, unknown> } | null = null;
@@ -315,7 +317,7 @@ function createContext({
       },
       chat: { kind: 'private', chatId: 1 },
       services: { database: { db: undefined as never } },
-      bot: { publicName: 'Game Club Bot', clubName: 'Game Club', language: 'ca', sendPrivateMessage: async () => {} },
+      bot: { publicName: 'Game Club Bot', clubName: 'Game Club', language, sendPrivateMessage: async () => {} },
     },
     catalogRepository: repository,
     catalogLoanRepository,
@@ -340,6 +342,27 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
     [catalogAdminLabels.searchByName],
     [catalogAdminLabels.start],
   ]);
+});
+
+test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', async () => {
+  const { context, replies } = createContext({ language: 'es' });
+
+  context.messageText = 'Catalogo';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /No hay ningun item de catalogo disponible ahora mismo\./);
+
+  context.messageText = 'Listar items';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  context.messageText = 'Editar item';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  context.messageText = 'Desactivar item';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  context.messageText = 'Buscar por nombre';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Escribe el nombre, o parte del nombre,/);
 });
 
 test('handleTelegramCatalogAdminText creates a board game and opens edit mode immediately', async () => {

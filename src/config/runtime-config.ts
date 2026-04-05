@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const botLanguageSchema = z.enum(['ca', 'es', 'en']);
+
 const defaultNotificationDefaults = {
   groupAnnouncementsEnabled: true,
   eventRemindersEnabled: true,
@@ -11,7 +13,7 @@ export const runtimeConfigSchema = z.object({
   bot: z.object({
     publicName: z.string().trim().min(1),
     clubName: z.string().trim().min(1),
-    language: z.string().trim().min(2).default('ca'),
+    language: botLanguageSchema.default('ca'),
     iconPath: z.string().trim().min(1).optional(),
   }),
   telegram: z.object({

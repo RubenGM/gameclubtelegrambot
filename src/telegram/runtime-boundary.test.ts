@@ -213,8 +213,10 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'middleware:register',
     'middleware:register',
     'middleware:register',
+    'middleware:register',
     'register:/elevate_admin',
     'register:/access',
+    'register:/language',
     'register:/schedule',
     'register:/calendar',
     'register:/tables',
@@ -268,11 +270,11 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'runtime:database:1',
     'reply:Hem registrat la teva sollicitud d accés. Un administrador la revisara al mes aviat possible.',
     'reply:Benvingut a Game Club Bot. Escriu /help per veure les opcions disponibles.',
-    'reply-keyboard:/access|/start|/help',
+    'reply-keyboard:/access|Idioma|/start|/help',
     'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
     'reply:Usuari aprovat correctament.',
-    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/schedule - Gestiona les teves activitats del club\n/tables - Consulta les taules actives del club\n/catalog_search - Consulta i cerca el cataleg\n/catalog - Gestiona el cataleg manual del club\n/review_access - Revisa sollicituds pendents\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
+    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/language - Canvia l idioma del bot\n/schedule - Gestiona les teves activitats del club\n/tables - Consulta les taules actives del club\n/catalog_search - Consulta i cerca el cataleg\n/catalog - Gestiona el cataleg manual del club\n/review_access - Revisa sollicituds pendents\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
     'start-polling',
     'stop-polling',
   ]);
@@ -733,7 +735,7 @@ test('cancel restores the default action menu after an active flow', async () =>
     {
       message: 'Flux cancel.lat correctament.',
       options: {
-        replyKeyboard: [['Activitats'], ['/tables', '/elevate_admin'], ['/start', '/help']],
+        replyKeyboard: [['Activitats'], ['/tables', '/elevate_admin'], ['Idioma'], ['/start', '/help']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },
@@ -955,11 +957,11 @@ test('createTelegramBoundary routes plain text keyboard actions for schedule man
 
 test('formatStartMessage shows version only to admins', async () => {
   assert.match(
-    formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: true }),
+    formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: true, language: 'ca' }),
     /Game Club Bot online \(v0.1.0\)/,
   );
   assert.equal(
-    formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false }),
+    formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false, language: 'ca' }),
     'Benvingut a Game Club Bot. Escriu /help per veure les opcions disponibles.',
   );
 });

@@ -2,6 +2,7 @@ import { getClubTable, listClubTables, type ClubTableRepository } from '../table
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import { formatTelegramTableDetails, formatTelegramTableListMessage } from './table-presentation.js';
+import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 
 export const tableReadCallbackPrefixes = {
   inspect: 'table_read:inspect:',
@@ -14,16 +15,17 @@ export type TelegramTableReadContext = TelegramCommandHandlerContext & {
 export async function handleTelegramTableReadCommand(
   context: TelegramTableReadContext,
 ): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const tables = await listClubTables({
     repository: resolveTableRepository(context),
   });
 
   if (tables.length === 0) {
-    await context.reply('No hi ha cap taula activa disponible ara mateix.');
+    await context.reply(createTelegramI18n(language).tableRead.noActiveTables);
     return;
   }
 
-  await context.reply(formatTelegramTableListMessage({ tables, audience: 'member' }), {
+  await context.reply(formatTelegramTableListMessage({ tables, audience: 'member', language }), {
     parseMode: 'HTML',
   });
 }
@@ -46,7 +48,7 @@ export async function handleTelegramTableReadCallback(
     throw new Error(`Club table ${tableId} not found`);
   }
 
-  await context.reply(formatTelegramTableDetails({ table, audience: 'member' }), { parseMode: 'HTML' });
+  await context.reply(formatTelegramTableDetails({ table, audience: 'member', language: normalizeBotLanguage(context.runtime.bot.language, 'ca') }), { parseMode: 'HTML' });
   return true;
 }
 
@@ -65,7 +67,7 @@ export async function handleTelegramTableReadStartText(context: TelegramTableRea
     throw new Error(`Club table ${tableId} not found`);
   }
 
-  await context.reply(formatTelegramTableDetails({ table, audience: 'member' }), { parseMode: 'HTML' });
+  await context.reply(formatTelegramTableDetails({ table, audience: 'member', language: normalizeBotLanguage(context.runtime.bot.language, 'ca') }), { parseMode: 'HTML' });
   return true;
 }
 

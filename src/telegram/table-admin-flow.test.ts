@@ -81,10 +81,12 @@ function createContext({
   repository = createRepository(),
   auditRepository = createAuditRepository(),
   isAdmin = true,
+  language,
 }: {
   repository?: ClubTableRepository;
   auditRepository?: AuditLogRepository;
   isAdmin?: boolean;
+  language?: 'ca' | 'es' | 'en';
 } = {}) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions | undefined }> = [];
   let currentSession: {
@@ -168,6 +170,7 @@ function createContext({
       bot: {
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
+        ...(language ? { language } : {}),
         sendPrivateMessage: async () => {},
       },
       chat: {
@@ -230,6 +233,21 @@ test('handleTelegramTableAdminText opens the admin table menu from the keyboard 
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
+});
+
+test('handleTelegramTableAdminText accepts Spanish table action buttons', async () => {
+  const { context, replies } = createContext({ language: 'es' });
+
+  context.messageText = 'Mesas';
+  assert.equal(await handleTelegramTableAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Gestion de mesas: elige una accion\./);
+
+  context.messageText = 'Listar mesas';
+  assert.equal(await handleTelegramTableAdminText(context), true);
+
+  context.messageText = 'Crear mesa';
+  assert.equal(await handleTelegramTableAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Escribe el nombre visible de la mesa\./);
 });
 
 test('handleTelegramTableAdminText creates a table through keyboard-guided conversation steps', async () => {

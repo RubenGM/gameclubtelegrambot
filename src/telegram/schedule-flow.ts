@@ -38,6 +38,7 @@ import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
 
 const createFlowKey = 'schedule-create';
@@ -168,25 +169,29 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
     return handleActiveScheduleSession(context, text);
   }
 
-  if (text === scheduleLabels.openMenu || text === '/schedule') {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const i18n = createTelegramI18n(language);
+  const texts = i18n.schedule;
+
+  if (text === i18n.actionMenu.schedule || text === scheduleLabels.openMenu || text === '/schedule') {
     return replyWithInspectableEventList(context, { includeMenuKeyboard: true });
   }
 
-  if (text === scheduleLabels.create || text === '/schedule_create') {
+  if (text === texts.create || text === scheduleLabels.create || text === '/schedule_create') {
     await context.runtime.session.start({ flowKey: createFlowKey, stepKey: 'title', data: {} });
-    await context.reply('Escriu el titol de l activitat.', buildSingleCancelKeyboard());
+    await context.reply(texts.askTitle, buildSingleCancelKeyboard(language));
     return true;
   }
 
-  if (text === scheduleLabels.list || text === '/schedule_list') {
+  if (text === texts.list || text === scheduleLabels.list || text === '/schedule_list') {
     return replyWithInspectableEventList(context);
   }
 
-  if (text === scheduleLabels.edit || text === '/schedule_edit') {
+  if (text === texts.edit || text === scheduleLabels.edit || text === '/schedule_edit') {
     return replyWithManageableEventList(context, 'edit');
   }
 
-  if (text === scheduleLabels.cancel || text === '/schedule_cancel') {
+  if (text === texts.cancel || text === scheduleLabels.cancel || text === '/schedule_cancel') {
     return replyWithManageableEventList(context, 'cancel');
   }
 
@@ -262,7 +267,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.selectEdit, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
     if (!canManageEvent(context.runtime.actor, context.runtime.authorization, event)) {
-      await context.reply('No pots modificar una activitat creada per una altra persona.');
+      await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule.noEditOthers);
       return true;
     }
 
@@ -282,7 +287,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.selectCancel, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
     if (!canManageEvent(context.runtime.actor, context.runtime.authorization, event)) {
-      await context.reply('No pots cancel.lar una activitat creada per una altra persona.');
+      await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule.noCancelOthers);
       return true;
     }
 
@@ -334,63 +339,65 @@ async function handleCreateSession(
   stepKey: string,
   data: Record<string, unknown>,
 ): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
   if (stepKey === 'title') {
     await context.runtime.session.advance({ stepKey: 'description', data: { title: text } });
-    await context.reply('Escriu una descripcio opcional o tria una opcio del teclat.', buildDescriptionOptions());
+    await context.reply(texts.askDescription, buildDescriptionOptions(language));
     return true;
   }
 
   if (stepKey === 'description') {
     await context.runtime.session.advance({
       stepKey: 'date',
-      data: { ...data, description: text === scheduleLabels.skipOptional ? null : text },
+      data: { ...data, description: text === texts.skipOptional || text === scheduleLabels.skipOptional ? null : text },
     });
-    await context.reply('Escriu la data en format dd/MM o dd/MM/yyyy.', buildDateOptions(context));
+    await context.reply(texts.askDate, buildDateOptions(context));
     return true;
   }
 
   if (stepKey === 'date') {
     const date = parseDate(text);
     if (date instanceof Error) {
-      await context.reply('La data ha de tenir format dd/MM o dd/MM/yyyy.', buildDateOptions(context));
+      await context.reply(texts.invalidDate, buildDateOptions(context));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time', data: { ...data, date } });
-    await context.reply('Escriu l hora en format HH:MM.', buildSingleCancelKeyboard());
+    await context.reply(texts.askTime, buildSingleCancelKeyboard(language));
     return true;
   }
 
   if (stepKey === 'time') {
     const time = parseTime(text);
     if (time instanceof Error) {
-      await context.reply('L hora ha de tenir format HH:MM.', buildSingleCancelKeyboard());
+      await context.reply(texts.invalidTime, buildSingleCancelKeyboard(language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'duration', data: { ...data, time } });
-    await context.reply('Escriu la durada en minuts com a numero enter positiu o omet el camp per usar 180 minuts.', buildCreateDurationOptions());
+    await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
   }
 
   if (stepKey === 'duration') {
-    const durationMinutes = parseOptionalDurationMinutes(text);
+    const durationMinutes = parseOptionalDurationMinutes(text, language);
     if (durationMinutes instanceof Error) {
-      await context.reply('La durada ha de ser un enter positiu en minuts o pots ometre-la per usar 180 minuts.', buildCreateDurationOptions());
+      await context.reply(texts.askDuration, buildCreateDurationOptions(language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
-    await context.reply('Escriu la capacitat com a numero enter positiu.', buildSingleCancelKeyboard());
+    await context.reply(texts.askCapacity, buildSingleCancelKeyboard(language));
     return true;
   }
 
   if (stepKey === 'capacity') {
     const capacity = parseCapacity(text);
     if (capacity instanceof Error) {
-      await context.reply('La capacitat ha de ser un enter positiu.', buildSingleCancelKeyboard());
+      await context.reply(texts.invalidCapacity, buildSingleCancelKeyboard(language));
       return true;
     }
     const nextData = { ...data, capacity };
     await context.runtime.session.advance({ stepKey: 'table', data: nextData });
-    await context.reply('Tria una taula opcional o continua sense taula.', await buildTableSelectionOptions(context));
+    await context.reply(texts.askTable, await buildTableSelectionOptions(context, language));
     return true;
   }
 
@@ -399,8 +406,8 @@ async function handleCreateSession(
   }
 
   if (stepKey === 'confirm') {
-    if (text !== scheduleLabels.confirmCreate) {
-      await context.reply('Per guardar l activitat, tria el boto de confirmacio o cancel.la el flux.', buildCreateConfirmOptions());
+    if (text !== texts.confirmCreate && text !== scheduleLabels.confirmCreate) {
+      await context.reply(texts.confirmCreatePrompt, buildCreateConfirmOptions(language));
       return true;
     }
     try {
@@ -410,7 +417,7 @@ async function handleCreateSession(
       });
     } catch {
       await context.runtime.session.advance({ stepKey: 'table', data });
-      await context.reply('La taula seleccionada ja no esta activa. Torna a triar una taula activa o continua sense taula.', await buildTableSelectionOptions(context));
+      await context.reply(texts.inactiveTableCreate, await buildTableSelectionOptions(context, language));
       return true;
     }
     const created = await createScheduleEvent({
@@ -439,8 +446,8 @@ async function handleCreateSession(
     });
     await context.runtime.session.cancel();
     await context.reply(
-      `Activitat creada correctament: <b>${escapeHtml(created.title)}</b>\n${await formatScheduleEventView(context, created)}`,
-      { ...buildScheduleMenuOptions(), parseMode: 'HTML' },
+      `${texts.created.replace('.', '')}: <b>${escapeHtml(created.title)}</b>\n${await formatScheduleEventView(context, created)}`,
+      { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
     );
     await notifyScheduleConflicts({ context, eventId: created.id });
     await publishCalendarSnapshotToNewsGroups(context);
@@ -456,95 +463,97 @@ async function handleEditSession(
   stepKey: string,
   data: Record<string, unknown>,
 ): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
   const event = await loadEventOrThrow(context, Number(data.eventId));
     if (stepKey === 'select-field') {
-      if (text === scheduleLabels.confirmEdit) {
+      if (text === texts.confirmEdit || text === scheduleLabels.confirmEdit) {
         await persistEditedScheduleEvent(context, event, data);
         return true;
       }
-    if (text === scheduleLabels.editFieldTitle) {
+    if (text === texts.editFieldTitle || text === scheduleLabels.editFieldTitle) {
       await context.runtime.session.advance({ stepKey: 'title', data });
-      await context.reply('Escriu el nou titol de l activitat.', buildSingleCancelKeyboard());
+      await context.reply(texts.askEditTitle, buildSingleCancelKeyboard(language));
       return true;
     }
-    if (text === scheduleLabels.editFieldDescription) {
+    if (text === texts.editFieldDescription || text === scheduleLabels.editFieldDescription) {
       await context.runtime.session.advance({ stepKey: 'description', data });
-      await context.reply('Escriu la nova descripcio opcional o tria una opcio del teclat.', buildEditDescriptionOptions());
+      await context.reply(texts.askEditDescription, buildEditDescriptionOptions(language));
       return true;
     }
-    if (text === scheduleLabels.editFieldDate) {
+    if (text === texts.editFieldDate || text === scheduleLabels.editFieldDate) {
       await context.runtime.session.advance({ stepKey: 'date', data });
-      await context.reply('Escriu la data en format dd/MM o dd/MM/yyyy, o mantingues el valor actual.', buildEditDateOptions(context));
+      await context.reply(texts.askEditDate, buildEditDateOptions(context, language));
       return true;
     }
-    if (text === scheduleLabels.editFieldTime) {
+    if (text === texts.editFieldTime || text === scheduleLabels.editFieldTime) {
       await context.runtime.session.advance({ stepKey: 'time', data });
-      await context.reply('Escriu l hora en format HH:MM o mantingues el valor actual.', buildKeepCurrentKeyboard());
+      await context.reply(texts.askEditTime, buildKeepCurrentKeyboard(language));
       return true;
     }
-    if (text === scheduleLabels.editFieldDuration) {
+    if (text === texts.editFieldDuration || text === scheduleLabels.editFieldDuration) {
       await context.runtime.session.advance({ stepKey: 'duration', data });
-      await context.reply('Escriu la durada en minuts o mantingues el valor actual.', buildKeepCurrentKeyboard());
+      await context.reply(texts.askEditDuration, buildKeepCurrentKeyboard(language));
       return true;
     }
-    if (text === scheduleLabels.editFieldCapacity) {
+    if (text === texts.editFieldCapacity || text === scheduleLabels.editFieldCapacity) {
       await context.runtime.session.advance({ stepKey: 'capacity', data });
-      await context.reply('Escriu la capacitat com a numero enter positiu o mantingues el valor actual.', buildKeepCurrentKeyboard());
+      await context.reply(texts.askEditCapacity, buildKeepCurrentKeyboard(language));
       return true;
     }
-    if (text === scheduleLabels.editFieldTable) {
+    if (text === texts.editFieldTable || text === scheduleLabels.editFieldTable) {
       await context.runtime.session.advance({ stepKey: 'table', data });
-      await context.reply('Tria una taula opcional, mantingues la taula actual o elimina-la.', await buildEditTableOptions(context));
+      await context.reply(texts.askEditTable, await buildEditTableOptions(context, language));
       return true;
     }
-    await context.reply('Tria un camp del teclat o guarda els canvis quan hagis acabat.', buildEditFieldMenuOptions());
+    await context.reply(texts.selectFieldPrompt, buildEditFieldMenuOptions(language));
     return true;
   }
 
   if (stepKey === 'title') {
-    const title = text === scheduleLabels.keepCurrent ? event.title : text;
+    const title = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? event.title : text;
     return returnToEditMenu(context, event, data, { title });
   }
   if (stepKey === 'description') {
-    const description = text === scheduleLabels.keepCurrent ? event.description : text === scheduleLabels.skipOptional ? null : text;
+    const description = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? event.description : text === texts.skipOptional || text === scheduleLabels.skipOptional ? null : text;
     return returnToEditMenu(context, event, data, { description, title: data.title ?? event.title });
   }
   if (stepKey === 'date') {
     const currentDate = event.startsAt.slice(0, 10);
-    const date = text === scheduleLabels.keepCurrent ? currentDate : parseDate(text);
+    const date = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? currentDate : parseDate(text);
     if (date instanceof Error) {
-      await context.reply('La data ha de tenir format dd/MM o dd/MM/yyyy.', buildEditDateOptions(context));
+      await context.reply(texts.invalidDate, buildEditDateOptions(context, language));
       return true;
     }
     return returnToEditMenu(context, event, data, { date });
   }
   if (stepKey === 'time') {
     const currentTime = event.startsAt.slice(11, 16);
-    const time = text === scheduleLabels.keepCurrent ? currentTime : parseTime(text);
+    const time = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? currentTime : parseTime(text);
     if (time instanceof Error) {
-      await context.reply('L hora ha de tenir format HH:MM.', buildKeepCurrentKeyboard());
+      await context.reply(texts.invalidTime, buildKeepCurrentKeyboard(language));
       return true;
     }
     return returnToEditMenu(context, event, data, { time });
   }
   if (stepKey === 'duration') {
-    const durationMinutes = text === scheduleLabels.keepCurrent ? event.durationMinutes : parseOptionalDurationMinutes(text);
+    const durationMinutes = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? event.durationMinutes : parseOptionalDurationMinutes(text, language);
     if (durationMinutes instanceof Error) {
-      await context.reply('La durada ha de ser un enter positiu en minuts.', buildKeepCurrentKeyboard());
+      await context.reply(texts.askEditDuration, buildKeepCurrentKeyboard(language));
       return true;
     }
     return returnToEditMenu(context, event, data, { durationMinutes });
   }
   if (stepKey === 'capacity') {
-    const capacity = text === scheduleLabels.keepCurrent ? event.capacity : parseCapacity(text);
+    const capacity = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? event.capacity : parseCapacity(text);
     if (capacity instanceof Error) {
-      await context.reply('La capacitat ha de ser un enter positiu.', buildKeepCurrentKeyboard());
+      await context.reply(texts.invalidCapacity, buildKeepCurrentKeyboard(language));
       return true;
     }
     return returnToEditMenu(context, event, data, { capacity });
   }
   if (stepKey === 'table') {
-    if (text === scheduleLabels.keepCurrent) {
+    if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
       return returnToEditMenu(context, event, data, { tableId: event.tableId });
     }
     return advanceEditTableSelection(context, event, data, text);
@@ -563,11 +572,13 @@ async function returnToEditMenu(
   data: Record<string, unknown>,
   patch: Record<string, unknown>,
 ): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
   const nextData = { ...data, ...patch };
   await context.runtime.session.advance({ stepKey: 'select-field', data: nextData });
   await context.reply(
-    `${await formatDraftSummary(context, nextData, event, event.organizerTelegramUserId)}\n\nTria un camp per editar o guarda els canvis.`,
-    { ...buildEditFieldMenuOptions(), parseMode: 'HTML' },
+    `${await formatDraftSummary(context, nextData, event, event.organizerTelegramUserId)}\n\n${texts.selectFieldPrompt}`,
+    { ...buildEditFieldMenuOptions(language), parseMode: 'HTML' },
   );
   return true;
 }
@@ -577,6 +588,8 @@ async function persistEditedScheduleEvent(
   event: ScheduleEventRecord,
   data: Record<string, unknown>,
 ): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
   try {
     await requireSchedulableTableSelection({
       repository: resolveTableRepository(context),
@@ -584,7 +597,7 @@ async function persistEditedScheduleEvent(
     });
   } catch {
     await context.runtime.session.advance({ stepKey: 'table', data });
-    await context.reply('La taula seleccionada ja no esta activa. Torna a triar una taula activa, mantenir la taula actual o eliminar-la.', await buildEditTableOptions(context));
+    await context.reply(texts.inactiveTableEdit, await buildEditTableOptions(context, language));
     return;
   }
 
@@ -617,8 +630,8 @@ async function persistEditedScheduleEvent(
   });
   await context.runtime.session.cancel();
   await context.reply(
-    `Activitat actualitzada correctament: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId) })}`,
-    { ...buildScheduleMenuOptions(), parseMode: 'HTML' },
+    `${texts.updated.replace('.', '')}: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId) })}`,
+    { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
   );
   await notifyScheduleConflicts({ context, eventId: updated.id });
   await publishCalendarSnapshotToNewsGroups(context);
@@ -629,8 +642,10 @@ async function handleCancelSession(
   text: string,
   data: Record<string, unknown>,
 ): Promise<boolean> {
-  if (text !== scheduleLabels.confirmCancel) {
-    await context.reply('Per cancel.lar l activitat, tria el boto de confirmacio o cancel.la el flux.', buildCancelConfirmOptions());
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  if (text !== texts.confirmCancel && text !== scheduleLabels.confirmCancel) {
+    await context.reply(texts.confirmCancelPrompt, buildCancelConfirmOptions(language));
     return true;
   }
   const cancelled = await cancelScheduleEvent({
@@ -652,12 +667,14 @@ async function handleCancelSession(
     },
   });
   await context.runtime.session.cancel();
-  await context.reply(`Activitat cancel.lada correctament: <b>${escapeHtml(cancelled.title)}</b>`, { ...buildScheduleMenuOptions(), parseMode: 'HTML' });
+  await context.reply(`${texts.cancelled.replace('.', '')}: <b>${escapeHtml(cancelled.title)}</b>`, { ...buildScheduleMenuOptions(language), parseMode: 'HTML' });
   await publishCalendarSnapshotToNewsGroups(context);
   return true;
 }
 
 async function handleTableSelectionCallback(context: TelegramScheduleContext, callbackData: string): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
   const session = context.runtime.session.current;
   if (!session || (session.stepKey !== 'table' && session.stepKey !== 'confirm')) {
     return false;
@@ -671,7 +688,7 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
       tableId,
     });
   } catch {
-    await context.reply('La taula seleccionada ja no esta activa. Tria una taula activa o continua sense taula.', await buildTableSelectionOptions(context));
+    await context.reply(texts.inactiveTableCreate, await buildTableSelectionOptions(context, language));
     return true;
   }
 
@@ -679,8 +696,8 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
   await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
   const event = session.flowKey === editFlowKey ? await loadEventOrThrow(context, Number(session.data.eventId)) : null;
   await context.reply(
-    `${await formatDraftSummary(context, nextData, event ?? undefined, event?.organizerTelegramUserId, selectedTable)}\n\nConfirma o cancel.la el flux.`,
-    { ...(session.flowKey === editFlowKey ? buildEditConfirmOptions() : buildCreateConfirmOptions()), parseMode: 'HTML' },
+    `${await formatDraftSummary(context, nextData, event ?? undefined, event?.organizerTelegramUserId, selectedTable)}\n\n${texts.confirmPrompt}`,
+    { ...(session.flowKey === editFlowKey ? buildEditConfirmOptions(language) : buildCreateConfirmOptions(language)), parseMode: 'HTML' },
   );
   return true;
 }
@@ -690,22 +707,24 @@ async function advanceCreateTableSelection(
   data: Record<string, unknown>,
   text: string,
 ): Promise<boolean> {
-  if (text === scheduleLabels.noTable) {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  if (text === texts.noTable || text === scheduleLabels.noTable) {
     const nextData = { ...data, tableId: null };
     await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(`${await formatDraftSummary(context, nextData, undefined)}\n\nConfirma o cancel.la el flux.`, { ...buildCreateConfirmOptions(), parseMode: 'HTML' });
+    await context.reply(`${await formatDraftSummary(context, nextData, undefined)}\n\n${texts.confirmPrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
     return true;
   }
 
   const selectedTable = await findSchedulableTableByDisplayName(context, text);
   if (!selectedTable) {
-    await context.reply('Per continuar, tria una taula dels botons o selecciona Sense taula.', await buildTableSelectionOptions(context));
+    await context.reply(texts.invalidTableCreate, await buildTableSelectionOptions(context, language));
     return true;
   }
 
   const nextData = { ...data, tableId: selectedTable.id };
   await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-  await context.reply(`${await formatDraftSummary(context, nextData, undefined, undefined, selectedTable)}\n\nConfirma o cancel.la el flux.`, { ...buildCreateConfirmOptions(), parseMode: 'HTML' });
+  await context.reply(`${await formatDraftSummary(context, nextData, undefined, undefined, selectedTable)}\n\n${texts.confirmPrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
   return true;
 }
 
@@ -715,13 +734,15 @@ async function advanceEditTableSelection(
   data: Record<string, unknown>,
   text: string,
 ): Promise<boolean> {
-  if (text === scheduleLabels.noTable) {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  if (text === texts.noTable || text === scheduleLabels.noTable) {
     return returnToEditMenu(context, event, data, { tableId: null });
   }
 
   const selectedTable = await findSchedulableTableByDisplayName(context, text);
   if (!selectedTable) {
-    await context.reply('Per continuar, tria una taula dels botons, mantingues el valor actual o selecciona Sense taula.', await buildEditTableOptions(context));
+    await context.reply(texts.invalidTableEdit, await buildEditTableOptions(context, language));
     return true;
   }
 
@@ -738,6 +759,7 @@ async function replyWithManageableEventList(
   context: TelegramScheduleContext,
   mode: 'edit' | 'cancel',
 ): Promise<boolean> {
+  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule;
   const events = (await loadUpcomingScheduleEvents(context)).filter((event) => canManageEvent(context.runtime.actor, context.runtime.authorization, event));
   if (events.length === 0) {
     await context.reply(
@@ -753,7 +775,7 @@ async function replyWithManageableEventList(
     parseMode: 'HTML',
     inlineKeyboard: events.map((event) => [
       {
-        text: `${mode === 'edit' ? 'Editar' : 'Cancel.lar'} ${event.title}`,
+        text: `${mode === 'edit' ? texts.listEditAction : texts.listCancelAction} ${event.title}`,
         callbackData: `${mode === 'edit' ? scheduleCallbackPrefixes.selectEdit : scheduleCallbackPrefixes.selectCancel}${event.id}`,
       },
     ]),
@@ -836,15 +858,16 @@ function formatParticipantLabel(
   return user.displayName;
 }
 
-function buildScheduleMenuOptions(): TelegramReplyOptions {
+function buildScheduleMenuOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[scheduleLabels.list, scheduleLabels.create], [scheduleLabels.edit, scheduleLabels.cancel], [scheduleLabels.start, scheduleLabels.help]],
+    replyKeyboard: [[texts.list, texts.create], [texts.edit, texts.cancel], [scheduleLabels.start, scheduleLabels.help]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildSingleCancelKeyboard(): TelegramReplyOptions {
+function buildSingleCancelKeyboard(_language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   return {
     replyKeyboard: [[scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
@@ -852,9 +875,10 @@ function buildSingleCancelKeyboard(): TelegramReplyOptions {
   };
 }
 
-function buildDescriptionOptions(): TelegramReplyOptions {
+function buildDescriptionOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[scheduleLabels.skipOptional], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.skipOptional], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -868,17 +892,19 @@ function buildDateOptions(context: TelegramScheduleContext): TelegramReplyOption
   };
 }
 
-function buildEditDateOptions(context: TelegramScheduleContext): TelegramReplyOptions {
+function buildEditDateOptions(context: TelegramScheduleContext, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[scheduleLabels.keepCurrent], ...buildUpcomingDateRows(resolveBotLanguage(context)), [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], ...buildUpcomingDateRows(resolveBotLanguage(context)), [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildEditDescriptionOptions(): TelegramReplyOptions {
+function buildEditDescriptionOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[scheduleLabels.keepCurrent], [scheduleLabels.skipOptional], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], [texts.skipOptional], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -900,46 +926,51 @@ function buildEditDurationOptions(): TelegramReplyOptions {
   };
 }
 
-function buildCreateDurationOptions(): TelegramReplyOptions {
+function buildCreateDurationOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[scheduleLabels.skipOptional], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.skipOptional], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildCreateConfirmOptions(): TelegramReplyOptions {
+function buildCreateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[scheduleLabels.confirmCreate], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.confirmCreate], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildEditConfirmOptions(): TelegramReplyOptions {
+function buildEditConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[scheduleLabels.confirmEdit], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.confirmEdit], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildKeepCurrentKeyboard(): TelegramReplyOptions {
+function buildKeepCurrentKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[scheduleLabels.keepCurrent], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildEditFieldMenuOptions(): TelegramReplyOptions {
+function buildEditFieldMenuOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
     replyKeyboard: [
-      [scheduleLabels.editFieldTitle, scheduleLabels.editFieldDescription],
-      [scheduleLabels.editFieldDate, scheduleLabels.editFieldTime],
-      [scheduleLabels.editFieldDuration, scheduleLabels.editFieldCapacity],
-      [scheduleLabels.editFieldTable],
-      [scheduleLabels.confirmEdit],
+      [texts.editFieldTitle, texts.editFieldDescription],
+      [texts.editFieldDate, texts.editFieldTime],
+      [texts.editFieldDuration, texts.editFieldCapacity],
+      [texts.editFieldTable],
+      [texts.confirmEdit],
       [scheduleLabels.cancelFlow],
     ],
     resizeKeyboard: true,
@@ -947,28 +978,31 @@ function buildEditFieldMenuOptions(): TelegramReplyOptions {
   };
 }
 
-function buildCancelConfirmOptions(): TelegramReplyOptions {
+function buildCancelConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[scheduleLabels.confirmCancel], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.confirmCancel], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-async function buildTableSelectionOptions(context: TelegramScheduleContext): Promise<TelegramReplyOptions> {
+async function buildTableSelectionOptions(context: TelegramScheduleContext, language: 'ca' | 'es' | 'en' = 'ca'): Promise<TelegramReplyOptions> {
+  const texts = createTelegramI18n(language).schedule;
   const tables = await listSchedulableTables({ repository: resolveTableRepository(context) });
   return {
-    replyKeyboard: [...chunkTableButtons(tables.map((table) => table.displayName)), [scheduleLabels.noTable], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [...chunkTableButtons(tables.map((table) => table.displayName)), [texts.noTable], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-async function buildEditTableOptions(context: TelegramScheduleContext): Promise<TelegramReplyOptions> {
-  const options = await buildTableSelectionOptions(context);
+async function buildEditTableOptions(context: TelegramScheduleContext, language: 'ca' | 'es' | 'en' = 'ca'): Promise<TelegramReplyOptions> {
+  const texts = createTelegramI18n(language).schedule;
+  const options = await buildTableSelectionOptions(context, language);
   return {
     ...options,
-    replyKeyboard: [[scheduleLabels.keepCurrent], ...(options.replyKeyboard ?? []).filter((row) => row[0] !== scheduleLabels.cancelFlow), [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], ...(options.replyKeyboard ?? []).filter((row) => row[0] !== scheduleLabels.cancelFlow), [scheduleLabels.cancelFlow]],
   };
 }
 
@@ -1022,13 +1056,14 @@ function buildScheduleDayButtons(events: ScheduleEventRecord[], language: string
 }
 
 function formatScheduleEventDetails({ event, tableName }: { event: ScheduleEventRecord; tableName: string | null }): string {
+  const texts = createTelegramI18n('ca').schedule;
   return [
     `<b>${escapeHtml(event.title)}</b>`,
-    formatHtmlField('Inici', formatTimestamp(event.startsAt)),
-    formatHtmlField('Durada', `${event.durationMinutes} min`),
-    formatHtmlField('Places', String(event.capacity)),
-    formatHtmlField('Taula', escapeHtml(tableName ?? 'Sense taula')),
-    formatHtmlField('Descripcio', escapeHtml(event.description ?? 'Sense descripcio')),
+    formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
+    formatHtmlField(texts.detailsDuration, `${event.durationMinutes} min`),
+    formatHtmlField(texts.detailsSeats, String(event.capacity)),
+    formatHtmlField(texts.detailsTable, escapeHtml(tableName ?? texts.noTable)),
+    formatHtmlField(texts.detailsDescription, escapeHtml(event.description ?? texts.noDescription)),
   ].join('\n');
 }
 
@@ -1036,6 +1071,7 @@ async function formatScheduleEventView(
   context: TelegramScheduleContext,
   event: ScheduleEventRecord,
 ): Promise<string> {
+  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule;
   const attendance = await getScheduleEventAttendance({
     repository: resolveScheduleRepository(context),
     eventId: event.id,
@@ -1046,10 +1082,10 @@ async function formatScheduleEventView(
 
   return [
     formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) }),
-    formatHtmlField('Final', getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')),
-    formatHtmlField('Places ocupades', `${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`),
-    formatHtmlField('Places lliures', String(attendance.snapshot.availableSeats)),
-    formatHtmlField('Assistents', participantLabels.length > 0 ? participantLabels.map(escapeHtml).join(', ') : 'Cap'),
+    formatHtmlField(texts.detailsEnd, getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')),
+    formatHtmlField(texts.detailsOccupiedSeats, `${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`),
+    formatHtmlField(texts.detailsFreeSeats, String(attendance.snapshot.availableSeats)),
+    formatHtmlField(texts.detailsAttendees, participantLabels.length > 0 ? participantLabels.map(escapeHtml).join(', ') : texts.none),
     ...(relevantVenueEvents.length > 0
       ? [
           '<b>Esdeveniments del local rellevants:</b>',
@@ -1068,14 +1104,16 @@ function canEditScheduleEvent(actor: TelegramActor, event: ScheduleEventRecord):
 }
 
 function buildScheduleDetailActionOptions(context: TelegramScheduleContext, event: ScheduleEventRecord, isAttending: boolean): TelegramReplyOptions {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
   const rows: TelegramReplyOptions['inlineKeyboard'] = [
-    [{ text: isAttending ? 'Sortir' : 'Apuntar-me', callbackData: `${isAttending ? scheduleCallbackPrefixes.leave : scheduleCallbackPrefixes.join}${event.id}` }],
+    [{ text: isAttending ? texts.leaveButton : texts.joinButton, callbackData: `${isAttending ? scheduleCallbackPrefixes.leave : scheduleCallbackPrefixes.join}${event.id}` }],
   ];
 
   if (canEditScheduleEvent(context.runtime.actor, event)) {
     rows.push([
-      { text: 'Editar activitat', callbackData: `${scheduleCallbackPrefixes.selectEdit}${event.id}` },
-      { text: 'Eliminar activitat', callbackData: `${scheduleCallbackPrefixes.selectCancel}${event.id}` },
+      { text: texts.editButton, callbackData: `${scheduleCallbackPrefixes.selectEdit}${event.id}` },
+      { text: texts.deleteButton, callbackData: `${scheduleCallbackPrefixes.selectCancel}${event.id}` },
     ]);
   }
 
@@ -1086,22 +1124,24 @@ async function replyWithInspectableEventList(
   context: TelegramScheduleContext,
   options: { includeMenuKeyboard?: boolean; dayKey?: string } = {},
 ): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
   const events = await loadUpcomingScheduleEvents(context);
   if (events.length === 0) {
-    await context.reply('No hi ha activitats programades ara mateix.', buildScheduleMenuOptions());
+    await context.reply(texts.noScheduledEvents, buildScheduleMenuOptions(language));
     return true;
   }
 
   const dayKey = options.dayKey;
   const filteredEvents = dayKey ? events.filter((event) => event.startsAt.startsWith(dayKey)) : events;
   if (filteredEvents.length === 0) {
-    await context.reply('No hi ha activitats programades per aquest dia.', buildScheduleMenuOptions());
+    await context.reply(texts.noScheduledEventsDay, buildScheduleMenuOptions(language));
     return true;
   }
 
   const listMessage = await formatScheduleListWithVenueImpact(context, filteredEvents);
   if (options.includeMenuKeyboard) {
-    await context.reply(listMessage, { parseMode: 'HTML', ...buildScheduleMenuOptions() });
+    await context.reply(listMessage, { parseMode: 'HTML', ...buildScheduleMenuOptions(language) });
   } else {
     await context.reply(listMessage, { parseMode: 'HTML' });
   }
@@ -1120,6 +1160,7 @@ async function formatDraftSummary(
   organizerTelegramUserId?: number,
   selectedTable?: ClubTableRecord | null,
 ): Promise<string> {
+  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule;
   const event = typeof eventOrOrganizer === 'object' && eventOrOrganizer !== null && 'startsAt' in eventOrOrganizer ? eventOrOrganizer : null;
   const effectiveOrganizerTelegramUserId = typeof eventOrOrganizer === 'number' ? eventOrOrganizer : organizerTelegramUserId;
   const title = String(data.title ?? event?.title ?? '');
@@ -1142,14 +1183,14 @@ async function formatDraftSummary(
   });
 
   return [
-    `Titol: ${escapeHtml(title)}`,
-    `Descripcio: ${escapeHtml(description ?? 'Sense descripcio')}`,
-    `Inici: ${formatTimestamp(buildStartsAt(date, time))}`,
-    `Durada: ${durationMinutes} min`,
-    `Places: ${capacity}`,
-    `Taula: ${table?.displayName ?? 'Sense taula'}`,
+    `${texts.editFieldTitle}: ${escapeHtml(title)}`,
+    `${texts.detailsDescription}: ${escapeHtml(description ?? texts.noDescription)}`,
+    `${texts.detailsStart}: ${formatTimestamp(buildStartsAt(date, time))}`,
+    `${texts.detailsDuration}: ${durationMinutes} min`,
+    `${texts.detailsSeats}: ${capacity}`,
+    `${texts.detailsTable}: ${table?.displayName ?? texts.noTable}`,
     ...advisories.map(escapeHtml),
-    ...(effectiveOrganizerTelegramUserId ? [`Organitzador: ${escapeHtml(await resolveMemberDisplayName(context, effectiveOrganizerTelegramUserId))}`] : []),
+    ...(effectiveOrganizerTelegramUserId ? [`${texts.detailsOrganizer}: ${escapeHtml(await resolveMemberDisplayName(context, effectiveOrganizerTelegramUserId))}`] : []),
   ].join('\n');
 }
 
@@ -1216,8 +1257,9 @@ function parsePositiveInteger(value: string, code = 'invalid-positive-integer'):
   return Number.isInteger(parsed) && parsed > 0 ? parsed : new Error(code);
 }
 
-function parseOptionalDurationMinutes(value: string): number | Error {
-  if (value === scheduleLabels.skipOptional) {
+function parseOptionalDurationMinutes(value: string, language: 'ca' | 'es' | 'en' = 'ca'): number | Error {
+  const texts = createTelegramI18n(language).schedule;
+  if (value === texts.skipOptional || value === scheduleLabels.skipOptional) {
     return defaultScheduleDurationMinutes;
   }
   return parsePositiveInteger(value, 'invalid-duration');

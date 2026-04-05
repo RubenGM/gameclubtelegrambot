@@ -10,6 +10,7 @@ import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { resolveTelegramActionMenu } from './action-menu.js';
+import { createTelegramI18n } from './i18n.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 
 export const calendarLabels = {
@@ -47,7 +48,7 @@ export async function handleTelegramCalendarText(context: TelegramCalendarContex
     return false;
   }
 
-  if (text === calendarLabels.openMenu || text === '/calendar') {
+  if (text === createTelegramI18n(resolveBotLanguage(context) as 'ca' | 'es' | 'en').actionMenu.calendar || text === calendarLabels.openMenu || text === '/calendar') {
     await replyWithCalendar(context);
     return true;
   }
@@ -58,7 +59,7 @@ export async function handleTelegramCalendarText(context: TelegramCalendarContex
 async function replyWithCalendar(context: TelegramCalendarContext): Promise<void> {
   const events = await loadUpcomingCalendarEntries(context);
   if (events.length === 0) {
-    await context.reply('No hi ha activitats ni esdeveniments propers ara mateix.', buildCalendarMenuOptions(context));
+    await context.reply(createTelegramI18n(resolveBotLanguage(context) as 'ca' | 'es' | 'en').calendar.noEvents, buildCalendarMenuOptions(context));
     return;
   }
 
@@ -165,9 +166,10 @@ function buildCalendarMenuOptions(context: TelegramCalendarContext): TelegramRep
         authorization: context.runtime.authorization,
         chat: context.runtime.chat,
         session: context.runtime.session.current,
+        language: resolveBotLanguage(context) as 'ca' | 'es' | 'en',
       },
     }) ?? {
-      replyKeyboard: [['/start', '/help']],
+      replyKeyboard: [['/start', '/help', createTelegramI18n(resolveBotLanguage(context) as 'ca' | 'es' | 'en').actionMenu.language]],
       resizeKeyboard: true,
       persistentKeyboard: true,
     }

@@ -15,6 +15,7 @@ import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { formatTelegramTableDetails, formatTelegramTableListMessage } from './table-presentation.js';
 
 const createFlowKey = 'table-admin-create';
@@ -82,36 +83,37 @@ export async function handleTelegramTableAdminText(
     return handleActiveTableSession(context, text);
   }
 
-  if (text === tableAdminLabels.openMenu || text === '/tables') {
-    await context.reply('Gestio de taules: tria una accio.', buildTableAdminMenuOptions());
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const i18n = createTelegramI18n(language);
+  const texts = i18n.tableAdmin;
+
+  if (text === i18n.actionMenu.tables || text === tableAdminLabels.openMenu || text === '/tables') {
+    await context.reply(texts.selectMenu, buildTableAdminMenuOptions(language));
     return true;
   }
 
-  if (text === tableAdminLabels.create || text === '/table_create') {
+  if (text === texts.create || text === tableAdminLabels.create || text === '/table_create') {
     await context.runtime.session.start({
       flowKey: createFlowKey,
       stepKey: 'display-name',
       data: {},
     });
-    await context.reply(
-      'Escriu el nom visible de la taula.',
-      buildSingleCancelKeyboard(),
-    );
+    await context.reply(texts.askName, buildSingleCancelKeyboard(language));
     return true;
   }
 
-  if (text === tableAdminLabels.list || text === '/table_list') {
-    await replyWithTableList(context, 'list');
+  if (text === texts.list || text === tableAdminLabels.list || text === '/table_list') {
+    await replyWithTableList(context, 'list', language);
     return true;
   }
 
-  if (text === tableAdminLabels.edit || text === '/table_edit') {
-    await replyWithTableList(context, 'edit');
+  if (text === texts.edit || text === tableAdminLabels.edit || text === '/table_edit') {
+    await replyWithTableList(context, 'edit', language);
     return true;
   }
 
-  if (text === tableAdminLabels.deactivate || text === '/table_deactivate') {
-    await replyWithTableList(context, 'deactivate');
+  if (text === texts.deactivate || text === tableAdminLabels.deactivate || text === '/table_deactivate') {
+    await replyWithTableList(context, 'deactivate', language);
     return true;
   }
 
@@ -125,6 +127,9 @@ export async function handleTelegramTableAdminCallback(
   if (!callbackData || context.runtime.chat.kind !== 'private' || !canManageTables(context)) {
     return false;
   }
+
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).tableAdmin;
 
   if (callbackData.startsWith(tableAdminCallbackPrefixes.inspect)) {
     const tableId = parseTableId(callbackData, tableAdminCallbackPrefixes.inspect);
@@ -142,8 +147,8 @@ export async function handleTelegramTableAdminCallback(
       data: { tableId },
     });
     await context.reply(
-      `${formatTableDetails(table)}\n\nEscriu el nou nom visible o tria una opcio del teclat.`,
-      { ...buildEditNameOptions(), parseMode: 'HTML' },
+      `${formatTableDetails(table)}\n\n${texts.askName}`,
+      { ...buildEditNameOptions(language), parseMode: 'HTML' },
     );
     return true;
   }
@@ -157,8 +162,8 @@ export async function handleTelegramTableAdminCallback(
       data: { tableId },
     });
     await context.reply(
-      `${formatTableDetails(table)}\n\nSi la desactives, deixara d aparéixer a la gestio operativa futura pero es mantindra per a consultes historiques.`,
-      { ...buildDeactivateConfirmOptions(), parseMode: 'HTML' },
+      `${formatTableDetails(table)}\n\n${texts.askDeactivate}`,
+      { ...buildDeactivateConfirmOptions(language), parseMode: 'HTML' },
     );
     return true;
   }
@@ -215,14 +220,16 @@ async function handleCreateSession(
   stepKey: string,
   data: Record<string, unknown>,
 ): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).tableAdmin;
   if (stepKey === 'display-name') {
     await context.runtime.session.advance({
       stepKey: 'description',
       data: { displayName: text },
     });
     await context.reply(
-      'Escriu una descripcio opcional o tria una opcio del teclat.',
-      buildDescriptionOptions(),
+      texts.askDescription,
+      buildDescriptionOptions(language),
     );
     return true;
   }
@@ -232,22 +239,22 @@ async function handleCreateSession(
       stepKey: 'capacity',
       data: {
         ...data,
-        description: text === tableAdminLabels.skipOptional ? null : text,
+        description: text === texts.skipOptional || text === tableAdminLabels.skipOptional ? null : text,
       },
     });
     await context.reply(
-      'Escriu la capacitat recomanada com a numero enter positiu o tria una opcio del teclat.',
-      buildCapacityOptions(),
+      texts.askCapacity,
+      buildCapacityOptions(language),
     );
     return true;
   }
 
   if (stepKey === 'capacity') {
-    const recommendedCapacity = parseCapacity(text);
+    const recommendedCapacity = parseCapacity(text, language);
     if (recommendedCapacity instanceof Error) {
       await context.reply(
-        'La capacitat recomanada ha de ser un enter positiu. Escriu un numero valid o tria una opcio del teclat.',
-        buildCapacityOptions(),
+        texts.invalidCapacity,
+        buildCapacityOptions(language),
       );
       return true;
     }
@@ -261,15 +268,15 @@ async function handleCreateSession(
       data: nextData,
     });
     await context.reply(
-      `${formatDraftSummary(nextData)}\n\nTria una opcio per confirmar o cancel.lar.`,
-      buildCreateConfirmOptions(),
+      `${formatDraftSummary(nextData, texts)}\n\nTria una opcio per confirmar o cancel.lar.`,
+      buildCreateConfirmOptions(language),
     );
     return true;
   }
 
   if (stepKey === 'confirm') {
-    if (text !== tableAdminLabels.confirmCreate) {
-      await context.reply('Per guardar la taula, tria el boto de confirmacio o cancel.la el flux.', buildCreateConfirmOptions());
+    if (text !== texts.confirmCreate && text !== tableAdminLabels.confirmCreate) {
+      await context.reply(texts.confirmCreatePrompt, buildCreateConfirmOptions(language));
       return true;
     }
 
@@ -295,8 +302,8 @@ async function handleCreateSession(
     });
     await context.runtime.session.cancel();
     await context.reply(
-      `Taula creada correctament: ${table.displayName} (#${table.id}).`,
-      buildTableAdminMenuOptions(),
+      `${texts.created}: ${table.displayName} (#${table.id}).`,
+      buildTableAdminMenuOptions(language),
     );
     return true;
   }
@@ -310,6 +317,8 @@ async function handleEditSession(
   stepKey: string,
   data: Record<string, unknown>,
 ): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).tableAdmin;
   const tableId = Number(data.tableId);
   const table = await loadTableOrThrow(context, tableId);
 
@@ -318,21 +327,21 @@ async function handleEditSession(
       stepKey: 'description',
       data: {
         ...data,
-        displayName: text === tableAdminLabels.keepCurrent ? table.displayName : text,
+        displayName: text === texts.keepCurrent || text === tableAdminLabels.keepCurrent ? table.displayName : text,
       },
     });
     await context.reply(
-      'Escriu la nova descripcio o tria una opcio del teclat.',
-      buildEditDescriptionOptions(),
+      texts.askDescription,
+      buildEditDescriptionOptions(language),
     );
     return true;
   }
 
   if (stepKey === 'description') {
     const description =
-      text === tableAdminLabels.keepCurrent
+      text === texts.keepCurrent || text === tableAdminLabels.keepCurrent
         ? table.description
-        : text === tableAdminLabels.clearDescription
+        : text === texts.clearDescription || text === tableAdminLabels.clearDescription
           ? null
           : text;
 
@@ -344,22 +353,22 @@ async function handleEditSession(
       },
     });
     await context.reply(
-      'Escriu la nova capacitat recomanada o tria una opcio del teclat.',
-      buildEditCapacityOptions(),
+      texts.askCapacity,
+      buildEditCapacityOptions(language),
     );
     return true;
   }
 
   if (stepKey === 'capacity') {
     const recommendedCapacity =
-      text === tableAdminLabels.keepCurrent
+      text === texts.keepCurrent || text === tableAdminLabels.keepCurrent
         ? table.recommendedCapacity
-        : parseCapacity(text);
+        : parseCapacity(text, language);
 
     if (recommendedCapacity instanceof Error) {
       await context.reply(
-        'La capacitat recomanada ha de ser un enter positiu. Escriu un numero valid o tria una opcio del teclat.',
-        buildEditCapacityOptions(),
+        texts.invalidCapacity,
+        buildEditCapacityOptions(language),
       );
       return true;
     }
@@ -373,15 +382,15 @@ async function handleEditSession(
       data: nextData,
     });
     await context.reply(
-      `${formatDraftSummary(nextData)}\n\nTria una opcio per confirmar o cancel.lar.`,
-      buildEditConfirmOptions(),
+      `${formatDraftSummary(nextData, texts)}\n\nTria una opcio per confirmar o cancel.lar.`,
+      buildEditConfirmOptions(language),
     );
     return true;
   }
 
   if (stepKey === 'confirm') {
-    if (text !== tableAdminLabels.confirmEdit) {
-      await context.reply('Per guardar els canvis, tria el boto de confirmacio o cancel.la el flux.', buildEditConfirmOptions());
+    if (text !== texts.confirmEdit && text !== tableAdminLabels.confirmEdit) {
+      await context.reply(texts.confirmEditPrompt, buildEditConfirmOptions(language));
       return true;
     }
 
@@ -412,8 +421,8 @@ async function handleEditSession(
     });
     await context.runtime.session.cancel();
     await context.reply(
-      `Taula actualitzada correctament: ${updated.displayName} (#${updated.id}).`,
-      buildTableAdminMenuOptions(),
+      `${texts.saved}: ${updated.displayName} (#${updated.id}).`,
+      buildTableAdminMenuOptions(language),
     );
     return true;
   }
@@ -426,10 +435,12 @@ async function handleDeactivateSession(
   text: string,
   data: Record<string, unknown>,
 ): Promise<boolean> {
-  if (text !== tableAdminLabels.confirmDeactivate) {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).tableAdmin;
+  if (text !== texts.confirmDeactivate && text !== tableAdminLabels.confirmDeactivate) {
     await context.reply(
       'Per desactivar la taula, tria el boto de confirmacio o cancel.la el flux.',
-      buildDeactivateConfirmOptions(),
+      buildDeactivateConfirmOptions(language),
     );
     return true;
   }
@@ -453,18 +464,19 @@ async function handleDeactivateSession(
     },
   });
   await context.runtime.session.cancel();
-  await context.reply(
-    `Taula desactivada correctament: ${table.displayName} (#${table.id}).`,
-    buildTableAdminMenuOptions(),
-  );
+    await context.reply(
+      `${texts.deactivated}: ${table.displayName} (#${table.id}).`,
+      buildTableAdminMenuOptions(language),
+    );
   return true;
 }
 
-function buildTableAdminMenuOptions(): TelegramReplyOptions {
+function buildTableAdminMenuOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).tableAdmin;
   return {
     replyKeyboard: [
-      [tableAdminLabels.create, tableAdminLabels.list],
-      [tableAdminLabels.edit, tableAdminLabels.deactivate],
+      [texts.create, texts.list],
+      [texts.edit, texts.deactivate],
       [tableAdminLabels.start],
     ],
     resizeKeyboard: true,
@@ -479,42 +491,47 @@ function resolveAuditRepository(context: TelegramTableAdminContext): AuditLogRep
   return createDatabaseAuditLogRepository({ database: context.runtime.services.database.db as never });
 }
 
-function buildDescriptionOptions(): TelegramReplyOptions {
+function buildDescriptionOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[tableAdminLabels.skipOptional], [tableAdminLabels.cancel]],
+    replyKeyboard: [[texts.skipOptional], [tableAdminLabels.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildCapacityOptions(): TelegramReplyOptions {
+function buildCapacityOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[tableAdminLabels.noCapacity], [tableAdminLabels.cancel]],
+    replyKeyboard: [[texts.noCapacity], [tableAdminLabels.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildCreateConfirmOptions(): TelegramReplyOptions {
+function buildCreateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[tableAdminLabels.confirmCreate], [tableAdminLabels.cancel]],
+    replyKeyboard: [[texts.confirmCreate], [tableAdminLabels.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildEditNameOptions(): TelegramReplyOptions {
+function buildEditNameOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[tableAdminLabels.keepCurrent], [tableAdminLabels.cancel]],
+    replyKeyboard: [[texts.keepCurrent], [tableAdminLabels.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildEditDescriptionOptions(): TelegramReplyOptions {
+function buildEditDescriptionOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).tableAdmin;
   return {
     replyKeyboard: [
-      [tableAdminLabels.keepCurrent, tableAdminLabels.clearDescription],
+      [texts.keepCurrent, texts.clearDescription],
       [tableAdminLabels.cancel],
     ],
     resizeKeyboard: true,
@@ -522,10 +539,11 @@ function buildEditDescriptionOptions(): TelegramReplyOptions {
   };
 }
 
-function buildEditCapacityOptions(): TelegramReplyOptions {
+function buildEditCapacityOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).tableAdmin;
   return {
     replyKeyboard: [
-      [tableAdminLabels.keepCurrent, tableAdminLabels.noCapacity],
+      [texts.keepCurrent, texts.noCapacity],
       [tableAdminLabels.cancel],
     ],
     resizeKeyboard: true,
@@ -533,23 +551,25 @@ function buildEditCapacityOptions(): TelegramReplyOptions {
   };
 }
 
-function buildEditConfirmOptions(): TelegramReplyOptions {
+function buildEditConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[tableAdminLabels.confirmEdit], [tableAdminLabels.cancel]],
+    replyKeyboard: [[texts.confirmEdit], [tableAdminLabels.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildDeactivateConfirmOptions(): TelegramReplyOptions {
+function buildDeactivateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[tableAdminLabels.confirmDeactivate], [tableAdminLabels.cancel]],
+    replyKeyboard: [[texts.confirmDeactivate], [tableAdminLabels.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildSingleCancelKeyboard(): TelegramReplyOptions {
+function buildSingleCancelKeyboard(_language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   return {
     replyKeyboard: [[tableAdminLabels.cancel]],
     resizeKeyboard: true,
@@ -560,14 +580,16 @@ function buildSingleCancelKeyboard(): TelegramReplyOptions {
 async function replyWithTableList(
   context: TelegramTableAdminContext,
   mode: 'list' | 'edit' | 'deactivate',
+  language: 'ca' | 'es' | 'en' = 'ca',
 ): Promise<void> {
+  const texts = createTelegramI18n(language).tableAdmin;
   const tables = await listClubTables({
     repository: resolveTableRepository(context),
     includeDeactivated: mode === 'list',
   });
 
   if (tables.length === 0) {
-    await context.reply('No hi ha cap taula disponible ara mateix.', buildTableAdminMenuOptions());
+    await context.reply(texts.noTables, buildTableAdminMenuOptions(language));
     return;
   }
 
@@ -594,17 +616,18 @@ function formatTableDetails(table: ClubTableRecord): string {
   return formatTelegramTableDetails({ table, audience: 'admin' });
 }
 
-function formatDraftSummary(data: Record<string, unknown>): string {
+function formatDraftSummary(data: Record<string, unknown>, texts = createTelegramI18n('ca').tableAdmin): string {
   return [
-    'Resum de la taula:',
+    texts.draftSummary,
     `- Nom: ${String(data.displayName ?? '')}`,
-    `- Descripcio: ${(data.description as string | null | undefined) ?? 'Sense descripcio'}`,
-    `- Capacitat recomanada: ${(data.recommendedCapacity as number | null | undefined) ?? 'Sense valor'}`,
+    `- ${texts.descriptionField}: ${(data.description as string | null | undefined) ?? texts.noDescription}`,
+    `- Capacitat recomanada: ${(data.recommendedCapacity as number | null | undefined) ?? texts.noValue}`,
   ].join('\n');
 }
 
-function parseCapacity(text: string): number | null | Error {
-  if (text === tableAdminLabels.noCapacity) {
+function parseCapacity(text: string, language: 'ca' | 'es' | 'en' = 'ca'): number | null | Error {
+  const texts = createTelegramI18n(language).tableAdmin;
+  if (text === texts.noCapacity || text === tableAdminLabels.noCapacity) {
     return null;
   }
 

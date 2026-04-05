@@ -5,25 +5,28 @@ import type {
   CatalogMediaRecord,
   CatalogItemType,
 } from '../catalog/catalog-model.js';
+import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
 
-export function renderCatalogItemType(itemType: CatalogItemType): string {
+export function renderCatalogItemType(itemType: CatalogItemType, language: BotLanguage = 'ca'): string {
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
+
   switch (itemType) {
     case 'board-game':
-      return 'Joc de taula';
+      return texts.catalogAdmin.typeBoardGame;
     case 'expansion':
-      return 'Expansio';
+      return texts.catalogAdmin.typeExpansion;
     case 'book':
-      return 'Llibre';
+      return texts.catalogAdmin.typeBook;
     case 'rpg-book':
-      return 'Llibre RPG';
+      return texts.catalogAdmin.typeRpgBook;
     case 'accessory':
-      return 'Accessori';
+      return texts.catalogAdmin.typeAccessory;
   }
 }
 
-export function renderCatalogPlayerRange(min: number | null, max: number | null): string {
+export function renderCatalogPlayerRange(min: number | null, max: number | null, language: BotLanguage = 'ca'): string {
   if (min === null && max === null) {
-    return 'Sense valor';
+    return createTelegramI18n(normalizeBotLanguage(language, 'ca')).catalogAdmin.noValue;
   }
   if (min !== null && max !== null) {
     return `${min}-${max}`;
@@ -31,8 +34,8 @@ export function renderCatalogPlayerRange(min: number | null, max: number | null)
   return String(min ?? max);
 }
 
-export function renderCatalogOptionalObject(value: Record<string, unknown> | null): string {
-  return value ? JSON.stringify(value) : 'Sense valor';
+export function renderCatalogOptionalObject(value: Record<string, unknown> | null, language: BotLanguage = 'ca'): string {
+  return value ? JSON.stringify(value) : createTelegramI18n(normalizeBotLanguage(language, 'ca')).catalogAdmin.noValue;
 }
 
 export function escapeHtml(value: string): string {
@@ -48,29 +51,36 @@ export function formatHtmlField(label: string, value: string): string {
   return `<b>${escapeHtml(label)}:</b> ${value}`;
 }
 
-export function formatCatalogDescriptionLine(itemType: CatalogItemType, description: string | null): string | null {
+export function formatCatalogDescriptionLine(
+  itemType: CatalogItemType,
+  description: string | null,
+  language: BotLanguage = 'ca',
+): string | null {
   if (!description) {
     return null;
   }
 
   const escaped = escapeHtml(description);
   if (itemType === 'book' || itemType === 'board-game') {
-    return `<b>Descripcio:</b> <i>${escaped}</i>`;
+    return `<b>${createTelegramI18n(normalizeBotLanguage(language, 'ca')).catalogAdmin.description}:</b> <i>${escaped}</i>`;
   }
 
-  return `Descripcio: ${escaped}`;
+  return `${createTelegramI18n(normalizeBotLanguage(language, 'ca')).catalogAdmin.description}: ${escaped}`;
 }
 
 export function formatMemberCatalogOverview({
   families,
   groups,
   items,
+  language = 'ca',
 }: {
   families: CatalogFamilyRecord[];
   groups: CatalogGroupRecord[];
   items: CatalogItemRecord[];
+  language?: BotLanguage;
 }): string {
-  const lines = ['Cataleg disponible:'];
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
+  const lines: string[] = [texts.catalogRead.available];
   const itemCountByFamily = new Map<number, number>();
   const itemCountByGroup = new Map<number, number>();
 
@@ -86,11 +96,11 @@ export function formatMemberCatalogOverview({
   for (const family of families) {
     const groupCount = groups.filter((group) => group.familyId === family.id).length;
     const itemCount = itemCountByFamily.get(family.id) ?? 0;
-    lines.push(`- ${family.displayName} · ${itemCount} item${itemCount === 1 ? '' : 's'} · ${groupCount} grup${groupCount === 1 ? '' : 's'}`);
+      lines.push(`- ${family.displayName} · ${itemCount} ${texts.catalogRead.itemCount(itemCount)} · ${groupCount} ${texts.catalogRead.groupCount(groupCount)}`);
   }
 
-  lines.push(`- Items sense familia ni grup: ${items.filter((item) => item.familyId === null && item.groupId === null).length}`);
-  lines.push('Fes servir /catalog_search <text> per cercar un item concret.');
+  lines.push(`- ${texts.catalogRead.itemsWithoutFamilyGroup}: ${items.filter((item) => item.familyId === null && item.groupId === null).length}`);
+  lines.push(texts.catalogRead.searchHint);
   return lines.join('\n');
 }
 
@@ -98,25 +108,28 @@ export function formatMemberCatalogFamilyDetails({
   family,
   groups,
   items,
+  language = 'ca',
 }: {
   family: CatalogFamilyRecord;
   groups: CatalogGroupRecord[];
   items: CatalogItemRecord[];
+  language?: BotLanguage;
 }): string {
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
   const familyGroups = groups.filter((group) => group.familyId === family.id);
   const familyItems = items.filter((item) => item.familyId === family.id && item.groupId === null);
 
   return [
     `<b>${escapeHtml(family.displayName)}</b>`,
-    formatHtmlField('Descripcio', escapeHtml(family.description ?? 'Sense descripcio')),
-    '<b>Grups:</b>',
+    formatHtmlField(texts.catalogAdmin.description, escapeHtml(family.description ?? texts.catalogAdmin.noDescription)),
+    `<b>${texts.catalogAdmin.groups}:</b>`,
     ...(familyGroups.length > 0
       ? familyGroups.map((group) => `- ${escapeHtml(group.displayName)} · ${groupItemsLabel(items, group.id)}`)
-      : ['- Cap grup assignat']),
-    '<b>Items sense grup:</b>',
+      : [`- ${texts.catalogAdmin.noGroupAssigned}`]),
+    `<b>${texts.catalogAdmin.itemsWithoutGroup}:</b>`,
     ...(familyItems.length > 0
-      ? familyItems.map((item) => `- ${escapeHtml(item.displayName)} · ${renderCatalogItemType(item.itemType)}`)
-      : ['- Cap item sense grup']),
+      ? familyItems.map((item) => `- ${escapeHtml(item.displayName)} · ${renderCatalogItemType(item.itemType, language)}`)
+      : [`- ${texts.catalogAdmin.noItemWithoutGroup}`]),
   ].join('\n');
 }
 
@@ -124,21 +137,24 @@ export function formatMemberCatalogGroupDetails({
   group,
   family,
   items,
+  language = 'ca',
 }: {
   group: CatalogGroupRecord;
   family: CatalogFamilyRecord | null;
   items: CatalogItemRecord[];
+  language?: BotLanguage;
 }): string {
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
   const groupItems = items.filter((item) => item.groupId === group.id);
 
   return [
     `<b>${escapeHtml(group.displayName)}</b>`,
-    formatHtmlField('Familia', escapeHtml(family?.displayName ?? 'Sense familia')),
-    formatHtmlField('Descripcio', escapeHtml(group.description ?? 'Sense descripcio')),
-    '<b>Items:</b>',
+    formatHtmlField(texts.catalogAdmin.family, escapeHtml(family?.displayName ?? texts.catalogAdmin.noFamily)),
+    formatHtmlField(texts.catalogAdmin.description, escapeHtml(group.description ?? texts.catalogAdmin.noDescription)),
+    `<b>${texts.catalogAdmin.items}:</b>`,
     ...(groupItems.length > 0
-      ? groupItems.map((item) => `- ${escapeHtml(item.displayName)} · ${renderCatalogItemType(item.itemType)}`)
-      : ['- Cap item assignat']),
+      ? groupItems.map((item) => `- ${escapeHtml(item.displayName)} · ${renderCatalogItemType(item.itemType, language)}`)
+      : [`- ${texts.catalogAdmin.noItemAssigned}`]),
   ].join('\n');
 }
 
@@ -149,6 +165,7 @@ export function formatMemberCatalogItemDetails({
   media,
   availabilityLines = [],
   extraLines = [],
+  language = 'ca',
 }: {
   item: CatalogItemRecord;
   family: CatalogFamilyRecord | null;
@@ -156,33 +173,35 @@ export function formatMemberCatalogItemDetails({
   media: CatalogMediaRecord[];
   availabilityLines?: string[];
   extraLines?: string[];
+  language?: BotLanguage;
 }): string {
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
   const mediaLines = media.length === 0
     ? []
     : [
-      `Media: ${media.length} element${media.length === 1 ? '' : 's'}`,
+      `${texts.catalogAdmin.media}: ${media.length} ${texts.catalogAdmin.mediaCount(media.length)}`,
       ...media.map((entry) => `- ${escapeHtml(entry.mediaType)} · ${escapeHtml(entry.url)}`),
     ];
-  const descriptionLine = formatCatalogDescriptionLine(item.itemType, item.description);
+  const descriptionLine = formatCatalogDescriptionLine(item.itemType, item.description, language);
 
   const detailLines = [
     ...(descriptionLine ? [descriptionLine] : []),
-    ...(item.language ? [formatHtmlField('Llengua', escapeHtml(item.language))] : []),
-    ...(item.publisher ? [formatHtmlField('Editorial', escapeHtml(item.publisher))] : []),
-    ...(item.publicationYear !== null ? [formatHtmlField('Any publicacio', String(item.publicationYear))] : []),
+    ...(item.language ? [formatHtmlField(texts.catalogAdmin.language, escapeHtml(item.language))] : []),
+    ...(item.publisher ? [formatHtmlField(texts.catalogAdmin.publisher, escapeHtml(item.publisher))] : []),
+    ...(item.publicationYear !== null ? [formatHtmlField(texts.catalogAdmin.publicationYear, String(item.publicationYear))] : []),
     ...(item.itemType !== 'book' && item.itemType !== 'rpg-book' && (item.playerCountMin !== null || item.playerCountMax !== null)
-      ? [formatHtmlField('Jugadors', renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax))]
+      ? [formatHtmlField(texts.catalogAdmin.players, renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, language))]
       : []),
-    ...(item.recommendedAge !== null ? [formatHtmlField('Edat recomanada', String(item.recommendedAge))] : []),
-    ...(item.playTimeMinutes !== null ? [formatHtmlField('Durada', String(item.playTimeMinutes))] : []),
+    ...(item.recommendedAge !== null ? [formatHtmlField(texts.catalogAdmin.recommendedAge, String(item.recommendedAge))] : []),
+    ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.catalogAdmin.playTimeMinutes, String(item.playTimeMinutes))] : []),
     ...extraLines,
   ];
 
   return [
     `<b>${escapeHtml(item.displayName)}</b>`,
-    formatHtmlField('Tipus', renderCatalogItemType(item.itemType)),
-    formatHtmlField('Familia', escapeHtml(family?.displayName ?? 'Sense familia')),
-    formatHtmlField('Grup', escapeHtml(group?.displayName ?? 'Sense grup')),
+    formatHtmlField(texts.catalogAdmin.type, renderCatalogItemType(item.itemType, language)),
+    formatHtmlField(texts.catalogAdmin.family, escapeHtml(family?.displayName ?? texts.catalogAdmin.noFamily)),
+    formatHtmlField(texts.catalogAdmin.group, escapeHtml(group?.displayName ?? texts.catalogAdmin.noGroup)),
     ...availabilityLines,
     ...detailLines,
     ...mediaLines,

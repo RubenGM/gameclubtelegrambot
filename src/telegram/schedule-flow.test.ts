@@ -253,6 +253,7 @@ function createContext({
   auditRepository = createAuditRepository(),
   actorTelegramUserId = 99,
   isAdmin = false,
+  language = 'ca',
 }: {
   scheduleRepository?: ScheduleRepository;
   tableRepository?: ClubTableRepository;
@@ -262,6 +263,7 @@ function createContext({
   auditRepository?: AuditLogRepository;
   actorTelegramUserId?: number;
   isAdmin?: boolean;
+  language?: 'ca' | 'es' | 'en';
 } = {}) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const privateMessages: Array<{ telegramUserId: number; message: string }> = [];
@@ -333,7 +335,7 @@ function createContext({
       bot: {
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
-        language: 'ca',
+        language,
         sendPrivateMessage: async () => {},
         sendGroupMessage: async (chatId: number, message: string, options?: TelegramReplyOptions) => {
           groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
@@ -451,6 +453,35 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
       persistentKeyboard: true,
     },
   });
+});
+
+test('handleTelegramScheduleText accepts the Spanish menu label', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Wingspan',
+      description: 'Ocells i engines',
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, language: 'es' });
+  context.messageText = 'Actividades';
+
+  const handled = await handleTelegramScheduleText(context);
+
+  assert.equal(handled, true);
+  assert.equal(replies.at(-1)?.message.includes('Wingspan'), true);
 });
 
 test('handleTelegramScheduleStartText opens an activity detail from a deep link payload', async () => {
