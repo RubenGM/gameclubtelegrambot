@@ -1,6 +1,8 @@
 import { appendAuditEvent, type AuditLogRepository } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
+import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
+import { formatCalendarMessage, loadUpcomingCalendarEntries } from './calendar-summary.js';
 import {
   cancelScheduleEvent,
   createScheduleEvent,
@@ -35,6 +37,7 @@ import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { NewsGroupRepository } from '../news/news-group-catalog.js';
 
 const createFlowKey = 'schedule-create';
 const editFlowKey = 'schedule-edit';
@@ -142,6 +145,7 @@ export interface TelegramScheduleContext {
       clubName: string;
       language?: string;
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+      sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     };
   };
   scheduleRepository?: ScheduleRepository;
@@ -149,6 +153,7 @@ export interface TelegramScheduleContext {
   venueEventRepository?: VenueEventRepository;
   auditRepository?: AuditLogRepository;
   membershipRepository?: MembershipAccessRepository;
+  newsGroupRepository?: NewsGroupRepository;
 }
 
 export async function handleTelegramScheduleText(context: TelegramScheduleContext): Promise<boolean> {
@@ -422,6 +427,7 @@ async function handleCreateSession(
       { ...buildScheduleMenuOptions(), parseMode: 'HTML' },
     );
     await notifyScheduleConflicts({ context, eventId: created.id });
+    await publishCalendarSnapshotToNewsGroups(context);
     return true;
   }
 
@@ -599,6 +605,7 @@ async function persistEditedScheduleEvent(
     { ...buildScheduleMenuOptions(), parseMode: 'HTML' },
   );
   await notifyScheduleConflicts({ context, eventId: updated.id });
+  await publishCalendarSnapshotToNewsGroups(context);
 }
 
 async function handleCancelSession(
@@ -630,6 +637,7 @@ async function handleCancelSession(
   });
   await context.runtime.session.cancel();
   await context.reply(`Activitat cancel.lada correctament: <b>${escapeHtml(cancelled.title)}</b>`, { ...buildScheduleMenuOptions(), parseMode: 'HTML' });
+  await publishCalendarSnapshotToNewsGroups(context);
   return true;
 }
 
@@ -1408,5 +1416,40 @@ async function notifyScheduleConflicts({
         ].join('\n'),
       ),
     ),
+  );
+}
+
+async function publishCalendarSnapshotToNewsGroups(context: TelegramScheduleContext): Promise<void> {
+  const sendGroupMessage = context.runtime.bot.sendGroupMessage;
+  if (!sendGroupMessage) {
+    return;
+  }
+
+  const repository = context.newsGroupRepository ?? createDatabaseNewsGroupRepository({
+    database: context.runtime.services.database.db as never,
+  });
+  const groups = await repository.listGroups({ includeDisabled: false });
+  if (groups.length === 0) {
+    return;
+  }
+
+  const entries = await loadUpcomingCalendarEntries({
+    database: context.runtime.services.database.db,
+    ...(context.scheduleRepository ? { scheduleRepository: context.scheduleRepository } : {}),
+    ...(context.venueEventRepository ? { venueEventRepository: context.venueEventRepository } : {}),
+    ...(context.tableRepository ? { tableRepository: context.tableRepository } : {}),
+  });
+  const message = entries.length > 0
+    ? `Calendari actualitzat:\n${formatCalendarMessage(entries, context.runtime.bot.language ?? 'ca')}`
+    : 'Calendari actualitzat: no hi ha activitats ni esdeveniments propers ara mateix.';
+
+  await Promise.all(
+    groups.map(async (group) => {
+      try {
+        await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+      } catch {
+        // La notificació de grup no ha de bloquejar l'edició de l'activitat.
+      }
+    }),
   );
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
+import type { NewsGroupRecord, NewsGroupRepository } from '../news/news-group-catalog.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import type { ScheduleEventRecord, ScheduleParticipantRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
@@ -247,6 +248,7 @@ function createContext({
   tableRepository = createTableRepository(),
   venueEventRepository = createVenueEventRepository(),
   membershipRepository = createMembershipRepository(),
+  newsGroupRepository = createNewsGroupRepository(),
   auditRepository = createAuditRepository(),
   actorTelegramUserId = 99,
   isAdmin = false,
@@ -255,12 +257,14 @@ function createContext({
   tableRepository?: ClubTableRepository;
   venueEventRepository?: VenueEventRepository;
   membershipRepository?: MembershipAccessRepository;
+  newsGroupRepository?: NewsGroupRepository;
   auditRepository?: AuditLogRepository;
   actorTelegramUserId?: number;
   isAdmin?: boolean;
 } = {}) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const privateMessages: Array<{ telegramUserId: number; message: string }> = [];
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
   let currentSession: { flowKey: string; stepKey: string; data: Record<string, unknown> } | null = null;
 
   const context: TelegramScheduleContext = {
@@ -330,12 +334,16 @@ function createContext({
         clubName: 'Game Club',
         language: 'ca',
         sendPrivateMessage: async () => {},
+        sendGroupMessage: async (chatId: number, message: string, options?: TelegramReplyOptions) => {
+          groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
+        },
       },
     },
     scheduleRepository,
     tableRepository,
     venueEventRepository,
     membershipRepository,
+    newsGroupRepository,
     auditRepository,
   };
 
@@ -343,7 +351,49 @@ function createContext({
     privateMessages.push({ telegramUserId, message });
   };
 
-  return { context, replies, privateMessages, getCurrentSession: () => currentSession };
+  return { context, replies, privateMessages, groupMessages, getCurrentSession: () => currentSession };
+}
+
+function createNewsGroupRepository(initialGroups: NewsGroupRecord[] = []): NewsGroupRepository {
+  const groups = new Map(initialGroups.map((group) => [group.chatId, group]));
+
+  return {
+    async findGroupByChatId(chatId) {
+      return groups.get(chatId) ?? null;
+    },
+    async listGroups({ includeDisabled } = {}) {
+      return Array.from(groups.values()).filter((group) => includeDisabled || group.isEnabled);
+    },
+    async upsertGroup(input) {
+      const now = '2026-04-04T10:00:00.000Z';
+      const next: NewsGroupRecord = {
+        chatId: input.chatId,
+        isEnabled: input.isEnabled,
+        metadata: input.metadata ?? null,
+        createdAt: groups.get(input.chatId)?.createdAt ?? now,
+        updatedAt: now,
+        enabledAt: input.isEnabled ? now : null,
+        disabledAt: input.isEnabled ? null : now,
+      };
+      groups.set(next.chatId, next);
+      return next;
+    },
+    async listSubscriptionsByChatId() {
+      return [];
+    },
+    async upsertSubscription() {
+      throw new Error('not implemented');
+    },
+    async deleteSubscription() {
+      return false;
+    },
+    async listSubscribedGroupsByCategory() {
+      return [];
+    },
+    async isNewsEnabledGroup(chatId) {
+      return groups.get(chatId)?.isEnabled === true;
+    },
+  };
 }
 
 function createAuditRepository(): AuditLogRepository & { __events: AuditLogEventRecord[] } {
@@ -472,6 +522,59 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\)/);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.created');
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
+});
+
+test('handleTelegramScheduleText publishes the updated calendar to enabled news groups', async () => {
+  const tableRepository = createTableRepository([
+    {
+      id: 7,
+      displayName: 'Mesa TV',
+      description: null,
+      recommendedCapacity: 6,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const scheduleRepository = createScheduleRepository();
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      enabledAt: '2026-04-04T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ]);
+  const { context, groupMessages } = createContext({ scheduleRepository, tableRepository, newsGroupRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Dune Imperium';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = '5';
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Mesa TV';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.confirmCreate;
+  await handleTelegramScheduleText(context);
+
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.chatId, -200);
+  assert.equal(groupMessages[0]?.options?.parseMode, 'HTML');
+  assert.match(groupMessages[0]?.message ?? '', /Calendari actualitzat:/);
+  assert.match(groupMessages[0]?.message ?? '', /Dune Imperium/);
 });
 
 test('handleTelegramScheduleText accepts dd/MM/yyyy dates and shows upcoming day shortcuts', async () => {

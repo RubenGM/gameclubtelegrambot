@@ -56,6 +56,7 @@ import {
   handleTelegramCatalogLoanText,
   catalogLoanCallbackPrefixes,
 } from './catalog-loan-flow.js';
+import { handleTelegramNewsGroupText } from './news-group-flow.js';
 import {
   handleTelegramCalendarText,
 } from './calendar-flow.js';
@@ -123,6 +124,7 @@ export interface TelegramReplyOptions {
 export interface TelegramRuntime {
   bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName' | 'language'> & {
     sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+    sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
   chat?: TelegramChatContext;
@@ -142,6 +144,7 @@ export interface TelegramBotLike {
   onCallback(callbackPrefix: string, handler: TelegramCommandHandler): void;
   onText(handler: TelegramCommandHandler): void;
   sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+  sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   startPolling(): Promise<void>;
   stopPolling(): Promise<void>;
 }
@@ -291,6 +294,9 @@ function createGrammyTelegramBot({
     async sendPrivateMessage(telegramUserId, message) {
       await bot.api.sendMessage(telegramUserId, message);
     },
+    async sendGroupMessage(chatId, message, options) {
+      await bot.api.sendMessage(chatId, message, options ? toGrammyReplyOptions(options) : undefined);
+    },
     async startPolling() {
       await bot.init();
 
@@ -436,6 +442,7 @@ function createRuntimeContextMiddleware({
         language: config.bot.language,
         publicName: config.bot.publicName,
         sendPrivateMessage: bot.sendPrivateMessage.bind(bot),
+        ...(bot.sendGroupMessage ? { sendGroupMessage: bot.sendGroupMessage.bind(bot) } : {}),
       },
       services,
     };
@@ -642,6 +649,15 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'news',
+      contexts: ['group', 'group-news'],
+      access: 'admin',
+      description: 'Gestiona el mode news i les subscripcions del grup',
+      handle: async (context) => {
+        await handleTelegramNewsGroupText(context);
+      },
+    },
+    {
       command: 'venue_events',
       contexts: ['private'],
       access: 'admin',
@@ -804,8 +820,12 @@ function createTelegramCommandContext(
 }
 
 export function toGrammyReplyOptions(options?: TelegramReplyOptions): Record<string, unknown> | undefined {
-  if (!options?.inlineKeyboard && !options?.replyKeyboard) {
+  if (!options) {
     return undefined;
+  }
+
+  if (!options.inlineKeyboard && !options.replyKeyboard) {
+    return options.parseMode ? { parse_mode: options.parseMode } : undefined;
   }
 
   if (options.replyKeyboard) {

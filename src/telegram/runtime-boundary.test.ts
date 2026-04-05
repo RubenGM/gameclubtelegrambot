@@ -219,6 +219,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:/calendar',
     'register:/tables',
     'register:/catalog_search',
+    'register:/news',
     'register:/venue_events',
     'register:/catalog',
     'register:/review_access',
@@ -594,6 +595,12 @@ test('toGrammyReplyOptions converts inline keyboards to grammY reply markup', as
       },
     },
   );
+});
+
+test('toGrammyReplyOptions preserves parse mode without keyboards', async () => {
+  assert.deepEqual(toGrammyReplyOptions({ parseMode: 'HTML' }), {
+    parse_mode: 'HTML',
+  });
 });
 
 test('toGrammyReplyOptions converts reply keyboard to grammY reply markup', async () => {
