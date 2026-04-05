@@ -24,7 +24,8 @@
     "db:migrate:local": "GAMECLUB_CONFIG_PATH=config/runtime.local.json node --import tsx src/scripts/migrate.ts",
     "config:check:local": "GAMECLUB_CONFIG_PATH=config/runtime.local.json node --import tsx src/scripts/check-runtime-config.ts",
     "start:local": "GAMECLUB_CONFIG_PATH=config/runtime.local.json node --import tsx src/main.ts",
-    "init:local": "./scripts/init-local.sh"
+    "init:local": "./scripts/init-local.sh",
+    "catalog:wikipedia:boardgame": "./scripts/wikipedia-boardgame-catalog-import.sh"
   },
   "engines": {
     "node": ">=20.19.0"
