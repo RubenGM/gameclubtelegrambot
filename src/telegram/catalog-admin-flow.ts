@@ -1260,13 +1260,13 @@ async function showCatalogFamilyBrowse(context: TelegramCatalogAdminContext, fam
   const loanRepository = resolveCatalogLoanRepository(context);
   const activeLoans = await loadActiveLoansByItemMap(loanRepository, items);
   const lines = [
-    `Categoria: ${family.displayName} (#${family.id})`,
-    `Descripcio: ${family.description ?? 'Sense descripcio'}`,
+    `<b>Categoria:</b> ${escapeHtml(family.displayName)} (#${family.id})`,
+    formatHtmlField('Descripcio', escapeHtml(family.description ?? 'Sense descripcio')),
   ];
 
   for (const group of groups) {
     const groupItems = items.filter((item) => item.groupId === group.id);
-    lines.push(`Grup: ${group.displayName} (#${group.id})`);
+    lines.push(`<b>Grup:</b> ${escapeHtml(group.displayName)} (#${group.id})`);
     for (const item of groupItems) {
       lines.push(await formatCatalogItemLine(context, item, activeLoans.get(item.id) ?? null));
     }
@@ -1282,6 +1282,7 @@ async function showCatalogFamilyBrowse(context: TelegramCatalogAdminContext, fam
 
   const itemRows = await Promise.all(items.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName)));
   await context.reply(lines.join('\n'), {
+    parseMode: 'HTML',
     inlineKeyboard: [
       ...itemRows,
       [{ text: 'Cerca per nom', callbackData: catalogAdminCallbackPrefixes.browseSearch }],
@@ -1324,6 +1325,7 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
   }
 
   await context.reply(lines.join('\n'), {
+    parseMode: 'HTML',
     inlineKeyboard: [
       ...await Promise.all(matches.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName))),
       [{ text: 'Tornar al cataleg', callbackData: catalogAdminCallbackPrefixes.browseMenu }],
@@ -1516,10 +1518,10 @@ async function formatCatalogGroupDetails(context: TelegramCatalogAdminContext, g
   const loanRepository = resolveCatalogLoanRepository(context);
   const activeLoans = await loadActiveLoansByItemMap(loanRepository, items);
   return [
-    `${group.displayName} (#${group.id})`,
-    `Familia: ${familyName ?? 'Sense familia'}`,
-    `Descripcio: ${group.description ?? 'Sense descripcio'}`,
-    'Items:',
+    `<b>${escapeHtml(group.displayName)}</b> (#${group.id})`,
+    formatHtmlField('Familia', escapeHtml(familyName ?? 'Sense familia')),
+    formatHtmlField('Descripcio', escapeHtml(group.description ?? 'Sense descripcio')),
+    '<b>Items:</b>',
     ...(items.length > 0 ? await Promise.all(items.map((item) => formatCatalogItemLine(context, item, activeLoans.get(item.id) ?? null))) : ['- Cap item assignat']),
   ].join('\n');
 }

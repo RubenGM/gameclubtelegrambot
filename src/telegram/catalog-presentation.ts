@@ -107,15 +107,15 @@ export function formatMemberCatalogFamilyDetails({
   const familyItems = items.filter((item) => item.familyId === family.id && item.groupId === null);
 
   return [
-    family.displayName,
-    `Descripcio: ${family.description ?? 'Sense descripcio'}`,
-    'Grups:',
+    `<b>${escapeHtml(family.displayName)}</b>`,
+    formatHtmlField('Descripcio', escapeHtml(family.description ?? 'Sense descripcio')),
+    '<b>Grups:</b>',
     ...(familyGroups.length > 0
-      ? familyGroups.map((group) => `- ${group.displayName} · ${groupItemsLabel(items, group.id)}`)
+      ? familyGroups.map((group) => `- ${escapeHtml(group.displayName)} · ${groupItemsLabel(items, group.id)}`)
       : ['- Cap grup assignat']),
-    'Items sense grup:',
+    '<b>Items sense grup:</b>',
     ...(familyItems.length > 0
-      ? familyItems.map((item) => `- ${item.displayName} · ${renderCatalogItemType(item.itemType)}`)
+      ? familyItems.map((item) => `- ${escapeHtml(item.displayName)} · ${renderCatalogItemType(item.itemType)}`)
       : ['- Cap item sense grup']),
   ].join('\n');
 }
@@ -132,12 +132,12 @@ export function formatMemberCatalogGroupDetails({
   const groupItems = items.filter((item) => item.groupId === group.id);
 
   return [
-    group.displayName,
-    `Familia: ${family?.displayName ?? 'Sense familia'}`,
-    `Descripcio: ${group.description ?? 'Sense descripcio'}`,
-    'Items:',
+    `<b>${escapeHtml(group.displayName)}</b>`,
+    formatHtmlField('Familia', escapeHtml(family?.displayName ?? 'Sense familia')),
+    formatHtmlField('Descripcio', escapeHtml(group.description ?? 'Sense descripcio')),
+    '<b>Items:</b>',
     ...(groupItems.length > 0
-      ? groupItems.map((item) => `- ${item.displayName} · ${renderCatalogItemType(item.itemType)}`)
+      ? groupItems.map((item) => `- ${escapeHtml(item.displayName)} · ${renderCatalogItemType(item.itemType)}`)
       : ['- Cap item assignat']),
   ].join('\n');
 }

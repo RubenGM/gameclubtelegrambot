@@ -1203,7 +1203,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}7`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Categoria: Arkham Horror/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Categoria:<\/b> Arkham Horror/);
   assert.match(replies.at(-1)?.message ?? '', /Arkham Horror Core Set/);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Arkham Horror Core Set'));
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Dunwich Expansion'));
@@ -1499,7 +1499,7 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}1`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Categoria: Mundodisco/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Categoria:<\/b> Mundodisco/);
   assert.match(replies.at(-1)?.message ?? '', /Prestat a Anna/);
   assert.match(replies.at(-1)?.message ?? '', /des de 04\/04\/2026/);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Emportar' || button.text === 'Retornar'));

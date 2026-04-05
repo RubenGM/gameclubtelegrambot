@@ -202,7 +202,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
     const page = paginateEntries(entries, state.page);
     await context.reply(
       `${formatMemberCatalogFamilyDetails({ family, groups, items })}\n\n${formatEntryPage(page.items, page.page, page.totalPages)}`,
-      buildListNavigationOptions(await buildBrowseButtonRows(context, page.items), state, page.totalPages > 1),
+      { ...buildListNavigationOptions(await buildBrowseButtonRows(context, page.items), state, page.totalPages > 1), parseMode: 'HTML' },
     );
     return;
   }
@@ -217,7 +217,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
     const page = paginateEntries(entries, state.page);
     await context.reply(
       `${formatMemberCatalogGroupDetails({ group, family: group.familyId !== null ? familyById(families, group.familyId) ?? null : null, items })}\n\n${formatEntryPage(page.items, page.page, page.totalPages)}`,
-      buildListNavigationOptions(await buildBrowseButtonRows(context, page.items), state, page.totalPages > 1),
+      { ...buildListNavigationOptions(await buildBrowseButtonRows(context, page.items), state, page.totalPages > 1), parseMode: 'HTML' },
     );
     return;
   }
