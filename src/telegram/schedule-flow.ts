@@ -23,7 +23,7 @@ import {
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
-import type { MembershipAccessRepository } from '../membership/access-flow.js';
+import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import {
   findRelevantVenueEventsForRange,
   type VenueEventRecord,
@@ -55,6 +55,13 @@ export const scheduleLabels = {
   create: 'Crear activitat',
   edit: 'Editar activitat',
   cancel: 'Cancel.lar activitat',
+  editFieldTitle: 'Titol',
+  editFieldDescription: 'Descripcio',
+  editFieldDate: 'Data inici',
+  editFieldTime: 'Hora inici',
+  editFieldDuration: 'Durada',
+  editFieldCapacity: 'Places',
+  editFieldTable: 'Taula',
   start: '/start',
   help: '/help',
   cancelFlow: '/cancel',
@@ -154,8 +161,7 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
   }
 
   if (text === scheduleLabels.openMenu || text === '/schedule') {
-    await context.reply('Gestio d activitats: tria una accio.', buildScheduleMenuOptions());
-    return true;
+    return replyWithInspectableEventList(context, { includeMenuKeyboard: true });
   }
 
   if (text === scheduleLabels.create || text === '/schedule_create') {
@@ -188,7 +194,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
   if (callbackData.startsWith(scheduleCallbackPrefixes.inspect)) {
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.inspect, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
-    await context.reply(await formatScheduleEventView(context, event), { ...buildAttendanceActionOptions(context, event, await isActorAttending(context, event.id)), parseMode: 'HTML' });
+    await context.reply(await formatScheduleEventView(context, event), { ...buildScheduleDetailActionOptions(context, event, await isActorAttending(context, event.id)), parseMode: 'HTML' });
     return true;
   }
 
@@ -203,7 +209,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     });
     await context.reply(
       `T'has apuntat correctament a <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
-      { ...buildAttendanceActionOptions(context, event, true), parseMode: 'HTML' },
+      { ...buildScheduleDetailActionOptions(context, event, true), parseMode: 'HTML' },
     );
     return true;
   }
@@ -219,7 +225,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     });
     await context.reply(
       `Has sortit correctament de <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
-      { ...buildAttendanceActionOptions(context, event, false), parseMode: 'HTML' },
+      { ...buildScheduleDetailActionOptions(context, event, false), parseMode: 'HTML' },
     );
     return true;
   }
@@ -234,12 +240,12 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
 
     await context.runtime.session.start({
       flowKey: editFlowKey,
-      stepKey: 'title',
+      stepKey: 'select-field',
       data: { eventId },
     });
     await context.reply(
-      `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) })}\n\nEscriu el nou titol o tria una opcio del teclat.`,
-      { ...buildEditTitleOptions(), parseMode: 'HTML' },
+      `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) })}\n\nTria un camp per editar o guarda els canvis.`,
+      { ...buildEditFieldMenuOptions(), parseMode: 'HTML' },
     );
     return true;
   }
@@ -422,18 +428,57 @@ async function handleEditSession(
   data: Record<string, unknown>,
 ): Promise<boolean> {
   const event = await loadEventOrThrow(context, Number(data.eventId));
+    if (stepKey === 'select-field') {
+      if (text === scheduleLabels.confirmEdit) {
+        await persistEditedScheduleEvent(context, event, data);
+        return true;
+      }
+    if (text === scheduleLabels.editFieldTitle) {
+      await context.runtime.session.advance({ stepKey: 'title', data });
+      await context.reply('Escriu el nou titol de l activitat.', buildSingleCancelKeyboard());
+      return true;
+    }
+    if (text === scheduleLabels.editFieldDescription) {
+      await context.runtime.session.advance({ stepKey: 'description', data });
+      await context.reply('Escriu la nova descripcio opcional o tria una opcio del teclat.', buildEditDescriptionOptions());
+      return true;
+    }
+    if (text === scheduleLabels.editFieldDate) {
+      await context.runtime.session.advance({ stepKey: 'date', data });
+      await context.reply('Escriu la data en format dd/MM o dd/MM/yyyy, o mantingues el valor actual.', buildEditDateOptions(context));
+      return true;
+    }
+    if (text === scheduleLabels.editFieldTime) {
+      await context.runtime.session.advance({ stepKey: 'time', data });
+      await context.reply('Escriu l hora en format HH:MM o mantingues el valor actual.', buildKeepCurrentKeyboard());
+      return true;
+    }
+    if (text === scheduleLabels.editFieldDuration) {
+      await context.runtime.session.advance({ stepKey: 'duration', data });
+      await context.reply('Escriu la durada en minuts o mantingues el valor actual.', buildKeepCurrentKeyboard());
+      return true;
+    }
+    if (text === scheduleLabels.editFieldCapacity) {
+      await context.runtime.session.advance({ stepKey: 'capacity', data });
+      await context.reply('Escriu la capacitat com a numero enter positiu o mantingues el valor actual.', buildKeepCurrentKeyboard());
+      return true;
+    }
+    if (text === scheduleLabels.editFieldTable) {
+      await context.runtime.session.advance({ stepKey: 'table', data });
+      await context.reply('Tria una taula opcional, mantingues la taula actual o elimina-la.', await buildEditTableOptions(context));
+      return true;
+    }
+    await context.reply('Tria un camp del teclat o guarda els canvis quan hagis acabat.', buildEditFieldMenuOptions());
+    return true;
+  }
 
   if (stepKey === 'title') {
     const title = text === scheduleLabels.keepCurrent ? event.title : text;
-    await context.runtime.session.advance({ stepKey: 'description', data: { ...data, title } });
-    await context.reply('Escriu una descripcio opcional o tria una opcio del teclat.', buildEditDescriptionOptions());
-    return true;
+    return returnToEditMenu(context, event, data, { title });
   }
   if (stepKey === 'description') {
     const description = text === scheduleLabels.keepCurrent ? event.description : text === scheduleLabels.skipOptional ? null : text;
-    await context.runtime.session.advance({ stepKey: 'date', data: { ...data, title: data.title ?? event.title, description } });
-    await context.reply('Escriu la data en format dd/MM o dd/MM/yyyy, o mantingues el valor actual.', buildEditDateOptions(context));
-    return true;
+    return returnToEditMenu(context, event, data, { description, title: data.title ?? event.title });
   }
   if (stepKey === 'date') {
     const currentDate = event.startsAt.slice(0, 10);
@@ -442,102 +487,111 @@ async function handleEditSession(
       await context.reply('La data ha de tenir format dd/MM o dd/MM/yyyy.', buildEditDateOptions(context));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'time', data: { ...data, date } });
-    await context.reply('Escriu l hora en format HH:MM o mantingues el valor actual.', buildEditTitleOptions());
-    return true;
+    return returnToEditMenu(context, event, data, { date });
   }
   if (stepKey === 'time') {
     const currentTime = event.startsAt.slice(11, 16);
     const time = text === scheduleLabels.keepCurrent ? currentTime : parseTime(text);
     if (time instanceof Error) {
-      await context.reply('L hora ha de tenir format HH:MM.', buildEditTitleOptions());
+      await context.reply('L hora ha de tenir format HH:MM.', buildKeepCurrentKeyboard());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'duration', data: { ...data, time } });
-    await context.reply('Escriu la durada en minuts, mantingues el valor actual o omet el camp per usar 180 minuts.', buildEditDurationOptions());
-    return true;
+    return returnToEditMenu(context, event, data, { time });
   }
   if (stepKey === 'duration') {
     const durationMinutes = text === scheduleLabels.keepCurrent ? event.durationMinutes : parseOptionalDurationMinutes(text);
     if (durationMinutes instanceof Error) {
-      await context.reply('La durada ha de ser un enter positiu en minuts, o pots ometre-la per usar 180 minuts.', buildEditDurationOptions());
+      await context.reply('La durada ha de ser un enter positiu en minuts.', buildKeepCurrentKeyboard());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
-    await context.reply('Escriu la capacitat com a numero enter positiu o mantingues el valor actual.', buildEditTitleOptions());
-    return true;
+    return returnToEditMenu(context, event, data, { durationMinutes });
   }
   if (stepKey === 'capacity') {
     const capacity = text === scheduleLabels.keepCurrent ? event.capacity : parseCapacity(text);
     if (capacity instanceof Error) {
-      await context.reply('La capacitat ha de ser un enter positiu.', buildEditTitleOptions());
+      await context.reply('La capacitat ha de ser un enter positiu.', buildKeepCurrentKeyboard());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'table', data: { ...data, capacity } });
-    await context.reply('Tria una taula opcional, mantingues la taula actual o elimina-la.', await buildEditTableOptions(context));
-    return true;
+    return returnToEditMenu(context, event, data, { capacity });
   }
   if (stepKey === 'table') {
     if (text === scheduleLabels.keepCurrent) {
-      const nextData = { ...data, tableId: event.tableId };
-      await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-      await context.reply(`${await formatDraftSummary(context, nextData, event.organizerTelegramUserId)}\n\nConfirma o cancel.la el flux.`, buildEditConfirmOptions());
-      return true;
+      return returnToEditMenu(context, event, data, { tableId: event.tableId });
     }
-    return advanceEditTableSelection(context, data, text, event.organizerTelegramUserId);
+    return advanceEditTableSelection(context, event, data, text);
   }
   if (stepKey === 'confirm') {
-    if (text !== scheduleLabels.confirmEdit) {
-      await context.reply('Per guardar els canvis, tria el boto de confirmacio o cancel.la el flux.', buildEditConfirmOptions());
-      return true;
-    }
-    try {
-      await requireSchedulableTableSelection({
-        repository: resolveTableRepository(context),
-        tableId: asNullableNumber(data.tableId),
-      });
-    } catch {
-      await context.runtime.session.advance({ stepKey: 'table', data });
-      await context.reply('La taula seleccionada ja no esta activa. Torna a triar una taula activa, mantenir la taula actual o eliminar-la.', await buildEditTableOptions(context));
-      return true;
-    }
-    const updated = await updateScheduleEvent({
-      repository: resolveScheduleRepository(context),
-      eventId: Number(data.eventId),
-      title: String(data.title ?? event.title),
-      description: asNullableString(data.description),
-      startsAt: buildStartsAt(String(data.date ?? event.startsAt.slice(0, 10)), String(data.time ?? event.startsAt.slice(11, 16))),
-      durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
-      organizerTelegramUserId: event.organizerTelegramUserId,
-      tableId: asNullableNumber(data.tableId),
-      capacity: Number(data.capacity ?? event.capacity),
-    });
-    await appendAuditEvent({
-      repository: resolveAuditRepository(context),
-      actorTelegramUserId: context.runtime.actor.telegramUserId,
-      actionKey: 'schedule.updated',
-      targetType: 'schedule-event',
-      targetId: updated.id,
-      summary: `Activitat actualitzada: ${updated.title}`,
-      details: {
-        previousStartsAt: event.startsAt,
-        startsAt: updated.startsAt,
-        previousCapacity: event.capacity,
-        capacity: updated.capacity,
-        previousTableId: event.tableId,
-        tableId: updated.tableId,
-      },
-    });
-    await context.runtime.session.cancel();
-    await context.reply(
-      `Activitat actualitzada correctament: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId) })}`,
-      { ...buildScheduleMenuOptions(), parseMode: 'HTML' },
-    );
-    await notifyScheduleConflicts({ context, eventId: updated.id });
+    await persistEditedScheduleEvent(context, event, data);
     return true;
   }
 
   return false;
+}
+
+async function returnToEditMenu(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+  data: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Promise<boolean> {
+  const nextData = { ...data, ...patch };
+  await context.runtime.session.advance({ stepKey: 'select-field', data: nextData });
+  await context.reply(
+    `${await formatDraftSummary(context, nextData, event, event.organizerTelegramUserId)}\n\nTria un camp per editar o guarda els canvis.`,
+    { ...buildEditFieldMenuOptions(), parseMode: 'HTML' },
+  );
+  return true;
+}
+
+async function persistEditedScheduleEvent(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+  data: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await requireSchedulableTableSelection({
+      repository: resolveTableRepository(context),
+      tableId: asNullableNumber(data.tableId),
+    });
+  } catch {
+    await context.runtime.session.advance({ stepKey: 'table', data });
+    await context.reply('La taula seleccionada ja no esta activa. Torna a triar una taula activa, mantenir la taula actual o eliminar-la.', await buildEditTableOptions(context));
+    return;
+  }
+
+  const updated = await updateScheduleEvent({
+    repository: resolveScheduleRepository(context),
+    eventId: Number(data.eventId),
+    title: String(data.title ?? event.title),
+    description: asNullableString(data.description),
+    startsAt: buildStartsAt(String(data.date ?? event.startsAt.slice(0, 10)), String(data.time ?? event.startsAt.slice(11, 16))),
+    durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
+    organizerTelegramUserId: event.organizerTelegramUserId,
+    tableId: asNullableNumber(data.tableId),
+    capacity: Number(data.capacity ?? event.capacity),
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'schedule.updated',
+    targetType: 'schedule-event',
+    targetId: updated.id,
+    summary: `Activitat actualitzada: ${updated.title}`,
+    details: {
+      previousStartsAt: event.startsAt,
+      startsAt: updated.startsAt,
+      previousCapacity: event.capacity,
+      capacity: updated.capacity,
+      previousTableId: event.tableId,
+      tableId: updated.tableId,
+    },
+  });
+  await context.runtime.session.cancel();
+  await context.reply(
+    `Activitat actualitzada correctament: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId) })}`,
+    { ...buildScheduleMenuOptions(), parseMode: 'HTML' },
+  );
+  await notifyScheduleConflicts({ context, eventId: updated.id });
 }
 
 async function handleCancelSession(
@@ -594,8 +648,8 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
   await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
   const event = session.flowKey === editFlowKey ? await loadEventOrThrow(context, Number(session.data.eventId)) : null;
   await context.reply(
-    `${await formatDraftSummary(context, nextData, event?.organizerTelegramUserId, selectedTable)}\n\nConfirma o cancel.la el flux.`,
-    session.flowKey === editFlowKey ? buildEditConfirmOptions() : buildCreateConfirmOptions(),
+    `${await formatDraftSummary(context, nextData, event ?? undefined, event?.organizerTelegramUserId, selectedTable)}\n\nConfirma o cancel.la el flux.`,
+    { ...(session.flowKey === editFlowKey ? buildEditConfirmOptions() : buildCreateConfirmOptions()), parseMode: 'HTML' },
   );
   return true;
 }
@@ -608,7 +662,7 @@ async function advanceCreateTableSelection(
   if (text === scheduleLabels.noTable) {
     const nextData = { ...data, tableId: null };
     await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(`${await formatDraftSummary(context, nextData)}\n\nConfirma o cancel.la el flux.`, buildCreateConfirmOptions());
+    await context.reply(`${await formatDraftSummary(context, nextData, undefined)}\n\nConfirma o cancel.la el flux.`, { ...buildCreateConfirmOptions(), parseMode: 'HTML' });
     return true;
   }
 
@@ -620,21 +674,18 @@ async function advanceCreateTableSelection(
 
   const nextData = { ...data, tableId: selectedTable.id };
   await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-  await context.reply(`${await formatDraftSummary(context, nextData, undefined, selectedTable)}\n\nConfirma o cancel.la el flux.`, buildCreateConfirmOptions());
+  await context.reply(`${await formatDraftSummary(context, nextData, undefined, undefined, selectedTable)}\n\nConfirma o cancel.la el flux.`, { ...buildCreateConfirmOptions(), parseMode: 'HTML' });
   return true;
 }
 
 async function advanceEditTableSelection(
   context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
   data: Record<string, unknown>,
   text: string,
-  organizerTelegramUserId: number,
 ): Promise<boolean> {
   if (text === scheduleLabels.noTable) {
-    const nextData = { ...data, tableId: null };
-    await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(`${await formatDraftSummary(context, nextData, organizerTelegramUserId)}\n\nConfirma o cancel.la el flux.`, buildEditConfirmOptions());
-    return true;
+    return returnToEditMenu(context, event, data, { tableId: null });
   }
 
   const selectedTable = await findSchedulableTableByDisplayName(context, text);
@@ -643,10 +694,7 @@ async function advanceEditTableSelection(
     return true;
   }
 
-  const nextData = { ...data, tableId: selectedTable.id };
-  await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-  await context.reply(`${await formatDraftSummary(context, nextData, organizerTelegramUserId, selectedTable)}\n\nConfirma o cancel.la el flux.`, buildEditConfirmOptions());
-  return true;
+  return returnToEditMenu(context, event, data, { tableId: selectedTable.id });
 }
 
 async function findSchedulableTableByDisplayName(context: TelegramScheduleContext, text: string): Promise<ClubTableRecord | null> {
@@ -845,6 +893,29 @@ function buildEditConfirmOptions(): TelegramReplyOptions {
   };
 }
 
+function buildKeepCurrentKeyboard(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[scheduleLabels.keepCurrent], [scheduleLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildEditFieldMenuOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [
+      [scheduleLabels.editFieldTitle, scheduleLabels.editFieldDescription],
+      [scheduleLabels.editFieldDate, scheduleLabels.editFieldTime],
+      [scheduleLabels.editFieldDuration, scheduleLabels.editFieldCapacity],
+      [scheduleLabels.editFieldTable],
+      [scheduleLabels.confirmEdit],
+      [scheduleLabels.cancelFlow],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
 function buildCancelConfirmOptions(): TelegramReplyOptions {
   return {
     replyKeyboard: [[scheduleLabels.confirmCancel], [scheduleLabels.cancelFlow]],
@@ -882,12 +953,15 @@ function chunkTableButtons(tableNames: string[]): string[][] {
 
 function formatScheduleListMessage(events: ScheduleEventRecord[]): string {
   const groupedEvents = groupScheduleEventsByDay(sortScheduleEvents(events));
-  const lines = ['<b>Activitats disponibles:</b>'];
+  const lines: string[] = [];
 
   for (const [dayKey, dayEvents] of groupedEvents) {
     lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
     for (const event of dayEvents) {
-      lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)})`);
+      lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)}) · ${event.capacity} places`);
+      if (event.description) {
+        lines.push(`  <i>${escapeHtml(event.description)}</i>`);
+      }
     }
   }
 
@@ -936,7 +1010,29 @@ async function formatScheduleEventView(
   ].join('\n');
 }
 
-async function replyWithInspectableEventList(context: TelegramScheduleContext): Promise<boolean> {
+function canEditScheduleEvent(actor: TelegramActor, event: ScheduleEventRecord): boolean {
+  return actor.isAdmin || event.createdByTelegramUserId === actor.telegramUserId;
+}
+
+function buildScheduleDetailActionOptions(context: TelegramScheduleContext, event: ScheduleEventRecord, isAttending: boolean): TelegramReplyOptions {
+  const rows: TelegramReplyOptions['inlineKeyboard'] = [
+    [{ text: isAttending ? 'Sortir' : 'Apuntar-me', callbackData: `${isAttending ? scheduleCallbackPrefixes.leave : scheduleCallbackPrefixes.join}${event.id}` }],
+  ];
+
+  if (canEditScheduleEvent(context.runtime.actor, event)) {
+    rows.push([
+      { text: 'Editar activitat', callbackData: `${scheduleCallbackPrefixes.selectEdit}${event.id}` },
+      { text: 'Eliminar activitat', callbackData: `${scheduleCallbackPrefixes.selectCancel}${event.id}` },
+    ]);
+  }
+
+  return { inlineKeyboard: rows };
+}
+
+async function replyWithInspectableEventList(
+  context: TelegramScheduleContext,
+  options: { includeMenuKeyboard?: boolean } = {},
+): Promise<boolean> {
   const events = await loadUpcomingScheduleEvents(context);
   if (events.length === 0) {
     await context.reply('No hi ha activitats programades ara mateix.', buildScheduleMenuOptions());
@@ -948,23 +1044,9 @@ async function replyWithInspectableEventList(context: TelegramScheduleContext): 
   await context.reply(listMessage, {
     parseMode: 'HTML',
     inlineKeyboard: events.map((event) => [{ text: `Veure ${event.title}`, callbackData: `${scheduleCallbackPrefixes.inspect}${event.id}` }]),
+    ...(options.includeMenuKeyboard ? buildScheduleMenuOptions() : {}),
   });
   return true;
-}
-
-function buildAttendanceActionOptions(
-  context: TelegramScheduleContext,
-  event: ScheduleEventRecord,
-  isAttending: boolean,
-): TelegramReplyOptions {
-  return {
-    inlineKeyboard: [[
-      {
-        text: isAttending ? 'Sortir' : 'Apuntar-me',
-        callbackData: `${isAttending ? scheduleCallbackPrefixes.leave : scheduleCallbackPrefixes.join}${event.id}`,
-      },
-    ]],
-  };
 }
 
 async function isActorAttending(context: TelegramScheduleContext, eventId: number): Promise<boolean> {
@@ -975,30 +1057,58 @@ async function isActorAttending(context: TelegramScheduleContext, eventId: numbe
 async function formatDraftSummary(
   context: TelegramScheduleContext,
   data: Record<string, unknown>,
+  eventOrOrganizer?: ScheduleEventRecord | number,
   organizerTelegramUserId?: number,
   selectedTable?: ClubTableRecord | null,
 ): Promise<string> {
+  const event = typeof eventOrOrganizer === 'object' && eventOrOrganizer !== null && 'startsAt' in eventOrOrganizer ? eventOrOrganizer : null;
+  const effectiveOrganizerTelegramUserId = typeof eventOrOrganizer === 'number' ? eventOrOrganizer : organizerTelegramUserId;
+  const title = String(data.title ?? event?.title ?? '');
+  const description = data.description === undefined ? event?.description ?? null : asNullableString(data.description);
+  const date = String(data.date ?? event?.startsAt.slice(0, 10) ?? '');
+  const time = String(data.time ?? event?.startsAt.slice(11, 16) ?? '');
+  const durationMinutes = Number(data.durationMinutes ?? event?.durationMinutes ?? 0);
+  const capacity = Number(data.capacity ?? event?.capacity ?? 0);
+  const effectiveTableId = data.tableId === undefined ? event?.tableId ?? null : asNullableNumber(data.tableId);
+
   const table = selectedTable === undefined
     ? await resolveScheduleTableReference({
         repository: resolveTableRepository(context),
-        tableId: asNullableNumber(data.tableId),
+        tableId: effectiveTableId,
       })
     : selectedTable;
   const advisories = getScheduleTableCapacityAdvisories({
     table,
-    requestedCapacity: Number(data.capacity),
+    requestedCapacity: capacity,
   });
 
   return [
-    `Titol: ${String(data.title ?? '')}`,
-    `Descripcio: ${asNullableString(data.description) ?? 'Sense descripcio'}`,
-    `Inici: ${formatTimestamp(buildStartsAt(String(data.date ?? ''), String(data.time ?? '')) )}`,
-    `Durada: ${Number(data.durationMinutes)} min`,
-    `Places: ${Number(data.capacity)}`,
+    `Titol: ${escapeHtml(title)}`,
+    `Descripcio: ${escapeHtml(description ?? 'Sense descripcio')}`,
+    `Inici: ${formatTimestamp(buildStartsAt(date, time))}`,
+    `Durada: ${durationMinutes} min`,
+    `Places: ${capacity}`,
     `Taula: ${table?.displayName ?? 'Sense taula'}`,
-    ...advisories,
-    ...(organizerTelegramUserId ? [`Organitzador: ${organizerTelegramUserId}`] : []),
+    ...advisories.map(escapeHtml),
+    ...(effectiveOrganizerTelegramUserId ? [`Organitzador: ${escapeHtml(await resolveMemberDisplayName(context, effectiveOrganizerTelegramUserId))}`] : []),
   ].join('\n');
+}
+
+async function resolveMemberDisplayName(context: TelegramScheduleContext, telegramUserId: number): Promise<string> {
+  const user = await resolveMembershipRepository(context).findUserByTelegramUserId(telegramUserId);
+  if (user) {
+    return formatMembershipDisplayName(user, telegramUserId);
+  }
+
+  return `Usuari ${telegramUserId}`;
+}
+
+function formatMembershipDisplayName(user: MembershipUserRecord, fallbackTelegramUserId: number): string {
+  if (user.username) {
+    return `${user.displayName} (@${user.username})`;
+  }
+
+  return user.displayName || `Usuari ${fallbackTelegramUserId}`;
 }
 
 function parseDate(value: string): string | Error {
@@ -1190,13 +1300,20 @@ async function formatScheduleListWithVenueImpact(
   context: TelegramScheduleContext,
   events: ScheduleEventRecord[],
 ): Promise<string> {
-  const lines = ['<b>Activitats disponibles:</b>'];
+  const lines: string[] = [];
   const groupedEvents = groupScheduleEventsByDay(sortScheduleEvents(events));
 
   for (const [dayKey, dayEvents] of groupedEvents) {
     lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
     for (const event of dayEvents) {
-      lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)})`);
+      const attendance = await getScheduleEventAttendance({
+        repository: resolveScheduleRepository(context),
+        eventId: event.id,
+      });
+      lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)}) · ${formatParticipantCount(attendance.snapshot.occupiedSeats, attendance.snapshot.capacity)}`);
+      if (event.description) {
+        lines.push(`  <i>${escapeHtml(event.description)}</i>`);
+      }
       const relevantVenueEvents = await listRelevantVenueEventsForScheduleEvent(context, event);
       if (relevantVenueEvents.length > 0) {
         const summary = relevantVenueEvents
@@ -1208,6 +1325,10 @@ async function formatScheduleListWithVenueImpact(
   }
 
   return lines.join('\n');
+}
+
+function formatParticipantCount(occupiedSeats: number, capacity: number): string {
+  return `${occupiedSeats}/${capacity} participants`;
 }
 
 async function notifyScheduleConflicts({

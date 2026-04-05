@@ -366,15 +366,36 @@ function createAuditRepository(): AuditLogRepository & { __events: AuditLogEvent
 }
 
 test('handleTelegramScheduleText opens the schedule menu from the keyboard action', async () => {
-  const { context, replies } = createContext();
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Wingspan',
+      description: 'Ocells i engines',
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository });
   context.messageText = scheduleLabels.openMenu;
 
   const handled = await handleTelegramScheduleText(context);
 
   assert.equal(handled, true);
   assert.deepEqual(replies.at(-1), {
-    message: 'Gestio d activitats: tria una accio.',
+    message: '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 0/3 participants\n  <i>Ocells i engines</i>',
     options: {
+      parseMode: 'HTML',
+      inlineKeyboard: [[{ text: 'Veure Wingspan', callbackData: 'schedule:inspect:4' }]],
       replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['/start', '/help']],
       resizeKeyboard: true,
       persistentKeyboard: true,
@@ -632,7 +653,7 @@ test('handleTelegramScheduleCallback keeps showing deactivated table names for h
 
   context.callbackData = `${scheduleCallbackPrefixes.inspect}18`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Taula: Mesa arxiu/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Taula:<\/b> Mesa arxiu/);
 });
 
 test('handleTelegramScheduleText shows advisory warning when requested capacity exceeds the selected table recommendation', async () => {
@@ -676,7 +697,7 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
     {
       id: 4,
       title: 'Wingspan',
-      description: null,
+      description: 'Ocells i engines',
       startsAt: '2026-04-05T16:00:00.000Z',
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
@@ -710,7 +731,7 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
     {
       id: 6,
       title: 'Ravenloft',
-      description: null,
+      description: 'Cementiri i vampirs',
       startsAt: '2026-04-05T18:30:00.000Z',
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
@@ -731,6 +752,12 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
     actorTelegramUserId: 42,
     status: 'active',
   });
+  await scheduleRepository.upsertParticipant({
+    eventId: 6,
+    participantTelegramUserId: 55,
+    actorTelegramUserId: 55,
+    status: 'active',
+  });
   const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
   context.messageText = scheduleLabels.list;
 
@@ -738,7 +765,7 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
 
   assert.equal(handled, true);
   assert.equal(scheduleRepository.__cancelledEventIds.includes(5), true);
-  assert.equal(replies.at(-1)?.message, '<b>Activitats disponibles:</b>\n<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00)\n- <b>Ravenloft</b> (18:30)');
+  assert.equal(replies.at(-1)?.message, '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 1/3 participants\n  <i>Ocells i engines</i>\n- <b>Ravenloft</b> (18:30) · 1/4 participants\n  <i>Cementiri i vampirs</i>');
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
     inlineKeyboard: [[{ text: 'Veure Wingspan', callbackData: 'schedule:inspect:4' }], [{ text: 'Veure Ravenloft', callbackData: 'schedule:inspect:6' }]],
@@ -925,26 +952,42 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
     },
   ]);
   const auditRepository = createAuditRepository();
-  const { context, getCurrentSession } = createContext({ scheduleRepository, auditRepository, actorTelegramUserId: 42 });
+  const { context, getCurrentSession, replies } = createContext({ scheduleRepository, auditRepository, actorTelegramUserId: 42 });
+
+  context.callbackData = `${scheduleCallbackPrefixes.inspect}3`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.deepEqual(replies.at(-1)?.options, {
+    parseMode: 'HTML',
+    inlineKeyboard: [
+      [{ text: 'Apuntar-me', callbackData: 'schedule:join:3' }],
+      [{ text: 'Editar activitat', callbackData: 'schedule:select_edit:3' }, { text: 'Eliminar activitat', callbackData: 'schedule:select_cancel:3' }],
+    ],
+  });
 
   context.callbackData = `${scheduleCallbackPrefixes.selectEdit}3`;
   const handled = await handleTelegramScheduleCallback(context);
 
   assert.equal(handled, true);
-  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-edit', stepKey: 'title', data: { eventId: 3 } });
+  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-edit', stepKey: 'select-field', data: { eventId: 3 } });
 
-  delete context.callbackData;
+  context.messageText = scheduleLabels.editFieldTitle;
+  assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = 'Root Deluxe';
   assert.equal(await handleTelegramScheduleText(context), true);
-  context.messageText = scheduleLabels.skipOptional;
+  assert.match(replies.at(-1)?.message ?? '', /Organitzador: Ada \(@ada\)/);
+  context.messageText = scheduleLabels.editFieldDate;
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = '06/04';
   assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.editFieldTime;
+  assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = '17:30';
   assert.equal(await handleTelegramScheduleText(context), true);
-  context.messageText = scheduleLabels.skipOptional;
+  context.messageText = scheduleLabels.editFieldCapacity;
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = '5';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.editFieldTable;
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = scheduleLabels.noTable;
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -952,7 +995,7 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
   assert.equal(await handleTelegramScheduleText(context), true);
 
   assert.equal((await scheduleRepository.findEventById(3))?.title, 'Root Deluxe');
-  assert.equal((await scheduleRepository.findEventById(3))?.durationMinutes, 180);
+  assert.equal((await scheduleRepository.findEventById(3))?.capacity, 5);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.updated');
   assert.equal(auditRepository.__events.at(-1)?.targetId, '3');
 });
@@ -1007,6 +1050,16 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
     },
   ]);
   const { context, getCurrentSession, replies } = createContext({ scheduleRepository, actorTelegramUserId: 99, isAdmin: true });
+
+  context.callbackData = `${scheduleCallbackPrefixes.inspect}8`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.deepEqual(replies.at(-1)?.options, {
+    parseMode: 'HTML',
+    inlineKeyboard: [
+      [{ text: 'Apuntar-me', callbackData: 'schedule:join:8' }],
+      [{ text: 'Editar activitat', callbackData: 'schedule:select_edit:8' }, { text: 'Eliminar activitat', callbackData: 'schedule:select_cancel:8' }],
+    ],
+  });
 
   context.callbackData = `${scheduleCallbackPrefixes.selectCancel}8`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
@@ -1110,19 +1163,17 @@ test('handleTelegramScheduleText sends private conflict notifications after edit
 
   context.callbackData = `${scheduleCallbackPrefixes.selectEdit}41`;
   await handleTelegramScheduleCallback(context);
-  context.messageText = scheduleLabels.keepCurrent;
-  await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.keepCurrent;
+  context.messageText = scheduleLabels.editFieldDate;
   await handleTelegramScheduleText(context);
   context.messageText = '05/04';
   await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.editFieldTime;
+  await handleTelegramScheduleText(context);
   context.messageText = '17:00';
   await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.editFieldDuration;
+  await handleTelegramScheduleText(context);
   context.messageText = '180';
-  await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.keepCurrent;
-  await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.keepCurrent;
   await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.confirmEdit;
   await handleTelegramScheduleText(context);

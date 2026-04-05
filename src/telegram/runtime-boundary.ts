@@ -611,7 +611,6 @@ function createDefaultCommands({
       command: 'calendar',
       contexts: ['private'],
       access: 'approved',
-      description: 'Consulta el calendari proper del club',
       handle: async (context) => {
         await handleTelegramCalendarText({ ...context, messageText: '/calendar' });
       },
@@ -638,7 +637,6 @@ function createDefaultCommands({
       command: 'venue_events',
       contexts: ['private'],
       access: 'admin',
-      description: 'Gestiona esdeveniments del local',
       handle: async (context) => {
         await handleTelegramVenueEventAdminText({ ...context, messageText: '/venue_events' });
       },
