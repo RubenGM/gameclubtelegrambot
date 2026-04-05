@@ -218,6 +218,9 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     return false;
   }
 
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+
   if (callbackData.startsWith(scheduleCallbackPrefixes.inspect)) {
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.inspect, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
@@ -277,8 +280,8 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
       data: { eventId },
     });
     await context.reply(
-      `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) })}\n\nTria un camp per editar o guarda els canvis.`,
-      { ...buildEditFieldMenuOptions(), parseMode: 'HTML' },
+      `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId), language })}\n\n${texts.selectFieldPrompt}`,
+      { ...buildEditFieldMenuOptions(language), parseMode: 'HTML' },
     );
     return true;
   }
@@ -297,8 +300,8 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
       data: { eventId },
     });
     await context.reply(
-      `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) })}\n\nConfirma si vols cancel.lar aquesta activitat.`,
-      { ...buildCancelConfirmOptions(), parseMode: 'HTML' },
+      `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId), language })}\n\n${texts.confirmCancelPrompt}`,
+      { ...buildCancelConfirmOptions(language), parseMode: 'HTML' },
     );
     return true;
   }
@@ -630,7 +633,7 @@ async function persistEditedScheduleEvent(
   });
   await context.runtime.session.cancel();
   await context.reply(
-    `${texts.updated.replace('.', '')}: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId) })}`,
+    `${texts.updated.replace('.', '')}: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId), language })}`,
     { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
   );
   await notifyScheduleConflicts({ context, eventId: updated.id });
@@ -759,15 +762,11 @@ async function replyWithManageableEventList(
   context: TelegramScheduleContext,
   mode: 'edit' | 'cancel',
 ): Promise<boolean> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
   const events = (await loadUpcomingScheduleEvents(context)).filter((event) => canManageEvent(context.runtime.actor, context.runtime.authorization, event));
   if (events.length === 0) {
-    await context.reply(
-      mode === 'edit'
-        ? 'No tens cap activitat editable ara mateix.'
-        : 'No tens cap activitat cancel.lable ara mateix.',
-      buildScheduleMenuOptions(),
-    );
+    await context.reply(mode === 'edit' ? texts.noEditableEvents : texts.noCancellableEvents, buildScheduleMenuOptions(language));
     return true;
   }
 
@@ -1055,8 +1054,8 @@ function buildScheduleDayButtons(events: ScheduleEventRecord[], language: string
   return dayKeys.map((dayKey) => [{ text: formatScheduleDayButtonLabel(dayKey, language), callbackData: `${scheduleCallbackPrefixes.day}${dayKey}` }]);
 }
 
-function formatScheduleEventDetails({ event, tableName }: { event: ScheduleEventRecord; tableName: string | null }): string {
-  const texts = createTelegramI18n('ca').schedule;
+function formatScheduleEventDetails({ event, tableName, language = 'ca' }: { event: ScheduleEventRecord; tableName: string | null; language?: 'ca' | 'es' | 'en' }): string {
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule;
   return [
     `<b>${escapeHtml(event.title)}</b>`,
     formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),

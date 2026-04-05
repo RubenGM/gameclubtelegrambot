@@ -486,7 +486,7 @@ test('handleTelegramCatalogAdminText shows a URL fallback when Wikipedia import 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.match(replies.at(-2)?.message ?? '', /Buscant a Wikipedia/);
-  assert.match(replies.at(-1)?.message ?? '', /Si tens la URL completa de la pagina de Wikipedia/);
+  assert.match(replies.at(-1)?.message ?? '', /Enganxa la URL completa de la pagina de Wikipedia/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], catalogAdminLabels.skipLookupImport);
   assert.equal(getCurrentSession()?.stepKey, 'wikipedia-url');
 
@@ -1205,7 +1205,7 @@ test('handleTelegramCatalogAdminCallback edits items through a field menu and de
   context.callbackData = `${catalogAdminCallbackPrefixes.edit}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   delete context.callbackData;
-  assert.match(replies.at(-1)?.message ?? '', /Quin camp vols editar primer/);
+  assert.match(replies.at(-1)?.message ?? '', /Tria un camp del teclat o guarda els canvis quan hagis acabat/);
 
   context.messageText = catalogAdminLabels.editFieldDisplayName;
   assert.equal(await handleTelegramCatalogAdminText(context), true);

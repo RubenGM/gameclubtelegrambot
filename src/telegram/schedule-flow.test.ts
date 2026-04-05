@@ -484,6 +484,35 @@ test('handleTelegramScheduleText accepts the Spanish menu label', async () => {
   assert.equal(replies.at(-1)?.message.includes('Wingspan'), true);
 });
 
+test('handleTelegramScheduleText accepts the Spanish edit menu label', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Wingspan',
+      description: 'Ocells i engines',
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, language: 'es' });
+  context.messageText = 'Editar actividad';
+
+  const handled = await handleTelegramScheduleText(context);
+
+  assert.equal(handled, true);
+  assert.ok((replies.at(-1)?.options?.inlineKeyboard?.flat().map((button) => button.text).join(' ') ?? '').includes('Editar Wingspan'));
+});
+
 test('handleTelegramScheduleStartText opens an activity detail from a deep link payload', async () => {
   const scheduleRepository = createScheduleRepository([
     {

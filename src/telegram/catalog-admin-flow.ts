@@ -246,25 +246,30 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.edit)) {
     const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.edit);
     const item = await loadItemOrThrow(context, itemId);
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    const texts = createTelegramI18n(language).catalogAdmin;
     await context.runtime.session.start({ flowKey: editFlowKey, stepKey: 'select-field', data: { itemId } });
     await context.reply(`${await formatCatalogItemDetails(context, item)}
 
-Quin camp vols editar primer?`, { ...buildEditFieldMenuOptions(item.itemType), parseMode: 'HTML' });
+${texts.selectEditField}`, { ...buildEditFieldMenuOptions(item.itemType, language), parseMode: 'HTML' });
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.deactivate)) {
     const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.deactivate);
     const item = await loadItemOrThrow(context, itemId);
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    const texts = createTelegramI18n(language).catalogAdmin;
     await context.runtime.session.start({ flowKey: deactivateFlowKey, stepKey: 'confirm', data: { itemId } });
     await context.reply(`${await formatCatalogItemDetails(context, item)}
 
-Si el desactives, deixara d aparéixer als fluxos operatius futurs pero es mantindra per a consultes historiques.`, { ...buildDeactivateConfirmOptions(), parseMode: 'HTML' });
+${texts.askDeactivate}`, { ...buildDeactivateConfirmOptions(language), parseMode: 'HTML' });
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.editMedia)) {
     const mediaId = parseItemId(callbackData, catalogAdminCallbackPrefixes.editMedia);
     const media = await loadMediaOrThrow(context, mediaId);
-    const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    const texts = createTelegramI18n(language).catalogAdmin;
     await context.runtime.session.start({
       flowKey: mediaFlowKey,
       stepKey: 'media-type',
@@ -277,15 +282,17 @@ Si el desactives, deixara d aparéixer als fluxos operatius futurs pero es manti
         sortOrder: media.sortOrder,
       },
     });
-    await context.reply(texts.mediaTypePromptEdit, buildEditMediaTypeOptions());
+    await context.reply(texts.mediaTypePromptEdit, buildEditMediaTypeOptions(language));
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.deleteMedia)) {
     const mediaId = parseItemId(callbackData, catalogAdminCallbackPrefixes.deleteMedia);
     const media = await loadMediaOrThrow(context, mediaId);
     await context.runtime.session.start({ flowKey: mediaDeleteFlowKey, stepKey: 'confirm', data: { mediaId, itemId: media.itemId } });
-    await context.reply(`Vols eliminar aquest media?
-- ${media.mediaType} · ${media.url}`, buildMediaDeleteConfirmOptions());
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    const texts = createTelegramI18n(language).catalogAdmin;
+    await context.reply(`${texts.confirmMediaDeletePrompt}
+- ${media.mediaType} · ${media.url}`, buildMediaDeleteConfirmOptions(language));
     return true;
   }
   return false;
@@ -362,18 +369,12 @@ async function handleCreateSession(
             wikipediaCandidates: importResult.error.candidates ?? [],
           },
         });
-        await context.reply(
-          `${importResult.error.message}\n\nEscull una de les opcions, entra la URL manualment o omet la importacio.`,
-          buildWikipediaCandidateOptions(importResult.error.candidates ?? []),
-        );
+        await context.reply(`${importResult.error.message}\n\n${texts.invalidWikipediaCandidateChoice}`, buildWikipediaCandidateOptions(importResult.error.candidates ?? []));
         return true;
       }
 
       await context.runtime.session.advance({ stepKey: 'wikipedia-url', data: nextData });
-      await context.reply(
-        `${importWikipediaErrorMessage(importResult)}\n\nSi tens la URL completa de la pagina de Wikipedia, enganxa-la ara. Si no, tria No importar dades per continuar manualment.`,
-        buildWikipediaUrlOptions(),
-      );
+      await context.reply(`${importWikipediaErrorMessage(importResult)}\n\n${texts.askWikipediaUrl}`, buildWikipediaUrlOptions());
       return true;
     }
     const lookupCandidates = await searchCatalogLookupCandidates(context, {
@@ -390,7 +391,7 @@ async function handleCreateSession(
     }
 
     await context.runtime.session.advance({ stepKey: 'family', data: nextData });
-    await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+    await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
     return true;
   }
   if (stepKey === 'family') {
@@ -407,14 +408,14 @@ async function handleCreateSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'group', data: { ...data, familyId } });
-    await context.reply(await buildGroupPrompt(context, familyId), buildGroupOptions());
+        await context.reply(await buildGroupPrompt(context, familyId), buildGroupOptions(language));
     return true;
   }
   if (stepKey === 'lookup-choice') {
     if (text === catalogAdminLabels.skipLookupImport) {
       const itemType = String(data.itemType) as CatalogItemType;
       await context.runtime.session.advance({ stepKey: 'family', data });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
       return true;
     }
     if (text === catalogAdminLabels.refineLookupByAuthor) {
@@ -452,12 +453,12 @@ async function handleCreateSession(
     const lookupCandidate = asLookupCandidate(data.selectedLookupCandidate);
     if (text === catalogAdminLabels.keepTypedTitle) {
       await context.runtime.session.advance({ stepKey: 'family', data: { ...data, displayName: String(data.displayName ?? '') } });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
       return true;
     }
     if (text === catalogAdminLabels.useApiTitle) {
       await context.runtime.session.advance({ stepKey: 'family', data: { ...data, displayName: lookupCandidate.title } });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
       return true;
     }
     await context.reply(texts.askTitleChoice, buildLookupTitleChoiceOptions());
@@ -475,7 +476,7 @@ async function handleCreateSession(
     const itemType = String(data.itemType) as CatalogItemType;
     if (text === catalogAdminLabels.skipLookupImport) {
       await context.runtime.session.advance({ stepKey: 'family', data });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
       return true;
     }
 
@@ -551,19 +552,17 @@ async function handleCreateSession(
   if (stepKey === 'group') {
     const groupId = await parseGroupInput(context, text, asNullableNumber(data.familyId));
     if (groupId instanceof Error) {
-      await context.reply(texts.invalidGroup, buildGroupOptions());
+      await context.reply(texts.invalidGroup, buildGroupOptions(language));
       return true;
     }
     const nextData = { ...data, groupId };
     if (String(data.itemType ?? 'board-game') === 'board-game') {
       await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-      await context.reply(`${await formatDraftSummary(context, nextData)}
-
-Tria una opcio per confirmar o cancel.lar.`, { ...buildCreateConfirmOptions(), parseMode: 'HTML' });
+      await context.reply(`${await formatDraftSummary(context, nextData)}\n\n${texts.confirmCreatePrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'original-name', data: nextData });
-    await context.reply(texts.askOriginalName, buildCreateOptionalKeyboard(asNullableString(data.originalName)));
+    await context.reply(texts.askOriginalName, buildCreateOptionalKeyboard(asNullableString(data.originalName), language));
     return true;
   }
   if (stepKey === 'original-name') {
@@ -574,7 +573,7 @@ Tria una opcio per confirmar o cancel.lar.`, { ...buildCreateConfirmOptions(), p
         originalName: text === catalogAdminLabels.keepCurrent ? asNullableString(data.originalName) : text === catalogAdminLabels.skipOptional ? null : text,
       },
     });
-    await context.reply(texts.askOptionalDescription, buildCreateOptionalKeyboard(asNullableString(data.description)));
+    await context.reply(texts.askOptionalDescription, buildCreateOptionalKeyboard(asNullableString(data.description), language));
     return true;
   }
   if (stepKey === 'description') {
@@ -585,7 +584,7 @@ Tria una opcio per confirmar o cancel.lar.`, { ...buildCreateConfirmOptions(), p
         description: text === catalogAdminLabels.keepCurrent ? asNullableString(data.description) : text === catalogAdminLabels.skipOptional ? null : text,
       },
     });
-    await context.reply(texts.askLanguage, buildCreateOptionalKeyboard(asNullableString(data.language)));
+    await context.reply(texts.askLanguage, buildCreateOptionalKeyboard(asNullableString(data.language), language));
     return true;
   }
   if (stepKey === 'language') {
@@ -596,7 +595,7 @@ Tria una opcio per confirmar o cancel.lar.`, { ...buildCreateConfirmOptions(), p
         language: text === catalogAdminLabels.keepCurrent ? asNullableString(data.language) : text === catalogAdminLabels.skipOptional ? null : text,
       },
     });
-    await context.reply(texts.askPublisher, buildCreateOptionalKeyboard(asNullableString(data.publisher)));
+    await context.reply(texts.askPublisher, buildCreateOptionalKeyboard(asNullableString(data.publisher), language));
     return true;
   }
   if (stepKey === 'publisher') {
@@ -607,13 +606,13 @@ Tria una opcio per confirmar o cancel.lar.`, { ...buildCreateConfirmOptions(), p
         publisher: text === catalogAdminLabels.keepCurrent ? asNullableString(data.publisher) : text === catalogAdminLabels.skipOptional ? null : text,
       },
     });
-    await context.reply(texts.askPublicationYear, buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear)));
+    await context.reply(texts.askPublicationYear, buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear), language));
     return true;
   }
   if (stepKey === 'publication-year') {
     const publicationYear = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.publicationYear) : parseOptionalPositiveInteger(text);
     if (publicationYear instanceof Error) {
-      await context.reply(texts.invalidPublicationYear, buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear)));
+      await context.reply(texts.invalidPublicationYear, buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear), language));
       return true;
     }
     const nextStepKey = itemTypeSupportsPlayers(String(data.itemType ?? 'board-game') as CatalogItemType) ? 'player-min' : 'recommended-age';
@@ -621,25 +620,25 @@ Tria una opcio per confirmar o cancel.lar.`, { ...buildCreateConfirmOptions(), p
     await context.reply(
       nextStepKey === 'player-min' ? texts.askPlayerMin : texts.askRecommendedAge,
       nextStepKey === 'player-min'
-        ? buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin))
-        : buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge)),
+        ? buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin), language)
+        : buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge), language),
     );
     return true;
   }
   if (stepKey === 'player-min') {
     const playerCountMin = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.playerCountMin) : parseOptionalPositiveInteger(text);
     if (playerCountMin instanceof Error) {
-      await context.reply(texts.invalidPlayerMin, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin)));
+      await context.reply(texts.invalidPlayerMin, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin), language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'player-max', data: { ...data, playerCountMin } });
-    await context.reply(texts.askPlayerMax, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax)));
+    await context.reply(texts.askPlayerMax, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax), language));
     return true;
   }
   if (stepKey === 'player-max') {
     const playerCountMax = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.playerCountMax) : parseOptionalPositiveInteger(text);
     if (playerCountMax instanceof Error) {
-      await context.reply(texts.invalidPlayerMax, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax)));
+      await context.reply(texts.invalidPlayerMax, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax), language));
       return true;
     }
     if (
@@ -647,60 +646,60 @@ Tria una opcio per confirmar o cancel.lar.`, { ...buildCreateConfirmOptions(), p
       typeof data.playerCountMin === 'number' &&
       playerCountMax < data.playerCountMin
     ) {
-      await context.reply(texts.invalidPlayerRange, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax)));
+      await context.reply(texts.invalidPlayerRange, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax), language));
       return true;
     }
     const nextData = { ...data, playerCountMax };
     await context.runtime.session.advance({ stepKey: 'recommended-age', data: nextData });
-    await context.reply(texts.askRecommendedAge, buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge)));
+    await context.reply(texts.askRecommendedAge, buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge), language));
     return true;
   }
   if (stepKey === 'recommended-age') {
     const recommendedAge = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.recommendedAge) : parseOptionalPositiveInteger(text);
     if (recommendedAge instanceof Error) {
-      await context.reply(texts.invalidRecommendedAge, buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge)));
+      await context.reply(texts.invalidRecommendedAge, buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge), language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'play-time-minutes', data: { ...data, recommendedAge } });
-    await context.reply(texts.askPlayTime, buildCreateOptionalKeyboard(asNullableNumber(data.playTimeMinutes)));
+    await context.reply(texts.askPlayTime, buildCreateOptionalKeyboard(asNullableNumber(data.playTimeMinutes), language));
     return true;
   }
   if (stepKey === 'play-time-minutes') {
     const playTimeMinutes = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.playTimeMinutes) : parseOptionalPositiveInteger(text);
     if (playTimeMinutes instanceof Error) {
-      await context.reply(texts.invalidPlayTime, buildCreateOptionalKeyboard(asNullableNumber(data.playTimeMinutes)));
+      await context.reply(texts.invalidPlayTime, buildCreateOptionalKeyboard(asNullableNumber(data.playTimeMinutes), language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'external-refs', data: { ...data, playTimeMinutes } });
-    await context.reply(texts.askExternalRefs, buildCreateOptionalKeyboard(asNullableObject(data.externalRefs)));
+    await context.reply(texts.askExternalRefs, buildCreateOptionalKeyboard(asNullableObject(data.externalRefs), language));
     return true;
   }
   if (stepKey === 'external-refs') {
     const externalRefs = text === catalogAdminLabels.keepCurrent ? asNullableObject(data.externalRefs) : parseOptionalJsonObject(text);
     if (externalRefs instanceof Error) {
-      await context.reply(texts.invalidExternalRefs, buildCreateOptionalKeyboard(asNullableObject(data.externalRefs)));
+      await context.reply(texts.invalidExternalRefs, buildCreateOptionalKeyboard(asNullableObject(data.externalRefs), language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'metadata', data: { ...data, externalRefs } });
-    await context.reply(texts.askMetadata, buildCreateOptionalKeyboard(asNullableObject(data.metadata)));
+    await context.reply(texts.askMetadata, buildCreateOptionalKeyboard(asNullableObject(data.metadata), language));
     return true;
   }
     if (stepKey === 'metadata') {
       const metadata = text === catalogAdminLabels.keepCurrent ? asNullableObject(data.metadata) : parseOptionalJsonObject(text);
       if (metadata instanceof Error) {
-        await context.reply(texts.invalidMetadata, buildCreateOptionalKeyboard(asNullableObject(data.metadata)));
+        await context.reply(texts.invalidMetadata, buildCreateOptionalKeyboard(asNullableObject(data.metadata), language));
         return true;
       }
       const nextData = { ...data, metadata };
       await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
       await context.reply(`${await formatDraftSummary(context, nextData)}
 
-Tria una opcio per confirmar o cancel.lar.`, buildCreateConfirmOptions());
+${texts.confirmCreatePrompt}`, buildCreateConfirmOptions(language));
       return true;
     }
   if (stepKey === 'confirm') {
       if (text !== texts.confirmCreate && text !== catalogAdminLabels.confirmCreate) {
-      await context.reply(texts.confirmCreatePrompt, buildCreateConfirmOptions());
+      await context.reply(texts.confirmCreatePrompt, buildCreateConfirmOptions(language));
         return true;
       }
     const item = await createCatalogItem({
@@ -760,74 +759,89 @@ async function handleEditSession(
   const itemId = Number(data.itemId);
   const item = await loadItemOrThrow(context, itemId);
   if (stepKey === 'select-field') {
-    if (text === catalogAdminLabels.confirmEdit) {
+    if (text === texts.confirmEdit || text === catalogAdminLabels.confirmEdit) {
       await saveEditDraftAndReturn(context, item, data);
       return true;
     }
     const currentItemType = getDraftItemType(item, data);
     switch (text) {
+      case texts.editFieldDisplayName:
       case catalogAdminLabels.editFieldDisplayName:
         await context.runtime.session.advance({ stepKey: 'display-name', data });
-        await context.reply(texts.askEditDisplayName, buildSingleCancelKeyboard());
+        await context.reply(texts.askEditDisplayName, buildSingleCancelKeyboard(language));
         return true;
+      case texts.editFieldItemType:
       case catalogAdminLabels.editFieldItemType:
         await context.runtime.session.advance({ stepKey: 'item-type', data });
-      await context.reply(texts.askEditItemType, buildTypeOptions(language));
+        await context.reply(texts.askEditItemType, buildTypeOptions(language));
         return true;
+      case texts.editFieldFamily:
       case catalogAdminLabels.editFieldFamily:
         await context.runtime.session.advance({ stepKey: 'family', data });
-        await context.reply(await buildFamilyPrompt(context, currentItemType), await buildFamilyOptions(context, currentItemType));
+        await context.reply(await buildFamilyPrompt(context, currentItemType), await buildFamilyOptions(context, currentItemType, language));
         return true;
+      case texts.editFieldGroup:
       case catalogAdminLabels.editFieldGroup:
         await context.runtime.session.advance({ stepKey: 'group', data });
-        await context.reply(await buildGroupPrompt(context, getDraftFamilyId(item, data)), buildGroupOptions());
+        await context.reply(await buildGroupPrompt(context, getDraftFamilyId(item, data)), buildGroupOptions(language));
         return true;
+      case texts.editFieldOriginalName:
       case catalogAdminLabels.editFieldOriginalName:
         await context.runtime.session.advance({ stepKey: 'original-name', data });
-        await context.reply(texts.askEditOriginalName, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditOriginalName, buildSkipOptionalKeyboard(language));
         return true;
+      case texts.editFieldDescription:
       case catalogAdminLabels.editFieldDescription:
         await context.runtime.session.advance({ stepKey: 'description', data });
-        await context.reply(texts.askEditDescription, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditDescription, buildSkipOptionalKeyboard(language));
         return true;
+      case texts.editFieldLanguage:
       case catalogAdminLabels.editFieldLanguage:
         await context.runtime.session.advance({ stepKey: 'language', data });
-        await context.reply(texts.askEditLanguage, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditLanguage, buildSkipOptionalKeyboard(language));
         return true;
+      case texts.editFieldPublisher:
       case catalogAdminLabels.editFieldPublisher:
         await context.runtime.session.advance({ stepKey: 'publisher', data });
-        await context.reply(texts.askEditPublisher, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditPublisher, buildSkipOptionalKeyboard(language));
         return true;
+      case texts.editFieldPublicationYear:
       case catalogAdminLabels.editFieldPublicationYear:
         await context.runtime.session.advance({ stepKey: 'publication-year', data });
-        await context.reply(texts.askEditPublicationYear, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditPublicationYear, buildSkipOptionalKeyboard(language));
         return true;
+      case texts.editFieldPlayerMin:
       case catalogAdminLabels.editFieldPlayerMin:
         await context.runtime.session.advance({ stepKey: 'player-min', data });
-        await context.reply(texts.askEditPlayerMin, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditPlayerMin, buildSkipOptionalKeyboard(language));
         return true;
+      case texts.editFieldPlayerMax:
       case catalogAdminLabels.editFieldPlayerMax:
         await context.runtime.session.advance({ stepKey: 'player-max', data });
-        await context.reply(texts.askEditPlayerMax, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditPlayerMax, buildSkipOptionalKeyboard(language));
         return true;
+      case texts.editFieldRecommendedAge:
       case catalogAdminLabels.editFieldRecommendedAge:
         await context.runtime.session.advance({ stepKey: 'recommended-age', data });
-        await context.reply(texts.askEditRecommendedAge, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditRecommendedAge, buildSkipOptionalKeyboard(language));
         return true;
+      case texts.editFieldPlayTimeMinutes:
       case catalogAdminLabels.editFieldPlayTimeMinutes:
         await context.runtime.session.advance({ stepKey: 'play-time-minutes', data });
-        await context.reply(texts.askEditPlayTime, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditPlayTime, buildSkipOptionalKeyboard(language));
         return true;
+      case texts.editFieldExternalRefs:
       case catalogAdminLabels.editFieldExternalRefs:
         await context.runtime.session.advance({ stepKey: 'external-refs', data });
-        await context.reply(texts.askEditExternalRefs, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditExternalRefs, buildSkipOptionalKeyboard(language));
         return true;
+      case texts.editFieldMetadata:
       case catalogAdminLabels.editFieldMetadata:
         await context.runtime.session.advance({ stepKey: 'metadata', data });
-        await context.reply(texts.askEditMetadata, buildSkipOptionalKeyboard());
+        await context.reply(texts.askEditMetadata, buildSkipOptionalKeyboard(language));
         return true;
       default:
-        await context.reply(texts.selectEditField, buildEditFieldMenuOptions(currentItemType));
+        await context.reply(texts.selectEditField, buildEditFieldMenuOptions(currentItemType, language));
         return true;
     }
   }
@@ -863,21 +877,21 @@ async function handleEditSession(
     return updateEditDraftAndReturn(context, item, data, { groupId });
   }
   if (stepKey === 'original-name') {
-    return updateEditDraftAndReturn(context, item, data, { originalName: text === catalogAdminLabels.skipOptional ? null : text });
+    return updateEditDraftAndReturn(context, item, data, { originalName: text === texts.skipOptional || text === catalogAdminLabels.skipOptional ? null : text });
   }
   if (stepKey === 'description') {
-    return updateEditDraftAndReturn(context, item, data, { description: text === catalogAdminLabels.skipOptional ? null : text });
+    return updateEditDraftAndReturn(context, item, data, { description: text === texts.skipOptional || text === catalogAdminLabels.skipOptional ? null : text });
   }
   if (stepKey === 'language') {
-    return updateEditDraftAndReturn(context, item, data, { language: text === catalogAdminLabels.skipOptional ? null : text });
+    return updateEditDraftAndReturn(context, item, data, { language: text === texts.skipOptional || text === catalogAdminLabels.skipOptional ? null : text });
   }
   if (stepKey === 'publisher') {
-    return updateEditDraftAndReturn(context, item, data, { publisher: text === catalogAdminLabels.skipOptional ? null : text });
+    return updateEditDraftAndReturn(context, item, data, { publisher: text === texts.skipOptional || text === catalogAdminLabels.skipOptional ? null : text });
   }
   if (stepKey === 'publication-year') {
     const publicationYear = parseOptionalPositiveInteger(text);
     if (publicationYear instanceof Error) {
-      await context.reply(texts.invalidPublicationYear, buildSkipOptionalKeyboard());
+      await context.reply(texts.invalidPublicationYear, buildSkipOptionalKeyboard(language));
       return true;
     }
     return updateEditDraftAndReturn(context, item, data, { publicationYear });
@@ -885,7 +899,7 @@ async function handleEditSession(
   if (stepKey === 'player-min') {
     const playerCountMin = parseOptionalPositiveInteger(text);
     if (playerCountMin instanceof Error) {
-      await context.reply(texts.invalidPlayerMin, buildSkipOptionalKeyboard());
+      await context.reply(texts.invalidPlayerMin, buildSkipOptionalKeyboard(language));
       return true;
     }
     return updateEditDraftAndReturn(context, item, data, { playerCountMin });
@@ -893,12 +907,12 @@ async function handleEditSession(
   if (stepKey === 'player-max') {
     const playerCountMax = parseOptionalPositiveInteger(text);
     if (playerCountMax instanceof Error) {
-      await context.reply(texts.invalidPlayerMax, buildSkipOptionalKeyboard());
+      await context.reply(texts.invalidPlayerMax, buildSkipOptionalKeyboard(language));
       return true;
     }
     const candidateMin = hasOwn(data, 'playerCountMin') ? asNullableNumber(data.playerCountMin) : item.playerCountMin;
     if (playerCountMax !== null && candidateMin !== null && playerCountMax < candidateMin) {
-      await context.reply(texts.invalidPlayerRange, buildSkipOptionalKeyboard());
+      await context.reply(texts.invalidPlayerRange, buildSkipOptionalKeyboard(language));
       return true;
     }
     return updateEditDraftAndReturn(context, item, data, { playerCountMax });
@@ -906,7 +920,7 @@ async function handleEditSession(
   if (stepKey === 'recommended-age') {
     const recommendedAge = parseOptionalPositiveInteger(text);
     if (recommendedAge instanceof Error) {
-      await context.reply(texts.invalidRecommendedAge, buildSkipOptionalKeyboard());
+      await context.reply(texts.invalidRecommendedAge, buildSkipOptionalKeyboard(language));
       return true;
     }
     return updateEditDraftAndReturn(context, item, data, { recommendedAge });
@@ -914,7 +928,7 @@ async function handleEditSession(
   if (stepKey === 'play-time-minutes') {
     const playTimeMinutes = parseOptionalPositiveInteger(text);
     if (playTimeMinutes instanceof Error) {
-      await context.reply(texts.invalidPlayTime, buildSkipOptionalKeyboard());
+      await context.reply(texts.invalidPlayTime, buildSkipOptionalKeyboard(language));
       return true;
     }
     return updateEditDraftAndReturn(context, item, data, { playTimeMinutes });
@@ -922,7 +936,7 @@ async function handleEditSession(
   if (stepKey === 'external-refs') {
     const externalRefs = parseOptionalJsonObject(text);
     if (externalRefs instanceof Error) {
-      await context.reply(texts.invalidExternalRefs, buildSkipOptionalKeyboard());
+      await context.reply(texts.invalidExternalRefs, buildSkipOptionalKeyboard(language));
       return true;
     }
     return updateEditDraftAndReturn(context, item, data, { externalRefs });
@@ -930,7 +944,7 @@ async function handleEditSession(
   if (stepKey === 'metadata') {
     const metadata = parseOptionalJsonObject(text);
     if (metadata instanceof Error) {
-      await context.reply(texts.invalidMetadata, buildSkipOptionalKeyboard());
+      await context.reply(texts.invalidMetadata, buildSkipOptionalKeyboard(language));
       return true;
     }
     return updateEditDraftAndReturn(context, item, data, { metadata });
@@ -943,9 +957,10 @@ async function handleDeactivateSession(
   text: string,
   data: Record<string, unknown>,
 ): Promise<boolean> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
   if (text !== texts.confirmDeactivate && text !== catalogAdminLabels.confirmDeactivate) {
-    await context.reply(texts.confirmDeactivatePrompt, buildDeactivateConfirmOptions());
+    await context.reply(texts.confirmDeactivatePrompt, buildDeactivateConfirmOptions(language));
     return true;
   }
   const item = await deactivateCatalogItem({ repository: resolveCatalogRepository(context), itemId: Number(data.itemId) });
@@ -969,16 +984,17 @@ async function handleMediaSession(
   stepKey: string,
   data: Record<string, unknown>,
 ): Promise<boolean> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
   const isEditing = typeof data.mediaId === 'number';
   if (stepKey === 'media-type') {
     const mediaType = text === catalogAdminLabels.keepCurrent ? String(data.mediaType) : parseMediaTypeLabel(text);
     if (mediaType instanceof Error) {
-      await context.reply(texts.invalidMediaType, isEditing ? buildEditMediaTypeOptions() : buildMediaTypeOptions());
+      await context.reply(texts.invalidMediaType, isEditing ? buildEditMediaTypeOptions(language) : buildMediaTypeOptions(language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'url', data: { ...data, mediaType } });
-    await context.reply(texts.askMediaUrl, isEditing ? buildKeepCurrentKeyboard() : buildSingleCancelKeyboard());
+    await context.reply(texts.askMediaUrl, isEditing ? buildKeepCurrentKeyboard(language) : buildSingleCancelKeyboard());
     return true;
   }
   if (stepKey === 'url') {
@@ -988,7 +1004,7 @@ async function handleMediaSession(
     });
     await context.reply(
       texts.askMediaAltText,
-      isEditing ? buildEditOptionalKeyboard() : buildSkipOptionalKeyboard(),
+      isEditing ? buildEditOptionalKeyboard(language) : buildSkipOptionalKeyboard(language),
     );
     return true;
   }
@@ -1002,7 +1018,7 @@ async function handleMediaSession(
     });
     await context.reply(
       texts.askMediaSortOrder,
-      isEditing ? buildEditOptionalKeyboard() : buildSkipOptionalKeyboard(),
+      isEditing ? buildEditOptionalKeyboard(language) : buildSkipOptionalKeyboard(language),
     );
     return true;
   }
@@ -1011,18 +1027,18 @@ async function handleMediaSession(
     if (sortOrder instanceof Error) {
       await context.reply(
         texts.invalidMediaSortOrder,
-        isEditing ? buildEditOptionalKeyboard() : buildSkipOptionalKeyboard(),
+        isEditing ? buildEditOptionalKeyboard(language) : buildSkipOptionalKeyboard(language),
       );
       return true;
     }
     const nextData = { ...data, sortOrder };
     await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(buildMediaDraftSummary(nextData), isEditing ? buildMediaEditConfirmOptions() : buildMediaConfirmOptions());
+    await context.reply(buildMediaDraftSummary(nextData), isEditing ? buildMediaEditConfirmOptions(language) : buildMediaConfirmOptions(language));
     return true;
   }
   if (stepKey === 'confirm') {
     const expected = isEditing ? catalogAdminLabels.confirmMediaEdit : catalogAdminLabels.confirmMediaCreate;
-    const options = isEditing ? buildMediaEditConfirmOptions() : buildMediaConfirmOptions();
+    const options = isEditing ? buildMediaEditConfirmOptions(language) : buildMediaConfirmOptions(language);
     if (text !== expected) {
       await context.reply(texts.confirmMediaPrompt, options);
       return true;
@@ -1069,9 +1085,10 @@ async function handleMediaDeleteSession(
   text: string,
   data: Record<string, unknown>,
 ): Promise<boolean> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
   if (text !== texts.confirmMediaDelete && text !== catalogAdminLabels.confirmMediaDelete) {
-    await context.reply(texts.confirmMediaDeletePrompt, buildMediaDeleteConfirmOptions());
+    await context.reply(texts.confirmMediaDeletePrompt, buildMediaDeleteConfirmOptions(language));
     return true;
   }
   await removeCatalogMedia({ repository: resolveCatalogRepository(context), mediaId: Number(data.mediaId) });
@@ -1135,10 +1152,12 @@ function buildEditTypeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOption
 async function buildFamilyOptions(
   context: TelegramCatalogAdminContext,
   itemType: CatalogItemType,
+  language: 'ca' | 'es' | 'en' = 'ca',
 ): Promise<TelegramReplyOptions> {
+  const texts = createTelegramI18n(language).catalogAdmin;
   if (itemType !== 'rpg-book' && itemType !== 'book' && itemType !== 'board-game') {
     return {
-      replyKeyboard: [[catalogAdminLabels.noFamily], [catalogAdminLabels.cancel]],
+      replyKeyboard: [[texts.noFamily], [texts.cancel]],
       resizeKeyboard: true,
       persistentKeyboard: true,
     };
@@ -1146,7 +1165,7 @@ async function buildFamilyOptions(
 
   const popularFamilies = await listPopularFamilies(context, itemType);
   const replyKeyboard = chunkKeyboard(popularFamilies.map((family) => family.displayName), 3);
-  replyKeyboard.push([catalogAdminLabels.noFamily], [catalogAdminLabels.cancel]);
+  replyKeyboard.push([texts.noFamily], [texts.cancel]);
   return {
     replyKeyboard,
     resizeKeyboard: true,
@@ -1154,66 +1173,72 @@ async function buildFamilyOptions(
   };
 }
 
-function buildEditFamilyOptions(): TelegramReplyOptions {
+function buildEditFamilyOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.keepCurrent, catalogAdminLabels.noFamily], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.keepCurrent, texts.noFamily], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildGroupOptions(): TelegramReplyOptions {
+function buildGroupOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.noGroup], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.noGroup], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildEditGroupOptions(): TelegramReplyOptions {
+function buildEditGroupOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.keepCurrent, catalogAdminLabels.noGroup], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.keepCurrent, texts.noGroup], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildSkipOptionalKeyboard(): TelegramReplyOptions {
+function buildSkipOptionalKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.skipOptional], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.skipOptional], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildCreateOptionalKeyboard(currentValue: unknown): TelegramReplyOptions {
+function buildCreateOptionalKeyboard(currentValue: unknown, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   return currentValue === null || currentValue === undefined
-    ? buildSkipOptionalKeyboard()
-    : buildEditOptionalKeyboard();
+    ? buildSkipOptionalKeyboard(language)
+    : buildEditOptionalKeyboard(language);
 }
 
-function buildEditOptionalKeyboard(): TelegramReplyOptions {
+function buildEditOptionalKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.keepCurrent, catalogAdminLabels.skipOptional], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.keepCurrent, texts.skipOptional], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildEditFieldMenuOptions(itemType: CatalogItemType): TelegramReplyOptions {
+function buildEditFieldMenuOptions(itemType: CatalogItemType, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   const replyKeyboard: string[][] = [
-    [catalogAdminLabels.editFieldDisplayName, catalogAdminLabels.editFieldItemType],
-    [catalogAdminLabels.editFieldFamily, catalogAdminLabels.editFieldGroup],
-    [catalogAdminLabels.editFieldOriginalName, catalogAdminLabels.editFieldDescription],
-    [catalogAdminLabels.editFieldLanguage, catalogAdminLabels.editFieldPublisher],
-    [catalogAdminLabels.editFieldPublicationYear, catalogAdminLabels.editFieldRecommendedAge],
-    [catalogAdminLabels.editFieldPlayTimeMinutes],
-    [catalogAdminLabels.editFieldExternalRefs, catalogAdminLabels.editFieldMetadata],
+    [texts.editFieldDisplayName, texts.editFieldItemType],
+    [texts.editFieldFamily, texts.editFieldGroup],
+    [texts.editFieldOriginalName, texts.editFieldDescription],
+    [texts.editFieldLanguage, texts.editFieldPublisher],
+    [texts.editFieldPublicationYear, texts.editFieldRecommendedAge],
+    [texts.editFieldPlayTimeMinutes],
+    [texts.editFieldExternalRefs, texts.editFieldMetadata],
   ];
   if (itemTypeSupportsPlayers(itemType)) {
-    replyKeyboard.splice(5, 0, [catalogAdminLabels.editFieldPlayerMin, catalogAdminLabels.editFieldPlayerMax]);
+    replyKeyboard.splice(5, 0, [texts.editFieldPlayerMin, texts.editFieldPlayerMax]);
   }
-  replyKeyboard.push([catalogAdminLabels.confirmEdit], [catalogAdminLabels.cancel]);
+  replyKeyboard.push([texts.confirmEdit], [texts.cancel]);
   return {
     replyKeyboard,
     resizeKeyboard: true,
@@ -1221,106 +1246,118 @@ function buildEditFieldMenuOptions(itemType: CatalogItemType): TelegramReplyOpti
   };
 }
 
-function buildCreateConfirmOptions(): TelegramReplyOptions {
+function buildCreateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.confirmCreate], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.confirmCreate], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildEditConfirmOptions(): TelegramReplyOptions {
+function buildEditConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.confirmEdit], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.confirmEdit], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildDeactivateConfirmOptions(): TelegramReplyOptions {
+function buildDeactivateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.confirmDeactivate], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.confirmDeactivate], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildMediaTypeOptions(): TelegramReplyOptions {
+function buildMediaTypeOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
     replyKeyboard: [
-      [catalogAdminLabels.mediaTypeImage, catalogAdminLabels.mediaTypeLink],
-      [catalogAdminLabels.mediaTypeDocument],
-      [catalogAdminLabels.cancel],
+      [texts.mediaTypeImage, texts.mediaTypeLink],
+      [texts.mediaTypeDocument],
+      [texts.cancel],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildEditMediaTypeOptions(): TelegramReplyOptions {
+function buildEditMediaTypeOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
     replyKeyboard: [
-      [catalogAdminLabels.keepCurrent],
-      [catalogAdminLabels.mediaTypeImage, catalogAdminLabels.mediaTypeLink],
-      [catalogAdminLabels.mediaTypeDocument],
-      [catalogAdminLabels.cancel],
+      [texts.keepCurrent],
+      [texts.mediaTypeImage, texts.mediaTypeLink],
+      [texts.mediaTypeDocument],
+      [texts.cancel],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildMediaConfirmOptions(): TelegramReplyOptions {
+function buildMediaConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.confirmMediaCreate], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.confirmMediaCreate], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildMediaEditConfirmOptions(): TelegramReplyOptions {
+function buildMediaEditConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.confirmMediaEdit], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.confirmMediaEdit], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildMediaDeleteConfirmOptions(): TelegramReplyOptions {
+function buildMediaDeleteConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.confirmMediaDelete], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.confirmMediaDelete], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildKeepCurrentKeyboard(): TelegramReplyOptions {
+function buildKeepCurrentKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.keepCurrent], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.keepCurrent], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildSingleCancelKeyboard(): TelegramReplyOptions {
+function buildSingleCancelKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildWikipediaUrlOptions(): TelegramReplyOptions {
+function buildWikipediaUrlOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.skipLookupImport], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.skipLookupImport], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
 }
 
-function buildWikipediaCandidateOptions(candidateTitles: string[]): TelegramReplyOptions {
+function buildWikipediaCandidateOptions(candidateTitles: string[], language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   const replyKeyboard = chunkKeyboard(candidateTitles, 2);
-  replyKeyboard.push([catalogAdminLabels.manualWikipediaUrl], [catalogAdminLabels.skipLookupImport], [catalogAdminLabels.cancel]);
+  replyKeyboard.push([texts.manualWikipediaUrl], [texts.skipLookupImport], [texts.cancel]);
   return {
     replyKeyboard,
     resizeKeyboard: true,
