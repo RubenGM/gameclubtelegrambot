@@ -443,7 +443,7 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.updated');
 });
 
-test('handleTelegramCatalogAdminText shows a simple error when Wikipedia import fails', async () => {
+test('handleTelegramCatalogAdminText shows a URL fallback when Wikipedia import fails', async () => {
   const repository = createRepository();
   const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
     async importByTitle() {
@@ -463,8 +463,135 @@ test('handleTelegramCatalogAdminText shows a simple error when Wikipedia import 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.match(replies.at(-2)?.message ?? '', /Buscant a Wikipedia/);
-  assert.match(replies.at(-1)?.message ?? '', /No he pogut connectar amb Wikipedia/);
+  assert.match(replies.at(-1)?.message ?? '', /Si tens la URL completa de la pagina de Wikipedia/);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], catalogAdminLabels.skipLookupImport);
+  assert.equal(getCurrentSession()?.stepKey, 'wikipedia-url');
+
+  context.messageText = catalogAdminLabels.skipLookupImport;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'family');
+  assert.match(replies.at(-1)?.message ?? '', /Escriu la familia del joc de taula/);
+});
+
+test('handleTelegramCatalogAdminText retries Wikipedia import when the user pastes a full url', async () => {
+  const repository = createRepository();
+  const importCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      if (title === 'Root (board game)') {
+        return {
+          ok: true,
+          draft: {
+            familyId: null,
+            groupId: null,
+            itemType: 'board-game',
+            displayName: 'Root',
+            originalName: 'Root',
+            description: null,
+            language: null,
+            publisher: 'Dire Wolf',
+            publicationYear: 2024,
+            playerCountMin: 2,
+            playerCountMax: 4,
+            recommendedAge: 13,
+            playTimeMinutes: 90,
+            externalRefs: {
+              wikipediaUrl: 'https://en.wikipedia.org/wiki/Root_(board_game)',
+            },
+            metadata: {
+              source: 'wikipedia',
+              wikipediaUrl: 'https://en.wikipedia.org/wiki/Root_(board_game)',
+            },
+          },
+        };
+      }
+      return { ok: false, error: { type: 'not-found', message: 'No s ha trobat el joc a Wikipedia.' } };
+    },
+  };
+  const { context, replies, getCurrentSession } = createContext({ repository, wikipediaBoardGameImportService });
+
+  context.messageText = catalogAdminLabels.create;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.typeBoardGame;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Unknown Game';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  context.messageText = 'https://en.wikipedia.org/wiki/Root_(board_game)';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.deepEqual(importCalls, ['Unknown Game', 'Root (board game)']);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  assert.match(replies.at(-1)?.message ?? '', /He importat dades de Wikipedia per Root/);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], catalogAdminLabels.editFieldDisplayName);
+});
+
+test('handleTelegramCatalogAdminText lets the user choose among ambiguous Wikipedia candidates', async () => {
+  const repository = createRepository();
+  const importCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      if (title === 'Azul (board game)') {
+        return {
+          ok: true,
+          draft: {
+            familyId: null,
+            groupId: null,
+            itemType: 'board-game',
+            displayName: 'Azul',
+            originalName: 'Azul',
+            description: null,
+            language: null,
+            publisher: 'Plan B Games',
+            publicationYear: 2017,
+            playerCountMin: 2,
+            playerCountMax: 4,
+            recommendedAge: 8,
+            playTimeMinutes: 45,
+            externalRefs: {
+              wikipediaUrl: 'https://en.wikipedia.org/wiki/Azul_(board_game)',
+            },
+            metadata: {
+              source: 'wikipedia',
+              wikipediaUrl: 'https://en.wikipedia.org/wiki/Azul_(board_game)',
+            },
+          },
+        };
+      }
+
+      return {
+        ok: false,
+        error: {
+          type: 'ambiguous',
+          message: 'He trobat diverses pàgines candidates a Wikipedia.',
+          candidates: ['Azul', 'Azul (board game)', 'Azul: Summer Pavilion'],
+        },
+      };
+    },
+  };
+  const { context, replies, getCurrentSession } = createContext({ repository, wikipediaBoardGameImportService });
+
+  context.messageText = catalogAdminLabels.create;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.typeBoardGame;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Azul';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.equal(getCurrentSession()?.stepKey, 'wikipedia-candidate-choice');
+  assert.match(replies.at(-1)?.message ?? '', /He trobat diverses pàgines candidates a Wikipedia/);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.includes('Azul'), true);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.manualWikipediaUrl), true);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.skipLookupImport), true);
+
+  context.messageText = 'Azul (board game)';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.deepEqual(importCalls, ['Azul', 'Azul (board game)']);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  assert.match(replies.at(-1)?.message ?? '', /He importat dades de Wikipedia per Azul/);
 });
 
 test('handleTelegramCatalogAdminText creates a regular book through lookup first and then family by name', async () => {

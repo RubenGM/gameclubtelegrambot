@@ -24,7 +24,7 @@ import {
   type CatalogItemType,
   type CatalogRepository,
 } from '../catalog/catalog-model.js';
-import type { WikipediaBoardGameImportResult, WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import type { WikipediaBoardGameCatalogDraft, WikipediaBoardGameImportResult, WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
@@ -106,6 +106,7 @@ export const catalogAdminLabels = {
   editFieldMetadata: 'Metadata',
   importLookupData: 'Importar dades',
   skipLookupImport: 'No importar dades',
+  manualWikipediaUrl: 'Entrar URL manualment',
   refineLookupByAuthor: 'Refinar amb autor',
   keepTypedTitle: 'Quedar-me amb el meu titol',
   useApiTitle: 'Fer servir el titol de la API',
@@ -336,54 +337,30 @@ async function handleCreateSession(
       await context.reply('Buscant a Wikipedia el joc i la millor coincidencia...', buildSingleCancelKeyboard());
       const importResult = await importWikipediaBoardGameDraft(context, text);
       if (importResult.ok) {
-        const importedData = {
-          ...nextData,
-          ...importResult.draft,
-          itemType: 'board-game' as const,
-          displayName: importResult.draft.displayName || text,
-        };
-        const item = await createCatalogItem({
-          repository: resolveCatalogRepository(context),
-          familyId: importedData.familyId,
-          groupId: importedData.groupId,
-          itemType: importedData.itemType,
-          displayName: importedData.displayName,
-          originalName: importedData.originalName,
-          description: importedData.description,
-          language: importedData.language,
-          publisher: importedData.publisher,
-          publicationYear: importedData.publicationYear,
-          playerCountMin: importedData.playerCountMin,
-          playerCountMax: importedData.playerCountMax,
-          recommendedAge: importedData.recommendedAge,
-          playTimeMinutes: importedData.playTimeMinutes,
-          externalRefs: importedData.externalRefs,
-          metadata: importedData.metadata,
+        await createWikipediaImportedBoardGame(context, nextData, importResult.draft, text);
+        return true;
+      }
+
+      if (importResult.error.type === 'ambiguous') {
+        await context.runtime.session.advance({
+          stepKey: 'wikipedia-candidate-choice',
+          data: {
+            ...nextData,
+            wikipediaCandidates: importResult.error.candidates ?? [],
+          },
         });
-        await appendAuditEvent({
-          repository: resolveAuditRepository(context),
-          actorTelegramUserId: context.runtime.actor.telegramUserId,
-          actionKey: 'catalog.item.created',
-          targetType: 'catalog-item',
-          targetId: item.id,
-          summary: `Item de cataleg creat: ${item.displayName}`,
-          details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
-        });
-        await context.runtime.session.start({
-          flowKey: editFlowKey,
-          stepKey: 'select-field',
-          data: { itemId: item.id },
-        });
-        await context.reply('Seleccionant la millor opcio i descarregant els detalls finals...', buildEditFieldMenuOptions(item.itemType));
         await context.reply(
-          `He importat dades de Wikipedia per ${item.displayName}.\n\n${await formatDraftSummary(context, importedData)}\n\nTria un camp del teclat o guarda els canvis quan hagis acabat.`,
-          { ...buildEditFieldMenuOptions(item.itemType), parseMode: 'HTML' },
+          `${importResult.error.message}\n\nEscull una de les opcions, entra la URL manualment o omet la importacio.`,
+          buildWikipediaCandidateOptions(importResult.error.candidates ?? []),
         );
         return true;
       }
 
-      await context.runtime.session.advance({ stepKey: 'family', data: nextData });
-      await context.reply(importWikipediaErrorMessage(importResult), await buildFamilyOptions(context, itemType));
+      await context.runtime.session.advance({ stepKey: 'wikipedia-url', data: nextData });
+      await context.reply(
+        `${importWikipediaErrorMessage(importResult)}\n\nSi tens la URL completa de la pagina de Wikipedia, enganxa-la ara. Si no, tria No importar dades per continuar manualment.`,
+        buildWikipediaUrlOptions(),
+      );
       return true;
     }
     const lookupCandidates = await searchCatalogLookupCandidates(context, {
@@ -478,6 +455,83 @@ async function handleCreateSession(
       return true;
     }
     await context.reply('No he trobat cap coincidencia amb aquest autor. Escriu un altre autor o cancel.la el flux.', buildSingleCancelKeyboard());
+    return true;
+  }
+  if (stepKey === 'wikipedia-url') {
+    const itemType = String(data.itemType) as CatalogItemType;
+    if (text === catalogAdminLabels.skipLookupImport) {
+      await context.runtime.session.advance({ stepKey: 'family', data });
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      return true;
+    }
+
+    const wikipediaTitle = parseWikipediaTitleFromUrl(text);
+    if (!wikipediaTitle) {
+      await context.reply('Enganxa una URL valida de Wikipedia o tria No importar dades per continuar manualment.', buildWikipediaUrlOptions());
+      return true;
+    }
+
+    await context.reply('Torno a provar la importacio amb la pagina de Wikipedia que has passat...', buildSingleCancelKeyboard());
+    const importResult = await importWikipediaBoardGameDraft(context, wikipediaTitle);
+    if (importResult.ok) {
+      await createWikipediaImportedBoardGame(context, data, importResult.draft, wikipediaTitle);
+      return true;
+    }
+
+    await context.reply(
+      `${importWikipediaErrorMessage(importResult)}\n\nSi vols, enganxa una altra URL o tria No importar dades per continuar manualment.`,
+      buildWikipediaUrlOptions(),
+    );
+    return true;
+  }
+  if (stepKey === 'wikipedia-candidate-choice') {
+    const itemType = String(data.itemType) as CatalogItemType;
+    const wikipediaCandidates = asStringArray(data.wikipediaCandidates);
+    if (text === catalogAdminLabels.skipLookupImport) {
+      await context.runtime.session.advance({ stepKey: 'family', data });
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      return true;
+    }
+
+    if (text === catalogAdminLabels.manualWikipediaUrl) {
+      await context.runtime.session.advance({ stepKey: 'wikipedia-url', data });
+      await context.reply('Enganxa la URL completa de la pagina de Wikipedia.', buildWikipediaUrlOptions());
+      return true;
+    }
+
+    const selectedTitle = wikipediaCandidates.find((candidate) => candidate === text)
+      ?? wikipediaCandidates.find((candidate) => normalizeTitleForComparison(candidate) === normalizeTitleForComparison(text));
+    if (!selectedTitle) {
+      await context.reply('Escull una de les opcions del teclat, entra la URL manualment o omet la importacio.', buildWikipediaCandidateOptions(wikipediaCandidates));
+      return true;
+    }
+
+    await context.reply(`Torno a provar la importacio amb ${selectedTitle}...`, buildSingleCancelKeyboard());
+    const importResult = await importWikipediaBoardGameDraft(context, selectedTitle);
+    if (importResult.ok) {
+      await createWikipediaImportedBoardGame(context, data, importResult.draft, selectedTitle);
+      return true;
+    }
+
+    if (importResult.error.type === 'ambiguous') {
+      await context.runtime.session.advance({
+        stepKey: 'wikipedia-candidate-choice',
+        data: {
+          ...data,
+          wikipediaCandidates: importResult.error.candidates ?? wikipediaCandidates,
+        },
+      });
+      await context.reply(
+        `${importResult.error.message}\n\nEscull una de les opcions, entra la URL manualment o omet la importacio.`,
+        buildWikipediaCandidateOptions(importResult.error.candidates ?? wikipediaCandidates),
+      );
+      return true;
+    }
+
+    await context.reply(
+      `${importWikipediaErrorMessage(importResult)}\n\nPots provar una altra opcio, entrar la URL manualment o ometre la importacio.`,
+      buildWikipediaCandidateOptions(wikipediaCandidates),
+    );
     return true;
   }
   if (stepKey === 'group') {
@@ -1229,6 +1283,24 @@ function buildKeepCurrentKeyboard(): TelegramReplyOptions {
 function buildSingleCancelKeyboard(): TelegramReplyOptions {
   return {
     replyKeyboard: [[catalogAdminLabels.cancel]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildWikipediaUrlOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[catalogAdminLabels.skipLookupImport], [catalogAdminLabels.cancel]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildWikipediaCandidateOptions(candidateTitles: string[]): TelegramReplyOptions {
+  const replyKeyboard = chunkKeyboard(candidateTitles, 2);
+  replyKeyboard.push([catalogAdminLabels.manualWikipediaUrl], [catalogAdminLabels.skipLookupImport], [catalogAdminLabels.cancel]);
+  return {
+    replyKeyboard,
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -2233,6 +2305,84 @@ async function importWikipediaBoardGameDraft(
       },
     };
   }
+}
+
+async function createWikipediaImportedBoardGame(
+  context: TelegramCatalogAdminContext,
+  baseData: Record<string, unknown>,
+  draft: WikipediaBoardGameCatalogDraft,
+  sourceTitle: string,
+): Promise<void> {
+  const importedData = {
+    ...(baseData as Record<string, unknown>),
+    ...draft,
+    itemType: 'board-game' as const,
+    displayName: draft.displayName || sourceTitle,
+  } as WikipediaBoardGameCatalogDraft;
+  const item = await createCatalogItem({
+    repository: resolveCatalogRepository(context),
+    familyId: importedData.familyId,
+    groupId: importedData.groupId,
+    itemType: importedData.itemType,
+    displayName: importedData.displayName,
+    originalName: importedData.originalName,
+    description: importedData.description,
+    language: importedData.language,
+    publisher: importedData.publisher,
+    publicationYear: importedData.publicationYear,
+    playerCountMin: importedData.playerCountMin,
+    playerCountMax: importedData.playerCountMax,
+    recommendedAge: importedData.recommendedAge,
+    playTimeMinutes: importedData.playTimeMinutes,
+    externalRefs: importedData.externalRefs,
+    metadata: importedData.metadata,
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'catalog.item.created',
+    targetType: 'catalog-item',
+    targetId: item.id,
+    summary: `Item de cataleg creat: ${item.displayName}`,
+    details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
+  });
+  await context.runtime.session.start({
+    flowKey: editFlowKey,
+    stepKey: 'select-field',
+    data: { itemId: item.id },
+  });
+  await context.reply('Seleccionant la millor opcio i descarregant els detalls finals...', buildEditFieldMenuOptions(item.itemType));
+  await context.reply(
+    `He importat dades de Wikipedia per ${item.displayName}.\n\n${await formatDraftSummary(context, importedData as unknown as Record<string, unknown>)}\n\nTria un camp del teclat o guarda els canvis quan hagis acabat.`,
+    { ...buildEditFieldMenuOptions(item.itemType), parseMode: 'HTML' },
+  );
+}
+
+function parseWikipediaTitleFromUrl(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    if (!url.hostname.endsWith('wikipedia.org')) {
+      return null;
+    }
+
+    if (url.pathname.startsWith('/wiki/')) {
+      const encodedTitle = url.pathname.slice('/wiki/'.length);
+      return decodeURIComponent(encodedTitle).replace(/_/g, ' ').trim() || null;
+    }
+
+    const title = url.searchParams.get('title');
+    return title ? decodeURIComponent(title).replace(/_/g, ' ').trim() || null : null;
+  } catch {
+    return null;
+  }
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
 function importWikipediaErrorMessage(result: Extract<WikipediaBoardGameImportResult, { ok: false }>): string {

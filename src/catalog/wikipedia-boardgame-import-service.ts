@@ -37,10 +37,11 @@ export type WikipediaBoardGameImportResult =
       error: {
         type: WikipediaBoardGameImportErrorType;
         message: string;
+        candidates?: string[];
       };
     };
 
-export type WikipediaBoardGameImportErrorType = 'bad-input' | 'connection' | 'invalid-response' | 'not-found' | 'unexpected';
+export type WikipediaBoardGameImportErrorType = 'ambiguous' | 'bad-input' | 'connection' | 'invalid-response' | 'not-found' | 'unexpected';
 
 export function createWikipediaBoardGameImportService({
   scriptPath = './scripts/wikipedia-boardgame-catalog-import.sh',
@@ -81,7 +82,7 @@ function parseImportResult(value: unknown): WikipediaBoardGameImportResult {
   const payload = value as {
     ok?: unknown;
     draft?: unknown;
-    error?: { type?: unknown; message?: unknown };
+    error?: { type?: unknown; message?: unknown; candidates?: unknown };
   };
 
   if (payload.ok === false) {
@@ -90,6 +91,7 @@ function parseImportResult(value: unknown): WikipediaBoardGameImportResult {
       error: {
         type: asImportErrorType(payload.error?.type),
         message: typeof payload.error?.message === 'string' ? payload.error.message : 'No s ha trobat cap coincidencia a Wikipedia.',
+        ...(payload.error?.candidates !== undefined ? { candidates: asStringArray(payload.error.candidates) } : {}),
       },
     };
   }
@@ -148,9 +150,17 @@ function normalizeOptionalInteger(value: unknown): number | null {
 }
 
 function asImportErrorType(value: unknown): WikipediaBoardGameImportErrorType {
-  if (value === 'bad-input' || value === 'connection' || value === 'invalid-response' || value === 'not-found' || value === 'unexpected') {
+  if (value === 'ambiguous' || value === 'bad-input' || value === 'connection' || value === 'invalid-response' || value === 'not-found' || value === 'unexpected') {
     return value;
   }
 
   return 'unexpected';
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry): entry is string => typeof entry === 'string');
 }

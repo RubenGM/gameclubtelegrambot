@@ -15,7 +15,14 @@ async function main() {
     emitError('not-found', 'No s ha trobat el joc a Wikipedia.');
   }
 
-  const selectedTitle = chooseBestTitle(title, candidateTitles);
+  const exactMatch = candidateTitles.find((candidate) => normalizeSearchText(candidate) === normalizeSearchText(title));
+  if (!exactMatch && candidateTitles.length > 1) {
+    emitError('ambiguous', 'He trobat diverses pàgines candidates a Wikipedia.', {
+      candidates: candidateTitles.slice(0, 8),
+    });
+  }
+
+  const selectedTitle = exactMatch ?? chooseBestTitle(title, candidateTitles);
   const page = await fetchPageData(selectedTitle);
   const wikitext = page?.revisions?.[0]?.slots?.main?.content ?? page?.revisions?.[0]?.content ?? null;
   if (!wikitext) {
@@ -54,18 +61,27 @@ async function searchWikipediaTitles(query) {
 }
 
 function chooseBestTitle(query, candidates) {
-  const normalizedQuery = normalizeText(query);
+  const normalizedQuery = normalizeSearchText(query);
   const boardGameCandidate = candidates.find((candidate) => /\b(board game|boardgame|game)\b/i.test(candidate));
   if (boardGameCandidate) {
     return boardGameCandidate;
   }
 
-  const exact = candidates.find((candidate) => normalizeText(candidate) === normalizedQuery);
+  const exact = candidates.find((candidate) => normalizeSearchText(candidate) === normalizedQuery);
   if (exact) {
     return exact;
   }
 
   return candidates[0];
+}
+
+function normalizeSearchText(value) {
+  return String(value)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 async function fetchPageData(title) {
