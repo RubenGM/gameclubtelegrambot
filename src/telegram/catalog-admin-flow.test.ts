@@ -13,6 +13,7 @@ import type {
   CatalogRepository,
 } from '../catalog/catalog-model.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
+import type { WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import {
@@ -252,6 +253,7 @@ function createContext({
   membershipRepository = createMembershipRepository(),
   auditRepository = createAuditRepository(),
   catalogLookupService,
+  wikipediaBoardGameImportService,
   isAdmin = true,
 }: {
   repository?: CatalogRepository;
@@ -259,6 +261,7 @@ function createContext({
   membershipRepository?: MembershipAccessRepository;
   auditRepository?: AuditLogRepository;
   catalogLookupService?: CatalogLookupService;
+  wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   isAdmin?: boolean;
 } = {}) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions | undefined }> = [];
@@ -318,6 +321,7 @@ function createContext({
     membershipRepository,
     auditRepository,
     ...(catalogLookupService ? { catalogLookupService } : {}),
+    ...(wikipediaBoardGameImportService ? { wikipediaBoardGameImportService } : {}),
   };
 
   return { context, replies, getCurrentSession: () => currentSession };
@@ -358,7 +362,41 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
     ],
   });
   const auditRepository = createAuditRepository();
-  const { context, getCurrentSession, replies } = createContext({ repository, auditRepository });
+  let importCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      return {
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: 'Root',
+        description: null,
+        language: null,
+        publisher: 'Dire Wolf',
+        publicationYear: 2024,
+        playerCountMin: 1,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: 60,
+        externalRefs: {
+          wikipediaUrl: 'https://en.wikipedia.org/wiki/Root_(board_game)',
+        },
+        metadata: {
+          source: 'wikipedia',
+          wikipediaUrl: 'https://en.wikipedia.org/wiki/Root_(board_game)',
+          wikidataId: 'Q36910373',
+          designers: ['Cole Wehrle'],
+          illustrators: ['Kyle Ferrin'],
+          genres: ['Board game'],
+          notes: [],
+          editionType: null,
+        },
+      };
+    },
+  };
+  const { context, getCurrentSession, replies } = createContext({ repository, auditRepository, wikipediaBoardGameImportService });
 
   context.messageText = catalogAdminLabels.create;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
@@ -368,9 +406,10 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
 
   context.messageText = 'Root';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Escriu o tria una familia del joc de taula/);
+  assert.match(replies.at(-1)?.message ?? '', /He importat dades de Wikipedia/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Arkham Horror');
   assert.equal(getCurrentSession()?.stepKey, 'family');
+  assert.deepEqual(importCalls, ['Root']);
 
   context.messageText = 'Forest Shuffle';
   assert.equal(await handleTelegramCatalogAdminText(context), true);

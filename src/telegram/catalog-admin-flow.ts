@@ -24,8 +24,10 @@ import {
   type CatalogItemType,
   type CatalogRepository,
 } from '../catalog/catalog-model.js';
+import type { WikipediaBoardGameCatalogDraft, WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
+import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { buildLoanDetailButtons, buildLoanItemButton, formatLoanAvailabilityLines, resolveLoanBorrowerDisplayName, type TelegramCatalogLoanContext } from './catalog-loan-flow.js';
 import {
   escapeHtml,
@@ -134,6 +136,7 @@ export interface TelegramCatalogAdminContext {
   membershipRepository?: TelegramCatalogLoanContext['membershipRepository'] | undefined;
   auditRepository?: AuditLogRepository;
   catalogLookupService?: CatalogLookupService;
+  wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
 }
 
 export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdminContext): Promise<boolean> {
@@ -321,6 +324,18 @@ async function handleCreateSession(
   if (stepKey === 'display-name') {
     const itemType = String(data.itemType) as CatalogItemType;
     const nextData = { ...data, displayName: text };
+    if (itemType === 'board-game') {
+      const importedDraft = await importWikipediaBoardGameDraft(context, text);
+      const importedData = importedDraft ? { ...nextData, ...importedDraft, itemType: 'board-game' as const, displayName: importedDraft.displayName || text } : nextData;
+      await context.runtime.session.advance({ stepKey: 'family', data: importedData });
+      await context.reply(
+        importedDraft
+          ? `He importat dades de Wikipedia per ${importedData.displayName}. Ara tria la familia.`
+          : await buildFamilyPrompt(context, itemType),
+        await buildFamilyOptions(context, itemType),
+      );
+      return true;
+    }
     const lookupCandidates = await searchCatalogLookupCandidates(context, {
       itemType,
       displayName: text,
@@ -2085,4 +2100,23 @@ function resolveCatalogLookupService(context: TelegramCatalogAdminContext): Cata
     return context.catalogLookupService;
   }
   return createHttpCatalogLookupService();
+}
+
+function resolveWikipediaBoardGameImportService(context: TelegramCatalogAdminContext): WikipediaBoardGameImportService {
+  if (context.wikipediaBoardGameImportService) {
+    return context.wikipediaBoardGameImportService;
+  }
+
+  return createWikipediaBoardGameImportService();
+}
+
+async function importWikipediaBoardGameDraft(
+  context: TelegramCatalogAdminContext,
+  title: string,
+): Promise<WikipediaBoardGameCatalogDraft | null> {
+  try {
+    return await resolveWikipediaBoardGameImportService(context).importByTitle(title);
+  } catch {
+    return null;
+  }
 }
