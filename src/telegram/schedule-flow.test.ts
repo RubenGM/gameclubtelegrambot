@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log.js';
+import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import type { ScheduleEventRecord, ScheduleParticipantRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
@@ -196,10 +197,49 @@ function createVenueEventRepository(initialEvents: VenueEventRecord[] = []): Ven
   };
 }
 
+function createMembershipRepository(initialUsers: MembershipUserRecord[] = [
+  { telegramUserId: 42, username: 'ada', displayName: 'Ada', status: 'approved', isAdmin: false },
+  { telegramUserId: 55, username: 'carla', displayName: 'Carla', status: 'approved', isAdmin: false },
+  { telegramUserId: 77, username: null, displayName: 'Biel', status: 'approved', isAdmin: false },
+  { telegramUserId: 99, username: 'admin', displayName: 'Admin', status: 'approved', isAdmin: true },
+]): MembershipAccessRepository {
+  const users = new Map(initialUsers.map((user) => [user.telegramUserId, user]));
+
+  return {
+    async findUserByTelegramUserId(telegramUserId) {
+      return users.get(telegramUserId) ?? null;
+    },
+    async upsertPendingUser(input) {
+      const next: MembershipUserRecord = {
+        telegramUserId: input.telegramUserId,
+        username: input.username ?? null,
+        displayName: input.displayName,
+        status: 'pending',
+        isAdmin: false,
+      };
+      users.set(next.telegramUserId, next);
+      return next;
+    },
+    async listPendingUsers() {
+      return Array.from(users.values()).filter((user) => user.status === 'pending');
+    },
+    async updateUserStatus(input) {
+      const existing = users.get(input.telegramUserId);
+      if (!existing) throw new Error(`unknown user ${input.telegramUserId}`);
+      const next: MembershipUserRecord = { ...existing, status: input.status, isAdmin: input.isAdmin ?? existing.isAdmin };
+      users.set(next.telegramUserId, next);
+      return next;
+    },
+    async appendStatusAuditLog() {},
+    async appendAuditEvent() {},
+  };
+}
+
 function createContext({
   scheduleRepository = createScheduleRepository(),
   tableRepository = createTableRepository(),
   venueEventRepository = createVenueEventRepository(),
+  membershipRepository = createMembershipRepository(),
   auditRepository = createAuditRepository(),
   actorTelegramUserId = 99,
   isAdmin = false,
@@ -207,6 +247,7 @@ function createContext({
   scheduleRepository?: ScheduleRepository;
   tableRepository?: ClubTableRepository;
   venueEventRepository?: VenueEventRepository;
+  membershipRepository?: MembershipAccessRepository;
   auditRepository?: AuditLogRepository;
   actorTelegramUserId?: number;
   isAdmin?: boolean;
@@ -287,6 +328,7 @@ function createContext({
     scheduleRepository,
     tableRepository,
     venueEventRepository,
+    membershipRepository,
     auditRepository,
   };
 
@@ -362,7 +404,7 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create', stepKey: 'date', data: { title: 'Dungeons & Dragons', description: null } });
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dissabte, 04/04', 'Diumenge, 05/04'], ['Dilluns, 06/04', 'Dimarts, 07/04'], ['Dimecres, 08/04', 'Dijous, 09/04'], ['/cancel']],
+    replyKeyboard: [['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], ['/cancel']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -399,7 +441,7 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.match(replies.at(-1)?.message ?? '', /Mesa TV/);
   assert.match(replies.at(-1)?.message ?? '', /Inici: 05\/04\/2026 16:00/);
   assert.match(replies.at(-1)?.message ?? '', /Durada: 180 min/);
-  assert.match(replies.at(-1)?.message ?? '', /Assistents: 42/);
+  assert.match(replies.at(-1)?.message ?? '', /Assistents: Ada \(@ada\)/);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.created');
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
 });
@@ -415,7 +457,7 @@ test('handleTelegramScheduleText accepts dd/MM/yyyy dates and shows upcoming day
   await handleTelegramScheduleText(context);
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dissabte, 04/04', 'Diumenge, 05/04'], ['Dilluns, 06/04', 'Dimarts, 07/04'], ['Dimecres, 08/04', 'Dijous, 09/04'], ['/cancel']],
+    replyKeyboard: [['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], ['/cancel']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -730,7 +772,7 @@ test('handleTelegramScheduleCallback shows activity attendance and allows joinin
   const handled = await handleTelegramScheduleCallback(context);
 
   assert.equal(handled, true);
-  assert.match(replies.at(-1)?.message ?? '', /Assistents: 42/);
+  assert.match(replies.at(-1)?.message ?? '', /Assistents: Ada \(@ada\)/);
   assert.match(replies.at(-1)?.message ?? '', /Places ocupades: 1\/3/);
   assert.deepEqual(replies.at(-1)?.options, {
     inlineKeyboard: [[{ text: 'Apuntar-me', callbackData: 'schedule:join:6' }]],
@@ -810,12 +852,12 @@ test('handleTelegramScheduleCallback joins and leaves an activity updating atten
   context.callbackData = `${scheduleCallbackPrefixes.join}12`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /T has apuntat correctament a Root/);
-  assert.match(replies.at(-1)?.message ?? '', /Assistents: 42, 77/);
+  assert.match(replies.at(-1)?.message ?? '', /Assistents: Ada \(@ada\), Biel/);
 
   context.callbackData = `${scheduleCallbackPrefixes.leave}12`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /Has sortit correctament de Root/);
-  assert.match(replies.at(-1)?.message ?? '', /Assistents: 42/);
+  assert.match(replies.at(-1)?.message ?? '', /Assistents: Ada \(@ada\)/);
 });
 
 test('handleTelegramScheduleCallback lets an organizer edit their own activity', async () => {

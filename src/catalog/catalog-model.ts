@@ -2,6 +2,7 @@ export type CatalogFamilyKind = 'board-game-line' | 'rpg-line' | 'generic-line';
 export type CatalogItemType = 'board-game' | 'expansion' | 'book' | 'rpg-book' | 'accessory';
 export type CatalogItemLifecycleStatus = 'active' | 'deactivated';
 export type CatalogMediaType = 'image' | 'link' | 'document';
+export type CatalogLoanLifecycleStatus = 'active' | 'returned';
 
 export interface CatalogFamilyRecord {
   id: number;
@@ -54,6 +55,20 @@ export interface CatalogMediaRecord {
   url: string;
   altText: string | null;
   sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CatalogLoanRecord {
+  id: number;
+  itemId: number;
+  borrowerTelegramUserId: number;
+  borrowerDisplayName: string;
+  loanedByTelegramUserId: number;
+  dueAt: string | null;
+  notes: string | null;
+  returnedAt: string | null;
+  returnedByTelegramUserId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -134,6 +149,47 @@ export interface CatalogRepository {
     sortOrder: number;
   }): Promise<CatalogMediaRecord>;
   deleteMedia(input: { mediaId: number }): Promise<boolean>;
+}
+
+export interface CatalogLoanRepository {
+  createLoan(input: {
+    itemId: number;
+    borrowerTelegramUserId: number;
+    borrowerDisplayName: string;
+    loanedByTelegramUserId: number;
+    dueAt: string | null;
+    notes: string | null;
+  }): Promise<CatalogLoanRecord>;
+  findLoanById(loanId: number): Promise<CatalogLoanRecord | null>;
+  findActiveLoanByItemId(itemId: number): Promise<CatalogLoanRecord | null>;
+  listActiveLoansByBorrower(borrowerTelegramUserId: number): Promise<CatalogLoanRecord[]>;
+  listLoansByItem(itemId: number): Promise<CatalogLoanRecord[]>;
+  updateLoan(input: { loanId: number; dueAt: string | null; notes: string | null }): Promise<CatalogLoanRecord>;
+  closeLoan(input: { loanId: number; returnedByTelegramUserId: number }): Promise<CatalogLoanRecord>;
+}
+
+export interface CatalogLoanRepository {
+  createLoan(input: {
+    itemId: number;
+    borrowerTelegramUserId: number;
+    borrowerDisplayName: string;
+    loanedByTelegramUserId: number;
+    dueAt: string | null;
+    notes: string | null;
+  }): Promise<CatalogLoanRecord>;
+  findLoanById(loanId: number): Promise<CatalogLoanRecord | null>;
+  findActiveLoanByItemId(itemId: number): Promise<CatalogLoanRecord | null>;
+  listActiveLoansByBorrower(borrowerTelegramUserId: number): Promise<CatalogLoanRecord[]>;
+  listLoansByItem(itemId: number): Promise<CatalogLoanRecord[]>;
+  updateLoan(input: {
+    loanId: number;
+    dueAt: string | null;
+    notes: string | null;
+  }): Promise<CatalogLoanRecord>;
+  closeLoan(input: {
+    loanId: number;
+    returnedByTelegramUserId: number;
+  }): Promise<CatalogLoanRecord>;
 }
 
 export async function createCatalogFamily({

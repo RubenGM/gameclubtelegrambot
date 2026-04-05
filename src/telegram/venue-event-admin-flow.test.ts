@@ -206,7 +206,7 @@ test('handleTelegramVenueEventAdminText creates a venue event through keyboard-g
   context.messageText = venueEventAdminLabels.skipOptional;
   await handleTelegramVenueEventAdminText(context);
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dissabte, 04/04', 'Diumenge, 05/04'], ['Dilluns, 06/04', 'Dimarts, 07/04'], ['Dimecres, 08/04', 'Dijous, 09/04'], ['/cancel']],
+    replyKeyboard: [['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], ['/cancel']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -226,7 +226,7 @@ test('handleTelegramVenueEventAdminText creates a venue event through keyboard-g
   context.messageText = '15:00';
   await handleTelegramVenueEventAdminText(context);
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dissabte, 04/04', 'Diumenge, 05/04'], ['Dilluns, 06/04', 'Dimarts, 07/04'], ['Dimecres, 08/04', 'Dijous, 09/04'], ['/cancel']],
+    replyKeyboard: [['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], ['/cancel']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -446,7 +446,7 @@ test('handleTelegramVenueEventAdminCallback edits an existing venue event with k
   context.messageText = venueEventAdminLabels.keepCurrent;
   await handleTelegramVenueEventAdminText(context);
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[venueEventAdminLabels.keepCurrent], ['Dissabte, 04/04', 'Diumenge, 05/04'], ['Dilluns, 06/04', 'Dimarts, 07/04'], ['Dimecres, 08/04', 'Dijous, 09/04'], [venueEventAdminLabels.cancelFlow]],
+    replyKeyboard: [[venueEventAdminLabels.keepCurrent], ['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], [venueEventAdminLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -466,7 +466,7 @@ test('handleTelegramVenueEventAdminCallback edits an existing venue event with k
   context.messageText = '15:00';
   await handleTelegramVenueEventAdminText(context);
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[venueEventAdminLabels.keepCurrent], ['Dissabte, 04/04', 'Diumenge, 05/04'], ['Dilluns, 06/04', 'Dimarts, 07/04'], ['Dimecres, 08/04', 'Dijous, 09/04'], [venueEventAdminLabels.cancelFlow]],
+    replyKeyboard: [[venueEventAdminLabels.keepCurrent], ['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], [venueEventAdminLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });

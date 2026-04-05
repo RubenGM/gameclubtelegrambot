@@ -8,8 +8,11 @@ import type {
   CatalogGroupRecord,
   CatalogItemRecord,
   CatalogMediaRecord,
+  CatalogLoanRecord,
+  CatalogLoanRepository,
   CatalogRepository,
 } from '../catalog/catalog-model.js';
+import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import {
@@ -212,13 +215,48 @@ function createAuditRepository(): AuditLogRepository & { __events: AuditLogEvent
   };
 }
 
+function createLoanRepository(initialLoans: CatalogLoanRecord[] = []): CatalogLoanRepository {
+  const loans = new Map(initialLoans.map((loan) => [loan.id, loan]));
+
+  return {
+    async createLoan() { throw new Error('not implemented'); },
+    async findLoanById(loanId) { return loans.get(loanId) ?? null; },
+    async findActiveLoanByItemId(itemId) {
+      return Array.from(loans.values()).find((loan) => loan.itemId === itemId && loan.returnedAt === null) ?? null;
+    },
+    async listActiveLoansByBorrower() { return []; },
+    async listLoansByItem(itemId) { return Array.from(loans.values()).filter((loan) => loan.itemId === itemId); },
+    async updateLoan() { throw new Error('not implemented'); },
+    async closeLoan() { throw new Error('not implemented'); },
+  };
+}
+
+function createMembershipRepository(users: MembershipUserRecord[] = []): MembershipAccessRepository {
+  const userMap = new Map(users.map((user) => [user.telegramUserId, user]));
+
+  return {
+    async findUserByTelegramUserId(telegramUserId) {
+      return userMap.get(telegramUserId) ?? null;
+    },
+    async upsertPendingUser() { throw new Error('not implemented'); },
+    async listPendingUsers() { return []; },
+    async updateUserStatus() { throw new Error('not implemented'); },
+    async appendStatusAuditLog() { throw new Error('not implemented'); },
+    async appendAuditEvent() { throw new Error('not implemented'); },
+  };
+}
+
 function createContext({
   repository = createRepository(),
+  catalogLoanRepository = createLoanRepository(),
+  membershipRepository = createMembershipRepository(),
   auditRepository = createAuditRepository(),
   catalogLookupService,
   isAdmin = true,
 }: {
   repository?: CatalogRepository;
+  catalogLoanRepository?: CatalogLoanRepository;
+  membershipRepository?: MembershipAccessRepository;
   auditRepository?: AuditLogRepository;
   catalogLookupService?: CatalogLookupService;
   isAdmin?: boolean;
@@ -276,6 +314,8 @@ function createContext({
       bot: { publicName: 'Game Club Bot', clubName: 'Game Club', language: 'ca', sendPrivateMessage: async () => {} },
     },
     catalogRepository: repository,
+    catalogLoanRepository,
+    membershipRepository,
     auditRepository,
     ...(catalogLookupService ? { catalogLookupService } : {}),
   };
@@ -288,7 +328,8 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   context.messageText = catalogAdminLabels.openMenu;
 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.equal(replies.at(-1)?.message, 'Gestio de cataleg: tria una accio.');
+  assert.match(replies.at(-1)?.message ?? '', /tria una categoria o cerca per nom/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Cerca per nom'));
 });
 
 test('handleTelegramCatalogAdminText creates a board game and opens edit mode immediately', async () => {
@@ -1059,7 +1100,7 @@ test('handleTelegramCatalogAdminText skips player prompts for books and clears l
   assert.equal((await repository.findItemById(5))?.playerCountMax, null);
 });
 
-test('handleTelegramCatalogAdminText lists grouped catalog items and navigates from group to item detail', async () => {
+test('handleTelegramCatalogAdminText shows category browse and loan state', async () => {
   const repository = createRepository({
     families: [
       {
@@ -1130,21 +1171,50 @@ test('handleTelegramCatalogAdminText lists grouped catalog items and navigates f
       },
     ],
   });
-  const { context, replies } = createContext({ repository });
+  const catalogLoanRepository = createLoanRepository([
+    {
+      id: 21,
+      itemId: 4,
+      borrowerTelegramUserId: 77,
+      borrowerDisplayName: 'Usuari 77',
+      loanedByTelegramUserId: 99,
+      dueAt: '2026-04-10T00:00:00.000Z',
+      notes: null,
+      returnedAt: null,
+      returnedByTelegramUserId: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  const membershipRepository = createMembershipRepository([
+    {
+      telegramUserId: 77,
+      displayName: 'Anna',
+      status: 'approved',
+      isAdmin: false,
+    },
+  ]);
+  const { context, replies } = createContext({ repository, catalogLoanRepository, membershipRepository });
 
   context.messageText = catalogAdminLabels.list;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Grup: Second Edition/);
-  assert.match(replies.at(-1)?.message ?? '', /Arkham Horror Core Set/);
+  assert.match(replies.at(-1)?.message ?? '', /tria una categoria o cerca per nom/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Arkham Horror'));
 
-  context.callbackData = `${catalogAdminCallbackPrefixes.inspectGroup}11`;
+  context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}7`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Second Edition/);
-  assert.match(replies.at(-1)?.message ?? '', /Dunwich Expansion/);
+  assert.match(replies.at(-1)?.message ?? '', /Categoria: Arkham Horror/);
+  assert.match(replies.at(-1)?.message ?? '', /Arkham Horror Core Set/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Arkham Horror Core Set'));
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Dunwich Expansion'));
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}4`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Grup: Second Edition/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Grup:<\/b> Second Edition/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Té:<\/b> Anna/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Des de:<\/b> 04\/04\/2026/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
 });
 
 test('handleTelegramCatalogAdminCallback lets admins add item media and shows it in item details', async () => {
@@ -1179,7 +1249,10 @@ test('handleTelegramCatalogAdminCallback lets admins add item media and shows it
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Media: Cap media/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Media:/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Descripcio:/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Emportar'));
 
   context.callbackData = 'catalog_admin:add_media:3';
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -1279,7 +1352,7 @@ test('handleTelegramCatalogAdminCallback lets admins edit and delete item media'
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Media: Cap media/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Media:/);
 });
 
 test('handleTelegramCatalogAdminText hides deactivated items from the normal catalog list', async () => {
@@ -1336,7 +1409,8 @@ test('handleTelegramCatalogAdminText hides deactivated items from the normal cat
   context.messageText = catalogAdminLabels.list;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.match(replies.at(-1)?.message ?? '', /Actiu/);
+  assert.match(replies.at(-1)?.message ?? '', /tria una categoria o cerca per nom/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Actiu/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
 });
 
@@ -1400,15 +1474,127 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
       },
     ],
   });
-  const { context, replies } = createContext({ repository });
+  const catalogLoanRepository = createLoanRepository([
+    {
+      id: 21,
+      itemId: 3,
+      borrowerTelegramUserId: 77,
+      borrowerDisplayName: 'Anna',
+      loanedByTelegramUserId: 99,
+      dueAt: '2026-04-10T00:00:00.000Z',
+      notes: null,
+      returnedAt: null,
+      returnedByTelegramUserId: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  const { context, replies } = createContext({ repository, catalogLoanRepository });
 
   context.messageText = catalogAdminLabels.list;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.match(replies.at(-1)?.message ?? '', /Familia: Mundodisco/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense grup:/);
-  assert.match(replies.at(-1)?.message ?? '', /El color de la magia/);
-  assert.match(replies.at(-1)?.message ?? '', /Mort/);
+  assert.match(replies.at(-1)?.message ?? '', /tria una categoria o cerca per nom/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Mundodisco'));
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Categoria: Mundodisco/);
+  assert.match(replies.at(-1)?.message ?? '', /Prestat a Anna/);
+  assert.match(replies.at(-1)?.message ?? '', /des de 04\/04\/2026/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Emportar' || button.text === 'Retornar'));
+});
+
+test('handleTelegramCatalogAdminText can search catalog items by name', async () => {
+  const repository = createRepository({
+    families: [
+      {
+        id: 1,
+        slug: 'mundodisco',
+        displayName: 'Mundodisco',
+        description: null,
+        familyKind: 'generic-line',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+    items: [
+      {
+        id: 2,
+        familyId: 1,
+        groupId: null,
+        itemType: 'book',
+        displayName: 'El color de la magia',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 3,
+        familyId: 1,
+        groupId: null,
+        itemType: 'book',
+        displayName: 'Mort',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const catalogLoanRepository = createLoanRepository([
+    {
+      id: 31,
+      itemId: 3,
+      borrowerTelegramUserId: 55,
+      borrowerDisplayName: 'Pau',
+      loanedByTelegramUserId: 99,
+      dueAt: null,
+      notes: null,
+      returnedAt: null,
+      returnedByTelegramUserId: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  const { context, replies, getCurrentSession } = createContext({ repository, catalogLoanRepository });
+
+  context.callbackData = catalogAdminCallbackPrefixes.browseSearch;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  delete context.callbackData;
+  assert.equal(getCurrentSession()?.stepKey, 'search-query');
+
+  context.messageText = 'Mort';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Resultats per a "Mort"/);
+  assert.match(replies.at(-1)?.message ?? '', /Prestat a Pau/);
+  assert.match(replies.at(-1)?.message ?? '', /des de 04\/04\/2026/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Mort'));
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
+  assert.ok(!replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Emportar'));
 });
 
 test('handleTelegramCatalogAdminText falls back to minimum-field creation when lookup fails', async () => {

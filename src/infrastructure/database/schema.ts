@@ -4,6 +4,7 @@ import {
   boolean,
   integer,
   jsonb,
+  index,
   pgTable,
   text,
   timestamp,
@@ -159,6 +160,33 @@ export const catalogMedia = pgTable('catalog_media', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const catalogLoans = pgTable(
+  'catalog_loans',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    itemId: bigint('item_id', { mode: 'number' })
+      .notNull()
+      .references(() => catalogItems.id),
+    borrowerTelegramUserId: bigint('borrower_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    borrowerDisplayName: varchar('borrower_display_name', { length: 255 }).notNull(),
+    loanedByTelegramUserId: bigint('loaned_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    dueAt: timestamp('due_at', { withTimezone: true }),
+    notes: text('notes'),
+    returnedAt: timestamp('returned_at', { withTimezone: true }),
+    returnedByTelegramUserId: bigint('returned_by_telegram_user_id', { mode: 'number' }).references(() => users.telegramUserId),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    itemLookup: index('catalog_loans_item_id_idx').on(table.itemId),
+    borrowerLookup: index('catalog_loans_borrower_telegram_user_id_idx').on(table.borrowerTelegramUserId),
+  }),
+);
 
 export const scheduleEvents = pgTable('schedule_events', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),

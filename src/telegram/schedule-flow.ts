@@ -1,5 +1,6 @@
 import { appendAuditEvent, type AuditLogRepository } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
+import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import {
   cancelScheduleEvent,
   createScheduleEvent,
@@ -22,6 +23,7 @@ import {
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
+import type { MembershipAccessRepository } from '../membership/access-flow.js';
 import {
   findRelevantVenueEventsForRange,
   type VenueEventRecord,
@@ -93,6 +95,7 @@ export interface TelegramScheduleContext {
   tableRepository?: ClubTableRepository;
   venueEventRepository?: VenueEventRepository;
   auditRepository?: AuditLogRepository;
+  membershipRepository?: MembershipAccessRepository;
 }
 
 export async function handleTelegramScheduleText(context: TelegramScheduleContext): Promise<boolean> {
@@ -659,6 +662,13 @@ function resolveAuditRepository(context: TelegramScheduleContext): AuditLogRepos
   return createDatabaseAuditLogRepository({ database: context.runtime.services.database.db as never });
 }
 
+function resolveMembershipRepository(context: TelegramScheduleContext): MembershipAccessRepository {
+  if (context.membershipRepository) {
+    return context.membershipRepository;
+  }
+  return createDatabaseMembershipAccessRepository({ database: context.runtime.services.database.db as never });
+}
+
 async function loadEventOrThrow(context: TelegramScheduleContext, eventId: number): Promise<ScheduleEventRecord> {
   const event = await resolveScheduleRepository(context).findEventById(eventId);
   if (!event) {
@@ -673,6 +683,33 @@ async function loadTableName(context: TelegramScheduleContext, tableId: number |
     tableId,
   });
   return table?.displayName ?? null;
+}
+
+async function formatParticipantLabels(context: TelegramScheduleContext, telegramUserIds: number[]): Promise<string[]> {
+  const repository = resolveMembershipRepository(context);
+  const participants = await Promise.all(
+    telegramUserIds.map(async (telegramUserId) => ({
+      telegramUserId,
+      user: await repository.findUserByTelegramUserId(telegramUserId),
+    })),
+  );
+
+  return participants.map(({ telegramUserId, user }) => formatParticipantLabel(telegramUserId, user));
+}
+
+function formatParticipantLabel(
+  telegramUserId: number,
+  user: { displayName: string; username?: string | null } | null,
+): string {
+  if (!user) {
+    return `Usuari ${telegramUserId}`;
+  }
+
+  if (user.username) {
+    return `${user.displayName} (@${user.username})`;
+  }
+
+  return user.displayName;
 }
 
 function buildScheduleMenuOptions(): TelegramReplyOptions {
@@ -823,13 +860,14 @@ async function formatScheduleEventView(
   });
 
   const relevantVenueEvents = await listRelevantVenueEventsForScheduleEvent(context, event);
+  const participantLabels = await formatParticipantLabels(context, attendance.activeParticipantTelegramUserIds);
 
   return [
     formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) }),
     `Final: ${getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')}`,
     `Places ocupades: ${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`,
     `Places lliures: ${attendance.snapshot.availableSeats}`,
-    `Assistents: ${attendance.activeParticipantTelegramUserIds.length > 0 ? attendance.activeParticipantTelegramUserIds.join(', ') : 'Cap'}`,
+    `Assistents: ${participantLabels.length > 0 ? participantLabels.join(', ') : 'Cap'}`,
     ...(relevantVenueEvents.length > 0
       ? [
           'Esdeveniments del local rellevants:',

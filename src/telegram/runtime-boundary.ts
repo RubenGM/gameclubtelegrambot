@@ -46,6 +46,16 @@ import {
   catalogAdminCallbackPrefixes,
 } from './catalog-admin-flow.js';
 import {
+  handleTelegramCatalogReadCallback,
+  handleTelegramCatalogReadCommand,
+  catalogReadCallbackPrefixes,
+} from './catalog-read-flow.js';
+import {
+  handleTelegramCatalogLoanCallback,
+  handleTelegramCatalogLoanText,
+  catalogLoanCallbackPrefixes,
+} from './catalog-loan-flow.js';
+import {
   handleTelegramCalendarText,
 } from './calendar-flow.js';
 import {
@@ -503,6 +513,7 @@ function registerHandlers({
   registerScheduleCallbacks({ bot });
   registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
+  registerCatalogReadCallbacks({ bot });
   registerCatalogAdminCallbacks({ bot });
   registerVenueEventAdminCallbacks({ bot });
   registerTextHandlers({ bot });
@@ -514,6 +525,10 @@ function registerTextHandlers({
   bot: TelegramBotLike;
 }): void {
   bot.onText(async (context) => {
+    if (await handleTelegramCatalogLoanText(context)) {
+      return;
+    }
+
     if (await handleTelegramVenueEventAdminText(context)) {
       return;
     }
@@ -608,6 +623,15 @@ function createDefaultCommands({
       description: 'Consulta les taules actives del club',
       handle: async (context) => {
         await handleTelegramTableReadCommand(context);
+      },
+    },
+    {
+      command: 'catalog_search',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Consulta i cerca el cataleg',
+      handle: async (context) => {
+        await handleTelegramCatalogReadCommand(context);
       },
     },
     {
@@ -902,6 +926,15 @@ function registerCatalogAdminCallbacks({
   bot.onCallback(catalogAdminCallbackPrefixes.inspect, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
+  bot.onCallback(catalogAdminCallbackPrefixes.browseMenu, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.browseSearch, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.browseFamily, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
   bot.onCallback(catalogAdminCallbackPrefixes.inspectGroup, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
@@ -923,6 +956,49 @@ function registerTableReadCallbacks({
       await handleTelegramTableReadCallback(context);
     });
   }
+}
+
+function registerCatalogReadCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  bot.onCallback(catalogReadCallbackPrefixes.overview, async (context) => {
+    await handleTelegramCatalogReadCallback(context);
+  });
+  bot.onCallback(catalogReadCallbackPrefixes.pageNext, async (context) => {
+    await handleTelegramCatalogReadCallback(context);
+  });
+  bot.onCallback(catalogReadCallbackPrefixes.pagePrev, async (context) => {
+    await handleTelegramCatalogReadCallback(context);
+  });
+  bot.onCallback(catalogReadCallbackPrefixes.back, async (context) => {
+    await handleTelegramCatalogReadCallback(context);
+  });
+  bot.onCallback(catalogReadCallbackPrefixes.myLoans, async (context) => {
+    await handleTelegramCatalogReadCallback(context);
+  });
+  bot.onCallback(catalogReadCallbackPrefixes.inspectFamily, async (context) => {
+    await handleTelegramCatalogReadCallback(context);
+  });
+  bot.onCallback(catalogReadCallbackPrefixes.inspectGroup, async (context) => {
+    await handleTelegramCatalogReadCallback(context);
+  });
+  bot.onCallback(catalogReadCallbackPrefixes.inspectItem, async (context) => {
+    await handleTelegramCatalogReadCallback(context);
+  });
+  bot.onCallback(catalogLoanCallbackPrefixes.openMyLoans, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
+  bot.onCallback(catalogLoanCallbackPrefixes.create, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
+  bot.onCallback(catalogLoanCallbackPrefixes.return, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
+  bot.onCallback(catalogLoanCallbackPrefixes.edit, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
 }
 
 function registerScheduleCallbacks({
