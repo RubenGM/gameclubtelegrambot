@@ -99,6 +99,7 @@ export async function handleTelegramCatalogReadStartText(context: TelegramCatalo
       inlineKeyboard: buildLoanDetailButtons({
         loan,
         itemId: item.id,
+        language,
         ...(context.runtime.actor.isAdmin
           ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }
           : {}),
@@ -308,6 +309,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
       inlineKeyboard: buildLoanDetailButtons({
         loan,
         itemId: item.id,
+        language,
         ...(context.runtime.actor.isAdmin
           ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }
           : {}),

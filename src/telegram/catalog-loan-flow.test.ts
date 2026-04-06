@@ -214,7 +214,8 @@ test('catalog loan callbacks create, list and return loans', async () => {
 
   await handleTelegramCatalogLoanCallback(context);
 
-  assert.match(replies[0]?.message ?? '', /Has prestat Game 1\./);
+  assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
+  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Tomar prestado'));
 
   replies.length = 0;
   context.callbackData = catalogLoanCallbackPrefixes.openMyLoans;
@@ -227,7 +228,8 @@ test('catalog loan callbacks create, list and return loans', async () => {
   context.callbackData = `${catalogLoanCallbackPrefixes.return}1`;
   await handleTelegramCatalogLoanCallback(context);
 
-  assert.match(replies[0]?.message ?? '', /Has retornat Game 1\./);
+  assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
+  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Tomar prestado'));
 });
 
 test('loan detail buttons use the updated borrow and delete labels', async () => {
@@ -267,6 +269,16 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
   assert.equal(borrowedRows[1]?.[0]?.text, 'Delete item');
   assert.equal(borrowedRows[2]?.[0]?.text, 'View loans');
   assert.equal(buildLoanItemButton(null, 11, 'Game 1', 'catalog_read:item:', 'es')[1]?.text, 'Tomar prestado');
+  const spanishRows = buildLoanDetailButtons({
+    loan: null,
+    itemId: 11,
+    deleteCallbackData: 'catalog_admin:deactivate:11',
+    language: 'es',
+  });
+
+  assert.equal(spanishRows[0]?.[0]?.text, 'Tomar prestado');
+  assert.equal(spanishRows[1]?.[0]?.text, 'Eliminar item');
+  assert.equal(spanishRows[2]?.[0]?.text, 'Ver prestamos');
 });
 
 test('catalog loan edit flow updates notes and due date', async () => {

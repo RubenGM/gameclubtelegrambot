@@ -1512,14 +1512,17 @@ test('handleTelegramCatalogAdminCallback shows item details without add media ac
     ],
   });
   const auditRepository = createAuditRepository();
-  const { context, replies, getCurrentSession } = createContext({ repository, auditRepository });
+  const { context, replies, getCurrentSession } = createContext({ repository, auditRepository, language: 'es' });
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Media:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Descripcio:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar item'));
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar ítem'));
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Eliminar item'));
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Tomar prestado'));
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Ver prestamos'));
   assert.ok(!replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Afegir media'));
 });
 

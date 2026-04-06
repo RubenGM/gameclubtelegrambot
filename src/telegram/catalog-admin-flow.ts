@@ -210,7 +210,7 @@ export async function handleTelegramCatalogAdminStartText(context: TelegramCatal
   const item = await loadItemOrThrow(context, payload);
   await context.reply(await formatCatalogItemDetails(context, item), {
     parseMode: 'HTML',
-    inlineKeyboard: await buildCatalogItemDetailButtons(context, item),
+    inlineKeyboard: await buildCatalogItemDetailButtons(context, item, normalizeBotLanguage(context.runtime.bot.language, 'ca')),
   });
   return true;
 }
@@ -241,7 +241,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     const item = await loadItemOrThrow(context, itemId);
     await context.reply(await formatCatalogItemDetails(context, item), {
       parseMode: 'HTML',
-      inlineKeyboard: await buildCatalogItemDetailButtons(context, item),
+      inlineKeyboard: await buildCatalogItemDetailButtons(context, item, normalizeBotLanguage(context.runtime.bot.language, 'ca')),
     });
     return true;
   }
@@ -1705,8 +1705,9 @@ async function formatCatalogItemList(
 async function buildCatalogItemDetailButtons(
   context: TelegramCatalogAdminContext,
   item: CatalogItemRecord,
+  language: 'ca' | 'es' | 'en',
 ): Promise<NonNullable<TelegramReplyOptions['inlineKeyboard']>> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
+  const texts = createTelegramI18n(language).catalogAdmin;
   const media = await resolveCatalogRepository(context).listMedia({ itemId: item.id });
   const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
   return [
@@ -1715,7 +1716,7 @@ async function buildCatalogItemDetailButtons(
       { text: `${texts.confirmMediaEdit} #${entry.id}`, callbackData: `${catalogAdminCallbackPrefixes.editMedia}${entry.id}` },
       { text: `${texts.confirmMediaDelete} #${entry.id}`, callbackData: `${catalogAdminCallbackPrefixes.deleteMedia}${entry.id}` },
     ]]),
-    ...buildLoanDetailButtons({ loan, itemId: item.id, deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }),
+    ...buildLoanDetailButtons({ loan, itemId: item.id, language, deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }),
   ];
 }
 

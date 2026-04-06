@@ -4,12 +4,14 @@ import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
-import { escapeHtml, formatHtmlField } from './catalog-presentation.js';
+import { escapeHtml, formatHtmlField, formatMemberCatalogItemDetails } from './catalog-presentation.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramInlineButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 
 const loanEditFlowKey = 'catalog-loan-edit';
+const catalogAdminEditCallbackPrefix = 'catalog_admin:edit:';
+const catalogAdminDeactivateCallbackPrefix = 'catalog_admin:deactivate:';
 
 export const catalogLoanCallbackPrefixes = {
   openMyLoans: 'catalog_loan:my_loans',
@@ -68,7 +70,7 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
       notes: null,
     });
 
-    await context.reply(texts.hasBorrowed.replace('{item}', item.displayName), await buildItemLoanNavigationOptions(context, created.itemId, language));
+    await replyWithItemDetail(context, created.itemId, language);
     return true;
   }
 
@@ -84,8 +86,7 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
       loanId,
       returnedByTelegramUserId: context.runtime.actor.telegramUserId,
     });
-    const item = await resolveCatalogItem(context, returned.itemId);
-    await context.reply(texts.hasReturned.replace('{item}', item?.displayName ?? (language === 'es' ? 'el item' : language === 'en' ? 'the item' : 'l item')), await buildItemLoanNavigationOptions(context, returned.itemId, language));
+    await replyWithItemDetail(context, returned.itemId, language);
     return true;
   }
 
@@ -305,6 +306,48 @@ async function buildItemLoanNavigationOptions(
   const loan = await loadActiveLoanByItemId(context, itemId);
   const inlineKeyboard = buildLoanDetailButtons({ loan, itemId, language });
   return { inlineKeyboard };
+}
+
+async function replyWithItemDetail(
+  context: TelegramCatalogLoanContext,
+  itemId: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<void> {
+  const catalog = resolveCatalogRepository(context);
+  const item = await catalog.findItemById(itemId);
+  if (!item) {
+    throw new Error(`Catalog item ${itemId} not found`);
+  }
+
+  const family = item.familyId !== null ? await catalog.findFamilyById(item.familyId) : null;
+  const group = item.groupId !== null ? await catalog.findGroupById(item.groupId) : null;
+  const media = await catalog.listMedia({ itemId });
+  const loan = await loadActiveLoanByItemId(context, itemId);
+  const inlineKeyboard = buildLoanDetailButtons({
+    loan,
+    itemId,
+    language,
+    ...(context.runtime.actor.isAdmin ? { deleteCallbackData: `${catalogAdminDeactivateCallbackPrefix}${itemId}` } : {}),
+  });
+
+  if (context.runtime.actor.isAdmin) {
+    inlineKeyboard.unshift([{ text: createTelegramI18n(language).catalogAdmin.edit, callbackData: `${catalogAdminEditCallbackPrefix}${itemId}` }]);
+  }
+
+  await context.reply(
+    formatMemberCatalogItemDetails({
+      item,
+      family,
+      group,
+      media: media.filter((entry) => entry.itemId === item.id).sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id),
+      availabilityLines: await formatLoanAvailabilityLines(context, loan),
+      language,
+    }),
+    {
+      inlineKeyboard,
+      parseMode: 'HTML',
+    },
+  );
 }
 
 function resolveLoanRepository(context: TelegramCatalogLoanContext): CatalogLoanRepository {
