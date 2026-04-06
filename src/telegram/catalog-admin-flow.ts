@@ -388,7 +388,7 @@ async function handleCreateSession(
       }
 
       await context.runtime.session.advance({ stepKey: 'wikipedia-url', data: nextData });
-      await context.reply(`${importWikipediaErrorMessage(importResult)}\n\n${texts.askWikipediaUrl}`, buildWikipediaUrlOptions());
+      await context.reply(`${importWikipediaErrorMessage(importResult)}\n\n${texts.askWikipediaUrl}`, buildWikipediaUrlOptions(language));
       return true;
     }
     const lookupCandidates = await searchCatalogLookupCandidates(context, {
@@ -398,8 +398,8 @@ async function handleCreateSession(
     if (lookupCandidates.length > 0) {
       await context.runtime.session.advance({ stepKey: 'lookup-choice', data: { ...nextData, lookupCandidates } });
       await context.reply(
-        buildLookupChoicePrompt(lookupCandidates),
-        buildLookupChoiceOptions(lookupCandidates),
+        buildLookupChoicePrompt(language, lookupCandidates),
+        buildLookupChoiceOptions(language, lookupCandidates),
       );
       return true;
     }
@@ -417,7 +417,7 @@ async function handleCreateSession(
         itemType === 'rpg-book' || itemType === 'book'
           ? texts.promptFamilyChooseBook
           : texts.invalidFamily,
-        await buildFamilyOptions(context, itemType),
+        await buildFamilyOptions(context, itemType, language),
       );
       return true;
     }
@@ -426,7 +426,7 @@ async function handleCreateSession(
     return true;
   }
   if (stepKey === 'lookup-choice') {
-    if (text === catalogAdminLabels.skipLookupImport) {
+    if (text === texts.skipLookupImport) {
       const itemType = String(data.itemType) as CatalogItemType;
       await context.runtime.session.advance({ stepKey: 'family', data });
       await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
@@ -443,7 +443,7 @@ async function handleCreateSession(
       if (refined) {
         return true;
       }
-      await context.reply(texts.invalidLookupChoice, buildLookupChoiceOptions(asLookupCandidates(data.lookupCandidates)));
+      await context.reply(texts.invalidLookupChoice, buildLookupChoiceOptions(language, asLookupCandidates(data.lookupCandidates)));
       return true;
     }
 
@@ -459,7 +459,7 @@ async function handleCreateSession(
 
     const itemType = String(data.itemType) as CatalogItemType;
     await context.runtime.session.advance({ stepKey: 'family', data: nextData });
-    await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
     return true;
   }
   if (stepKey === 'lookup-title-choice') {
@@ -488,7 +488,7 @@ async function handleCreateSession(
   }
   if (stepKey === 'wikipedia-url') {
     const itemType = String(data.itemType) as CatalogItemType;
-    if (text === catalogAdminLabels.skipLookupImport) {
+    if (text === texts.skipLookupImport) {
       await context.runtime.session.advance({ stepKey: 'family', data });
       await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
       return true;
@@ -496,7 +496,7 @@ async function handleCreateSession(
 
     const wikipediaTitle = parseWikipediaTitleFromUrl(text);
     if (!wikipediaTitle) {
-      await context.reply(texts.invalidWikipediaUrl, buildWikipediaUrlOptions());
+      await context.reply(texts.invalidWikipediaUrl, buildWikipediaUrlOptions(language));
       return true;
     }
 
@@ -509,22 +509,22 @@ async function handleCreateSession(
 
     await context.reply(
       `${importWikipediaErrorMessage(importResult)}\n\nSi vols, enganxa una altra URL o tria No importar dades per continuar manualment.`,
-      buildWikipediaUrlOptions(),
+      buildWikipediaUrlOptions(language),
     );
     return true;
   }
   if (stepKey === 'wikipedia-candidate-choice') {
     const itemType = String(data.itemType) as CatalogItemType;
     const wikipediaCandidates = asStringArray(data.wikipediaCandidates);
-    if (text === catalogAdminLabels.skipLookupImport) {
+    if (text === texts.skipLookupImport) {
       await context.runtime.session.advance({ stepKey: 'family', data });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType));
+      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
       return true;
     }
 
-    if (text === catalogAdminLabels.manualWikipediaUrl) {
+    if (text === texts.manualWikipediaUrl) {
       await context.runtime.session.advance({ stepKey: 'wikipedia-url', data });
-      await context.reply(texts.askWikipediaUrl, buildWikipediaUrlOptions());
+      await context.reply(texts.askWikipediaUrl, buildWikipediaUrlOptions(language));
       return true;
     }
 
@@ -584,7 +584,7 @@ async function handleCreateSession(
       stepKey: 'description',
       data: {
         ...data,
-        originalName: text === catalogAdminLabels.keepCurrent ? asNullableString(data.originalName) : text === catalogAdminLabels.skipOptional ? null : text,
+        originalName: text === texts.keepCurrent ? asNullableString(data.originalName) : text === texts.skipOptional ? null : text,
       },
     });
     await context.reply(texts.askOptionalDescription, buildCreateOptionalKeyboard(asNullableString(data.description), language));
@@ -595,7 +595,7 @@ async function handleCreateSession(
       stepKey: 'language',
       data: {
         ...data,
-        description: text === catalogAdminLabels.keepCurrent ? asNullableString(data.description) : text === catalogAdminLabels.skipOptional ? null : text,
+        description: text === texts.keepCurrent ? asNullableString(data.description) : text === texts.skipOptional ? null : text,
       },
     });
     await context.reply(texts.askLanguage, buildCreateOptionalKeyboard(asNullableString(data.language), language));
@@ -606,7 +606,7 @@ async function handleCreateSession(
       stepKey: 'publisher',
       data: {
         ...data,
-        language: text === catalogAdminLabels.keepCurrent ? asNullableString(data.language) : text === catalogAdminLabels.skipOptional ? null : text,
+        language: text === texts.keepCurrent ? asNullableString(data.language) : text === texts.skipOptional ? null : text,
       },
     });
     await context.reply(texts.askPublisher, buildCreateOptionalKeyboard(asNullableString(data.publisher), language));
@@ -617,14 +617,14 @@ async function handleCreateSession(
       stepKey: 'publication-year',
       data: {
         ...data,
-        publisher: text === catalogAdminLabels.keepCurrent ? asNullableString(data.publisher) : text === catalogAdminLabels.skipOptional ? null : text,
+        publisher: text === texts.keepCurrent ? asNullableString(data.publisher) : text === texts.skipOptional ? null : text,
       },
     });
     await context.reply(texts.askPublicationYear, buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear), language));
     return true;
   }
   if (stepKey === 'publication-year') {
-    const publicationYear = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.publicationYear) : parseOptionalPositiveInteger(text);
+    const publicationYear = text === texts.keepCurrent ? asNullableNumber(data.publicationYear) : parseOptionalPositiveInteger(text, language);
     if (publicationYear instanceof Error) {
       await context.reply(texts.invalidPublicationYear, buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear), language));
       return true;
@@ -640,7 +640,7 @@ async function handleCreateSession(
     return true;
   }
   if (stepKey === 'player-min') {
-    const playerCountMin = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.playerCountMin) : parseOptionalPositiveInteger(text);
+    const playerCountMin = text === texts.keepCurrent ? asNullableNumber(data.playerCountMin) : parseOptionalPositiveInteger(text, language);
     if (playerCountMin instanceof Error) {
       await context.reply(texts.invalidPlayerMin, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin), language));
       return true;
@@ -650,7 +650,7 @@ async function handleCreateSession(
     return true;
   }
   if (stepKey === 'player-max') {
-    const playerCountMax = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.playerCountMax) : parseOptionalPositiveInteger(text);
+    const playerCountMax = text === texts.keepCurrent ? asNullableNumber(data.playerCountMax) : parseOptionalPositiveInteger(text, language);
     if (playerCountMax instanceof Error) {
       await context.reply(texts.invalidPlayerMax, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax), language));
       return true;
@@ -669,7 +669,7 @@ async function handleCreateSession(
     return true;
   }
   if (stepKey === 'recommended-age') {
-    const recommendedAge = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.recommendedAge) : parseOptionalPositiveInteger(text);
+    const recommendedAge = text === texts.keepCurrent ? asNullableNumber(data.recommendedAge) : parseOptionalPositiveInteger(text, language);
     if (recommendedAge instanceof Error) {
       await context.reply(texts.invalidRecommendedAge, buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge), language));
       return true;
@@ -679,7 +679,7 @@ async function handleCreateSession(
     return true;
   }
   if (stepKey === 'play-time-minutes') {
-    const playTimeMinutes = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.playTimeMinutes) : parseOptionalPositiveInteger(text);
+    const playTimeMinutes = text === texts.keepCurrent ? asNullableNumber(data.playTimeMinutes) : parseOptionalPositiveInteger(text, language);
     if (playTimeMinutes instanceof Error) {
       await context.reply(texts.invalidPlayTime, buildCreateOptionalKeyboard(asNullableNumber(data.playTimeMinutes), language));
       return true;
@@ -689,7 +689,7 @@ async function handleCreateSession(
     return true;
   }
   if (stepKey === 'external-refs') {
-    const externalRefs = text === catalogAdminLabels.keepCurrent ? asNullableObject(data.externalRefs) : parseOptionalJsonObject(text);
+    const externalRefs = text === texts.keepCurrent ? asNullableObject(data.externalRefs) : parseOptionalJsonObject(text, language);
     if (externalRefs instanceof Error) {
       await context.reply(texts.invalidExternalRefs, buildCreateOptionalKeyboard(asNullableObject(data.externalRefs), language));
       return true;
@@ -699,7 +699,7 @@ async function handleCreateSession(
     return true;
   }
     if (stepKey === 'metadata') {
-      const metadata = text === catalogAdminLabels.keepCurrent ? asNullableObject(data.metadata) : parseOptionalJsonObject(text);
+      const metadata = text === texts.keepCurrent ? asNullableObject(data.metadata) : parseOptionalJsonObject(text, language);
       if (metadata instanceof Error) {
         await context.reply(texts.invalidMetadata, buildCreateOptionalKeyboard(asNullableObject(data.metadata), language));
         return true;
@@ -876,7 +876,7 @@ async function handleEditSession(
   if (stepKey === 'family') {
     const familyId = await parseFamilyInput(context, text, getDraftItemType(item, data));
     if (familyId instanceof Error) {
-      await context.reply(texts.invalidFamily, await buildFamilyOptions(context, getDraftItemType(item, data)));
+      await context.reply(texts.invalidFamily, await buildFamilyOptions(context, getDraftItemType(item, data), language));
       return true;
     }
     const nextData = await withCompatibleGroup(context, item, { ...data, familyId }, familyId);
@@ -885,22 +885,22 @@ async function handleEditSession(
   if (stepKey === 'group') {
     const groupId = await parseGroupInput(context, text, getDraftFamilyId(item, data));
     if (groupId instanceof Error) {
-      await context.reply(texts.invalidGroup, buildGroupOptions());
+      await context.reply(texts.invalidGroup, buildGroupOptions(language));
       return true;
     }
     return updateEditDraftAndReturn(context, item, data, { groupId });
   }
   if (stepKey === 'original-name') {
-    return updateEditDraftAndReturn(context, item, data, { originalName: text === texts.skipOptional || text === catalogAdminLabels.skipOptional ? null : text });
+    return updateEditDraftAndReturn(context, item, data, { originalName: text === texts.skipOptional ? null : text });
   }
   if (stepKey === 'description') {
-    return updateEditDraftAndReturn(context, item, data, { description: text === texts.skipOptional || text === catalogAdminLabels.skipOptional ? null : text });
+    return updateEditDraftAndReturn(context, item, data, { description: text === texts.skipOptional ? null : text });
   }
   if (stepKey === 'language') {
-    return updateEditDraftAndReturn(context, item, data, { language: text === texts.skipOptional || text === catalogAdminLabels.skipOptional ? null : text });
+    return updateEditDraftAndReturn(context, item, data, { language: text === texts.skipOptional ? null : text });
   }
   if (stepKey === 'publisher') {
-    return updateEditDraftAndReturn(context, item, data, { publisher: text === texts.skipOptional || text === catalogAdminLabels.skipOptional ? null : text });
+    return updateEditDraftAndReturn(context, item, data, { publisher: text === texts.skipOptional ? null : text });
   }
   if (stepKey === 'publication-year') {
     const publicationYear = parseOptionalPositiveInteger(text);
@@ -1002,7 +1002,7 @@ async function handleMediaSession(
   const texts = createTelegramI18n(language).catalogAdmin;
   const isEditing = typeof data.mediaId === 'number';
   if (stepKey === 'media-type') {
-    const mediaType = text === catalogAdminLabels.keepCurrent ? String(data.mediaType) : parseMediaTypeLabel(text);
+    const mediaType = text === texts.keepCurrent ? String(data.mediaType) : parseMediaTypeLabel(text);
     if (mediaType instanceof Error) {
       await context.reply(texts.invalidMediaType, isEditing ? buildEditMediaTypeOptions(language) : buildMediaTypeOptions(language));
       return true;
@@ -1014,7 +1014,7 @@ async function handleMediaSession(
   if (stepKey === 'url') {
     await context.runtime.session.advance({
       stepKey: 'alt-text',
-      data: { ...data, url: text === catalogAdminLabels.keepCurrent ? String(data.url ?? '') : text },
+      data: { ...data, url: text === texts.keepCurrent ? String(data.url ?? '') : text },
     });
     await context.reply(
       texts.askMediaAltText,
@@ -1027,7 +1027,7 @@ async function handleMediaSession(
       stepKey: 'sort-order',
       data: {
         ...data,
-        altText: text === catalogAdminLabels.keepCurrent ? asNullableString(data.altText) : text === catalogAdminLabels.skipOptional ? null : text,
+        altText: text === texts.keepCurrent ? asNullableString(data.altText) : text === texts.skipOptional ? null : text,
       },
     });
     await context.reply(
@@ -1037,7 +1037,7 @@ async function handleMediaSession(
     return true;
   }
   if (stepKey === 'sort-order') {
-    const sortOrder = text === catalogAdminLabels.keepCurrent ? asNullableNumber(data.sortOrder) ?? 0 : parseOptionalNonNegativeInteger(text);
+    const sortOrder = text === texts.keepCurrent ? asNullableNumber(data.sortOrder) ?? 0 : parseOptionalNonNegativeInteger(text, language);
     if (sortOrder instanceof Error) {
       await context.reply(
         texts.invalidMediaSortOrder,
@@ -1872,7 +1872,9 @@ async function parseFamilyInput(
   text: string,
   itemType: CatalogItemType,
 ): Promise<number | null | Error> {
-  if (text === catalogAdminLabels.noFamily) {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  if (text === texts.noFamily) {
     return null;
   }
   const repository = resolveCatalogRepository(context);
@@ -1914,7 +1916,9 @@ async function parseGroupInput(
   text: string,
   familyId: number | null,
 ): Promise<number | null | Error> {
-  if (text === catalogAdminLabels.noGroup) {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  if (text === texts.noGroup) {
     return null;
   }
   const value = Number(text);
@@ -1931,8 +1935,8 @@ async function parseGroupInput(
   return value;
 }
 
-function parseOptionalPositiveInteger(text: string): number | null | Error {
-  if (text === catalogAdminLabels.skipOptional) {
+function parseOptionalPositiveInteger(text: string, language: 'ca' | 'es' | 'en' = 'ca'): number | null | Error {
+  if (text === createTelegramI18n(language).catalogAdmin.skipOptional) {
     return null;
   }
   const value = Number(text);
@@ -1942,8 +1946,8 @@ function parseOptionalPositiveInteger(text: string): number | null | Error {
   return value;
 }
 
-function parseOptionalNonNegativeInteger(text: string): number | null | Error {
-  if (text === catalogAdminLabels.skipOptional) {
+function parseOptionalNonNegativeInteger(text: string, language: 'ca' | 'es' | 'en' = 'ca'): number | null | Error {
+  if (text === createTelegramI18n(language).catalogAdmin.skipOptional) {
     return null;
   }
   const value = Number(text);
@@ -1953,8 +1957,8 @@ function parseOptionalNonNegativeInteger(text: string): number | null | Error {
   return value;
 }
 
-function parseOptionalJsonObject(text: string): Record<string, unknown> | null | Error {
-  if (text === catalogAdminLabels.skipOptional) {
+function parseOptionalJsonObject(text: string, language: 'ca' | 'es' | 'en' = 'ca'): Record<string, unknown> | null | Error {
+  if (text === createTelegramI18n(language).catalogAdmin.skipOptional) {
     return null;
   }
   try {
@@ -2289,16 +2293,18 @@ async function searchCatalogLookupCandidates(
   }
 }
 
-function buildLookupChoicePrompt(candidates: CatalogLookupCandidate[]): string {
+function buildLookupChoicePrompt(language: 'ca' | 'es' | 'en', candidates: CatalogLookupCandidate[]): string {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return [
-    'He trobat aquestes coincidencies externes. Tria la que vols importar, escriu un autor per refinar la cerca o continua sense dades externes:',
+    texts.lookupChoicePrompt,
     ...candidates.map((candidate) => `- ${candidate.title} · ${candidate.summary}`),
   ].join('\n');
 }
 
-function buildLookupChoiceOptions(candidates: CatalogLookupCandidate[]): TelegramReplyOptions {
+function buildLookupChoiceOptions(language: 'ca' | 'es' | 'en', candidates: CatalogLookupCandidate[]): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [...candidates.map((candidate) => [candidate.title]), [catalogAdminLabels.refineLookupByAuthor], [catalogAdminLabels.skipLookupImport], [catalogAdminLabels.cancel]],
+    replyKeyboard: [...candidates.map((candidate) => [candidate.title]), [texts.refineLookupByAuthor], [texts.skipLookupImport], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -2309,6 +2315,7 @@ async function refineLookupCandidatesByAuthor(
   data: Record<string, unknown>,
   author: string,
 ): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const normalizedAuthor = author.trim();
   if (!normalizedAuthor) {
     return false;
@@ -2323,7 +2330,7 @@ async function refineLookupCandidatesByAuthor(
     return false;
   }
   await context.runtime.session.advance({ stepKey: 'lookup-choice', data: { ...data, lookupCandidates: refinedCandidates, lookupAuthor: normalizedAuthor } });
-  await context.reply(buildLookupChoicePrompt(refinedCandidates), buildLookupChoiceOptions(refinedCandidates));
+  await context.reply(buildLookupChoicePrompt(language, refinedCandidates), buildLookupChoiceOptions(language, refinedCandidates));
   return true;
 }
 
