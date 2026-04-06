@@ -360,15 +360,106 @@ async function handleCreateSession(
       await context.reply(texts.invalidType, buildTypeOptions(language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'display-name', data: { ...data, itemType } });
-        await context.reply(texts.askDisplayName, buildSingleCancelKeyboard());
+    await context.runtime.session.advance({ stepKey: 'select-field', data: { ...data, itemType } });
+    await context.reply(texts.selectCreateField, buildCreateFieldMenuOptions(itemType, language));
     return true;
+  }
+  if (stepKey === 'select-field') {
+    const itemType = getDraftItemTypeFromData(data);
+    switch (text) {
+      case texts.confirmCreate:
+      case catalogAdminLabels.confirmCreate:
+        return saveCreateDraftAndReturn(context, data, language);
+      case texts.editFieldDisplayName:
+      case catalogAdminLabels.editFieldDisplayName:
+        await context.runtime.session.advance({ stepKey: 'display-name', data });
+        await context.reply(texts.askDisplayName, buildSingleCancelKeyboard(language));
+        return true;
+      case texts.editFieldItemType:
+      case catalogAdminLabels.editFieldItemType:
+        await context.runtime.session.advance({ stepKey: 'item-type', data });
+        await context.reply(texts.askItemType, buildTypeOptions(language));
+        return true;
+      case texts.editFieldFamily:
+      case catalogAdminLabels.editFieldFamily:
+        await context.runtime.session.advance({ stepKey: 'family', data });
+        await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
+        return true;
+      case texts.editFieldGroup:
+      case catalogAdminLabels.editFieldGroup:
+        await context.runtime.session.advance({ stepKey: 'group', data });
+        await context.reply(await buildGroupPrompt(context, asNullableNumber(data.familyId)), buildGroupOptions(language));
+        return true;
+      case texts.editFieldOriginalName:
+      case catalogAdminLabels.editFieldOriginalName:
+        await context.runtime.session.advance({ stepKey: 'original-name', data });
+        await context.reply(texts.askOriginalName, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldDescription:
+      case catalogAdminLabels.editFieldDescription:
+        await context.runtime.session.advance({ stepKey: 'description', data });
+        await context.reply(texts.askOptionalDescription, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldLanguage:
+      case catalogAdminLabels.editFieldLanguage:
+        await context.runtime.session.advance({ stepKey: 'language', data });
+        await context.reply(texts.askLanguage, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldPublisher:
+      case catalogAdminLabels.editFieldPublisher:
+        await context.runtime.session.advance({ stepKey: 'publisher', data });
+        await context.reply(texts.askPublisher, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldPublicationYear:
+      case catalogAdminLabels.editFieldPublicationYear:
+        await context.runtime.session.advance({ stepKey: 'publication-year', data });
+        await context.reply(texts.askPublicationYear, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldPlayerMin:
+      case catalogAdminLabels.editFieldPlayerMin:
+        await context.runtime.session.advance({ stepKey: 'player-min', data });
+        await context.reply(texts.askPlayerMin, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldPlayerMax:
+      case catalogAdminLabels.editFieldPlayerMax:
+        await context.runtime.session.advance({ stepKey: 'player-max', data });
+        await context.reply(texts.askPlayerMax, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldRecommendedAge:
+      case catalogAdminLabels.editFieldRecommendedAge:
+        await context.runtime.session.advance({ stepKey: 'recommended-age', data });
+        await context.reply(texts.askRecommendedAge, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldPlayTimeMinutes:
+      case catalogAdminLabels.editFieldPlayTimeMinutes:
+        await context.runtime.session.advance({ stepKey: 'play-time-minutes', data });
+        await context.reply(texts.askPlayTime, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldExternalRefs:
+      case catalogAdminLabels.editFieldExternalRefs:
+        await context.runtime.session.advance({ stepKey: 'external-refs', data });
+        await context.reply(texts.askExternalRefs, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldMetadata:
+      case catalogAdminLabels.editFieldMetadata:
+        await context.runtime.session.advance({ stepKey: 'metadata', data });
+        await context.reply(texts.askMetadata, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.searchOnlineServices:
+        return handleCreateOnlineSearch(context, data, language);
+      default:
+        await context.reply(texts.selectCreateField, buildCreateFieldMenuOptions(itemType, language));
+        return true;
+    }
+  }
+  if (stepKey === 'search-online-title') {
+    return handleCreateOnlineSearch(context, { ...data, displayName: text }, language);
   }
   if (stepKey === 'display-name') {
     const itemType = String(data.itemType) as CatalogItemType;
     const nextData = { ...data, displayName: text };
     if (itemType === 'board-game') {
-      await context.reply(texts.wikipediaSearching, buildSingleCancelKeyboard());
+      await context.reply(texts.wikipediaSearching, buildSingleCancelKeyboard(language));
       const importResult = await importWikipediaBoardGameDraft(context, text);
       if (importResult.ok) {
         await createWikipediaImportedBoardGame(context, nextData, importResult.draft, text);
@@ -404,8 +495,8 @@ async function handleCreateSession(
       return true;
     }
 
-    await context.runtime.session.advance({ stepKey: 'family', data: nextData });
-    await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
+    await context.runtime.session.advance({ stepKey: 'select-field', data: nextData });
+    await context.reply(texts.fieldUpdated, buildCreateFieldMenuOptions(itemType, language));
     return true;
   }
   if (stepKey === 'family') {
@@ -421,18 +512,13 @@ async function handleCreateSession(
       );
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'group', data: { ...data, familyId } });
-        await context.reply(await buildGroupPrompt(context, familyId), buildGroupOptions(language));
-    return true;
+    return updateCreateDraftAndReturn(context, data, { familyId, groupId: null }, language);
   }
   if (stepKey === 'lookup-choice') {
     if (text === texts.skipLookupImport) {
-      const itemType = String(data.itemType) as CatalogItemType;
-      await context.runtime.session.advance({ stepKey: 'family', data });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
-      return true;
+      return updateCreateDraftAndReturn(context, data, {}, language);
     }
-    if (text === catalogAdminLabels.refineLookupByAuthor) {
+    if (text === texts.refineLookupByAuthor) {
       await context.runtime.session.advance({ stepKey: 'lookup-author', data });
       await context.reply(texts.askLookupAuthor, buildSingleCancelKeyboard());
       return true;
@@ -452,30 +538,23 @@ async function handleCreateSession(
       await context.runtime.session.advance({ stepKey: 'lookup-title-choice', data: { ...nextData, selectedLookupCandidate: lookupCandidate } });
       await context.reply(
         buildLookupTitleChoicePrompt(String(data.displayName ?? ''), lookupCandidate.title),
-        buildLookupTitleChoiceOptions(),
+        buildLookupTitleChoiceOptions(language),
       );
       return true;
     }
 
-    const itemType = String(data.itemType) as CatalogItemType;
-    await context.runtime.session.advance({ stepKey: 'family', data: nextData });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
-    return true;
+    return updateCreateDraftAndReturn(context, nextData, {}, language);
   }
   if (stepKey === 'lookup-title-choice') {
     const itemType = String(data.itemType) as CatalogItemType;
     const lookupCandidate = asLookupCandidate(data.selectedLookupCandidate);
-    if (text === catalogAdminLabels.keepTypedTitle) {
-      await context.runtime.session.advance({ stepKey: 'family', data: { ...data, displayName: String(data.displayName ?? '') } });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
-      return true;
+    if (text === texts.keepTypedTitle) {
+      return updateCreateDraftAndReturn(context, { ...data, displayName: String(data.displayName ?? '') }, {}, language);
     }
-    if (text === catalogAdminLabels.useApiTitle) {
-      await context.runtime.session.advance({ stepKey: 'family', data: { ...data, displayName: lookupCandidate.title } });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
-      return true;
+    if (text === texts.useApiTitle) {
+      return updateCreateDraftAndReturn(context, { ...data, displayName: lookupCandidate.title }, {}, language);
     }
-    await context.reply(texts.askTitleChoice, buildLookupTitleChoiceOptions());
+    await context.reply(texts.askTitleChoice, buildLookupTitleChoiceOptions(language));
     return true;
   }
   if (stepKey === 'lookup-author') {
@@ -489,9 +568,7 @@ async function handleCreateSession(
   if (stepKey === 'wikipedia-url') {
     const itemType = String(data.itemType) as CatalogItemType;
     if (text === texts.skipLookupImport) {
-      await context.runtime.session.advance({ stepKey: 'family', data });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
-      return true;
+      return updateCreateDraftAndReturn(context, data, {}, language);
     }
 
     const wikipediaTitle = parseWikipediaTitleFromUrl(text);
@@ -517,9 +594,7 @@ async function handleCreateSession(
     const itemType = String(data.itemType) as CatalogItemType;
     const wikipediaCandidates = asStringArray(data.wikipediaCandidates);
     if (text === texts.skipLookupImport) {
-      await context.runtime.session.advance({ stepKey: 'family', data });
-      await context.reply(await buildFamilyPrompt(context, itemType), await buildFamilyOptions(context, itemType, language));
-      return true;
+      return updateCreateDraftAndReturn(context, data, {}, language);
     }
 
     if (text === texts.manualWikipediaUrl) {
@@ -570,58 +645,19 @@ async function handleCreateSession(
       return true;
     }
     const nextData = { ...data, groupId };
-    if (String(data.itemType ?? 'board-game') === 'board-game') {
-      await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-      await context.reply(`${await formatDraftSummary(context, nextData)}\n\n${texts.confirmCreatePrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
-      return true;
-    }
-    await context.runtime.session.advance({ stepKey: 'original-name', data: nextData });
-    await context.reply(texts.askOriginalName, buildCreateOptionalKeyboard(asNullableString(data.originalName), language));
-    return true;
+    return updateCreateDraftAndReturn(context, nextData, {}, language);
   }
   if (stepKey === 'original-name') {
-    await context.runtime.session.advance({
-      stepKey: 'description',
-      data: {
-        ...data,
-        originalName: text === texts.keepCurrent ? asNullableString(data.originalName) : text === texts.skipOptional ? null : text,
-      },
-    });
-    await context.reply(texts.askOptionalDescription, buildCreateOptionalKeyboard(asNullableString(data.description), language));
-    return true;
+    return updateCreateDraftAndReturn(context, data, { originalName: text === texts.keepCurrent ? asNullableString(data.originalName) : text === texts.skipOptional ? null : text }, language);
   }
   if (stepKey === 'description') {
-    await context.runtime.session.advance({
-      stepKey: 'language',
-      data: {
-        ...data,
-        description: text === texts.keepCurrent ? asNullableString(data.description) : text === texts.skipOptional ? null : text,
-      },
-    });
-    await context.reply(texts.askLanguage, buildCreateOptionalKeyboard(asNullableString(data.language), language));
-    return true;
+    return updateCreateDraftAndReturn(context, data, { description: text === texts.keepCurrent ? asNullableString(data.description) : text === texts.skipOptional ? null : text }, language);
   }
   if (stepKey === 'language') {
-    await context.runtime.session.advance({
-      stepKey: 'publisher',
-      data: {
-        ...data,
-        language: text === texts.keepCurrent ? asNullableString(data.language) : text === texts.skipOptional ? null : text,
-      },
-    });
-    await context.reply(texts.askPublisher, buildCreateOptionalKeyboard(asNullableString(data.publisher), language));
-    return true;
+    return updateCreateDraftAndReturn(context, data, { language: text === texts.keepCurrent ? asNullableString(data.language) : text === texts.skipOptional ? null : text }, language);
   }
   if (stepKey === 'publisher') {
-    await context.runtime.session.advance({
-      stepKey: 'publication-year',
-      data: {
-        ...data,
-        publisher: text === texts.keepCurrent ? asNullableString(data.publisher) : text === texts.skipOptional ? null : text,
-      },
-    });
-    await context.reply(texts.askPublicationYear, buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear), language));
-    return true;
+    return updateCreateDraftAndReturn(context, data, { publisher: text === texts.keepCurrent ? asNullableString(data.publisher) : text === texts.skipOptional ? null : text }, language);
   }
   if (stepKey === 'publication-year') {
     const publicationYear = text === texts.keepCurrent ? asNullableNumber(data.publicationYear) : parseOptionalPositiveInteger(text, language);
@@ -629,15 +665,7 @@ async function handleCreateSession(
       await context.reply(texts.invalidPublicationYear, buildCreateOptionalKeyboard(asNullableNumber(data.publicationYear), language));
       return true;
     }
-    const nextStepKey = itemTypeSupportsPlayers(String(data.itemType ?? 'board-game') as CatalogItemType) ? 'player-min' : 'recommended-age';
-    await context.runtime.session.advance({ stepKey: nextStepKey, data: { ...data, publicationYear } });
-    await context.reply(
-      nextStepKey === 'player-min' ? texts.askPlayerMin : texts.askRecommendedAge,
-      nextStepKey === 'player-min'
-        ? buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin), language)
-        : buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge), language),
-    );
-    return true;
+    return updateCreateDraftAndReturn(context, data, { publicationYear }, language);
   }
   if (stepKey === 'player-min') {
     const playerCountMin = text === texts.keepCurrent ? asNullableNumber(data.playerCountMin) : parseOptionalPositiveInteger(text, language);
@@ -645,9 +673,7 @@ async function handleCreateSession(
       await context.reply(texts.invalidPlayerMin, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMin), language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'player-max', data: { ...data, playerCountMin } });
-    await context.reply(texts.askPlayerMax, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax), language));
-    return true;
+    return updateCreateDraftAndReturn(context, data, { playerCountMin }, language);
   }
   if (stepKey === 'player-max') {
     const playerCountMax = text === texts.keepCurrent ? asNullableNumber(data.playerCountMax) : parseOptionalPositiveInteger(text, language);
@@ -663,10 +689,7 @@ async function handleCreateSession(
       await context.reply(texts.invalidPlayerRange, buildCreateOptionalKeyboard(asNullableNumber(data.playerCountMax), language));
       return true;
     }
-    const nextData = { ...data, playerCountMax };
-    await context.runtime.session.advance({ stepKey: 'recommended-age', data: nextData });
-    await context.reply(texts.askRecommendedAge, buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge), language));
-    return true;
+    return updateCreateDraftAndReturn(context, data, { playerCountMax }, language);
   }
   if (stepKey === 'recommended-age') {
     const recommendedAge = text === texts.keepCurrent ? asNullableNumber(data.recommendedAge) : parseOptionalPositiveInteger(text, language);
@@ -674,9 +697,7 @@ async function handleCreateSession(
       await context.reply(texts.invalidRecommendedAge, buildCreateOptionalKeyboard(asNullableNumber(data.recommendedAge), language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'play-time-minutes', data: { ...data, recommendedAge } });
-    await context.reply(texts.askPlayTime, buildCreateOptionalKeyboard(asNullableNumber(data.playTimeMinutes), language));
-    return true;
+    return updateCreateDraftAndReturn(context, data, { recommendedAge }, language);
   }
   if (stepKey === 'play-time-minutes') {
     const playTimeMinutes = text === texts.keepCurrent ? asNullableNumber(data.playTimeMinutes) : parseOptionalPositiveInteger(text, language);
@@ -684,9 +705,7 @@ async function handleCreateSession(
       await context.reply(texts.invalidPlayTime, buildCreateOptionalKeyboard(asNullableNumber(data.playTimeMinutes), language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'external-refs', data: { ...data, playTimeMinutes } });
-    await context.reply(texts.askExternalRefs, buildCreateOptionalKeyboard(asNullableObject(data.externalRefs), language));
-    return true;
+    return updateCreateDraftAndReturn(context, data, { playTimeMinutes }, language);
   }
   if (stepKey === 'external-refs') {
     const externalRefs = text === texts.keepCurrent ? asNullableObject(data.externalRefs) : parseOptionalJsonObject(text, language);
@@ -694,9 +713,7 @@ async function handleCreateSession(
       await context.reply(texts.invalidExternalRefs, buildCreateOptionalKeyboard(asNullableObject(data.externalRefs), language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'metadata', data: { ...data, externalRefs } });
-    await context.reply(texts.askMetadata, buildCreateOptionalKeyboard(asNullableObject(data.metadata), language));
-    return true;
+    return updateCreateDraftAndReturn(context, data, { externalRefs }, language);
   }
     if (stepKey === 'metadata') {
       const metadata = text === texts.keepCurrent ? asNullableObject(data.metadata) : parseOptionalJsonObject(text, language);
@@ -704,60 +721,14 @@ async function handleCreateSession(
         await context.reply(texts.invalidMetadata, buildCreateOptionalKeyboard(asNullableObject(data.metadata), language));
         return true;
       }
-      const nextData = { ...data, metadata };
-      await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-      await context.reply(`${await formatDraftSummary(context, nextData)}
-
-${texts.confirmCreatePrompt}`, buildCreateConfirmOptions(language));
-      return true;
+      return updateCreateDraftAndReturn(context, data, { metadata }, language);
     }
   if (stepKey === 'confirm') {
-      if (text !== texts.confirmCreate && text !== catalogAdminLabels.confirmCreate) {
-      await context.reply(texts.confirmCreatePrompt, buildCreateConfirmOptions(language));
-        return true;
-      }
-    const item = await createCatalogItem({
-      repository: resolveCatalogRepository(context),
-      familyId: (data.familyId as number | null | undefined) ?? null,
-      groupId: (data.groupId as number | null | undefined) ?? null,
-      itemType: String(data.itemType ?? 'board-game') as CatalogItemType,
-      displayName: String(data.displayName ?? ''),
-      originalName: asNullableString(data.originalName),
-      description: asNullableString(data.description),
-      language: asNullableString(data.language),
-      publisher: asNullableString(data.publisher),
-      publicationYear: asNullableNumber(data.publicationYear),
-      playerCountMin: asNullableNumber(data.playerCountMin),
-      playerCountMax: asNullableNumber(data.playerCountMax),
-      recommendedAge: asNullableNumber(data.recommendedAge),
-      playTimeMinutes: asNullableNumber(data.playTimeMinutes),
-      externalRefs: asNullableObject(data.externalRefs),
-      metadata: asNullableObject(data.metadata),
-    });
-    await appendAuditEvent({
-      repository: resolveAuditRepository(context),
-      actorTelegramUserId: context.runtime.actor.telegramUserId,
-      actionKey: 'catalog.item.created',
-      targetType: 'catalog-item',
-      targetId: item.id,
-      summary: `Item de cataleg creat: ${item.displayName}`,
-      details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
-    });
-    if (item.itemType === 'board-game') {
-      await context.runtime.session.start({
-        flowKey: editFlowKey,
-        stepKey: 'select-field',
-        data: { itemId: item.id },
-      });
-      await context.reply(
-        `${texts.created}: ${item.displayName} (#${item.id}). ${texts.createdBoardGameEditHint}`,
-        buildEditFieldMenuOptions(item.itemType),
-      );
+    if (text !== texts.confirmCreate && text !== catalogAdminLabels.confirmCreate) {
+      await context.reply(texts.confirmCreatePrompt, buildCreateFieldMenuOptions(getDraftItemTypeFromData(data), language));
       return true;
     }
-    await context.runtime.session.cancel();
-    await context.reply(`${texts.created}: ${item.displayName} (#${item.id}).`, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')));
-    return true;
+    return saveCreateDraftAndReturn(context, data, language);
   }
   return false;
 }
@@ -1260,6 +1231,33 @@ function buildEditFieldMenuOptions(itemType: CatalogItemType, language: 'ca' | '
   };
 }
 
+function buildCreateFieldMenuOptions(itemType: CatalogItemType, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const replyKeyboard: string[][] = [
+    [texts.editFieldDisplayName, texts.editFieldItemType],
+    [texts.editFieldFamily, texts.editFieldGroup],
+    [texts.editFieldOriginalName, texts.editFieldDescription],
+    [texts.editFieldLanguage, texts.editFieldPublisher],
+    [texts.editFieldPublicationYear, texts.editFieldRecommendedAge],
+    [texts.editFieldPlayTimeMinutes],
+    [texts.editFieldExternalRefs, texts.editFieldMetadata],
+  ];
+  if (itemTypeSupportsPlayers(itemType)) {
+    replyKeyboard.splice(5, 0, [texts.editFieldPlayerMin, texts.editFieldPlayerMax]);
+  }
+  replyKeyboard.push([texts.searchOnlineServices]);
+  replyKeyboard.push([texts.confirmCreate], [texts.cancel]);
+  return {
+    replyKeyboard,
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function getDraftItemTypeFromData(data: Record<string, unknown>): CatalogItemType {
+  return String(data.itemType ?? 'board-game') as CatalogItemType;
+}
+
 function buildCreateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
   return {
@@ -1557,6 +1555,94 @@ async function updateEditDraftAndReturn(
   const nextData = { ...data, ...patch };
   await context.runtime.session.advance({ stepKey: 'select-field', data: nextData });
   await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin.fieldUpdated, buildEditFieldMenuOptions(getDraftItemType(item, nextData)));
+  return true;
+}
+
+async function updateCreateDraftAndReturn(
+  context: TelegramCatalogAdminContext,
+  data: Record<string, unknown>,
+  patch: Record<string, unknown>,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const nextData = { ...data, ...patch };
+  const itemType = getDraftItemTypeFromData(nextData);
+  await context.runtime.session.advance({ stepKey: 'select-field', data: nextData });
+  await context.reply(createTelegramI18n(language).catalogAdmin.fieldUpdated, buildCreateFieldMenuOptions(itemType, language));
+  return true;
+}
+
+async function saveCreateDraftAndReturn(
+  context: TelegramCatalogAdminContext,
+  data: Record<string, unknown>,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const itemType = getDraftItemTypeFromData(data);
+  const displayName = String(data.displayName ?? '').trim();
+  if (!displayName) {
+    await context.reply(texts.askDisplayName, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  const item = await createCatalogItem({
+    repository: resolveCatalogRepository(context),
+    familyId: (data.familyId as number | null | undefined) ?? null,
+    groupId: (data.groupId as number | null | undefined) ?? null,
+    itemType,
+    displayName,
+    originalName: asNullableString(data.originalName),
+    description: asNullableString(data.description),
+    language: asNullableString(data.language),
+    publisher: asNullableString(data.publisher),
+    publicationYear: asNullableNumber(data.publicationYear),
+    playerCountMin: asNullableNumber(data.playerCountMin),
+    playerCountMax: asNullableNumber(data.playerCountMax),
+    recommendedAge: asNullableNumber(data.recommendedAge),
+    playTimeMinutes: asNullableNumber(data.playTimeMinutes),
+    externalRefs: asNullableObject(data.externalRefs),
+    metadata: asNullableObject(data.metadata),
+  });
+
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'catalog.item.created',
+    targetType: 'catalog-item',
+    targetId: item.id,
+    summary: `Item de cataleg creat: ${item.displayName}`,
+    details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
+  });
+
+  await context.runtime.session.cancel();
+  await context.reply(`${texts.created}: ${item.displayName} (#${item.id}).`, buildCatalogAdminMenuOptions(language));
+  return true;
+}
+
+async function handleCreateOnlineSearch(
+  context: TelegramCatalogAdminContext,
+  data: Record<string, unknown>,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const itemType = getDraftItemTypeFromData(data);
+  const displayName = String(data.displayName ?? '').trim();
+  if (!displayName) {
+    await context.runtime.session.advance({ stepKey: 'search-online-title', data });
+    await context.reply(texts.askDisplayName, buildCreateFieldMenuOptions(itemType, language));
+    return true;
+  }
+
+  const lookupCandidates = await searchCatalogLookupCandidates(context, {
+    itemType,
+    displayName,
+  });
+  if (lookupCandidates.length > 0) {
+    await context.runtime.session.advance({ stepKey: 'lookup-choice', data: { ...data, lookupCandidates } });
+    await context.reply(buildLookupChoicePrompt(language, lookupCandidates), buildLookupChoiceOptions(language, lookupCandidates));
+    return true;
+  }
+
+  await context.reply(texts.noResults.replace('{query}', displayName), buildCreateFieldMenuOptions(itemType, language));
   return true;
 }
 
@@ -2343,9 +2429,10 @@ function buildLookupTitleChoicePrompt(typedTitle: string, apiTitle: string): str
   ].join('\n');
 }
 
-function buildLookupTitleChoiceOptions(): TelegramReplyOptions {
+function buildLookupTitleChoiceOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
   return {
-    replyKeyboard: [[catalogAdminLabels.keepTypedTitle], [catalogAdminLabels.useApiTitle], [catalogAdminLabels.cancel]],
+    replyKeyboard: [[texts.keepTypedTitle], [texts.useApiTitle], [texts.cancel]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
