@@ -365,6 +365,18 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
   assert.match(replies.at(-1)?.message ?? '', /Escribe el nombre, o parte del nombre,/);
 });
 
+test('handleTelegramCatalogAdminText accepts Spanish item type buttons when creating', async () => {
+  const { context, getCurrentSession, replies } = createContext({ language: 'es' });
+
+  context.messageText = 'Crear item';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Juego de mesa';
+
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'display-name');
+  assert.match(replies.at(-1)?.message ?? '', /Escribe el titulo visible del item\./);
+});
+
 test('handleTelegramCatalogAdminText creates a board game and opens edit mode immediately', async () => {
   const repository = createRepository({
     families: [
@@ -605,6 +617,7 @@ test('handleTelegramCatalogAdminText lets the user choose among ambiguous Wikipe
 
   assert.equal(getCurrentSession()?.stepKey, 'wikipedia-candidate-choice');
   assert.match(replies.at(-1)?.message ?? '', /He trobat diverses pàgines candidates a Wikipedia/);
+  assert.match(replies.at(-1)?.message ?? '', /https:\/\/en\.wikipedia\.org\/wiki\/Azul/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.includes('Azul'), true);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.manualWikipediaUrl), true);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.skipLookupImport), true);
@@ -1701,7 +1714,7 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
   assert.match(replies.at(-1)?.message ?? '', /<b>Categoria:<\/b> Mundodisco/);
   assert.match(replies.at(-1)?.message ?? '', /Prestat a Anna/);
   assert.match(replies.at(-1)?.message ?? '', /des de 04\/04\/2026/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Emportar' || button.text === 'Retornar'));
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Prendre prestat' || button.text === 'Retornar'));
 });
 
 test('handleTelegramCatalogAdminText can search catalog items by name', async () => {
@@ -1794,7 +1807,7 @@ test('handleTelegramCatalogAdminText can search catalog items by name', async ()
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#3/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.text === 'Mort')?.callbackData, `${catalogAdminCallbackPrefixes.inspect}3`);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
-  assert.ok(!replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Emportar'));
+  assert.ok(!replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Prendre prestat'));
 });
 
 test('handleTelegramCatalogAdminStartText opens an item detail from deep link payload', async () => {
@@ -1829,7 +1842,11 @@ test('handleTelegramCatalogAdminStartText opens an item detail from deep link pa
   context.messageText = '/start catalog_admin_item_2';
   assert.equal(await handleTelegramCatalogAdminStartText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>El color de la magia<\/b>/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar item'));
+  const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
+  assert.ok(buttons.some((button) => button.text === 'Editar item'));
+  assert.ok(buttons.some((button) => button.text === 'Eliminar item'));
+  assert.ok(!buttons.some((button) => button.text === 'Editar préstec'));
+  assert.ok(!buttons.some((button) => button.text === 'Veure cataleg'));
 });
 
 test('handleTelegramCatalogAdminText falls back to minimum-field creation when lookup fails', async () => {

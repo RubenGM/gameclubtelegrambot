@@ -225,7 +225,7 @@ export function buildLoanItemButton(
   if (!loan) {
     return [
       { text: itemLabel, callbackData: `${inspectCallbackPrefix}${itemId}` },
-      { text: texts.emportar, callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` },
+      { text: texts.prendrePrestat, callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` },
     ];
   }
 
@@ -238,27 +238,27 @@ export function buildLoanItemButton(
 export function buildLoanDetailButtons({
   loan,
   itemId,
-  canEdit,
   language = 'ca',
+  deleteCallbackData,
 }: {
   loan: CatalogLoanRecord | null;
   itemId: number;
-  canEdit: boolean;
   language?: 'ca' | 'es' | 'en';
+  deleteCallbackData?: string;
 }): TelegramInlineButton[][] {
   const texts = createTelegramI18n(language).catalogLoan;
   const rows: TelegramInlineButton[][] = [];
   if (loan) {
     rows.push([{ text: texts.retornar, callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` }]);
-    if (canEdit) {
-      rows.push([{ text: texts.editarPrestec, callbackData: `${catalogLoanCallbackPrefixes.edit}${loan.id}` }]);
-    }
   } else {
-    rows.push([{ text: texts.emportar, callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` }]);
+    rows.push([{ text: texts.prendrePrestat, callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` }]);
+  }
+
+  if (deleteCallbackData) {
+    rows.push([{ text: texts.deleteItem, callbackData: deleteCallbackData }]);
   }
 
   rows.push([{ text: texts.veurePrestecs, callbackData: catalogLoanCallbackPrefixes.openMyLoans }]);
-  rows.push([{ text: texts.veureCataleg, callbackData: 'catalog_read:overview' }]);
   return rows;
 }
 
@@ -303,7 +303,7 @@ async function buildItemLoanNavigationOptions(
   language: 'ca' | 'es' | 'en' = 'ca',
 ): Promise<TelegramReplyOptions> {
   const loan = await loadActiveLoanByItemId(context, itemId);
-  const inlineKeyboard = buildLoanDetailButtons({ loan, itemId, canEdit: loan ? canEditLoan(context, loan) : false, language });
+  const inlineKeyboard = buildLoanDetailButtons({ loan, itemId, language });
   return { inlineKeyboard };
 }
 

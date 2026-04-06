@@ -369,7 +369,7 @@ async function fetchJson(url) {
   return response.json();
 }
 
-function emitError(type, message) {
-  process.stdout.write(`${JSON.stringify({ ok: false, error: { type, message } })}\n`);
+function emitError(type, message, extra = {}) {
+  process.stdout.write(`${JSON.stringify({ ok: false, error: { type, message, ...extra } })}\n`);
   process.exit(0);
 }

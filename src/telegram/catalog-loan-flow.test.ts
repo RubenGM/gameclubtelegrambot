@@ -7,6 +7,8 @@ import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import {
   catalogLoanCallbackPrefixes,
+  buildLoanDetailButtons,
+  buildLoanItemButton,
   handleTelegramCatalogLoanCallback,
   handleTelegramCatalogLoanText,
 } from './catalog-loan-flow.js';
@@ -226,6 +228,45 @@ test('catalog loan callbacks create, list and return loans', async () => {
   await handleTelegramCatalogLoanCallback(context);
 
   assert.match(replies[0]?.message ?? '', /Has retornat Game 1\./);
+});
+
+test('loan detail buttons use the updated borrow and delete labels', async () => {
+  const loan: CatalogLoanRecord = {
+    id: 7,
+    itemId: 11,
+    borrowerTelegramUserId: 99,
+    borrowerDisplayName: 'Marta',
+    loanedByTelegramUserId: 99,
+    dueAt: null,
+    notes: null,
+    returnedAt: null,
+    returnedByTelegramUserId: null,
+    createdAt: '2026-04-04T10:00:00.000Z',
+    updatedAt: '2026-04-04T10:00:00.000Z',
+  };
+
+  const availableRows = buildLoanDetailButtons({
+    loan: null,
+    itemId: 11,
+    deleteCallbackData: 'catalog_admin:deactivate:11',
+    language: 'ca',
+  });
+
+  assert.equal(availableRows[0]?.[0]?.text, 'Prendre prestat');
+  assert.equal(availableRows[1]?.[0]?.text, 'Eliminar item');
+  assert.equal(availableRows[2]?.[0]?.text, 'Veure préstecs');
+
+  const borrowedRows = buildLoanDetailButtons({
+    loan,
+    itemId: 11,
+    deleteCallbackData: 'catalog_admin:deactivate:11',
+    language: 'en',
+  });
+
+  assert.equal(borrowedRows[0]?.[0]?.text, 'Return');
+  assert.equal(borrowedRows[1]?.[0]?.text, 'Delete item');
+  assert.equal(borrowedRows[2]?.[0]?.text, 'View loans');
+  assert.equal(buildLoanItemButton(null, 11, 'Game 1', 'catalog_read:item:', 'es')[1]?.text, 'Tomar prestado');
 });
 
 test('catalog loan edit flow updates notes and due date', async () => {

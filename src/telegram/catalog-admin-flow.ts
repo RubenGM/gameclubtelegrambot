@@ -341,7 +341,7 @@ async function handleCreateSession(
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).catalogAdmin;
   if (stepKey === 'item-type') {
-    const itemType = parseItemTypeLabel(text);
+    const itemType = parseItemTypeLabel(text, language);
     if (itemType instanceof Error) {
       await context.reply(texts.invalidType, buildTypeOptions(language));
       return true;
@@ -369,7 +369,7 @@ async function handleCreateSession(
             wikipediaCandidates: importResult.error.candidates ?? [],
           },
         });
-        await context.reply(`${importResult.error.message}\n\n${texts.invalidWikipediaCandidateChoice}`, buildWikipediaCandidateOptions(importResult.error.candidates ?? []));
+        await context.reply(`${importResult.error.message}\n\n${texts.invalidWikipediaCandidateChoice}\n\n${formatWikipediaCandidateLinks(importResult.error.candidates ?? [])}`, buildWikipediaCandidateOptions(importResult.error.candidates ?? [], language));
         return true;
       }
 
@@ -517,7 +517,7 @@ async function handleCreateSession(
     const selectedTitle = wikipediaCandidates.find((candidate) => candidate === text)
       ?? wikipediaCandidates.find((candidate) => normalizeTitleForComparison(candidate) === normalizeTitleForComparison(text));
     if (!selectedTitle) {
-      await context.reply(texts.invalidWikipediaCandidateChoice, buildWikipediaCandidateOptions(wikipediaCandidates));
+      await context.reply(texts.invalidWikipediaCandidateChoice, buildWikipediaCandidateOptions(wikipediaCandidates, language));
       return true;
     }
 
@@ -537,15 +537,15 @@ async function handleCreateSession(
         },
       });
       await context.reply(
-        `${importResult.error.message}\n\nEscull una de les opcions, entra la URL manualment o omet la importacio.`,
-        buildWikipediaCandidateOptions(importResult.error.candidates ?? wikipediaCandidates),
+        `${importResult.error.message}\n\n${texts.invalidWikipediaCandidateChoice}\n\n${formatWikipediaCandidateLinks(importResult.error.candidates ?? wikipediaCandidates)}`,
+        buildWikipediaCandidateOptions(importResult.error.candidates ?? wikipediaCandidates, language),
       );
       return true;
     }
 
     await context.reply(
       `${importWikipediaErrorMessage(importResult)}\n\nPots provar una altra opcio, entrar la URL manualment o ometre la importacio.`,
-      buildWikipediaCandidateOptions(wikipediaCandidates),
+      buildWikipediaCandidateOptions(wikipediaCandidates, language),
     );
     return true;
   }
@@ -849,7 +849,7 @@ async function handleEditSession(
     return updateEditDraftAndReturn(context, item, data, { displayName: text });
   }
   if (stepKey === 'item-type') {
-    const itemType = parseItemTypeLabel(text);
+    const itemType = parseItemTypeLabel(text, language);
     if (itemType instanceof Error) {
       await context.reply(texts.invalidType, buildTypeOptions(language));
       return true;
@@ -1365,6 +1365,16 @@ function buildWikipediaCandidateOptions(candidateTitles: string[], language: 'ca
   };
 }
 
+function formatWikipediaCandidateLinks(candidateTitles: string[]): string {
+  return candidateTitles
+    .map((title) => `- ${title} · https://en.wikipedia.org/wiki/${encodeWikipediaTitle(title)}`)
+    .join('\n');
+}
+
+function encodeWikipediaTitle(title: string): string {
+  return encodeURIComponent(title.trim().replace(/\s+/g, '_'));
+}
+
 async function showCatalogBrowseMenu(context: TelegramCatalogAdminContext): Promise<void> {
   await replyWithCatalogList(context, 'list');
 }
@@ -1684,7 +1694,7 @@ async function buildCatalogItemDetailButtons(
       { text: `${texts.confirmMediaEdit} #${entry.id}`, callbackData: `${catalogAdminCallbackPrefixes.editMedia}${entry.id}` },
       { text: `${texts.confirmMediaDelete} #${entry.id}`, callbackData: `${catalogAdminCallbackPrefixes.deleteMedia}${entry.id}` },
     ]]),
-    ...buildLoanDetailButtons({ loan, itemId: item.id, canEdit: loan ? isEditableLoan(context, loan) : false }),
+    ...buildLoanDetailButtons({ loan, itemId: item.id, deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }),
   ];
 }
 
@@ -1806,17 +1816,18 @@ async function formatDraftSummary(context: TelegramCatalogAdminContext, data: Re
   ].join('\n');
 }
 
-function parseItemTypeLabel(text: string): CatalogItemType | Error {
+function parseItemTypeLabel(text: string, language: 'ca' | 'es' | 'en'): CatalogItemType | Error {
+  const labels = createTelegramI18n(language).catalogAdmin;
   switch (text) {
-    case catalogAdminLabels.typeBoardGame:
+    case labels.typeBoardGame:
       return 'board-game';
-    case catalogAdminLabels.typeExpansion:
+    case labels.typeExpansion:
       return 'expansion';
-    case catalogAdminLabels.typeBook:
+    case labels.typeBook:
       return 'book';
-    case catalogAdminLabels.typeRpgBook:
+    case labels.typeRpgBook:
       return 'rpg-book';
-    case catalogAdminLabels.typeAccessory:
+    case labels.typeAccessory:
       return 'accessory';
     default:
       return new Error('invalid-item-type');

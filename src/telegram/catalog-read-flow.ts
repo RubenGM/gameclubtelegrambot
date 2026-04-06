@@ -14,13 +14,13 @@ import {
   buildLoanItemButton,
   catalogLoanCallbackPrefixes,
   formatLoanAvailabilityLines,
-  canEditLoan,
   resolveLoanBorrowerDisplayName,
   type CatalogLoanRecord,
   loadActiveLoanByItemId,
   loadActiveLoansByBorrower,
   type TelegramCatalogLoanContext,
 } from './catalog-loan-flow.js';
+import { catalogAdminCallbackPrefixes } from './catalog-admin-flow.js';
 import type { TelegramInlineButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 
@@ -95,7 +95,16 @@ export async function handleTelegramCatalogReadStartText(context: TelegramCatalo
       availabilityLines: await formatLoanAvailabilityLines(context, loan),
       language,
     }),
-    { inlineKeyboard: buildLoanDetailButtons({ loan, itemId: item.id, canEdit: loan ? canEditLoan(context, loan) : false }), parseMode: 'HTML' },
+    {
+      inlineKeyboard: buildLoanDetailButtons({
+        loan,
+        itemId: item.id,
+        ...(context.runtime.actor.isAdmin
+          ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }
+          : {}),
+      }),
+      parseMode: 'HTML',
+    },
   );
   return true;
 }
@@ -295,8 +304,17 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
         availabilityLines: await formatLoanAvailabilityLines(context, loan),
         language,
       }),
-      { inlineKeyboard: buildLoanDetailButtons({ loan, itemId: item.id, canEdit: loan ? canEditLoan(context, loan) : false }), parseMode: 'HTML' },
-    );
+    {
+      inlineKeyboard: buildLoanDetailButtons({
+        loan,
+        itemId: item.id,
+        ...(context.runtime.actor.isAdmin
+          ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }
+          : {}),
+      }),
+      parseMode: 'HTML',
+    },
+  );
   }
 }
 
@@ -343,9 +361,6 @@ async function buildLoanRows(context: TelegramCatalogReadContext, loans: Catalog
       { text: item?.displayName ?? `Item ${loan.itemId}`, callbackData: `catalog_read:item:${loan.itemId}` },
       { text: language === 'es' ? 'Devolver' : language === 'en' ? 'Return' : 'Retornar', callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` },
     ];
-    if (canEditLoan(context, loan)) {
-      row.push({ text: language === 'es' ? 'Editar prestamo' : language === 'en' ? 'Edit loan' : 'Editar préstec', callbackData: `${catalogLoanCallbackPrefixes.edit}${loan.id}` });
-    }
     rows.push(row);
   }
 
