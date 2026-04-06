@@ -13,14 +13,14 @@ export function renderCatalogItemType(itemType: CatalogItemType, language: BotLa
   switch (itemType) {
     case 'board-game':
       return texts.catalogAdmin.typeBoardGame;
-    case 'expansion':
-      return texts.catalogAdmin.typeExpansion;
     case 'book':
       return texts.catalogAdmin.typeBook;
     case 'rpg-book':
       return texts.catalogAdmin.typeRpgBook;
     case 'accessory':
       return texts.catalogAdmin.typeAccessory;
+    default:
+      return itemType;
   }
 }
 

@@ -69,11 +69,13 @@ export const catalogAdminLabels = {
   openMenu: 'Cataleg',
   create: 'Crear item',
   list: 'Llistar items',
+  listBoardGames: 'Llistar jocs de taula',
+  listBooks: 'Llistar llibres',
+  listRpgBooks: 'Llistar llibres RPG',
   searchByName: 'Cerca per nom',
   edit: 'Editar item',
   deactivate: 'Desactivar item',
   typeBoardGame: 'Joc de taula',
-  typeExpansion: 'Expansio',
   typeBook: 'Llibre',
   typeRpgBook: 'Llibre RPG',
   typeAccessory: 'Accessori',
@@ -165,6 +167,18 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
   if (text === texts.create || text === catalogAdminLabels.create || text === '/catalog_create') {
     await context.runtime.session.start({ flowKey: createFlowKey, stepKey: 'item-type', data: {} });
     await context.reply(texts.askItemType, buildTypeOptions(language));
+    return true;
+  }
+  if (text === texts.listBoardGames || text === catalogAdminLabels.listBoardGames) {
+    await replyWithCatalogList(context, 'list', 'board-game');
+    return true;
+  }
+  if (text === texts.listBooks || text === catalogAdminLabels.listBooks) {
+    await replyWithCatalogList(context, 'list', 'book');
+    return true;
+  }
+  if (text === texts.listRpgBooks || text === catalogAdminLabels.listRpgBooks) {
+    await replyWithCatalogList(context, 'list', 'rpg-book');
     return true;
   }
   if (text === texts.list || text === catalogAdminLabels.list || text === '/catalog_list') {
@@ -1110,8 +1124,8 @@ function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): TelegramRep
   const texts = createTelegramI18n(language).catalogAdmin;
   return {
     replyKeyboard: [
-      [texts.create, texts.list],
-      [texts.edit, texts.deactivate],
+      [texts.create, texts.listBoardGames],
+      [texts.listBooks, texts.listRpgBooks],
       [texts.searchByName],
       [texts.start],
     ],
@@ -1124,7 +1138,7 @@ function buildTypeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
   return {
     replyKeyboard: [
-      [texts.typeBoardGame, texts.typeExpansion],
+      [texts.typeBoardGame],
       [texts.typeBook, texts.typeRpgBook],
       [texts.typeAccessory],
       [texts.cancel],
@@ -1139,7 +1153,7 @@ function buildEditTypeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOption
   return {
     replyKeyboard: [
       [texts.keepCurrent],
-      [texts.typeBoardGame, texts.typeExpansion],
+      [texts.typeBoardGame],
       [texts.typeBook, texts.typeRpgBook],
       [texts.typeAccessory],
       [texts.cancel],
@@ -1470,9 +1484,12 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
 async function replyWithCatalogList(
   context: TelegramCatalogAdminContext,
   mode: 'list' | 'edit' | 'deactivate',
+  itemTypeFilter?: Exclude<CatalogItemType, 'expansion'>,
 ): Promise<void> {
   const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
-  const items = await listCatalogItems({ repository: resolveCatalogRepository(context), includeDeactivated: false });
+  const items = (await listCatalogItems({ repository: resolveCatalogRepository(context), includeDeactivated: false }))
+    .filter((item) => item.itemType !== 'expansion')
+    .filter((item) => (itemTypeFilter ? item.itemType === itemTypeFilter : true));
   if (items.length === 0) {
     await context.reply(texts.noItems, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')));
     return;
@@ -1486,7 +1503,7 @@ async function replyWithCatalogList(
         : `${catalogAdminCallbackPrefixes.deactivate}${item.id}`,
     }]);
   await context.reply(
-    mode === 'list' ? await formatCatalogItemList(context, items) : mode === 'edit' ? texts.chooseItemToEdit : texts.chooseItemToDeactivate,
+    mode === 'list' ? await formatCatalogItemList(context, items, itemTypeFilter !== undefined) : mode === 'edit' ? texts.chooseItemToEdit : texts.chooseItemToDeactivate,
     mode === 'list'
       ? { ...buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')), inlineKeyboard, parseMode: 'HTML' }
       : { inlineKeyboard },
@@ -1606,7 +1623,11 @@ async function withCompatibleGroup(
   return { ...data, familyId, groupId: currentGroupId };
 }
 
-async function formatCatalogItemList(context: TelegramCatalogAdminContext, items: CatalogItemRecord[]): Promise<string> {
+async function formatCatalogItemList(
+  context: TelegramCatalogAdminContext,
+  items: CatalogItemRecord[],
+  omitTypeLabel = false,
+): Promise<string> {
   const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
   const repository = resolveCatalogRepository(context);
   const loanRepository = resolveCatalogLoanRepository(context);
@@ -1631,7 +1652,7 @@ async function formatCatalogItemList(context: TelegramCatalogAdminContext, items
     lines.push('------');
     lines.push('');
     for (const item of groupItems) {
-      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null));
+      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, 'Disponible', omitTypeLabel));
     }
   }
 
@@ -1650,7 +1671,7 @@ async function formatCatalogItemList(context: TelegramCatalogAdminContext, items
     lines.push('------');
     lines.push('');
     for (const item of familyItems) {
-      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null));
+      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, 'Disponible', omitTypeLabel));
     }
   }
 
@@ -1662,7 +1683,7 @@ async function formatCatalogItemList(context: TelegramCatalogAdminContext, items
     lines.push('------');
     lines.push('');
     for (const item of standaloneItemsWithoutFamily) {
-      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, texts.noFamily));
+      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, 'Disponible', omitTypeLabel));
     }
   }
 
@@ -1674,7 +1695,7 @@ async function formatCatalogItemList(context: TelegramCatalogAdminContext, items
       lines.push(texts.groupUndefined.replace('{id}', String(item.groupId)));
       lines.push('------');
       lines.push('');
-      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null));
+      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, 'Disponible', omitTypeLabel));
     }
   }
 
@@ -1714,7 +1735,7 @@ async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, it
   return [
     `<b>${escapeHtml(item.displayName)}</b> (#${item.id})`,
     formatHtmlField(texts.type, renderCatalogItemType(item.itemType)),
-    formatHtmlField(texts.family, escapeHtml(familyName ?? texts.noFamily)),
+    ...(familyName ? [formatHtmlField(texts.family, escapeHtml(familyName))] : []),
     formatHtmlField(texts.group, escapeHtml(groupName ?? texts.noGroup)),
     ...(await formatLoanAvailabilityLines(context, loan)),
     ...(item.originalName ? [formatHtmlField(texts.editFieldOriginalName, escapeHtml(item.originalName))] : []),
@@ -1754,13 +1775,13 @@ async function formatCatalogListItemLine(
   item: CatalogItemRecord,
   loan: CatalogLoanRecord | null,
   fallbackAvailability: string = 'Disponible',
+  omitTypeLabel = false,
 ): Promise<string> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
-  const typeLabel = escapeHtml(renderCatalogItemType(item.itemType));
+  const typeLabel = omitTypeLabel ? null : escapeHtml(renderCatalogItemType(item.itemType));
   const availability = loan
-    ? `<i>${[typeLabel, `Prestat a ${escapeHtml(await resolveLoanBorrowerDisplayName(context, loan))}`, `des de ${escapeHtml(formatCatalogListDate(loan.createdAt))}`].join(' · ')}</i>`
-    : `<i>${[typeLabel, escapeHtml(fallbackAvailability === 'Disponible' ? createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogLoan.available : fallbackAvailability)].join(' · ')}</i>`;
-  return `- <a href="${escapeHtml(buildCatalogAdminItemDeepLink(item.id))}"><b>${escapeHtml(item.displayName)}</b></a> · ${availability}`;
+    ? `<i>${[typeLabel, `Prestat a ${escapeHtml(await resolveLoanBorrowerDisplayName(context, loan))}`, `des de ${escapeHtml(formatCatalogListDate(loan.createdAt))}`].filter(Boolean).join(' · ')}</i>`
+    : `<i>${[typeLabel, escapeHtml(fallbackAvailability === 'Disponible' ? createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogLoan.available : fallbackAvailability)].filter(Boolean).join(' · ')}</i>`;
+  return `- <a href="${escapeHtml(buildCatalogAdminItemDeepLink(item.id))}"><b>${escapeHtml(item.displayName)}</b></a>${availability ? ` · ${availability}` : ''}`;
 }
 
 function buildCatalogAdminItemDeepLink(itemId: number): string {
@@ -1821,8 +1842,6 @@ function parseItemTypeLabel(text: string, language: 'ca' | 'es' | 'en'): Catalog
   switch (text) {
     case labels.typeBoardGame:
       return 'board-game';
-    case labels.typeExpansion:
-      return 'expansion';
     case labels.typeBook:
       return 'book';
     case labels.typeRpgBook:
