@@ -131,6 +131,7 @@ export interface TelegramCatalogAdminContext {
         db: unknown;
       };
     };
+    wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
     bot: {
       publicName: string;
       clubName: string;
@@ -360,7 +361,13 @@ async function handleCreateSession(
       await context.reply(texts.invalidType, buildTypeOptions(language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'select-field', data: { ...data, itemType } });
+    const nextData = { ...data, itemType };
+    if (itemType === 'board-game' || itemType === 'book' || itemType === 'rpg-book') {
+      await context.runtime.session.advance({ stepKey: 'display-name', data: nextData });
+      await context.reply(texts.askDisplayName, buildSingleCancelKeyboard(language));
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'select-field', data: nextData });
     await context.reply(texts.selectCreateField, buildCreateFieldMenuOptions(itemType, language));
     return true;
   }
@@ -1379,7 +1386,7 @@ function buildWikipediaCandidateOptions(candidateTitles: string[], language: 'ca
 
 function formatWikipediaCandidateLinks(candidateTitles: string[]): string {
   return candidateTitles
-    .map((title) => `- ${title} · https://en.wikipedia.org/wiki/${encodeWikipediaTitle(title)}`)
+    .map((title) => `- ${title}`)
     .join('\n');
 }
 
@@ -2484,6 +2491,10 @@ function resolveWikipediaBoardGameImportService(context: TelegramCatalogAdminCon
     return context.wikipediaBoardGameImportService;
   }
 
+  if (context.runtime.wikipediaBoardGameImportService) {
+    return context.runtime.wikipediaBoardGameImportService;
+  }
+
   return createWikipediaBoardGameImportService();
 }
 
@@ -2498,7 +2509,7 @@ async function importWikipediaBoardGameDraft(
       ok: false,
       error: {
         type: 'connection',
-        message: 'No he pogut connectar amb Wikipedia en aquest moment.',
+        message: 'No he pogut connectar amb el cataleg extern en aquest moment.',
       },
     };
   }
@@ -2550,7 +2561,7 @@ async function createWikipediaImportedBoardGame(
   });
   await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin.wikipediaFinalizeImport, buildEditFieldMenuOptions(item.itemType));
   await context.reply(
-    `He importat dades de Wikipedia per ${item.displayName}.\n\n${await formatDraftSummary(context, importedData as unknown as Record<string, unknown>)}\n\nTria un camp del teclat o guarda els canvis quan hagis acabat.`,
+    `He importat dades externes per ${item.displayName}.\n\n${await formatDraftSummary(context, importedData as unknown as Record<string, unknown>)}\n\nTria un camp del teclat o guarda els canvis quan hagis acabat.`,
     { ...buildEditFieldMenuOptions(item.itemType), parseMode: 'HTML' },
   );
 }
@@ -2584,12 +2595,12 @@ function asStringArray(value: unknown): string[] {
 
 function importWikipediaErrorMessage(result: Extract<WikipediaBoardGameImportResult, { ok: false }>): string {
   if (result.error.type === 'not-found') {
-    return 'No he trobat aquest joc a Wikipedia. Continuem manualment.';
+    return 'No he trobat aquest joc al cataleg extern. Continuem manualment.';
   }
 
   if (result.error.type === 'connection') {
-    return 'No he pogut connectar amb Wikipedia. Continuem manualment.';
+    return 'No he pogut connectar amb el cataleg extern. Continuem manualment.';
   }
 
-  return 'No he pogut importar les dades de Wikipedia. Continuem manualment.';
+  return 'No he pogut importar les dades del cataleg extern. Continuem manualment.';
 }

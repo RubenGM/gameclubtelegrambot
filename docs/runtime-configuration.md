@@ -52,6 +52,7 @@ El contracte runtime actual inclou:
 - `bot.clubName`
 - `bot.iconPath` opcional
 - `telegram.token`
+- `bgg.apiKey` opcional per activar BoardGameGeek com a font principal d'importacio de jocs de taula; es fa servir com a bearer token HTTP
 - `database.host`
 - `database.port`
 - `database.name`
@@ -79,6 +80,9 @@ El contracte runtime actual inclou:
   },
   "telegram": {
     "token": "telegram-token"
+  },
+  "bgg": {
+    "apiKey": "bgg-api-key"
   },
   "database": {
     "host": "localhost",
@@ -122,6 +126,7 @@ El contracte runtime actual inclou:
 - L'estat d'inicialització validat es complementa amb un marcador durable a `app_metadata` sota la clau `bootstrap.initialization`.
 - `bot.*` descriu metadata visible del club i del bot; no ha de barrejar-se amb secrets.
 - `telegram.*` i `database.*` són configuració operativa; `adminElevation.passwordHash` és un secret derivat persistit, no la contrasenya en clar.
+- `bgg.apiKey` activa BoardGameGeek com a font principal per a la importació de jocs i s'envia com a `Authorization: Bearer ...`; si no hi és, el sistema continua amb Wikipedia com a fallback extrem.
 - el runtime final mai no necessita recuperar la contrasenya d'elevació original; només necessita poder verificar-la en el futur.
 - `bootstrap.firstAdmin.*` descriu la identitat inicial que el wizard ha de persistir; el sistema no l'ha d'inferir a partir del primer usuari que escriu al bot.
 - `bootstrap.firstAdmin.telegramUserId` és la identitat canònica; `username` només és ajuda humana i no s'ha d'usar com a clau única.

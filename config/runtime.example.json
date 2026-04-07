@@ -7,6 +7,9 @@
   "telegram": {
     "token": "replace-with-real-telegram-token"
   },
+  "bgg": {
+    "apiKey": "replace-with-real-bgg-api-key"
+  },
   "database": {
     "host": "127.0.0.1",
     "port": 55432,

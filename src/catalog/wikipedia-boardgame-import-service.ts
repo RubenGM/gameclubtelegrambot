@@ -27,6 +27,13 @@ export interface WikipediaBoardGameImportService {
   importByTitle(title: string): Promise<WikipediaBoardGameImportResult>;
 }
 
+interface BoardGameGeekCandidate {
+  id: string;
+  names: string[];
+  primaryName: string;
+  yearPublished: number | null;
+}
+
 export type WikipediaBoardGameImportResult =
   | {
       ok: true;
@@ -46,15 +53,31 @@ export type WikipediaBoardGameImportErrorType = 'ambiguous' | 'bad-input' | 'con
 export function createWikipediaBoardGameImportService({
   scriptPath = './scripts/wikipedia-boardgame-catalog-import.sh',
   execImpl = execFileAsync,
+  fetchImpl = fetch,
+  bggApiKey,
 }: {
   scriptPath?: string;
   execImpl?: typeof execFileAsync;
+  fetchImpl?: typeof fetch;
+  bggApiKey?: string;
 } = {}): WikipediaBoardGameImportService {
   return {
     async importByTitle(title: string) {
       const normalizedTitle = title.trim();
       if (!normalizedTitle) {
         return { ok: false, error: { type: 'bad-input', message: 'Falta el nom del joc.' } };
+      }
+
+      const normalizedBggApiKey = bggApiKey?.trim();
+      if (normalizedBggApiKey) {
+        const boardGameGeekResult = await importFromBoardGameGeek({
+          title: normalizedTitle,
+          fetchImpl,
+          apiKey: normalizedBggApiKey,
+        });
+        if (boardGameGeekResult) {
+          return boardGameGeekResult;
+        }
       }
 
       try {
@@ -72,6 +95,60 @@ export function createWikipediaBoardGameImportService({
       }
     },
   };
+}
+
+async function importFromBoardGameGeek({
+  title,
+  fetchImpl,
+  apiKey,
+}: {
+  title: string;
+  fetchImpl: typeof fetch;
+  apiKey: string;
+}): Promise<WikipediaBoardGameImportResult | null> {
+  try {
+    const candidateId = parseBoardGameGeekCandidateId(title);
+    if (candidateId) {
+      const draft = await importBoardGameGeekThingById(fetchImpl, apiKey, candidateId);
+      return draft ? { ok: true, draft } : null;
+    }
+
+    const searchParams = new URLSearchParams({
+      query: title,
+      type: 'boardgame',
+    });
+    const searchXml = await fetchBoardGameGeekXml(fetchImpl, `https://boardgamegeek.com/xmlapi2/search?${searchParams.toString()}`, apiKey);
+    const candidates = parseBoardGameGeekSearchResults(searchXml);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const selectedCandidate = chooseBoardGameGeekCandidate(title, candidates);
+    if (selectedCandidate.kind === 'ambiguous') {
+      return {
+        ok: false,
+        error: {
+          type: 'ambiguous',
+          message: 'He trobat diverses coincidencies a la API.',
+          candidates: selectedCandidate.candidates.map(formatBoardGameGeekCandidateLabel),
+        },
+      };
+    }
+
+    const draft = await importBoardGameGeekThingById(fetchImpl, apiKey, selectedCandidate.candidate.id);
+    return draft ? { ok: true, draft } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function importBoardGameGeekThingById(fetchImpl: typeof fetch, apiKey: string, itemId: string): Promise<WikipediaBoardGameCatalogDraft | null> {
+  const thingParams = new URLSearchParams({
+    id: itemId,
+    stats: '1',
+  });
+  const thingXml = await fetchBoardGameGeekXml(fetchImpl, `https://boardgamegeek.com/xmlapi2/thing?${thingParams.toString()}`, apiKey);
+  return parseBoardGameGeekThing(thingXml, itemId);
 }
 
 function parseImportResult(value: unknown): WikipediaBoardGameImportResult {
@@ -163,4 +240,299 @@ function asStringArray(value: unknown): string[] {
   }
 
   return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
+async function fetchBoardGameGeekXml(fetchImpl: typeof fetch, url: string, apiKey: string): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const response = await fetchImpl(url, {
+      headers: {
+        Accept: 'application/xml, text/xml;q=0.9, */*;q=0.1',
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+
+    if (response.status === 202) {
+      await wait(1200 * (attempt + 1));
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`BoardGameGeek lookup failed with status ${response.status}`);
+    }
+
+    return response.text();
+  }
+
+  throw new Error('BoardGameGeek lookup did not become ready in time');
+}
+
+function parseBoardGameGeekSearchResults(xml: string): BoardGameGeekCandidate[] {
+  const matches = [...xml.matchAll(/<item\b([^>]*)>([\s\S]*?)<\/item>/g)];
+  const candidates: BoardGameGeekCandidate[] = [];
+
+  for (const match of matches) {
+    const attributes = match[1] ?? '';
+    const body = match[2] ?? '';
+    const id = readXmlAttribute(attributes, 'id');
+    if (!id) {
+      continue;
+    }
+
+    const names = [...body.matchAll(/<name\b[^>]*value=("([^"]*)"|'([^']*)')[^>]*\/?/g)]
+      .map((nameMatch) => decodeXmlEntities(nameMatch[2] ?? nameMatch[3] ?? '').trim())
+      .filter((value) => value.length > 0);
+    const primaryName = firstNonEmpty([
+      decodeXmlEntities(readXmlAttributeFromTag(body, 'name', { type: 'primary' }, 'value') ?? '').trim(),
+      ...names,
+    ]);
+
+    if (!primaryName) {
+      continue;
+    }
+
+    candidates.push({
+      id,
+      names,
+      primaryName,
+      yearPublished: parseOptionalInteger(readXmlAttributeFromTag(body, 'yearpublished', {}, 'value')),
+    });
+  }
+
+  return candidates;
+}
+
+function chooseBoardGameGeekCandidate(
+  title: string,
+  candidates: BoardGameGeekCandidate[],
+):
+  | { kind: 'selected'; candidate: BoardGameGeekCandidate }
+  | { kind: 'ambiguous'; candidates: BoardGameGeekCandidate[] } {
+  const normalizedTitle = normalizeSearchText(title);
+  const exactPrimaryMatches = candidates.filter((candidate) => normalizeSearchText(candidate.primaryName) === normalizedTitle);
+  const singleExactPrimaryMatch = exactPrimaryMatches[0];
+  if (exactPrimaryMatches.length === 1 && singleExactPrimaryMatch) {
+    return { kind: 'selected', candidate: singleExactPrimaryMatch };
+  }
+  if (exactPrimaryMatches.length > 1) {
+    return { kind: 'ambiguous', candidates: exactPrimaryMatches.slice(0, 8) };
+  }
+
+  const exactNameMatches = candidates.filter((candidate) => candidate.names.some((name) => normalizeSearchText(name) === normalizedTitle));
+  const singleExactNameMatch = exactNameMatches[0];
+  if (exactNameMatches.length === 1 && singleExactNameMatch) {
+    return { kind: 'selected', candidate: singleExactNameMatch };
+  }
+  if (exactNameMatches.length > 1) {
+    return { kind: 'ambiguous', candidates: exactNameMatches.slice(0, 8) };
+  }
+
+  const prefixMatches = candidates.filter((candidate) => {
+    return candidate.names.some((name) => normalizeSearchText(name).startsWith(normalizedTitle));
+  });
+  const singlePrefixMatch = prefixMatches[0];
+  if (prefixMatches.length === 1 && singlePrefixMatch) {
+    return { kind: 'selected', candidate: singlePrefixMatch };
+  }
+
+  const tokenMatches = candidates.filter((candidate) => {
+    return candidate.names.some((name) => normalizeSearchText(name).includes(normalizedTitle));
+  });
+  const singleTokenMatch = tokenMatches[0];
+  if (tokenMatches.length === 1 && singleTokenMatch) {
+    return { kind: 'selected', candidate: singleTokenMatch };
+  }
+
+  const ambiguousCandidates = (prefixMatches.length > 1 ? prefixMatches : tokenMatches.length > 1 ? tokenMatches : candidates)
+    .slice(0, 8);
+  return { kind: 'ambiguous', candidates: ambiguousCandidates };
+}
+
+function formatBoardGameGeekCandidateLabel(candidate: BoardGameGeekCandidate): string {
+  return `${candidate.primaryName}${candidate.yearPublished ? ` (${candidate.yearPublished})` : ''} [API #${candidate.id}]`;
+}
+
+function parseBoardGameGeekCandidateId(value: string): string | null {
+  const match = value.match(/\[API #(\d+)\]\s*$/i);
+  return match?.[1] ?? null;
+}
+
+function parseBoardGameGeekThing(xml: string, itemId: string): WikipediaBoardGameCatalogDraft | null {
+  const itemMatch = [...xml.matchAll(/<item\b([^>]*)>([\s\S]*?)<\/item>/g)].find((match) => readXmlAttribute(match[1] ?? '', 'id') === itemId);
+  if (!itemMatch) {
+    return null;
+  }
+
+  const attributes = itemMatch[1] ?? '';
+  const body = itemMatch[2] ?? '';
+  const bggUrl = `https://boardgamegeek.com/boardgame/${itemId}`;
+  const publishers = readXmlLinkValues(body, 'boardgamepublisher');
+  const designers = readXmlLinkValues(body, 'boardgamedesigner');
+  const artists = readXmlLinkValues(body, 'boardgameartist');
+  const categories = readXmlLinkValues(body, 'boardgamecategory');
+  const mechanics = readXmlLinkValues(body, 'boardgamemechanic');
+  const families = readXmlLinkValues(body, 'boardgamefamily');
+  const displayName = firstNonEmpty([
+    decodeXmlEntities(readXmlAttributeFromTag(body, 'name', { type: 'primary' }, 'value') ?? '').trim(),
+    decodeXmlEntities(readXmlAttributeFromTag(body, 'name', {}, 'value') ?? '').trim(),
+  ]);
+  if (!displayName) {
+    return null;
+  }
+
+  return {
+    familyId: null,
+    groupId: null,
+    itemType: readXmlAttribute(attributes, 'type') === 'boardgameexpansion' ? 'expansion' : 'board-game',
+    displayName,
+    originalName: displayName,
+    description: normalizeOptionalText(readXmlElementText(body, 'description')),
+    language: null,
+    publisher: publishers[0] ?? null,
+    publicationYear: parseOptionalInteger(readXmlAttributeFromTag(body, 'yearpublished', {}, 'value')),
+    playerCountMin: parseOptionalInteger(readXmlAttributeFromTag(body, 'minplayers', {}, 'value')),
+    playerCountMax: parseOptionalInteger(readXmlAttributeFromTag(body, 'maxplayers', {}, 'value')),
+    recommendedAge: parseOptionalInteger(readXmlAttributeFromTag(body, 'minage', {}, 'value')),
+    playTimeMinutes: parseOptionalInteger(readXmlAttributeFromTag(body, 'playingtime', {}, 'value')),
+    externalRefs: {
+      boardGameGeekId: itemId,
+      boardGameGeekUrl: bggUrl,
+    },
+    metadata: {
+      source: 'boardgamegeek',
+      boardGameGeekId: itemId,
+      boardGameGeekUrl: bggUrl,
+      imageUrl: normalizeOptionalText(readXmlElementText(body, 'image')),
+      thumbnailUrl: normalizeOptionalText(readXmlElementText(body, 'thumbnail')),
+      rank: parseOptionalInteger(readXmlAttributeFromTag(body, 'rank', { name: 'boardgame' }, 'value')),
+      designers,
+      artists,
+      publishers,
+      categories,
+      mechanics,
+      families,
+    },
+  };
+}
+
+function readXmlAttribute(attributes: string, attributeName: string): string | null {
+  const match = attributes.match(new RegExp(`${escapeRegExp(attributeName)}=("([^"]*)"|'([^']*)')`, 'i'));
+  return match ? decodeXmlEntities(match[2] ?? match[3] ?? '') : null;
+}
+
+function readXmlAttributeFromTag(
+  xml: string,
+  tagName: string,
+  requiredAttributes: Record<string, string>,
+  attributeName: string,
+): string | null {
+  const tags = [...xml.matchAll(new RegExp(`<${escapeRegExp(tagName)}\\b([^>]*)\\/?>(?:[^<]*)`, 'gi'))];
+  for (const tag of tags) {
+    const attributes = tag[1] ?? '';
+    const matchesRequiredAttributes = Object.entries(requiredAttributes).every(([name, value]) => readXmlAttribute(attributes, name) === value);
+    if (!matchesRequiredAttributes) {
+      continue;
+    }
+    const attributeValue = readXmlAttribute(attributes, attributeName);
+    if (attributeValue !== null) {
+      return attributeValue;
+    }
+  }
+
+  return null;
+}
+
+function readXmlElementText(xml: string, tagName: string): string | null {
+  const match = xml.match(new RegExp(`<${escapeRegExp(tagName)}\\b[^>]*>([\\s\\S]*?)<\/${escapeRegExp(tagName)}>`, 'i'));
+  if (!match) {
+    return null;
+  }
+
+  return decodeXmlEntities(match[1] ?? '');
+}
+
+function readXmlLinkValues(xml: string, type: string): string[] {
+  return [...xml.matchAll(/<link\b([^>]*)\/?>(?:[^<]*)/gi)]
+    .map((match) => match[1] ?? '')
+    .filter((attributes) => readXmlAttribute(attributes, 'type') === type)
+    .map((attributes) => readXmlAttribute(attributes, 'value'))
+    .filter((value): value is string => Boolean(value && value.trim().length > 0));
+}
+
+function parseOptionalInteger(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function normalizeOptionalText(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value
+    .replace(/\r\n/g, '\n')
+    .replace(/\s*\n\s*/g, '\n')
+    .replace(/[\t ]+/g, ' ')
+    .trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function firstNonEmpty(values: string[]): string | null {
+  for (const value of values) {
+    if (value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function decodeXmlEntities(value: string): string {
+  return value.replace(/&(#x?[0-9a-f]+|amp|apos|gt|lt|quot);/gi, (entity, code: string) => {
+    const normalizedCode = code.toLowerCase();
+    if (normalizedCode === 'amp') {
+      return '&';
+    }
+    if (normalizedCode === 'apos') {
+      return "'";
+    }
+    if (normalizedCode === 'gt') {
+      return '>';
+    }
+    if (normalizedCode === 'lt') {
+      return '<';
+    }
+    if (normalizedCode === 'quot') {
+      return '"';
+    }
+    if (normalizedCode.startsWith('#x')) {
+      return String.fromCodePoint(Number.parseInt(normalizedCode.slice(2), 16));
+    }
+    if (normalizedCode.startsWith('#')) {
+      return String.fromCodePoint(Number.parseInt(normalizedCode.slice(1), 10));
+    }
+    return entity;
+  });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }

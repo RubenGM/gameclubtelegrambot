@@ -6,8 +6,6 @@ APP_ROOT="${GAMECLUB_APP_ROOT:-/opt/gameclubtelegrambot}"
 DEFAULT_CONFIG_SOURCE="$ROOT_DIR/config/runtime.json"
 if [ -n "${GAMECLUB_CONFIG_PATH:-}" ]; then
   DEFAULT_CONFIG_SOURCE="$GAMECLUB_CONFIG_PATH"
-elif [ -f /etc/gameclubtelegrambot/runtime.json ]; then
-  DEFAULT_CONFIG_SOURCE='/etc/gameclubtelegrambot/runtime.json'
 fi
 CONFIG_SOURCE="${GAMECLUB_CONFIG_SOURCE:-$DEFAULT_CONFIG_SOURCE}"
 OPERATOR_USER="${SUDO_USER:-$USER}"

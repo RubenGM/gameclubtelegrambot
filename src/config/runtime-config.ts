@@ -19,6 +19,11 @@ export const runtimeConfigSchema = z.object({
   telegram: z.object({
     token: z.string().trim().min(1),
   }),
+  bgg: z
+    .object({
+      apiKey: z.string().trim().min(1).optional(),
+    })
+    .optional(),
   database: z.object({
     host: z.string().trim().min(1),
     port: z.number().int().min(1).max(65535),

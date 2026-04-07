@@ -496,7 +496,9 @@ function createRuntimeContextMiddleware({
         ...(bot.sendGroupMessage ? { sendGroupMessage: bot.sendGroupMessage.bind(bot) } : {}),
       },
       services,
-      wikipediaBoardGameImportService: createWikipediaBoardGameImportService(),
+      wikipediaBoardGameImportService: createWikipediaBoardGameImportService(
+        config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {},
+      ),
     };
 
     await next();

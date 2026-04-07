@@ -46,6 +46,7 @@ if [ ! -f config/runtime.local.json ]; then
   FIRST_ADMIN_TELEGRAM_USER_ID="${GAMECLUB_FIRST_ADMIN_TELEGRAM_USER_ID:-1}"
   FIRST_ADMIN_USERNAME="${GAMECLUB_FIRST_ADMIN_USERNAME:-club_admin}"
   FIRST_ADMIN_DISPLAY_NAME="${GAMECLUB_FIRST_ADMIN_DISPLAY_NAME:-Club Administrator}"
+  BGG_API_KEY="${GAMECLUB_BGG_API_KEY:-REPLACE_WITH_REAL_BGG_API_KEY}"
 
   cat > config/runtime.local.json <<EOF
 {
@@ -56,6 +57,9 @@ if [ ! -f config/runtime.local.json ]; then
   },
   "telegram": {
     "token": "${TELEGRAM_TOKEN}"
+  },
+  "bgg": {
+    "apiKey": "${BGG_API_KEY}"
   },
   "database": {
     "host": "127.0.0.1",
