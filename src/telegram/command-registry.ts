@@ -24,6 +24,7 @@ export interface TelegramCommandRuntime {
     clubName: string;
     language?: BotLanguage;
     sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+    sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
   chat: TelegramChatContext;

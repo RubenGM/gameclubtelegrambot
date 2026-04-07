@@ -1,8 +1,9 @@
-import type { CatalogLoanRecord, CatalogLoanRepository, CatalogRepository } from '../catalog/catalog-model.js';
+import type { CatalogItemRecord, CatalogItemType, CatalogLoanRecord, CatalogLoanRepository, CatalogRepository } from '../catalog/catalog-model.js';
 export type { CatalogLoanRecord } from '../catalog/catalog-model.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
+import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import { escapeHtml, formatHtmlField, formatMemberCatalogItemDetails } from './catalog-presentation.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
@@ -12,6 +13,11 @@ import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 const loanEditFlowKey = 'catalog-loan-edit';
 const catalogAdminEditCallbackPrefix = 'catalog_admin:edit:';
 const catalogAdminDeactivateCallbackPrefix = 'catalog_admin:deactivate:';
+const loanNewsCategoryByItemType: Partial<Record<CatalogItemType, string>> = {
+  'board-game': 'catalog-loans:board-game',
+  book: 'catalog-loans:book',
+  'rpg-book': 'catalog-loans:rpg-book',
+};
 
 export const catalogLoanCallbackPrefixes = {
   openMyLoans: 'catalog_loan:my_loans',
@@ -71,6 +77,11 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
     });
 
     await replyWithItemDetail(context, created.itemId, language);
+    await publishCatalogLoanNewsGroups(context, {
+      action: 'borrowed',
+      item,
+      userName: await resolvePreferredUserName(context, context.runtime.actor.telegramUserId),
+    });
     return true;
   }
 
@@ -81,12 +92,21 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
     if (!loan) {
       throw new Error(`Catalog loan ${loanId} not found`);
     }
+    const item = await resolveCatalogItem(context, loan.itemId);
+    if (!item) {
+      throw new Error(`Catalog item ${loan.itemId} not found`);
+    }
 
     const returned = await repository.closeLoan({
       loanId,
       returnedByTelegramUserId: context.runtime.actor.telegramUserId,
     });
     await replyWithItemDetail(context, returned.itemId, language);
+    await publishCatalogLoanNewsGroups(context, {
+      action: 'returned',
+      item,
+      userName: await resolvePreferredUserName(context, context.runtime.actor.telegramUserId),
+    });
     return true;
   }
 
@@ -434,6 +454,33 @@ async function resolveDisplayName(context: TelegramCatalogLoanContext): Promise<
   return context.from?.first_name ?? context.from?.username ?? `Usuari ${context.runtime.actor.telegramUserId}`;
 }
 
+async function resolvePreferredUserName(context: TelegramCatalogLoanContext, telegramUserId: number): Promise<string> {
+  const user = await loadMembershipUser(context, telegramUserId);
+  if (user) {
+    const displayName = user.displayName.trim();
+    if (displayName.length > 0) {
+      return displayName;
+    }
+
+    const username = user.username?.trim();
+    if (username && username.length > 0) {
+      return username;
+    }
+  }
+
+  const firstName = context.from?.first_name?.trim();
+  if (firstName) {
+    return firstName;
+  }
+
+  const username = context.from?.username?.trim();
+  if (username) {
+    return username;
+  }
+
+  return `Usuari ${telegramUserId}`;
+}
+
 export async function resolveLoanBorrowerDisplayName(context: LoanDisplayContext, loan: CatalogLoanRecord): Promise<string> {
   const user = await loadMembershipUser(context, loan.borrowerTelegramUserId);
   if (user) {
@@ -474,4 +521,47 @@ function formatMembershipDisplayName(user: MembershipUserRecord, fallbackTelegra
 
 function formatLoanDate(value: string): string {
   return value.slice(0, 10).split('-').reverse().join('/');
+}
+
+async function publishCatalogLoanNewsGroups(
+  context: TelegramCatalogLoanContext,
+  input: {
+    action: 'borrowed' | 'returned';
+    item: CatalogItemRecord;
+    userName: string;
+  },
+): Promise<void> {
+  const sendGroupMessage = context.runtime.bot.sendGroupMessage;
+  if (!sendGroupMessage) {
+    return;
+  }
+
+  const categoryKey = loanNewsCategoryByItemType[input.item.itemType];
+  if (!categoryKey) {
+    return;
+  }
+
+  const repository = createDatabaseNewsGroupRepository({
+    database: context.runtime.services.database.db as never,
+  });
+  const groups = await repository.listSubscribedGroupsByCategory(categoryKey);
+  if (groups.length === 0) {
+    return;
+  }
+
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogLoan;
+  const message = input.action === 'borrowed'
+    ? texts.groupBorrowed.replace('{user}', escapeHtml(input.userName)).replace('{item}', escapeHtml(input.item.displayName))
+    : texts.groupReturned.replace('{user}', escapeHtml(input.userName)).replace('{item}', escapeHtml(input.item.displayName));
+
+  await Promise.all(
+    groups.map(async (group) => {
+      try {
+        await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+      } catch {
+        // La notificació de grup no ha de bloquejar el préstec o retorn.
+      }
+    }),
+  );
 }
