@@ -14,6 +14,13 @@ import {
   type TelegramVenueEventAdminContext,
 } from './venue-event-admin-flow.js';
 
+test.beforeEach((t: any) => {
+  t.mock.timers.enable({
+    apis: ['Date'],
+    now: new Date('2026-04-05T09:00:00.000Z'),
+  });
+});
+
 function createVenueEventRepository(initialEvents: VenueEventRecord[] = []): VenueEventRepository {
   const events = new Map(initialEvents.map((event) => [event.id, event]));
   let nextId = Math.max(0, ...initialEvents.map((event) => event.id)) + 1;

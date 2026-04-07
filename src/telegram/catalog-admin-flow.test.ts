@@ -387,7 +387,7 @@ test('handleTelegramCatalogAdminText accepts Spanish item type buttons when crea
 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'display-name');
-  assert.match(replies.at(-1)?.message ?? '', /Escribe el titulo visible del item\./);
+  assert.match(replies.at(-1)?.message ?? '', /Escribe el nombre del item para buscar datos automaticamente en la API\./);
   assert.deepEqual(replies.at(-2)?.options?.replyKeyboard, [
     ['Juego de mesa'],
     ['Libro', 'Libro RPG'],
@@ -465,13 +465,13 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.typeBoardGame;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Escriu el titol visible de l item/);
+  assert.match(replies.at(-1)?.message ?? '', /Escriu el nom de l item per buscar dades automaticament a l API/);
 
   context.messageText = 'Root';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.match(replies.at(-3)?.message ?? '', /Buscant a Wikipedia/);
-  assert.match(replies.at(-2)?.message ?? '', /Seleccionant la millor opcio/);
-  assert.match(replies.at(-1)?.message ?? '', /He importat dades de Wikipedia/);
+  assert.match(replies.at(-3)?.message ?? '', /Buscant.*API/);
+  assert.match(replies.at(-2)?.message ?? '', /Importacio des de l API completada/);
+  assert.match(replies.at(-1)?.message ?? '', /He importat dades externes per Root/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Resum de l item:<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Nom:<\/b>/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], catalogAdminLabels.editFieldDisplayName);
@@ -516,12 +516,15 @@ test('handleTelegramCatalogAdminText shows a URL fallback when Wikipedia import 
   context.messageText = 'Unknown Game';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.match(replies.at(-2)?.message ?? '', /Buscant a Wikipedia/);
-  assert.match(replies.at(-1)?.message ?? '', /Enganxa la URL completa de la pagina de Wikipedia/);
+  assert.match(replies.at(-2)?.message ?? '', /Buscant.*API/);
+  assert.match(replies.at(-1)?.message ?? '', /Enganxa una referencia manual valida/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], catalogAdminLabels.skipLookupImport);
   assert.equal(getCurrentSession()?.stepKey, 'wikipedia-url');
 
   context.messageText = catalogAdminLabels.skipLookupImport;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  context.messageText = catalogAdminLabels.editFieldFamily;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'family');
   assert.match(replies.at(-1)?.message ?? '', /Escriu la familia del joc de taula/);
@@ -577,7 +580,7 @@ test('handleTelegramCatalogAdminText retries Wikipedia import when the user past
 
   assert.deepEqual(importCalls, ['Unknown Game', 'Root (board game)']);
   assert.equal(getCurrentSession()?.stepKey, 'select-field');
-  assert.match(replies.at(-1)?.message ?? '', /He importat dades de Wikipedia per Root/);
+  assert.match(replies.at(-1)?.message ?? '', /He importat dades externes per Root/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], catalogAdminLabels.editFieldDisplayName);
 });
 
@@ -636,9 +639,9 @@ test('handleTelegramCatalogAdminText lets the user choose among ambiguous Wikipe
 
   assert.equal(getCurrentSession()?.stepKey, 'wikipedia-candidate-choice');
   assert.match(replies.at(-1)?.message ?? '', /He trobat diverses pàgines candidates a Wikipedia/);
-  assert.match(replies.at(-1)?.message ?? '', /https:\/\/en\.wikipedia\.org\/wiki\/Azul/);
+  assert.match(replies.at(-1)?.message ?? '', /Azul \(board game\)/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.includes('Azul'), true);
-  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.manualWikipediaUrl), true);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes('Azul (board game)'), true);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.skipLookupImport), true);
 
   context.messageText = 'Azul (board game)';
@@ -646,7 +649,7 @@ test('handleTelegramCatalogAdminText lets the user choose among ambiguous Wikipe
 
   assert.deepEqual(importCalls, ['Azul', 'Azul (board game)']);
   assert.equal(getCurrentSession()?.stepKey, 'select-field');
-  assert.match(replies.at(-1)?.message ?? '', /He importat dades de Wikipedia per Azul/);
+  assert.match(replies.at(-1)?.message ?? '', /He importat dades externes per Azul/);
 });
 
 test('handleTelegramCatalogAdminText creates a regular book through lookup first and then family by name', async () => {
@@ -734,10 +737,19 @@ test('handleTelegramCatalogAdminText creates a regular book through lookup first
 
   context.messageText = catalogAdminLabels.useApiTitle;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.editFieldFamily), true);
+
+  context.messageText = catalogAdminLabels.editFieldFamily;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'family');
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Mundodisco');
 
   context.messageText = 'Mundodisco';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+
+  context.messageText = catalogAdminLabels.editFieldGroup;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'group');
 
@@ -842,8 +854,16 @@ test('handleTelegramCatalogAdminText offers Open Library matches for rpg books a
 
   context.messageText = catalogAdminLabels.keepTypedTitle;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.editFieldFamily), true);
+
+  context.messageText = catalogAdminLabels.editFieldFamily;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'family');
   context.messageText = 'Dungeons and Dragons 5';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  context.messageText = catalogAdminLabels.editFieldGroup;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'group');
   context.messageText = catalogAdminLabels.noGroup;
@@ -975,8 +995,16 @@ test('handleTelegramCatalogAdminText creates an rpg book with minimum fields whe
   await handleTelegramCatalogAdminText(context);
   context.messageText = 'No importar dades';
   await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.editFieldFamily;
+
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'family');
+
   context.messageText = catalogAdminLabels.noFamily;
 
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  context.messageText = catalogAdminLabels.editFieldGroup;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'group');
   context.messageText = catalogAdminLabels.noGroup;
@@ -1119,11 +1147,20 @@ test('handleTelegramCatalogAdminText lets rpg books pick a popular family or cre
   context.messageText = 'Dungeon Master Guide';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
+  assert.match(replies.at(-1)?.message ?? '', /Camp actualitzat\. Tria un altre camp o guarda els canvis\./);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+
+  context.messageText = catalogAdminLabels.editFieldFamily;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /Escriu o tria una familia/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], ['Dungeons and Dragons 5', 'Call of Cthulhu']);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.at(-2)?.[0], catalogAdminLabels.noFamily);
 
   context.messageText = 'Dungeons and Dragons 5';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+
+  context.messageText = catalogAdminLabels.editFieldGroup;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'group');
 
@@ -1166,7 +1203,13 @@ test('handleTelegramCatalogAdminText lets rpg books pick a popular family or cre
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'Xanathar Guide';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.editFieldFamily;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'Shadowdark RPG';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+
+  context.messageText = catalogAdminLabels.editFieldGroup;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'group');
 
@@ -1519,11 +1562,12 @@ test('handleTelegramCatalogAdminCallback shows item details without add media ac
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Media:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Descripcio:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar ítem'));
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Eliminar item'));
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Tomar prestado'));
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Ver prestamos'));
-  assert.ok(!replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Afegir media'));
+  const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
+  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.edit}3`));
+  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}3`));
+  assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:create:3'));
+  assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:my_loans'));
+  assert.ok(!buttons.some((button) => button.text === 'Afegir media'));
 });
 
 test('handleTelegramCatalogAdminCallback lets admins edit and delete item media', async () => {
@@ -1891,8 +1935,8 @@ test('handleTelegramCatalogAdminStartText opens an item detail from deep link pa
   assert.equal(await handleTelegramCatalogAdminStartText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>El color de la magia<\/b>/);
   const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
-  assert.ok(buttons.some((button) => button.text === 'Editar item'));
-  assert.ok(buttons.some((button) => button.text === 'Eliminar item'));
+  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.edit}2`));
+  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}2`));
   assert.ok(!buttons.some((button) => button.text === 'Editar préstec'));
   assert.ok(!buttons.some((button) => button.text === 'Veure cataleg'));
 });
@@ -1912,8 +1956,16 @@ test('handleTelegramCatalogAdminText falls back to minimum-field creation when l
   await handleTelegramCatalogAdminText(context);
   context.messageText = 'Monster Manual';
   await handleTelegramCatalogAdminText(context);
+  context.messageText = catalogAdminLabels.editFieldFamily;
+
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'family');
+
   context.messageText = catalogAdminLabels.noFamily;
 
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  context.messageText = catalogAdminLabels.editFieldGroup;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'group');
   context.messageText = catalogAdminLabels.noGroup;

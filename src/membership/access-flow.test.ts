@@ -90,7 +90,7 @@ test('requestMembershipAccess creates a pending access request for unknown users
 
   assert.equal(result.outcome, 'created');
   assert.match(result.message, /Ja hem rebut la teva sollicitud/);
-  assert.match(result.message, /Avisa un administrador del club/);
+  assert.match(result.message, /avisa un administrador del club/i);
 });
 
 test('requestMembershipAccess is idempotent for pending users', async () => {
@@ -113,7 +113,7 @@ test('requestMembershipAccess is idempotent for pending users', async () => {
 
   assert.equal(result.outcome, 'already-pending');
   assert.match(result.message, /Ja hem rebut la teva sollicitud/);
-  assert.match(result.message, /Avisa un administrador del club/);
+  assert.match(result.message, /avisa un administrador del club/i);
 });
 
 test('requestMembershipAccess keeps approved users on normal access path', async () => {

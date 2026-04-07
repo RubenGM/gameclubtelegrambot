@@ -215,7 +215,7 @@ test('catalog loan callbacks create, list and return loans', async () => {
   await handleTelegramCatalogLoanCallback(context);
 
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
-  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Tomar prestado'));
+  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
 
   replies.length = 0;
   context.callbackData = catalogLoanCallbackPrefixes.openMyLoans;
@@ -229,7 +229,7 @@ test('catalog loan callbacks create, list and return loans', async () => {
   await handleTelegramCatalogLoanCallback(context);
 
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
-  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Tomar prestado'));
+  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Prendre prestat'));
 });
 
 test('loan detail buttons use the updated borrow and delete labels', async () => {

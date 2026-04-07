@@ -274,7 +274,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
     'reply:Usuari aprovat correctament.',
-    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/language - Canvia l idioma del bot\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual\n\nEncara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
+    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/language - Canvia l idioma del bot\n/schedule - Gestiona les teves activitats del club\n/tables - Consulta les taules actives del club\n/catalog_search - Consulta i cerca el cataleg\n/catalog - Gestiona el cataleg manual del club\n/review_access - Revisa sollicituds pendents\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
     'start-polling',
     'stop-polling',
   ]);
@@ -735,7 +735,7 @@ test('cancel restores the default action menu after an active flow', async () =>
     {
       message: 'Flux cancel.lat correctament.',
       options: {
-        replyKeyboard: [['Activitats'], ['/tables', '/elevate_admin'], ['Idioma'], ['/start', '/help']],
+        replyKeyboard: [['Activitats'], ['Cataleg', '/tables'], ['/elevate_admin'], ['Idioma'], ['/start', '/help']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },

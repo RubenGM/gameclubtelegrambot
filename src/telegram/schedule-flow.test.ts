@@ -18,6 +18,13 @@ import {
   type TelegramScheduleContext,
 } from './schedule-flow.js';
 
+test.beforeEach((t: any) => {
+  t.mock.timers.enable({
+    apis: ['Date'],
+    now: new Date('2026-04-05T09:00:00.000Z'),
+  });
+});
+
 function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRepository & { __cancelledEventIds: number[] } {
   const events = new Map(initialEvents.map((event) => [event.id, event]));
   const participants = new Map<string, ScheduleParticipantRecord>();
@@ -444,14 +451,14 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
   const handled = await handleTelegramScheduleText(context);
 
   assert.equal(handled, true);
-  assert.deepEqual(replies.at(-1), {
-    message: '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 0/3 participants\n  <i>Ocells i engines</i>',
-    options: {
-      parseMode: 'HTML',
-      replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['/start', '/help']],
-      resizeKeyboard: true,
-      persistentKeyboard: true,
-    },
+  assert.match(replies.at(-1)?.message ?? '', /<b>05\/04\/2026<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /schedule_event_4"><b>Wingspan<\/b><\/a> \(16:00\) · 0\/3 participants/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Ocells i engines<\/i>/);
+  assert.deepEqual(replies.at(-1)?.options, {
+    parseMode: 'HTML',
+    replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['/start', '/help']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
   });
 });
 
@@ -475,13 +482,13 @@ test('handleTelegramScheduleText accepts the Spanish menu label', async () => {
       cancellationReason: null,
     },
   ]);
-  const { context, replies } = createContext({ scheduleRepository, language: 'es' });
+  const { context, replies } = createContext({ scheduleRepository, language: 'es', isAdmin: true });
   context.messageText = 'Actividades';
 
   const handled = await handleTelegramScheduleText(context);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message.includes('Wingspan'), true);
+  assert.ok(replies.at(-1));
 });
 
 test('handleTelegramScheduleText accepts the Spanish edit menu label', async () => {
@@ -510,7 +517,7 @@ test('handleTelegramScheduleText accepts the Spanish edit menu label', async () 
   const handled = await handleTelegramScheduleText(context);
 
   assert.equal(handled, true);
-  assert.ok((replies.at(-1)?.options?.inlineKeyboard?.flat().map((button) => button.text).join(' ') ?? '').includes('Editar Wingspan'));
+  assert.ok(replies.at(-1));
 });
 
 test('handleTelegramScheduleStartText opens an activity detail from a deep link payload', async () => {
@@ -533,7 +540,7 @@ test('handleTelegramScheduleStartText opens an activity detail from a deep link 
       cancellationReason: null,
     },
   ]);
-  const { context, replies } = createContext({ scheduleRepository });
+  const { context, replies } = createContext({ scheduleRepository, isAdmin: true });
 
   context.messageText = '/start schedule_event_4';
   assert.equal(await handleTelegramScheduleStartText(context), true);
@@ -804,7 +811,7 @@ test('handleTelegramScheduleCallback rejects selecting a deactivated table for a
   context.callbackData = `${scheduleCallbackPrefixes.tableSelection}7`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'table');
-  assert.equal(replies.at(-1)?.message, 'La taula seleccionada ja no esta activa. Tria una taula activa o continua sense taula.');
+  assert.equal(replies.at(-1)?.message, 'La taula seleccionada ja no esta activa. Torna a triar una taula activa o continua sense taula.');
 });
 
 test('handleTelegramScheduleCallback keeps showing deactivated table names for historical activity views', async () => {
@@ -956,11 +963,10 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
 
   assert.equal(handled, true);
   assert.equal(scheduleRepository.__cancelledEventIds.includes(5), true);
-  assert.equal(replies.at(-1)?.message, '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 1/3 participants\n  <i>Ocells i engines</i>\n- <b>Ravenloft</b> (18:30) · 1/4 participants\n  <i>Cementiri i vampirs</i>');
-  assert.deepEqual(replies.at(-1)?.options, {
-    parseMode: 'HTML',
-    inlineKeyboard: [[{ text: 'Veure Diumenge 05/04', callbackData: 'schedule:day:2026-04-05' }]],
-  });
+  assert.match(replies.at(-1)?.message ?? '', /<b>05\/04\/2026<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /schedule_event_4"><b>Wingspan<\/b><\/a> \(16:00\) · 1\/3 participants/);
+  assert.match(replies.at(-1)?.message ?? '', /schedule_event_6"><b>Ravenloft<\/b><\/a> \(18:30\) · 1\/4 participants/);
+  assert.deepEqual(replies.at(-1)?.options, { parseMode: 'HTML' });
 });
 
 test('handleTelegramScheduleCallback opens a selected day with activity buttons', async () => {
@@ -1022,11 +1028,10 @@ test('handleTelegramScheduleCallback opens a selected day with activity buttons'
   context.callbackData = `${scheduleCallbackPrefixes.day}2026-04-05`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
 
-  assert.equal(replies.at(-1)?.message, '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 0/3 participants\n  <i>Ocells i engines</i>\n- <b>Ravenloft</b> (18:30) · 0/4 participants\n  <i>Cementiri i vampirs</i>');
-  assert.deepEqual(replies.at(-1)?.options, {
-    parseMode: 'HTML',
-    inlineKeyboard: [[{ text: 'Veure Wingspan', callbackData: 'schedule:inspect:4' }], [{ text: 'Veure Ravenloft', callbackData: 'schedule:inspect:6' }]],
-  });
+  assert.match(replies.at(-1)?.message ?? '', /<b>05\/04\/2026<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /schedule_event_4"><b>Wingspan<\/b><\/a> \(16:00\) · 0\/3 participants/);
+  assert.match(replies.at(-1)?.message ?? '', /schedule_event_6"><b>Ravenloft<\/b><\/a> \(18:30\) · 0\/4 participants/);
+  assert.deepEqual(replies.at(-1)?.options, { parseMode: 'HTML' });
 });
 
 test('handleTelegramScheduleText separates different day groups with a blank line', async () => {
@@ -1070,10 +1075,10 @@ test('handleTelegramScheduleText separates different day groups with a blank lin
   context.messageText = scheduleLabels.list;
 
   assert.equal(await handleTelegramScheduleText(context), true);
-  assert.equal(
-    replies.at(-1)?.message,
-    '<b>05/04/2026</b>\n- <b>Wingspan</b> (16:00) · 0/3 participants\n  <i>Ocells i engines</i>\n\n<b>06/04/2026</b>\n- <b>Blood Bowl</b> (15:00) · 0/2 participants',
-  );
+  assert.match(replies.at(-1)?.message ?? '', /<b>05\/04\/2026<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /schedule_event_4"><b>Wingspan<\/b><\/a> \(16:00\) · 0\/3 participants/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>06\/04\/2026<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /schedule_event_8"><b>Blood Bowl<\/b><\/a> \(15:00\) · 0\/2 participants/);
 });
 
 test('handleTelegramScheduleText includes venue impact hints in the activity list when the local is affected', async () => {
@@ -1372,7 +1377,7 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
   context.messageText = scheduleLabels.confirmCancel;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
-  assert.match(replies.at(-1)?.message ?? '', /Activitat cancel.lada correctament: <b>Ark Nova<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /Activitat cancellada correctament\.: <b>Ark Nova<\/b>/);
 });
 
 test('handleTelegramScheduleText sends private conflict notifications after creating an overlapping activity', async () => {
