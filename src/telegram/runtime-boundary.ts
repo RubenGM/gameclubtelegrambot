@@ -53,6 +53,7 @@ import {
 import {
   handleTelegramCatalogReadCallback,
   handleTelegramCatalogReadCommand,
+  handleTelegramCatalogReadText,
   handleTelegramCatalogReadStartText,
   catalogReadCallbackPrefixes,
 } from './catalog-read-flow.js';
@@ -595,6 +596,10 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramMemberMenuDebugText(context)) {
+      return;
+    }
+
     if (await handleTelegramCatalogLoanText(context)) {
       return;
     }
@@ -612,6 +617,10 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramTableAdminText(context)) {
+      return;
+    }
+
+    if (await handleTelegramCatalogReadText(context)) {
       return;
     }
 
@@ -834,6 +843,7 @@ function createDefaultCommands({
             publicName,
             version: APP_VERSION,
             isAdmin: context.runtime.actor.isAdmin,
+            isApproved: context.runtime.actor.isApproved,
             language: context.runtime.bot.language ?? 'ca',
           }),
           buildReplyOptionsForCurrentActionMenu(context),
@@ -961,15 +971,23 @@ export function formatStartMessage({
   publicName,
   version,
   isAdmin,
+  isApproved,
   language,
 }: {
   publicName: string;
   version: string;
   isAdmin: boolean;
+  isApproved: boolean;
   language: 'ca' | 'es' | 'en';
 }): string {
   const i18n = createTelegramI18n(language);
-  return (isAdmin ? i18n.common.startMessageAdmin : i18n.common.startMessagePublic)
+  const template = isAdmin
+    ? i18n.common.startMessageAdmin
+    : isApproved
+      ? i18n.common.startMessagePublic
+      : i18n.common.startMessagePending;
+
+  return template
     .replace('{publicName}', publicName)
     .replace('{version}', version);
 }
@@ -1197,6 +1215,37 @@ function buildReplyOptionsForCurrentActionMenu(
       language: context.runtime.bot.language ?? 'ca',
     },
   });
+}
+
+async function handleTelegramMemberMenuDebugText(
+  context: TelegramCommandHandlerContext,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  if (
+    context.runtime.chat.kind !== 'private' ||
+    !context.runtime.actor.isAdmin ||
+    context.messageText?.trim() !== createTelegramI18n(language).actionMenu.memberDebug
+  ) {
+    return false;
+  }
+
+  await context.reply(createTelegramI18n(language).common.memberMenuDebugOpened, {
+    ...resolveTelegramActionMenu({
+      context: {
+        actor: {
+          ...context.runtime.actor,
+          status: 'approved',
+          isApproved: true,
+          isAdmin: false,
+        },
+        authorization: context.runtime.authorization,
+        chat: context.runtime.chat,
+        session: context.runtime.session.current,
+        language,
+      },
+    }),
+  });
+  return true;
 }
 
 function escapeRegExp(value: string): string {

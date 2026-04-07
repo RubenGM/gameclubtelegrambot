@@ -133,6 +133,11 @@ export function renderTelegramHelpMessage({
     lines.push(i18n.common.helpFooterPrivate);
   }
 
+  if (context.runtime.chat.kind === 'private' && !context.runtime.actor.isApproved) {
+    lines.push('');
+    lines.push(i18n.common.helpPendingApproval);
+  }
+
   return lines.join('\n');
 }
 

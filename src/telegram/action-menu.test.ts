@@ -103,7 +103,7 @@ test('resolveTelegramActionMenu exposes table reads to approved non-admin member
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['/tables', '/elevate_admin'], ['Idioma'], ['/start', '/help']],
+    replyKeyboard: [['Activitats'], ['Cataleg', '/tables'], ['/elevate_admin'], ['Idioma'], ['/start', '/help']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });

@@ -159,7 +159,35 @@ test('registerTelegramCommands blocks unapproved users consistently', async () =
   const context = createContext({ kind: 'private', isApproved: false });
   await handlers.get('reserve')?.(context);
 
-  assert.deepEqual(context.__replies, ['Necessites aprovacio del club abans de poder fer aquesta accio.']);
+  assert.match(context.__replies?.[0] ?? '', /Encara no tens l acces aprovat/);
+  assert.match(context.__replies?.[0] ?? '', /Avisa un administrador del club/);
+});
+
+test('renderTelegramHelpMessage reminds pending private users to ask an admin for approval', async () => {
+  const message = renderTelegramHelpMessage({
+    commands: [
+      {
+        command: 'start',
+        contexts: ['private', 'group', 'group-news'],
+        access: 'public',
+        description: 'Comprova l estat del bot',
+        handle: async () => {},
+      },
+      {
+        command: 'reserve',
+        contexts: ['private'],
+        access: 'approved',
+        description: 'Inicia una reserva',
+        handle: async () => {},
+      },
+    ],
+    context: createContext({ kind: 'private', isApproved: false, isAdmin: false }),
+  });
+
+  assert.match(message, /Comandes disponibles en aquest xat/);
+  assert.match(message, /\/start - Comprova l estat del bot/);
+  assert.match(message, /Avisa un administrador del club/);
+  assert.doesNotMatch(message, /\/reserve/);
 });
 
 test('registerTelegramCommands blocks non-admin users consistently', async () => {

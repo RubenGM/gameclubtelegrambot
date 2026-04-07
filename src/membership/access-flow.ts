@@ -65,7 +65,8 @@ export async function requestMembershipAccess({
   if (existing?.status === 'pending') {
     return {
       outcome: 'already-pending',
-      message: 'La teva sollicitud ja esta pendent de revisio per part d un administrador.',
+      message:
+        'Ja hem rebut la teva sollicitud d acces. Ara avisa un administrador del club perque l aprovi i podras fer servir activitats, calendari, cataleg i taules.',
     };
   }
 
@@ -84,7 +85,8 @@ export async function requestMembershipAccess({
 
   return {
     outcome: 'created',
-    message: 'Hem registrat la teva sollicitud d accés. Un administrador la revisara al mes aviat possible.',
+    message:
+      'Ja hem rebut la teva sollicitud d acces. Ara avisa un administrador del club perque l aprovi i podras fer servir activitats, calendari, cataleg i taules.',
   };
 }
 

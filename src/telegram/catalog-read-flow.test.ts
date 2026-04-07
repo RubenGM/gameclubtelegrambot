@@ -10,6 +10,7 @@ import {
   catalogReadCallbackPrefixes,
   handleTelegramCatalogReadCallback,
   handleTelegramCatalogReadCommand,
+  handleTelegramCatalogReadText,
   handleTelegramCatalogReadStartText,
 } from './catalog-read-flow.js';
 
@@ -375,4 +376,18 @@ test('handleTelegramCatalogReadStartText opens linked item details from /start',
   assert.equal(handled, true);
   assert.equal(replies[0]?.options?.parseMode, 'HTML');
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
+});
+
+test('handleTelegramCatalogReadText opens the catalog from the member keyboard action', async () => {
+  const repository = createRepository({
+    families: [buildFamily(1, 'Alpha')],
+  });
+  const { context, replies } = createContext(repository);
+  context.messageText = 'Cataleg';
+
+  const handled = await handleTelegramCatalogReadText(context);
+
+  assert.equal(handled, true);
+  assert.match(replies[0]?.message ?? '', /Alpha/);
+  assert.equal(replies[0]?.options?.inlineKeyboard?.at(-1)?.[0]?.callbackData, catalogReadCallbackPrefixes.overview);
 });

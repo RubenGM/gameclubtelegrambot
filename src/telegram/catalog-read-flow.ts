@@ -70,6 +70,27 @@ export async function handleTelegramCatalogReadCommand(context: TelegramCatalogR
   await renderCatalogReadState(context, state, language);
 }
 
+export async function handleTelegramCatalogReadText(context: TelegramCatalogReadContext): Promise<boolean> {
+  const text = context.messageText?.trim();
+  if (
+    !text ||
+    context.runtime.chat.kind !== 'private' ||
+    !context.runtime.actor.isApproved ||
+    context.runtime.actor.isBlocked ||
+    context.runtime.actor.isAdmin
+  ) {
+    return false;
+  }
+
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  if (text !== createTelegramI18n(language).actionMenu.catalog) {
+    return false;
+  }
+
+  await handleTelegramCatalogReadCommand({ ...context, messageText: '/catalog_search' });
+  return true;
+}
+
 export async function handleTelegramCatalogReadStartText(context: TelegramCatalogReadContext): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const itemId = parseStartPayload(context.messageText, 'catalog_read_item_');

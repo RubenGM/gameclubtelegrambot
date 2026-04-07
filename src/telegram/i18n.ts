@@ -45,7 +45,8 @@ export function createTelegramI18n(language: BotLanguage) {
 const commonTexts = {
   ca: {
     unexpectedError: 'S ha produit un error inesperat. Torna-ho a provar en uns moments.',
-    accessDeniedApproved: 'Necessites aprovacio del club abans de poder fer aquesta accio.',
+    accessDeniedApproved:
+      'Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
     accessDeniedAdmin: 'Aquesta accio nomes esta disponible per a administradors del club.',
     accessDeniedGeneric: 'No tens permisos per fer aquesta accio.',
     privateOnly: 'Aquest comandament nomes esta disponible en xat privat.',
@@ -57,17 +58,23 @@ const commonTexts = {
     invalidCallbackTarget: 'No s ha pogut identificar l usuari destinatari d aquesta accio.',
     startMessageAdmin: '{publicName} online (v{version}). Escriu /help per veure les opcions disponibles.',
     startMessagePublic: 'Benvingut a {publicName}. Escriu /help per veure les opcions disponibles.',
+    startMessagePending:
+      'Benvingut a {publicName}. Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
     helpHeader: 'Comandes disponibles en aquest xat:',
     helpFooterPrivate: 'Per veure totes les funcions, escriu-me en privat.',
+    helpPendingApproval:
+      'Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
     noPendingRequests: 'No hi ha cap sollicitud pendent ara mateix.',
     pendingRequestsHeader: 'Sollicituds pendents:',
     approveButton: 'Aprovar',
     rejectButton: 'Rebutjar',
     currentLanguage: 'Idioma actual: {language}',
+    memberMenuDebugOpened: 'Mostrant el menu normal de soci aprovat.',
   },
   es: {
     unexpectedError: 'Se ha producido un error inesperado. Vuelve a intentarlo en unos momentos.',
-    accessDeniedApproved: 'Necesitas aprobacion del club antes de poder hacer esta accion.',
+    accessDeniedApproved:
+      'Todavia no tienes el acceso aprobado. Avisa a un administrador del club para que apruebe tu solicitud y asi podras usar actividades, calendario, catalogo y mesas.',
     accessDeniedAdmin: 'Esta accion solo esta disponible para administradores del club.',
     accessDeniedGeneric: 'No tienes permisos para hacer esta accion.',
     privateOnly: 'Este comando solo esta disponible en chat privado.',
@@ -79,17 +86,23 @@ const commonTexts = {
     invalidCallbackTarget: 'No se ha podido identificar al usuario destinatario de esta accion.',
     startMessageAdmin: '{publicName} online (v{version}). Escribe /help para ver las opciones disponibles.',
     startMessagePublic: 'Bienvenido a {publicName}. Escribe /help para ver las opciones disponibles.',
+    startMessagePending:
+      'Bienvenido a {publicName}. Todavia no tienes el acceso aprobado. Avisa a un administrador del club para que apruebe tu solicitud y asi podras usar actividades, calendario, catalogo y mesas.',
     helpHeader: 'Comandos disponibles en este chat:',
     helpFooterPrivate: 'Para ver todas las funciones, escribeme en privado.',
+    helpPendingApproval:
+      'Todavia no tienes el acceso aprobado. Avisa a un administrador del club para que apruebe tu solicitud y asi podras usar actividades, calendario, catalogo y mesas.',
     noPendingRequests: 'No hay ninguna solicitud pendiente ahora mismo.',
     pendingRequestsHeader: 'Solicitudes pendientes:',
     approveButton: 'Aprobar',
     rejectButton: 'Rechazar',
     currentLanguage: 'Idioma actual: {language}',
+    memberMenuDebugOpened: 'Mostrando el menu normal de socio aprobado.',
   },
   en: {
     unexpectedError: 'An unexpected error occurred. Please try again in a few moments.',
-    accessDeniedApproved: 'You need club approval before using this action.',
+    accessDeniedApproved:
+      'Your access is still pending approval. Ask a club administrator to approve your request so you can use activities, calendar, catalog, and tables.',
     accessDeniedAdmin: 'This action is only available to club administrators.',
     accessDeniedGeneric: 'You do not have permission to perform this action.',
     privateOnly: 'This command is only available in private chat.',
@@ -101,13 +114,18 @@ const commonTexts = {
     invalidCallbackTarget: 'Could not identify the target user for this action.',
     startMessageAdmin: '{publicName} online (v{version}). Type /help to see the available options.',
     startMessagePublic: 'Welcome to {publicName}. Type /help to see the available options.',
+    startMessagePending:
+      'Welcome to {publicName}. Your access is still pending approval. Ask a club administrator to approve your request so you can use activities, calendar, catalog, and tables.',
     helpHeader: 'Commands available in this chat:',
     helpFooterPrivate: 'To see all features, message me in private.',
+    helpPendingApproval:
+      'Your access is still pending approval. Ask a club administrator to approve your request so you can use activities, calendar, catalog, and tables.',
     noPendingRequests: 'There are no pending requests right now.',
     pendingRequestsHeader: 'Pending requests:',
     approveButton: 'Approve',
     rejectButton: 'Reject',
     currentLanguage: 'Current language: {language}',
+    memberMenuDebugOpened: 'Showing the standard approved member menu.',
   },
 } as const;
 
@@ -128,6 +146,7 @@ const actionMenuTexts = {
     tables: 'Taules',
     reviewAccess: '/review_access',
     venueEvents: 'Esdeveniments local',
+    memberDebug: 'Menu soci',
     start: '/start',
     help: '/help',
     cancel: '/cancel',
@@ -143,6 +162,7 @@ const actionMenuTexts = {
     tables: 'Mesas',
     reviewAccess: '/review_access',
     venueEvents: 'Eventos del local',
+    memberDebug: 'Menu socio',
     start: '/start',
     help: '/help',
     cancel: '/cancel',
@@ -158,6 +178,7 @@ const actionMenuTexts = {
     tables: 'Tables',
     reviewAccess: '/review_access',
     venueEvents: 'Venue events',
+    memberDebug: 'Member menu',
     start: '/start',
     help: '/help',
     cancel: '/cancel',
