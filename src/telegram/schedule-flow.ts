@@ -453,7 +453,10 @@ async function handleCreateSession(
       { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
     );
     await notifyScheduleConflicts({ context, eventId: created.id });
-    await publishCalendarSnapshotToNewsGroups(context);
+    await publishCalendarSnapshotToNewsGroups(context, {
+      action: 'created',
+      event: created,
+    });
     return true;
   }
 
@@ -637,7 +640,10 @@ async function persistEditedScheduleEvent(
     { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
   );
   await notifyScheduleConflicts({ context, eventId: updated.id });
-  await publishCalendarSnapshotToNewsGroups(context);
+    await publishCalendarSnapshotToNewsGroups(context, {
+      action: 'updated',
+      event: updated,
+    });
 }
 
 async function handleCancelSession(
@@ -671,7 +677,10 @@ async function handleCancelSession(
   });
   await context.runtime.session.cancel();
   await context.reply(`${texts.cancelled.replace('.', '')}: <b>${escapeHtml(cancelled.title)}</b>`, { ...buildScheduleMenuOptions(language), parseMode: 'HTML' });
-  await publishCalendarSnapshotToNewsGroups(context);
+    await publishCalendarSnapshotToNewsGroups(context, {
+      action: 'deleted',
+      event: cancelled,
+    });
   return true;
 }
 
@@ -1486,7 +1495,13 @@ async function notifyScheduleConflicts({
   );
 }
 
-async function publishCalendarSnapshotToNewsGroups(context: TelegramScheduleContext): Promise<void> {
+async function publishCalendarSnapshotToNewsGroups(
+  context: TelegramScheduleContext,
+  change: {
+    action: 'created' | 'updated' | 'deleted';
+    event: ScheduleEventRecord;
+  },
+): Promise<void> {
   const sendGroupMessage = context.runtime.bot.sendGroupMessage;
   if (!sendGroupMessage) {
     return;
@@ -1509,14 +1524,50 @@ async function publishCalendarSnapshotToNewsGroups(context: TelegramScheduleCont
   const message = entries.length > 0
     ? `Calendari actualitzat:\n${formatCalendarMessage(entries, context.runtime.bot.language ?? 'ca')}`
     : 'Calendari actualitzat: no hi ha activitats ni esdeveniments propers ara mateix.';
+  const footer = await formatCalendarBroadcastFooter(context, change);
 
   await Promise.all(
     groups.map(async (group) => {
       try {
-        await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+        await sendGroupMessage(group.chatId, `${message}\n\n${footer}`, { parseMode: 'HTML' });
       } catch {
         // La notificació de grup no ha de bloquejar l'edició de l'activitat.
       }
     }),
   );
+}
+
+async function formatCalendarBroadcastFooter(
+  context: TelegramScheduleContext,
+  change: {
+    action: 'created' | 'updated' | 'deleted';
+    event: ScheduleEventRecord;
+  },
+): Promise<string> {
+  const userName = await resolveBroadcastMemberName(context, context.runtime.actor.telegramUserId);
+  const actionLabel =
+    change.action === 'created'
+      ? 'creado'
+      : change.action === 'updated'
+        ? 'actualizado'
+        : 'eliminado';
+
+  return `<i>${escapeHtml(userName)} ha ${actionLabel} la actividad ${escapeHtml(change.event.title)} del ${escapeHtml(formatDayHeading(change.event.startsAt.slice(0, 10)))}</i>`;
+}
+
+async function resolveBroadcastMemberName(context: TelegramScheduleContext, telegramUserId: number): Promise<string> {
+  const user = await resolveMembershipRepository(context).findUserByTelegramUserId(telegramUserId);
+  if (!user) {
+    return `Usuari ${telegramUserId}`;
+  }
+
+  if (user.displayName.trim().length > 0) {
+    return user.displayName;
+  }
+
+  if (user.username && user.username.trim().length > 0) {
+    return user.username;
+  }
+
+  return `Usuari ${telegramUserId}`;
 }
