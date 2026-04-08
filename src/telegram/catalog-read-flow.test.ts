@@ -295,6 +295,21 @@ test('handleTelegramCatalogReadCommand paginates the overview list', async () =>
   assert.match(replies[0]?.message ?? '', /- Foxtrot · 0 items/);
 });
 
+test('handleTelegramCatalogReadCommand escapes HTML-sensitive labels in the overview', async () => {
+  const repository = createRepository({
+    families: [buildFamily(1, 'Rock & Roll')],
+    items: [buildItem(2, 'A < B')],
+  });
+  const { context, replies } = createContext(repository);
+  context.messageText = '/catalog_search';
+
+  await handleTelegramCatalogReadCommand(context);
+
+  assert.match(replies[0]?.message ?? '', /Rock &amp; Roll/);
+  assert.match(replies[0]?.message ?? '', /A &lt; B/);
+  assert.match(replies[0]?.message ?? '', /&lt;text&gt;/);
+});
+
 test('handleTelegramCatalogReadCommand paginates searches and exposes loan status', async () => {
   const repository = createRepository({
     families: [buildFamily(1, 'Alpha')],

@@ -96,11 +96,11 @@ export function formatMemberCatalogOverview({
   for (const family of families) {
     const groupCount = groups.filter((group) => group.familyId === family.id).length;
     const itemCount = itemCountByFamily.get(family.id) ?? 0;
-      lines.push(`- ${family.displayName} · ${itemCount} ${texts.catalogRead.itemCount(itemCount)} · ${groupCount} ${texts.catalogRead.groupCount(groupCount)}`);
+      lines.push(`- ${escapeHtml(family.displayName)} · ${itemCount} ${texts.catalogRead.itemCount(itemCount)} · ${groupCount} ${texts.catalogRead.groupCount(groupCount)}`);
   }
 
   lines.push(`- ${texts.catalogRead.itemsWithoutFamilyGroup}: ${items.filter((item) => item.familyId === null && item.groupId === null).length}`);
-  lines.push(texts.catalogRead.searchHint);
+  lines.push(escapeHtml(texts.catalogRead.searchHint));
   return lines.join('\n');
 }
 

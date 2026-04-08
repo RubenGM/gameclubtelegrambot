@@ -420,14 +420,14 @@ function formatEntryPage(entries: CatalogBrowseEntry[], page: number, totalPages
   }
 
   for (const entry of entries) {
-    lines.push(`- ${formatCatalogBrowseEntryLabel(entry)} · ${entry.subtitle}`);
+    lines.push(`- ${formatCatalogBrowseEntryLabel(entry)} · ${escapeHtml(entry.subtitle)}`);
   }
   return lines.join('\n');
 }
 
 function formatCatalogBrowseEntryLabel(entry: CatalogBrowseEntry): string {
   if (entry.kind !== 'item') {
-    return entry.label;
+    return escapeHtml(entry.label);
   }
 
   return `<a href="${buildTelegramStartUrl(`catalog_read_item_${entry.id}`)}"><b>${escapeHtml(entry.label)}</b></a>`;
@@ -576,7 +576,7 @@ async function formatItemSubtitle(context: TelegramCatalogReadContext, item: Cat
     return renderCatalogItemType(item.itemType);
   }
 
-  return `${renderCatalogItemType(item.itemType)} · Prestat a ${await resolveLoanBorrowerDisplayName(context, loan)} des de ${formatLoanDate(loan.createdAt)}`;
+  return `${renderCatalogItemType(item.itemType)} · Prestat a ${escapeHtml(await resolveLoanBorrowerDisplayName(context, loan))} des de ${formatLoanDate(loan.createdAt)}`;
 }
 
 function parseCatalogSearchQuery(text: string): string | null {
