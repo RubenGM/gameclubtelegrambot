@@ -41,6 +41,11 @@ import {
   rejectMembershipRequest,
   requestMembershipAccess,
 } from '../membership/access-flow.js';
+import {
+  createAppMetadataMembershipRequestNotificationSubscriptionStore,
+  notifySubscribedAdminsOfMembershipRequest,
+  toggleMembershipRequestNotifications,
+} from '../membership/request-notification-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { elevateApprovedUserToAdmin } from '../membership/admin-elevation.js';
 import { createDatabaseAdminElevationRepository } from '../membership/admin-elevation-store.js';
@@ -681,6 +686,76 @@ function createDefaultCommands({
         });
 
         await context.reply(result.message);
+
+        if (result.outcome === 'created') {
+          const storage = createDatabaseAppMetadataSessionStorage({
+            database: context.runtime.services.database.db,
+          });
+          const subscriptionStore = createAppMetadataMembershipRequestNotificationSubscriptionStore({ storage });
+          const languagePreferenceStore = createAppMetadataTelegramLanguagePreferenceStore({ storage });
+
+          await notifySubscribedAdminsOfMembershipRequest({
+            store: subscriptionStore,
+            membershipRepository: repository,
+            languagePreferenceReader: languagePreferenceStore,
+            privateMessageSender: context.runtime.bot,
+            requesterTelegramUserId: context.runtime.actor.telegramUserId,
+            requesterDisplayName: context.from?.first_name ?? `Usuari ${context.runtime.actor.telegramUserId}`,
+            ...(context.from?.username !== undefined ? { requesterUsername: context.from.username } : {}),
+          });
+        }
+      },
+    },
+    {
+      command: 'subscribe_requests',
+      contexts: ['private'],
+      access: 'admin',
+      descriptionByLanguage: {
+        ca: 'Activa avisos privats de noves sollicituds d accés',
+        es: 'Activa avisos privados de nuevas solicitudes de acceso',
+        en: 'Enable private alerts for new access requests',
+      },
+      handle: async (context) => {
+        const storage = createDatabaseAppMetadataSessionStorage({
+          database: context.runtime.services.database.db,
+        });
+        const subscriptionStore = createAppMetadataMembershipRequestNotificationSubscriptionStore({ storage });
+        const result = await toggleMembershipRequestNotifications({
+          store: subscriptionStore,
+          telegramUserId: context.runtime.actor.telegramUserId,
+          enabled: true,
+        });
+        const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+
+        await context.reply(
+          result === 'enabled' ? i18n.membership.requestNotificationsEnabled : i18n.membership.requestNotificationsAlreadyEnabled,
+        );
+      },
+    },
+    {
+      command: 'unsubscribe_requests',
+      contexts: ['private'],
+      access: 'admin',
+      descriptionByLanguage: {
+        ca: 'Desactiva avisos privats de noves sollicituds d accés',
+        es: 'Desactiva avisos privados de nuevas solicitudes de acceso',
+        en: 'Disable private alerts for new access requests',
+      },
+      handle: async (context) => {
+        const storage = createDatabaseAppMetadataSessionStorage({
+          database: context.runtime.services.database.db,
+        });
+        const subscriptionStore = createAppMetadataMembershipRequestNotificationSubscriptionStore({ storage });
+        const result = await toggleMembershipRequestNotifications({
+          store: subscriptionStore,
+          telegramUserId: context.runtime.actor.telegramUserId,
+          enabled: false,
+        });
+        const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+
+        await context.reply(
+          result === 'disabled' ? i18n.membership.requestNotificationsDisabled : i18n.membership.requestNotificationsAlreadyDisabled,
+        );
       },
     },
     {

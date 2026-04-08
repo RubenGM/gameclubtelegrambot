@@ -215,6 +215,11 @@ const membershipTexts = {
     adminApproved: 'Usuari aprovat correctament.',
     applicantRejected: 'La teva sollicitud d accés ha estat rebutjada. Si creus que es un error, contacta amb el club.',
     adminRejected: 'Sollicitud rebutjada i usuari blocat.',
+    requestNotificationsEnabled: 'Ara rebràs avisos privats de noves sollicituds d accés.',
+    requestNotificationsDisabled: 'Ja no rebràs avisos privats de noves sollicituds d accés.',
+    requestNotificationsAlreadyEnabled: 'Ja tenies activats els avisos de noves sollicituds d accés.',
+    requestNotificationsAlreadyDisabled: 'Ja tenies desactivats els avisos de noves sollicituds d accés.',
+    newRequestNotification: 'Nova sollicitud d accés de {displayName} ({identifier}).',
   },
   es: {
     alreadyApproved: 'Ya tienes acceso aprobado. Puedes usar las funcionalidades normales del bot.',
@@ -226,6 +231,11 @@ const membershipTexts = {
     adminApproved: 'Usuario aprobado correctamente.',
     applicantRejected: 'Tu solicitud de acceso ha sido rechazada. Si crees que es un error, contacta con el club.',
     adminRejected: 'Solicitud rechazada y usuario bloqueado.',
+    requestNotificationsEnabled: 'Ahora recibirás avisos privados de nuevas solicitudes de acceso.',
+    requestNotificationsDisabled: 'Ya no recibirás avisos privados de nuevas solicitudes de acceso.',
+    requestNotificationsAlreadyEnabled: 'Ya tenías activados los avisos de nuevas solicitudes de acceso.',
+    requestNotificationsAlreadyDisabled: 'Ya tenías desactivados los avisos de nuevas solicitudes de acceso.',
+    newRequestNotification: 'Nueva solicitud de acceso de {displayName} ({identifier}).',
   },
   en: {
     alreadyApproved: 'You already have approved access. You can use the bot normally.',
@@ -237,6 +247,11 @@ const membershipTexts = {
     adminApproved: 'User approved successfully.',
     applicantRejected: 'Your access request has been rejected. If you think this is a mistake, contact the club.',
     adminRejected: 'Request rejected and user blocked.',
+    requestNotificationsEnabled: 'You will now receive private alerts for new access requests.',
+    requestNotificationsDisabled: 'You will no longer receive private alerts for new access requests.',
+    requestNotificationsAlreadyEnabled: 'You already had new access request alerts enabled.',
+    requestNotificationsAlreadyDisabled: 'You already had new access request alerts disabled.',
+    newRequestNotification: 'New access request from {displayName} ({identifier}).',
   },
 } as const;
 
