@@ -487,9 +487,10 @@ async function loadVenueEventOrThrow(context: TelegramVenueEventAdminContext, ev
 }
 
 function buildVenueEventMenuOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).venueEventAdmin;
+  const i18n = createTelegramI18n(language);
+  const texts = i18n.venueEventAdmin;
   return {
-    replyKeyboard: [[texts.create, texts.list], [texts.edit, texts.cancel], [venueEventAdminLabels.start, venueEventAdminLabels.help]],
+    replyKeyboard: [[texts.create, texts.list], [texts.edit, texts.cancel], [i18n.actionMenu.start, i18n.actionMenu.help]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };

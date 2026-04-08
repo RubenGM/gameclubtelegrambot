@@ -867,9 +867,10 @@ function formatParticipantLabel(
 }
 
 function buildScheduleMenuOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).schedule;
+  const i18n = createTelegramI18n(language);
+  const texts = i18n.schedule;
   return {
-    replyKeyboard: [[texts.list, texts.create], [texts.edit, texts.cancel], [scheduleLabels.start, scheduleLabels.help]],
+    replyKeyboard: [[texts.list, texts.create], [texts.edit, texts.cancel], [i18n.actionMenu.start, i18n.actionMenu.help]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };

@@ -1099,13 +1099,14 @@ async function handleMediaDeleteSession(
 }
 
 function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
+  const i18n = createTelegramI18n(language);
+  const texts = i18n.catalogAdmin;
   return {
     replyKeyboard: [
       [texts.create, texts.listBoardGames],
       [texts.listBooks, texts.listRpgBooks],
       [texts.searchByName],
-      [texts.start],
+      [i18n.actionMenu.start],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
