@@ -31,7 +31,7 @@
     "node": ">=20.19.0"
   },
   "dependencies": {
-    "drizzle-orm": "^0.44.7",
+    "drizzle-orm": "^0.45.2",
     "grammy": "^1.38.3",
     "pg": "^8.16.3",
     "pino": "^9.7.0",
@@ -40,7 +40,7 @@
   "devDependencies": {
     "@types/node": "^24.5.2",
     "@types/pg": "^8.15.5",
-    "drizzle-kit": "^0.31.5",
+    "drizzle-kit": "^0.18.1",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
