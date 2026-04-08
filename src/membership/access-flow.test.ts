@@ -10,6 +10,7 @@ import {
   type MembershipUserRecord,
 } from './access-flow.js';
 import type { AuditLogEventRecord } from '../audit/audit-log.js';
+import { normalizeDisplayName } from './display-name.js';
 
 function createRepository(initialUsers: MembershipUserRecord[] = []): MembershipAccessRepository & {
   __statusLog: string[];
@@ -24,12 +25,26 @@ function createRepository(initialUsers: MembershipUserRecord[] = []): Membership
     async findUserByTelegramUserId(telegramUserId) {
       return users.get(telegramUserId) ?? null;
     },
+    async syncUserProfile(input) {
+      const existing = users.get(input.telegramUserId);
+      if (!existing) {
+        return null;
+      }
+
+      const next: MembershipUserRecord = {
+        ...existing,
+        ...(input.username !== undefined ? { username: input.username ?? null } : {}),
+        displayName: normalizeDisplayName(input.displayName) ?? existing.displayName,
+      };
+      users.set(input.telegramUserId, next);
+      return next;
+    },
     async upsertPendingUser(input) {
       const existing = users.get(input.telegramUserId);
       const next: MembershipUserRecord = {
         telegramUserId: input.telegramUserId,
         ...(input.username !== undefined ? { username: input.username } : {}),
-        displayName: input.displayName,
+        displayName: normalizeDisplayName(input.displayName) ?? 'Usuari',
         status: 'pending',
         isAdmin: existing?.isAdmin ?? false,
       };
@@ -60,6 +75,22 @@ function createRepository(initialUsers: MembershipUserRecord[] = []): Membership
       statusLog.push(
         `audit:${input.telegramUserId}:${input.previousStatus ?? 'null'}:${input.nextStatus}:${input.changedByTelegramUserId}`,
       );
+    },
+    async backfillDisplayNames() {
+      let updatedCount = 0;
+      for (const [telegramUserId, user] of users.entries()) {
+        if (normalizeDisplayName(user.displayName)) {
+          continue;
+        }
+
+        const next: MembershipUserRecord = {
+          ...user,
+          displayName: user.username?.trim() ? `@${user.username.trim()}` : 'Usuari',
+        };
+        users.set(telegramUserId, next);
+        updatedCount += 1;
+      }
+      return updatedCount;
     },
     async appendAuditEvent(input) {
       auditEvents.push({

@@ -45,6 +45,12 @@ test('notifySubscribedAdminsOfMembershipRequest sends localized private messages
       async findUserByTelegramUserId(telegramUserId) {
         return (users.get(telegramUserId) as never) ?? null;
       },
+      async syncUserProfile() {
+        return null;
+      },
+      async backfillDisplayNames() {
+        return 0;
+      },
       async upsertPendingUser() {
         throw new Error('not used');
       },

@@ -156,8 +156,8 @@ function formatRequesterLabel({
   }
 
   if (normalizedUsername) {
-    return `@${normalizedUsername}`;
+    return `@${normalizedUsername.replace(/^@/, '')}`;
   }
 
-  return `Usuari ${telegramUserId}`;
+  return 'Usuari';
 }

@@ -9,6 +9,7 @@ import { escapeHtml, formatHtmlField, formatMemberCatalogItemDetails } from './c
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramInlineButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+import { formatMembershipDisplayName, resolveTelegramDisplayName } from '../membership/display-name.js';
 
 const loanEditFlowKey = 'catalog-loan-edit';
 const catalogAdminEditCallbackPrefix = 'catalog_admin:edit:';
@@ -448,43 +449,25 @@ function asString(value: unknown): string | null {
 async function resolveDisplayName(context: TelegramCatalogLoanContext): Promise<string> {
   const user = await loadMembershipUser(context, context.runtime.actor.telegramUserId);
   if (user) {
-    return formatMembershipDisplayName(user, context.runtime.actor.telegramUserId);
+    return formatMembershipDisplayName(user);
   }
 
-  return context.from?.first_name ?? context.from?.username ?? `Usuari ${context.runtime.actor.telegramUserId}`;
+  return resolveTelegramDisplayName(context.from);
 }
 
 async function resolvePreferredUserName(context: TelegramCatalogLoanContext, telegramUserId: number): Promise<string> {
   const user = await loadMembershipUser(context, telegramUserId);
   if (user) {
-    const displayName = user.displayName.trim();
-    if (displayName.length > 0) {
-      return displayName;
-    }
-
-    const username = user.username?.trim();
-    if (username && username.length > 0) {
-      return username;
-    }
+    return formatMembershipDisplayName(user);
   }
 
-  const firstName = context.from?.first_name?.trim();
-  if (firstName) {
-    return firstName;
-  }
-
-  const username = context.from?.username?.trim();
-  if (username) {
-    return username;
-  }
-
-  return `Usuari ${telegramUserId}`;
+  return resolveTelegramDisplayName(context.from);
 }
 
 export async function resolveLoanBorrowerDisplayName(context: LoanDisplayContext, loan: CatalogLoanRecord): Promise<string> {
   const user = await loadMembershipUser(context, loan.borrowerTelegramUserId);
   if (user) {
-    return formatMembershipDisplayName(user, loan.borrowerTelegramUserId);
+    return formatMembershipDisplayName(user);
   }
 
   return loan.borrowerDisplayName;
@@ -509,14 +492,6 @@ function resolveMembershipRepository(context: LoanDisplayContext): MembershipAcc
   }
 
   return createDatabaseMembershipAccessRepository({ database: context.runtime.services.database.db as never });
-}
-
-function formatMembershipDisplayName(user: MembershipUserRecord, fallbackTelegramUserId: number): string {
-  if (user.username) {
-    return `${user.displayName} (@${user.username})`;
-  }
-
-  return user.displayName || `Usuari ${fallbackTelegramUserId}`;
 }
 
 function formatLoanDate(value: string): string {

@@ -1,4 +1,5 @@
 import { appendAuditEvent, type AuditLogAppendInput } from '../audit/audit-log.js';
+import { normalizeDisplayName } from './display-name.js';
 
 export type MembershipUserStatus = 'pending' | 'approved' | 'blocked';
 
@@ -12,6 +13,12 @@ export interface MembershipUserRecord {
 
 export interface MembershipAccessRepository {
   findUserByTelegramUserId(telegramUserId: number): Promise<MembershipUserRecord | null>;
+  syncUserProfile(input: {
+    telegramUserId: number;
+    username?: string | null;
+    displayName: string;
+  }): Promise<MembershipUserRecord | null>;
+  backfillDisplayNames(): Promise<number>;
   upsertPendingUser(input: {
     telegramUserId: number;
     username?: string | null;
@@ -46,6 +53,12 @@ export async function requestMembershipAccess({
   username?: string | null;
   displayName: string;
 }): Promise<{ outcome: 'created' | 'already-pending' | 'already-approved' | 'blocked'; message: string }> {
+  await repository.syncUserProfile({
+    telegramUserId,
+    ...(username !== undefined ? { username } : {}),
+    displayName,
+  });
+
   const existing = await repository.findUserByTelegramUserId(telegramUserId);
 
   if (existing?.status === 'approved') {
@@ -72,8 +85,8 @@ export async function requestMembershipAccess({
 
   await repository.upsertPendingUser({
     telegramUserId,
-    ...(username !== undefined ? { username } : {}),
-    displayName,
+    ...(username !== undefined ? { username: normalizeDisplayName(username) } : {}),
+    displayName: normalizeDisplayName(displayName) ?? 'Usuari',
   });
   await repository.appendStatusAuditLog({
     telegramUserId,

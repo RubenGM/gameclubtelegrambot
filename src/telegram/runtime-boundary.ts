@@ -49,6 +49,7 @@ import {
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { elevateApprovedUserToAdmin } from '../membership/admin-elevation.js';
 import { createDatabaseAdminElevationRepository } from '../membership/admin-elevation-store.js';
+import { resolveTelegramDisplayName } from '../membership/display-name.js';
 import {
   handleTelegramCatalogAdminCallback,
   handleTelegramCatalogAdminText,
@@ -254,6 +255,17 @@ export async function createTelegramBoundary({
 
     registerHandlers({ bot, config });
 
+    try {
+      await createDatabaseMembershipAccessRepository({
+        database: services.database.db,
+      }).backfillDisplayNames();
+    } catch (error) {
+      logger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Telegram displayName backfill skipped',
+      );
+    }
+
     await bot.startPolling();
 
     logger.info({ publicName: config.bot.publicName }, 'Telegram bot long polling started');
@@ -444,6 +456,15 @@ function createActorMiddleware({
     if (!context.from) {
       throw new Error('Telegram update does not include sender information');
     }
+
+    const membershipRepository = createDatabaseMembershipAccessRepository({
+      database: services.database.db,
+    });
+    await membershipRepository.syncUserProfile({
+      telegramUserId: context.from.id,
+      ...(context.from.username !== undefined ? { username: context.from.username } : {}),
+      displayName: resolveTelegramDisplayName(context.from),
+    });
 
     context.runtime.actor = await loadActor({
       telegramUserId: context.from.id,
@@ -1381,16 +1402,7 @@ async function handleTelegramMemberMenuDebugText(
 }
 
 function resolveRequesterDisplayName(context: Pick<TelegramCommandHandlerContext, 'from' | 'runtime'>): string {
-  const firstName = context.from?.first_name?.trim();
-  const lastName = context.from?.last_name?.trim();
-
-  const fullName = [firstName, lastName].filter((part): part is string => Boolean(part)).join(' ');
-
-  if (fullName) {
-    return fullName;
-  }
-
-  return `Usuari ${context.runtime.actor.telegramUserId}`;
+  return resolveTelegramDisplayName(context.from);
 }
 
 function escapeRegExp(value: string): string {

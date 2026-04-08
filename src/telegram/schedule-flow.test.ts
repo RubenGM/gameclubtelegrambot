@@ -9,6 +9,7 @@ import type { ScheduleEventRecord, ScheduleParticipantRecord, ScheduleRepository
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
+import { normalizeDisplayName } from '../membership/display-name.js';
 import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleStartText,
@@ -225,16 +226,46 @@ function createMembershipRepository(initialUsers: MembershipUserRecord[] = [
     async findUserByTelegramUserId(telegramUserId) {
       return users.get(telegramUserId) ?? null;
     },
+    async syncUserProfile(input) {
+      const existing = users.get(input.telegramUserId);
+      if (!existing) {
+        return null;
+      }
+
+      const next: MembershipUserRecord = {
+        ...existing,
+        ...(input.username !== undefined ? { username: input.username ?? null } : {}),
+        displayName: normalizeDisplayName(input.displayName) ?? existing.displayName,
+      };
+      users.set(next.telegramUserId, next);
+      return next;
+    },
     async upsertPendingUser(input) {
       const next: MembershipUserRecord = {
         telegramUserId: input.telegramUserId,
         username: input.username ?? null,
-        displayName: input.displayName,
+        displayName: normalizeDisplayName(input.displayName) ?? 'Usuari',
         status: 'pending',
         isAdmin: false,
       };
       users.set(next.telegramUserId, next);
       return next;
+    },
+    async backfillDisplayNames() {
+      let updatedCount = 0;
+      for (const [telegramUserId, user] of users.entries()) {
+        if (normalizeDisplayName(user.displayName)) {
+          continue;
+        }
+
+        const next: MembershipUserRecord = {
+          ...user,
+          displayName: user.username?.trim() ? `@${user.username.trim()}` : 'Usuari',
+        };
+        users.set(telegramUserId, next);
+        updatedCount += 1;
+      }
+      return updatedCount;
     },
     async listPendingUsers() {
       return Array.from(users.values()).filter((user) => user.status === 'pending');

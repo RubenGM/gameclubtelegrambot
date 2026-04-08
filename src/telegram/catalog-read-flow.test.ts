@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { CatalogFamilyRecord, CatalogGroupRecord, CatalogItemRecord, CatalogLoanRecord, CatalogMediaRecord, CatalogLoanRepository, CatalogRepository } from '../catalog/catalog-model.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
+import { normalizeDisplayName } from '../membership/display-name.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
@@ -127,9 +128,24 @@ function createMembershipRepository(users: MembershipUserRecord[] = []): Members
     async findUserByTelegramUserId(telegramUserId) {
       return userMap.get(telegramUserId) ?? null;
     },
+    async syncUserProfile(input) {
+      const existing = userMap.get(input.telegramUserId);
+      if (!existing) {
+        return null;
+      }
+
+      const next: MembershipUserRecord = {
+        ...existing,
+        ...(input.username !== undefined ? { username: input.username ?? null } : {}),
+        displayName: normalizeDisplayName(input.displayName) ?? existing.displayName,
+      };
+      userMap.set(next.telegramUserId, next);
+      return next;
+    },
     async upsertPendingUser() { throw new Error('not implemented'); },
     async listPendingUsers() { return []; },
     async updateUserStatus() { throw new Error('not implemented'); },
+    async backfillDisplayNames() { return 0; },
     async appendStatusAuditLog() { throw new Error('not implemented'); },
     async appendAuditEvent() { throw new Error('not implemented'); },
   };

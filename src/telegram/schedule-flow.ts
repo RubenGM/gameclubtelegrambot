@@ -40,6 +40,7 @@ import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
+import { formatMembershipDisplayName } from '../membership/display-name.js';
 
 const createFlowKey = 'schedule-create';
 const editFlowKey = 'schedule-edit';
@@ -1206,18 +1207,10 @@ async function formatDraftSummary(
 async function resolveMemberDisplayName(context: TelegramScheduleContext, telegramUserId: number): Promise<string> {
   const user = await resolveMembershipRepository(context).findUserByTelegramUserId(telegramUserId);
   if (user) {
-    return formatMembershipDisplayName(user, telegramUserId);
+    return formatMembershipDisplayName(user);
   }
 
-  return `Usuari ${telegramUserId}`;
-}
-
-function formatMembershipDisplayName(user: MembershipUserRecord, fallbackTelegramUserId: number): string {
-  if (user.username) {
-    return `${user.displayName} (@${user.username})`;
-  }
-
-  return user.displayName || `Usuari ${fallbackTelegramUserId}`;
+  return 'Usuari';
 }
 
 function parseDate(value: string): string | Error {
@@ -1559,16 +1552,8 @@ async function formatCalendarBroadcastFooter(
 async function resolveBroadcastMemberName(context: TelegramScheduleContext, telegramUserId: number): Promise<string> {
   const user = await resolveMembershipRepository(context).findUserByTelegramUserId(telegramUserId);
   if (!user) {
-    return `Usuari ${telegramUserId}`;
+    return 'Usuari';
   }
 
-  if (user.displayName.trim().length > 0) {
-    return user.displayName;
-  }
-
-  if (user.username && user.username.trim().length > 0) {
-    return user.username;
-  }
-
-  return `Usuari ${telegramUserId}`;
+  return formatMembershipDisplayName(user);
 }

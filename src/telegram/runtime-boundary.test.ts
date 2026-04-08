@@ -1132,6 +1132,10 @@ function createMembershipDatabaseStub({
                 return Array.from(membershipUsers.values());
               }
 
+              if ('telegramUserId' in selection && 'displayName' in selection) {
+                return Array.from(membershipUsers.values());
+              }
+
               return [];
             },
           };
@@ -1184,17 +1188,19 @@ function createMembershipDatabaseStub({
             where() {
               return {
                 returning: async () => {
-                  const existing = membershipUsers.get(42);
+                  const existing = membershipUsers.get(Number(value.telegramUserId ?? 42));
                   if (!existing) {
                     return [];
                   }
 
                   const next = {
                     ...existing,
-                    status: String(value.status),
+                    ...(value.status !== undefined ? { status: String(value.status) } : {}),
+                    ...(value.displayName !== undefined ? { displayName: String(value.displayName) } : {}),
+                    ...(value.username !== undefined ? { username: value.username as string | null } : {}),
                     isAdmin: value.isAdmin === undefined ? existing.isAdmin : Boolean(value.isAdmin),
                   };
-                  membershipUsers.set(42, next);
+                  membershipUsers.set(next.telegramUserId, next);
                   return [next];
                 },
               };
