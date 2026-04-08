@@ -2522,6 +2522,8 @@ async function createWikipediaImportedBoardGame(
   draft: WikipediaBoardGameCatalogDraft,
   sourceTitle: string,
 ): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
   const importedData = {
     ...(baseData as Record<string, unknown>),
     ...draft,
@@ -2560,10 +2562,10 @@ async function createWikipediaImportedBoardGame(
     stepKey: 'select-field',
     data: { itemId: item.id },
   });
-  await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin.wikipediaFinalizeImport, buildEditFieldMenuOptions(item.itemType));
+  await context.reply(texts.wikipediaFinalizeImport, buildEditFieldMenuOptions(item.itemType, language));
   await context.reply(
-    `He importat dades externes per ${item.displayName}.\n\n${await formatDraftSummary(context, importedData as unknown as Record<string, unknown>)}\n\nTria un camp del teclat o guarda els canvis quan hagis acabat.`,
-    { ...buildEditFieldMenuOptions(item.itemType), parseMode: 'HTML' },
+    `${texts.wikipediaImportedDraft.replace('{name}', escapeHtml(item.displayName))}\n\n${await formatDraftSummary(context, importedData as unknown as Record<string, unknown>)}\n\n${texts.selectEditField}`,
+    { ...buildEditFieldMenuOptions(item.itemType, language), parseMode: 'HTML' },
   );
 }
 

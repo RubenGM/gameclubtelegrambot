@@ -513,6 +513,49 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.updated');
 });
 
+test('handleTelegramCatalogAdminText localizes the wikipedia import handoff', async () => {
+  const repository = createRepository();
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle() {
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: 'A & B',
+          originalName: null,
+          description: null,
+          language: null,
+          publisher: null,
+          publicationYear: null,
+          playerCountMin: null,
+          playerCountMax: null,
+          recommendedAge: null,
+          playTimeMinutes: null,
+          externalRefs: null,
+          metadata: null,
+        },
+      };
+    },
+  };
+  const { context, replies, getCurrentSession } = createContext({ repository, wikipediaBoardGameImportService, language: 'es' });
+
+  context.messageText = catalogAdminLabels.create;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Juego de mesa';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'A & B';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  assert.match(replies.at(-2)?.message ?? '', /Importacion desde la API completada/);
+  assert.match(replies.at(-1)?.message ?? '', /He importado datos externos para A &amp; B\./);
+  assert.match(replies.at(-1)?.message ?? '', /Elige un campo del teclado o guarda los cambios cuando hayas terminado\./);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Nombre visible');
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.at(-2)?.[0], 'Guardar cambios');
+});
+
 test('handleTelegramCatalogAdminText shows a URL fallback when Wikipedia import fails', async () => {
   const repository = createRepository();
   const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
