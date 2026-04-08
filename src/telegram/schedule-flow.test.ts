@@ -456,7 +456,7 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
   assert.match(replies.at(-1)?.message ?? '', /<i>Ocells i engines<\/i>/);
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
-    replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['/start', '/help']],
+    replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['Inici', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });

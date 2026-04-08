@@ -12,6 +12,7 @@ import {
 } from './runtime-boundary.js';
 import type { TelegramCommandHandler } from './command-registry.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
+import { createTelegramI18n } from './i18n.js';
 
 const runtimeConfig = {
   schemaVersion: 1,
@@ -270,7 +271,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'runtime:database:1',
     'reply:Ja hem rebut la teva sollicitud d acces. Ara avisa un administrador del club perque l aprovi i podras fer servir activitats, calendari, cataleg i taules.',
     'reply:Benvingut a Game Club Bot. Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
-    'reply-keyboard:/access|Idioma|/start|/help',
+    'reply-keyboard:/access|Idioma|Inici|Ajuda',
     'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
     'reply:Usuari aprovat correctament.',
@@ -622,6 +623,138 @@ test('toGrammyReplyOptions converts reply keyboard to grammY reply markup', asyn
   );
 });
 
+test('translated quick-action buttons still trigger the same handlers', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const membershipUsers = new Map([
+    [
+      42,
+      {
+        telegramUserId: 42,
+        username: 'new_member',
+        displayName: 'New',
+        status: 'pending',
+        isAdmin: false,
+      },
+    ],
+  ]);
+
+  let textHandler: TelegramCommandHandler | undefined;
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub({
+          membershipUsers,
+          statusAuditLog: [],
+          auditEvents: [],
+        }) as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: true,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: (handler) => {
+          textHandler = handler;
+        },
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 99,
+              username: 'club_admin',
+              first_name: 'Admin',
+            },
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push(options ? { message, options } : { message });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              if (!textHandler) {
+                throw new Error('text handler not registered');
+              }
+
+              const commandContext = context as unknown as import('./command-registry.js').TelegramCommandHandlerContext;
+
+              context.messageText = createTelegramI18n('ca').actionMenu.start;
+              await textHandler(commandContext);
+
+              context.messageText = createTelegramI18n('ca').actionMenu.help;
+              await textHandler(commandContext);
+
+              context.messageText = createTelegramI18n('ca').actionMenu.reviewAccess;
+              await textHandler(commandContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  await telegram.stop();
+
+  assert.equal(replies.length, 3);
+  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Idioma'], ['Inici', 'Ajuda']]);
+  assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.2\.0\)/);
+  assert.match(replies[1]?.message ?? '', /Comandes disponibles en aquest xat/);
+  assert.match(replies[2]?.message ?? '', /Sollicituds pendents/);
+  assert.deepEqual(
+    replies[2]?.options?.inlineKeyboard?.flat().map((button) => button.text),
+    ['Aprovar', 'Rebutjar'],
+  );
+});
+
 test('cancel restores the default action menu after an active flow', async () => {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
 
@@ -735,7 +868,7 @@ test('cancel restores the default action menu after an active flow', async () =>
     {
       message: 'Flux cancel.lat correctament.',
       options: {
-        replyKeyboard: [['Activitats'], ['Cataleg', '/tables'], ['/elevate_admin'], ['Idioma'], ['/start', '/help']],
+        replyKeyboard: [['Activitats'], ['Cataleg'], ['/elevate_admin'], ['Idioma'], ['Inici', 'Ajuda']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },
@@ -842,7 +975,7 @@ test('createTelegramBoundary routes plain text keyboard actions for admin table 
     {
       message: 'Gestio de taules: tria una accio.',
       options: {
-        replyKeyboard: [['Crear taula', 'Llistar taules'], ['Editar taula', 'Desactivar taula'], ['/start']],
+        replyKeyboard: [['Crear taula', 'Llistar taules'], ['Editar taula', 'Desactivar taula'], ['Inici']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },
@@ -947,7 +1080,7 @@ test('createTelegramBoundary routes plain text keyboard actions for schedule man
     {
       message: 'No hi ha activitats programades ara mateix.',
       options: {
-        replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['/start', '/help']],
+        replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['Inici', 'Ajuda']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },

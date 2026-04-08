@@ -355,7 +355,7 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
     [catalogAdminLabels.create, 'Listar juegos de mesa'],
     ['Listar libros', 'Listar libros RPG'],
     ['Buscar por nombre'],
-    [catalogAdminLabels.start],
+    ['Inicio'],
   ]);
 
   context.messageText = 'Listar juegos de mesa';

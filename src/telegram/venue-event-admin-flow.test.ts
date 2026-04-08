@@ -195,7 +195,7 @@ test('handleTelegramVenueEventAdminText opens the venue event admin menu from th
   assert.deepEqual(replies.at(-1), {
     message: 'Gestio d esdeveniments del local: tria una accio.',
     options: {
-      replyKeyboard: [['Crear esdeveniment', 'Llistar esdeveniments'], ['Editar esdeveniment', 'Cancel.lar esdeveniment'], ['/start', '/help']],
+      replyKeyboard: [['Crear esdeveniment', 'Llistar esdeveniments'], ['Editar esdeveniment', 'Cancel.lar esdeveniment'], ['Inici', 'Ajuda']],
       resizeKeyboard: true,
       persistentKeyboard: true,
     },

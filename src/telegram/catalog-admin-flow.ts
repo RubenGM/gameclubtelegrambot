@@ -113,7 +113,7 @@ export const catalogAdminLabels = {
   refineLookupByAuthor: 'Refinar amb autor',
   keepTypedTitle: 'Quedar-me amb el meu titol',
   useApiTitle: 'Fer servir el titol de la API',
-  start: '/start',
+  start: 'Inici',
   cancel: '/cancel',
 } as const;
 

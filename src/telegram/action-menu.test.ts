@@ -53,7 +53,7 @@ test('resolveTelegramActionMenu returns pending private user actions by default'
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['/access', 'Idioma', '/start'], ['/help']],
+    replyKeyboard: [['/access', 'Idioma', 'Inici'], ['Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -78,13 +78,13 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['/review_access'], ['Idioma'], ['/start', '/help']],
+    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Idioma'], ['Inici', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
 });
 
-test('resolveTelegramActionMenu exposes table reads to approved non-admin members', async () => {
+test('resolveTelegramActionMenu hides tables for approved non-admin members', async () => {
   const menu = resolveTelegramActionMenu({
     context: createContext({
       actor: {
@@ -103,7 +103,7 @@ test('resolveTelegramActionMenu exposes table reads to approved non-admin member
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['Cataleg', '/tables'], ['/elevate_admin'], ['Idioma'], ['/start', '/help']],
+    replyKeyboard: [['Activitats'], ['Cataleg'], ['/elevate_admin'], ['Idioma'], ['Inici', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -128,7 +128,7 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['/review_access'], ['Idioma'], ['/start', '/help']],
+    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Idioma'], ['Inici', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });

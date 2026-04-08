@@ -598,6 +598,10 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramTranslatedActionMenuText(context)) {
+      return;
+    }
+
     if (await handleTelegramMemberMenuDebugText(context)) {
       return;
     }
@@ -1203,6 +1207,56 @@ async function handleReviewAccess(context: TelegramCommandHandlerContext): Promi
       },
     ]),
   });
+}
+
+async function handleTelegramTranslatedActionMenuText(
+  context: TelegramCommandHandlerContext,
+): Promise<boolean> {
+  const text = context.messageText?.trim();
+  if (!text) {
+    return false;
+  }
+
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const i18n = createTelegramI18n(language);
+
+  if (text === i18n.actionMenu.reviewAccess) {
+    if (context.runtime.chat.kind === 'private' && context.runtime.actor.isAdmin) {
+      await handleReviewAccess(context);
+      return true;
+    }
+
+    return false;
+  }
+
+  if (text === i18n.actionMenu.start) {
+    await context.reply(
+      formatStartMessage({
+        publicName: context.runtime.bot.publicName,
+        version: APP_VERSION,
+        isAdmin: context.runtime.actor.isAdmin,
+        isApproved: context.runtime.actor.isApproved,
+        language,
+      }),
+      buildReplyOptionsForCurrentActionMenu(context),
+    );
+    return true;
+  }
+
+  if (text === i18n.actionMenu.help) {
+    await context.reply(
+      renderTelegramHelpMessage({
+        commands: createDefaultCommands({
+          publicName: context.runtime.bot.publicName,
+          adminElevationPasswordHash: '',
+        }),
+        context,
+      }),
+    );
+    return true;
+  }
+
+  return false;
 }
 
 function buildReplyOptionsForCurrentActionMenu(

@@ -159,6 +159,8 @@ function formatShortTime(value: string): string {
 }
 
 function buildCalendarMenuOptions(context: TelegramCalendarContext): TelegramReplyOptions {
+  const i18n = createTelegramI18n(resolveBotLanguage(context) as 'ca' | 'es' | 'en');
+
   return (
     resolveTelegramActionMenu({
       context: {
@@ -169,7 +171,7 @@ function buildCalendarMenuOptions(context: TelegramCalendarContext): TelegramRep
         language: resolveBotLanguage(context) as 'ca' | 'es' | 'en',
       },
     }) ?? {
-      replyKeyboard: [['/start', '/help', createTelegramI18n(resolveBotLanguage(context) as 'ca' | 'es' | 'en').actionMenu.language]],
+      replyKeyboard: [[i18n.actionMenu.start, i18n.actionMenu.help, i18n.actionMenu.language]],
       resizeKeyboard: true,
       persistentKeyboard: true,
     }

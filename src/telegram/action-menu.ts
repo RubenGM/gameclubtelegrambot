@@ -136,7 +136,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['schedule'], ['catalog', 'tables_read'], ['elevate_admin'], ['language'], ['start', 'help']],
+    rows: [['schedule'], ['catalog'], ['elevate_admin'], ['language'], ['start', 'help']],
   },
   {
     id: 'private-pending-default',

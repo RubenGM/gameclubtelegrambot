@@ -46,8 +46,8 @@ export const venueEventAdminLabels = {
   confirmCreate: 'Guardar esdeveniment',
   confirmEdit: 'Guardar canvis',
   confirmCancel: 'Confirmar cancel.lacio',
-  start: '/start',
-  help: '/help',
+  start: 'Inici',
+  help: 'Ajuda',
   cancelFlow: '/cancel',
 } as const;
 
