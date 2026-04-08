@@ -12,7 +12,13 @@ export interface MembershipRequestNotificationSubscriptionStore {
 }
 
 export interface TelegramPrivateMessageSender {
-  sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+  sendPrivateMessage(
+    telegramUserId: number,
+    message: string,
+    options?: {
+      inlineKeyboard?: Array<Array<{ text: string; callbackData: string }>>;
+    },
+  ): Promise<void>;
 }
 
 export interface TelegramLanguagePreferenceReader {
@@ -107,12 +113,18 @@ export async function notifySubscribedAdminsOfMembershipRequest({
     const preferredLanguage = await languagePreferenceReader.loadLanguage(recipientTelegramUserId);
     const language = normalizeBotLanguage(preferredLanguage ?? undefined, 'ca');
     const i18n = createTelegramI18n(language);
-    const identifier = requesterUsername ? `@${requesterUsername}` : String(requesterTelegramUserId);
-    const message = i18n.membership.newRequestNotification
-      .replace('{displayName}', requesterDisplayName)
-      .replace('{identifier}', identifier);
+    const label = formatRequesterLabel({
+      displayName: requesterDisplayName,
+      ...(requesterUsername !== undefined ? { username: requesterUsername } : {}),
+      telegramUserId: requesterTelegramUserId,
+    });
 
-    await privateMessageSender.sendPrivateMessage(recipientTelegramUserId, message);
+    await privateMessageSender.sendPrivateMessage(recipientTelegramUserId, i18n.membership.newRequestNotification.replace('{label}', label), {
+      inlineKeyboard: [[{
+        text: i18n.common.approveButton,
+        callbackData: `approve_access:${requesterTelegramUserId}`,
+      }]],
+    });
     sentCount += 1;
   }
 
@@ -121,4 +133,31 @@ export async function notifySubscribedAdminsOfMembershipRequest({
 
 function buildSubscriptionKey(telegramUserId: number): string {
   return `${subscriptionPrefix}${telegramUserId}`;
+}
+
+function formatRequesterLabel({
+  displayName,
+  username,
+  telegramUserId,
+}: {
+  displayName: string;
+  username?: string | null;
+  telegramUserId: number;
+}): string {
+  const normalizedDisplayName = displayName.trim();
+  const normalizedUsername = username?.trim();
+
+  if (normalizedDisplayName && normalizedUsername) {
+    return `${normalizedDisplayName} (@${normalizedUsername})`;
+  }
+
+  if (normalizedDisplayName) {
+    return normalizedDisplayName;
+  }
+
+  if (normalizedUsername) {
+    return `@${normalizedUsername}`;
+  }
+
+  return `Usuari ${telegramUserId}`;
 }

@@ -37,7 +37,7 @@ test('notifySubscribedAdminsOfMembershipRequest sends localized private messages
     [12, { telegramUserId: 12, displayName: 'Not Admin', status: 'approved', isAdmin: false }],
   ]);
 
-  const messages: Array<{ telegramUserId: number; message: string }> = [];
+  const messages: Array<{ telegramUserId: number; message: string; options?: { inlineKeyboard?: Array<Array<{ text: string; callbackData: string }>> } }> = [];
 
   const sentCount = await notifySubscribedAdminsOfMembershipRequest({
     store,
@@ -71,8 +71,8 @@ test('notifySubscribedAdminsOfMembershipRequest sends localized private messages
       },
     },
     privateMessageSender: {
-      async sendPrivateMessage(telegramUserId, message) {
-        messages.push({ telegramUserId, message });
+      async sendPrivateMessage(telegramUserId, message, options) {
+        messages.push({ telegramUserId, message, ...(options ? { options } : {}) });
       },
     },
     requesterTelegramUserId: 42,
@@ -85,10 +85,16 @@ test('notifySubscribedAdminsOfMembershipRequest sends localized private messages
     {
       telegramUserId: 10,
       message: 'Nova sollicitud d accés de New Member (@new_member).',
+      options: {
+        inlineKeyboard: [[{ text: 'Aprovar', callbackData: 'approve_access:42' }]],
+      },
     },
     {
       telegramUserId: 11,
       message: 'Nueva solicitud de acceso de New Member (@new_member).',
+      options: {
+        inlineKeyboard: [[{ text: 'Aprobar', callbackData: 'approve_access:42' }]],
+      },
     },
   ]);
 });

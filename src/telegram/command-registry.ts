@@ -23,7 +23,7 @@ export interface TelegramCommandRuntime {
     publicName: string;
     clubName: string;
     language?: BotLanguage;
-    sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+    sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
@@ -38,6 +38,7 @@ export interface TelegramCommandHandlerContext {
     id: number;
     username?: string;
     first_name?: string;
+    last_name?: string;
   };
   messageText?: string;
   callbackData?: string;

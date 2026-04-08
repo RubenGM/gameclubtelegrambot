@@ -219,7 +219,7 @@ const membershipTexts = {
     requestNotificationsDisabled: 'Ja no rebràs avisos privats de noves sollicituds d accés.',
     requestNotificationsAlreadyEnabled: 'Ja tenies activats els avisos de noves sollicituds d accés.',
     requestNotificationsAlreadyDisabled: 'Ja tenies desactivats els avisos de noves sollicituds d accés.',
-    newRequestNotification: 'Nova sollicitud d accés de {displayName} ({identifier}).',
+    newRequestNotification: 'Nova sollicitud d accés de {label}.',
   },
   es: {
     alreadyApproved: 'Ya tienes acceso aprobado. Puedes usar las funcionalidades normales del bot.',
@@ -235,7 +235,7 @@ const membershipTexts = {
     requestNotificationsDisabled: 'Ya no recibirás avisos privados de nuevas solicitudes de acceso.',
     requestNotificationsAlreadyEnabled: 'Ya tenías activados los avisos de nuevas solicitudes de acceso.',
     requestNotificationsAlreadyDisabled: 'Ya tenías desactivados los avisos de nuevas solicitudes de acceso.',
-    newRequestNotification: 'Nueva solicitud de acceso de {displayName} ({identifier}).',
+    newRequestNotification: 'Nueva solicitud de acceso de {label}.',
   },
   en: {
     alreadyApproved: 'You already have approved access. You can use the bot normally.',
@@ -251,7 +251,7 @@ const membershipTexts = {
     requestNotificationsDisabled: 'You will no longer receive private alerts for new access requests.',
     requestNotificationsAlreadyEnabled: 'You already had new access request alerts enabled.',
     requestNotificationsAlreadyDisabled: 'You already had new access request alerts disabled.',
-    newRequestNotification: 'New access request from {displayName} ({identifier}).',
+    newRequestNotification: 'New access request from {label}.',
   },
 } as const;
 

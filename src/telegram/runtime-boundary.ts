@@ -117,6 +117,7 @@ export interface TelegramContextLike {
     id: number;
     username?: string;
     first_name?: string;
+    last_name?: string;
   } | undefined;
   messageText?: string | undefined;
   callbackData?: string | undefined;
@@ -139,7 +140,7 @@ export interface TelegramReplyOptions {
 
 export interface TelegramRuntime {
   bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName' | 'language'> & {
-    sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+    sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
@@ -160,7 +161,7 @@ export interface TelegramBotLike {
   onCommand(command: string, handler: TelegramCommandHandler): void;
   onCallback(callbackPrefix: string, handler: TelegramCommandHandler): void;
   onText(handler: TelegramCommandHandler): void;
-  sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+  sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   startPolling(): Promise<void>;
   stopPolling(): Promise<void>;
@@ -321,8 +322,8 @@ function createGrammyTelegramBot({
         await handler(createTelegramCommandContext(context));
       });
     },
-    async sendPrivateMessage(telegramUserId, message) {
-      await bot.api.sendMessage(telegramUserId, message);
+    async sendPrivateMessage(telegramUserId, message, options) {
+      await bot.api.sendMessage(telegramUserId, message, options ? toGrammyReplyOptions(options) : undefined);
     },
     async sendGroupMessage(chatId, message, options) {
       await bot.api.sendMessage(chatId, message, options ? toGrammyReplyOptions(options) : undefined);
@@ -682,7 +683,7 @@ function createDefaultCommands({
           repository,
           telegramUserId: context.runtime.actor.telegramUserId,
           ...(context.from?.username !== undefined ? { username: context.from.username } : {}),
-          displayName: context.from?.first_name ?? `Usuari ${context.runtime.actor.telegramUserId}`,
+          displayName: resolveRequesterDisplayName(context),
         });
 
         await context.reply(result.message);
@@ -700,7 +701,7 @@ function createDefaultCommands({
             languagePreferenceReader: languagePreferenceStore,
             privateMessageSender: context.runtime.bot,
             requesterTelegramUserId: context.runtime.actor.telegramUserId,
-            requesterDisplayName: context.from?.first_name ?? `Usuari ${context.runtime.actor.telegramUserId}`,
+            requesterDisplayName: resolveRequesterDisplayName(context),
             ...(context.from?.username !== undefined ? { requesterUsername: context.from.username } : {}),
           });
         }
@@ -1377,6 +1378,19 @@ async function handleTelegramMemberMenuDebugText(
     }),
   });
   return true;
+}
+
+function resolveRequesterDisplayName(context: Pick<TelegramCommandHandlerContext, 'from' | 'runtime'>): string {
+  const firstName = context.from?.first_name?.trim();
+  const lastName = context.from?.last_name?.trim();
+
+  const fullName = [firstName, lastName].filter((part): part is string => Boolean(part)).join(' ');
+
+  if (fullName) {
+    return fullName;
+  }
+
+  return `Usuari ${context.runtime.actor.telegramUserId}`;
 }
 
 function escapeRegExp(value: string): string {
