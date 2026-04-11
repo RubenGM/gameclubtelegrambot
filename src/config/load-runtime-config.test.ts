@@ -64,6 +64,83 @@ test('loadRuntimeConfig returns typed configuration from the configured JSON fil
   assert.equal(config.featureFlags.bootstrapWizard, true);
 });
 
+test('loadRuntimeConfig merges secret values from the sibling .env file', async () => {
+  const config = await loadRuntimeConfig({
+    env: {
+      GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+    },
+    readConfigFile: async (filePath) => {
+      assert.equal(filePath, '/etc/gameclub/config.json');
+      return JSON.stringify({
+        schemaVersion: 1,
+        bot: {
+          publicName: 'Game Club Bot',
+          clubName: 'Game Club',
+        },
+        database: {
+          host: 'localhost',
+          port: 5432,
+          name: 'gameclub',
+          user: 'gameclub_user',
+          ssl: false,
+        },
+        bootstrap: {
+          firstAdmin: {
+            telegramUserId: 123456789,
+            displayName: 'Club Administrator',
+          },
+        },
+      });
+    },
+    readEnvFile: async (filePath) => {
+      assert.equal(filePath, '/etc/gameclub/.env');
+      return [
+        'GAMECLUB_TELEGRAM_TOKEN="env-telegram-token"',
+        'GAMECLUB_DATABASE_PASSWORD="env-db-password"',
+        'GAMECLUB_ADMIN_PASSWORD_HASH="env-admin-hash"',
+        'GAMECLUB_BGG_API_KEY="env-bgg-key"',
+      ].join('\n');
+    },
+  });
+
+  assert.equal(config.telegram.token, 'env-telegram-token');
+  assert.equal(config.database.password, 'env-db-password');
+  assert.equal(config.adminElevation.passwordHash, 'env-admin-hash');
+  assert.equal(config.bgg?.apiKey, 'env-bgg-key');
+});
+
+test('loadRuntimeConfig prefers process env over values from the .env file', async () => {
+  const config = await loadRuntimeConfig({
+    env: {
+      GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+      GAMECLUB_TELEGRAM_TOKEN: 'process-env-token',
+    },
+    readConfigFile: async () =>
+      JSON.stringify({
+        bot: {
+          publicName: 'Game Club Bot',
+          clubName: 'Game Club',
+        },
+        database: {
+          host: 'localhost',
+          port: 5432,
+          name: 'gameclub',
+          user: 'gameclub_user',
+          ssl: false,
+        },
+        bootstrap: {
+          firstAdmin: {
+            telegramUserId: 123456789,
+            displayName: 'Club Administrator',
+          },
+        },
+      }),
+    readEnvFile: async () => 'GAMECLUB_TELEGRAM_TOKEN="env-file-token"\n',
+  });
+
+  assert.equal(config.telegram.token, 'process-env-token');
+});
+
 test('loadRuntimeConfig applies defaults for schema version, notification defaults and feature flags', async () => {
   const config = await loadRuntimeConfig({
     readConfigFile: async () =>
@@ -194,6 +271,46 @@ test('loadRuntimeConfig fails when required configuration fields are invalid', a
       assert.match(message, /bootstrap\.firstAdmin\.telegramUserId/);
       assert.match(message, /bootstrap\.firstAdmin\.displayName/);
       assert.match(message, /notifications\.defaults\.eventReminderLeadHours/);
+      return true;
+    },
+  );
+});
+
+test('loadRuntimeConfig fails when a required secret is missing from both env sources and JSON', async () => {
+  await assert.rejects(
+    () =>
+      loadRuntimeConfig({
+        env: {
+          GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+        },
+        readConfigFile: async () =>
+          JSON.stringify({
+            bot: {
+              publicName: 'Game Club Bot',
+              clubName: 'Game Club',
+            },
+            database: {
+              host: 'localhost',
+              port: 5432,
+              name: 'gameclub',
+              user: 'gameclub_user',
+              ssl: false,
+            },
+            bootstrap: {
+              firstAdmin: {
+                telegramUserId: 123456789,
+                displayName: 'Club Administrator',
+              },
+            },
+          }),
+        readEnvFile: async () => '',
+      }),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : '';
+      assert.match(message, /Runtime configuration validation failed/);
+      assert.match(message, /telegram\.token/);
+      assert.match(message, /database\.password/);
+      assert.match(message, /adminElevation\.passwordHash/);
       return true;
     },
   );

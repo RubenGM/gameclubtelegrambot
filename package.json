@@ -13,6 +13,8 @@
     "tray:debian": "node dist/scripts/debian-tray.js",
     "bootstrap:wizard": "node --import tsx src/scripts/bootstrap-wizard.ts",
     "config:check": "node --import tsx src/scripts/check-runtime-config.ts",
+    "config:edit": "node --import tsx src/scripts/runtime-config-editor.ts",
+    "config:init": "node --import tsx src/scripts/runtime-config-editor.ts --init",
     "db:generate": "node --import tsx src/scripts/generate-checked-migration.ts",
     "db:generate:checked": "node --import tsx src/scripts/generate-checked-migration.ts",
     "db:check": "node --import tsx src/scripts/check-generated-migrations.ts",
@@ -31,6 +33,7 @@
     "node": ">=20.19.0"
   },
   "dependencies": {
+    "blessed": "^0.1.81",
     "drizzle-orm": "^0.45.2",
     "grammy": "^1.38.3",
     "pg": "^8.16.3",
@@ -38,6 +41,7 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@types/blessed": "^0.1.27",
     "@types/node": "^24.5.2",
     "@types/pg": "^8.15.5",
     "drizzle-kit": "^0.18.1",

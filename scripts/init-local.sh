@@ -48,6 +48,13 @@ if [ ! -f config/runtime.local.json ]; then
   FIRST_ADMIN_DISPLAY_NAME="${GAMECLUB_FIRST_ADMIN_DISPLAY_NAME:-Club Administrator}"
   BGG_API_KEY="${GAMECLUB_BGG_API_KEY:-REPLACE_WITH_REAL_BGG_API_KEY}"
 
+  cat > config/.env <<EOF
+GAMECLUB_TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+GAMECLUB_BGG_API_KEY=${BGG_API_KEY}
+GAMECLUB_DATABASE_PASSWORD=${POSTGRES_PASSWORD}
+GAMECLUB_ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
+EOF
+
   cat > config/runtime.local.json <<EOF
 {
   "schemaVersion": 1,
@@ -55,22 +62,12 @@ if [ ! -f config/runtime.local.json ]; then
     "publicName": "Game Club Bot",
     "clubName": "Game Club"
   },
-  "telegram": {
-    "token": "${TELEGRAM_TOKEN}"
-  },
-  "bgg": {
-    "apiKey": "${BGG_API_KEY}"
-  },
   "database": {
     "host": "127.0.0.1",
     "port": ${POSTGRES_PORT:-55432},
     "name": "${POSTGRES_DB}",
     "user": "${POSTGRES_USER}",
-    "password": "${POSTGRES_PASSWORD}",
     "ssl": false
-  },
-  "adminElevation": {
-    "passwordHash": "${ADMIN_PASSWORD_HASH}"
   },
   "bootstrap": {
     "firstAdmin": {
@@ -111,13 +108,14 @@ GAMECLUB_CONFIG_PATH=config/runtime.local.json node --import tsx src/scripts/ens
 printf '\nPreparacio local completada.\n'
 printf 'Base de dades local: postgres://%s:%s@127.0.0.1:%s/%s\n' "$POSTGRES_USER" "$POSTGRES_PASSWORD" "${POSTGRES_PORT:-55432}" "$POSTGRES_DB"
 printf 'Configuracio runtime: config/runtime.local.json\n'
+printf 'Secrets runtime: config/.env\n'
 printf 'Per arrancar el bot: npm run start:local\n'
 
 if [ -n "${ADMIN_PASSWORD:-}" ]; then
   printf 'Contrasenya d elevacio administrativa generada: %s\n' "$ADMIN_PASSWORD"
 fi
 
-if grep -q 'REPLACE_WITH_REAL_TELEGRAM_TOKEN' config/runtime.local.json; then
-  printf 'Encara falta posar el token real de Telegram a config/runtime.local.json\n'
+if grep -q 'REPLACE_WITH_REAL_TELEGRAM_TOKEN' config/.env; then
+  printf 'Encara falta posar el token real de Telegram a config/.env\n'
   printf 'Opcionalment pots regenerar-lo fent: GAMECLUB_TELEGRAM_TOKEN=el_teu_token ./scripts/init-local.sh\n'
 fi

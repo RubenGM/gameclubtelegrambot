@@ -2,6 +2,8 @@ node_modules/
 dist/
 *.log
 .DS_Store
+.env
 .env.postgres.local
+config/.env
 config/runtime.local.json
 config/runtime.json

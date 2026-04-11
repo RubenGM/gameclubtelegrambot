@@ -12,6 +12,14 @@ Per sobreescriure aquesta ruta es pot fer servir:
 
 `GAMECLUB_CONFIG_PATH=/ruta/al/fitxer.json`
 
+El fitxer `.env` runtime es resol per defecte al mateix directori que el JSON:
+
+`config/.env`
+
+Per sobreescriure aquesta ruta es pot fer servir:
+
+`GAMECLUB_ENV_PATH=/ruta/al/fitxer.env`
+
 ## Comportament d'arrencada
 
 Abans d'arrencar el runtime normal, l'aplicació resol l'estat global d'inicialització.
@@ -68,6 +76,8 @@ El contracte runtime actual inclou:
 - `notifications.defaults.eventReminderLeadHours` amb default `24`
 - `featureFlags` com a mapa de claus booleanes
 
+Els camps secrets es poden aportar des de `.env` o des de variables d'entorn reals. Quan existeixen tots dos, la variable d'entorn real preval.
+
 ## Exemple de configuració
 
 ```json
@@ -78,22 +88,12 @@ El contracte runtime actual inclou:
     "clubName": "Game Club",
     "iconPath": "/opt/gameclub/assets/icon.png"
   },
-  "telegram": {
-    "token": "telegram-token"
-  },
-  "bgg": {
-    "apiKey": "bgg-api-key"
-  },
   "database": {
     "host": "localhost",
     "port": 5432,
     "name": "gameclub",
     "user": "gameclub_user",
-    "password": "super-secret",
     "ssl": false
-  },
-  "adminElevation": {
-    "passwordHash": "scrypt:16384:8:1:..."
   },
   "bootstrap": {
     "firstAdmin": {
@@ -115,6 +115,20 @@ El contracte runtime actual inclou:
   }
 }
 ```
+
+Per a secrets, el model recomanat és:
+
+```bash
+GAMECLUB_TELEGRAM_TOKEN="telegram-token"
+GAMECLUB_BGG_API_KEY="bgg-api-key"
+GAMECLUB_DATABASE_PASSWORD="super-secret"
+GAMECLUB_ADMIN_PASSWORD_HASH="scrypt:16384:8:1:..."
+```
+
+L'editor TUI pot escriure aquest split automàticament:
+
+- `npm run config:edit`
+- `npm run config:init`
 
 ## Notes de disseny
 

@@ -16,6 +16,9 @@ El proyecto ya funciona como servicio Node.js + TypeScript con:
 > [!NOTE]
 > Si no existe `config/runtime.json` y el proceso corre en una TTY interactiva, el arranque entra automáticamente en el wizard de bootstrap. Sin TTY, el arranque falla con un error claro.
 
+> [!NOTE]
+> Los secretos runtime viven en `config/.env` por defecto y el proceso los carga en tiempo de ejecución.
+
 ## Funcionalidad actual
 
 - acceso cerrado con usuarios aprobados y elevación de administradores
@@ -59,7 +62,12 @@ npm run start:local
 - migraciones aplicadas
 
 > [!TIP]
-> Si ya tienes `GAMECLUB_TELEGRAM_TOKEN`, puedes exportarlo antes de ejecutar `npm run init:local` para evitar editar el JSON a mano.
+> Si ya tienes `GAMECLUB_TELEGRAM_TOKEN`, puedes exportarlo antes de ejecutar `npm run init:local` para evitar editar `config/.env` a mano.
+
+Para editar configuración y secretos desde terminal:
+
+- `npm run config:edit`
+- `npm run config:init`
 
 ## Comandos útiles
 

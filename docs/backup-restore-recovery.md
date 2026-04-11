@@ -18,6 +18,7 @@ Aquest runbook cobreix:
 Mínim imprescindible:
 
 - `/etc/gameclubtelegrambot/runtime.json`
+- `/etc/gameclubtelegrambot/.env`
 - `/etc/default/gameclubtelegrambot`
 - un dump PostgreSQL de la base de dades configurada al runtime
 
@@ -32,6 +33,7 @@ Molt recomanable guardar també:
 Per un club petit o mitjà amb màquina Debian pròpia:
 
 - `runtime.json` i `/etc/default`: backup cada cop que es modifiquin
+- `runtime.json`, `.env` i `/etc/default`: backup cada cop que es modifiquin
 - PostgreSQL: almenys un cop al dia si hi ha ús regular del bot
 - backup extra abans de:
   - aplicar migracions noves
@@ -87,6 +89,7 @@ Guardar com a mínim:
 ```bash
 sudo install -d /var/backups/gameclubtelegrambot
 sudo cp /etc/gameclubtelegrambot/runtime.json /var/backups/gameclubtelegrambot/runtime.json
+sudo cp /etc/gameclubtelegrambot/.env /var/backups/gameclubtelegrambot/runtime.env
 sudo cp /etc/default/gameclubtelegrambot /var/backups/gameclubtelegrambot/default.env
 ```
 
@@ -103,6 +106,7 @@ Executar:
 Comprovar que existeixen:
 
 - `runtime.json`
+- `runtime.env`
 - `default.env`
 - un `.sql.gz` recent
 
@@ -125,6 +129,7 @@ Si no vols sobreescriure encara la configuració final restaurada, pots desplega
 ```bash
 sudo install -d /etc/gameclubtelegrambot
 sudo cp /var/backups/gameclubtelegrambot/runtime.json /etc/gameclubtelegrambot/runtime.json
+sudo cp /var/backups/gameclubtelegrambot/runtime.env /etc/gameclubtelegrambot/.env
 sudo cp /var/backups/gameclubtelegrambot/default.env /etc/default/gameclubtelegrambot
 ```
 
@@ -177,6 +182,7 @@ journalctl -u gameclubtelegrambot.service -n 100 --no-pager
 Motius habituals a revisar:
 
 - falta `/etc/gameclubtelegrambot/runtime.json`
+- falta `/etc/gameclubtelegrambot/.env`
 - falta `dist/main.js`
 - `runtime.json` és invàlid
 - PostgreSQL no és accessible
@@ -194,7 +200,7 @@ GAMECLUB_CONFIG_PATH=/etc/gameclubtelegrambot/runtime.json node dist/scripts/mig
 
 Acció recomanada:
 
-1. restaurar `runtime.json` i `/etc/default/gameclubtelegrambot` des de backup
+1. restaurar `runtime.json`, `.env` i `/etc/default/gameclubtelegrambot` des de backup
 2. validar la configuració amb `check-runtime-config.js`
 3. reiniciar el servei
 

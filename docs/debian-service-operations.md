@@ -40,6 +40,7 @@ Aquest script:
 - copia l'aplicació al directori objectiu
 - instal·la dependències de producció
 - copia la configuració runtime a `/etc/gameclubtelegrambot/runtime.json`
+- copia els secrets runtime a `/etc/gameclubtelegrambot/.env` si existeixen
 - crea `/etc/default/gameclubtelegrambot`
 - valida la configuració runtime instal·lada
 - aplica les migracions pendents abans d'arrencar el servei
@@ -58,6 +59,7 @@ La proposta actual assumeix aquestes rutes i identitats:
 - grup d'operadors amb permís de control: `gameclubbot-operators`
 - unitat de sistema: `gameclubtelegrambot.service`
 - fitxer d'entorn: `/etc/default/gameclubtelegrambot`
+- fitxer secrets runtime: `/etc/gameclubtelegrambot/.env`
 
 El servei assumeix que l'aplicació ja està construïda i que existeix:
 
@@ -86,6 +88,7 @@ Si es vol fer servir una ruta de configuració no estàndard, cal definir-la al 
 
 ```bash
 GAMECLUB_CONFIG_PATH=/etc/gameclubtelegrambot/runtime.json
+GAMECLUB_ENV_PATH=/etc/gameclubtelegrambot/.env
 NODE_ENV=production
 ```
 
@@ -128,6 +131,7 @@ Crear `/etc/default/gameclubtelegrambot` si cal personalitzar l'entorn:
 
 ```bash
 GAMECLUB_CONFIG_PATH=/etc/gameclubtelegrambot/runtime.json
+GAMECLUB_ENV_PATH=/etc/gameclubtelegrambot/.env
 NODE_ENV=production
 ```
 

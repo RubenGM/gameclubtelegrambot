@@ -4,8 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_ROOT="${GAMECLUB_APP_ROOT:-/opt/gameclubtelegrambot}"
 CONFIG_SOURCE="${GAMECLUB_CONFIG_SOURCE:-$ROOT_DIR/config/runtime.json}"
+ENV_SOURCE="${GAMECLUB_ENV_SOURCE:-$(dirname "$CONFIG_SOURCE")/.env}"
 CONFIG_DIR="/etc/gameclubtelegrambot"
 CONFIG_TARGET="$CONFIG_DIR/runtime.json"
+RUNTIME_ENV_TARGET="$CONFIG_DIR/.env"
 ENV_TARGET="/etc/default/gameclubtelegrambot"
 SERVICE_NAME="gameclubtelegrambot.service"
 SERVICE_USER="gameclubbot"
@@ -36,7 +38,7 @@ What it does:
   - Builds the production artefacts locally before deployment.
   - Creates service and operator groups/users if needed.
   - Copies the built app to the target root and installs production dependencies.
-  - Installs runtime config and environment files under /etc.
+  - Installs runtime config and secret env files under /etc.
   - Validates the installed runtime config and applies database migrations.
   - Installs and enables the systemd service and polkit rule.
   - Installs GNOME AppIndicator support and tray autostart for the operator user.
@@ -198,7 +200,7 @@ deploy_application() {
 }
 
 install_runtime_config() {
-  local source_realpath target_realpath
+  local source_realpath target_realpath env_source_realpath env_target_realpath
 
   if [ ! -f "$CONFIG_SOURCE" ]; then
     printf 'No s ha trobat el fitxer de configuració: %s\n' "$CONFIG_SOURCE" >&2
@@ -216,11 +218,25 @@ install_runtime_config() {
     run_root_cmd install -m 0640 -o root -g "$SERVICE_GROUP" "$CONFIG_SOURCE" "$CONFIG_TARGET"
   fi
 
+  if [ -f "$ENV_SOURCE" ]; then
+    env_source_realpath="$(realpath "$ENV_SOURCE")"
+    env_target_realpath="$(realpath -m "$RUNTIME_ENV_TARGET")"
+
+    if [ "$env_source_realpath" = "$env_target_realpath" ]; then
+      log 'El fitxer .env runtime ja apunta al destí instal·lat. S omet la copia redundant.'
+    else
+      run_root_cmd install -m 0640 -o root -g "$SERVICE_GROUP" "$ENV_SOURCE" "$RUNTIME_ENV_TARGET"
+    fi
+  else
+    log "No s ha trobat cap fitxer .env a $ENV_SOURCE. S omet la copia de secrets; si la configuracio encara els guarda al JSON, cal migrar-los amb el TUI."
+  fi
+
   if [ "$DRY_RUN" -eq 1 ]; then
-    printf '+ cat > %q <<EOF\nGAMECLUB_CONFIG_PATH=%s\nNODE_ENV=production\nEOF\n' "$ENV_TARGET" "$CONFIG_TARGET"
+    printf '+ cat > %q <<EOF\nGAMECLUB_CONFIG_PATH=%s\nGAMECLUB_ENV_PATH=%s\nNODE_ENV=production\nEOF\n' "$ENV_TARGET" "$CONFIG_TARGET" "$RUNTIME_ENV_TARGET"
   else
     run_root_cmd /bin/sh -c "cat > '$ENV_TARGET' <<'EOF'
 GAMECLUB_CONFIG_PATH=$CONFIG_TARGET
+GAMECLUB_ENV_PATH=$RUNTIME_ENV_TARGET
 NODE_ENV=production
 EOF"
   fi

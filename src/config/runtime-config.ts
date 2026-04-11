@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
-const botLanguageSchema = z.enum(['ca', 'es', 'en']);
+export const botLanguageValues = ['ca', 'es', 'en'] as const;
+
+const botLanguageSchema = z.enum(botLanguageValues);
 
 const defaultNotificationDefaults = {
   groupAnnouncementsEnabled: true,

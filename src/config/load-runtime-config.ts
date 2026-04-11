@@ -3,7 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { ZodError } from 'zod';
 
 import {
-  defaultRuntimeConfigPath,
+  parseEnvFile,
+  mergeRuntimeConfigSources,
+  resolveRuntimeConfigPaths,
+} from './runtime-config-files.js';
+import {
   runtimeConfigSchema,
   type RuntimeConfig,
 } from './runtime-config.js';
@@ -11,6 +15,7 @@ import {
 export interface LoadRuntimeConfigOptions {
   env?: Record<string, string | undefined>;
   readConfigFile?: (filePath: string) => Promise<string>;
+  readEnvFile?: (filePath: string) => Promise<string>;
 }
 
 export class RuntimeConfigError extends Error {
@@ -24,8 +29,9 @@ export async function loadRuntimeConfig(
   options: LoadRuntimeConfigOptions = {},
 ): Promise<RuntimeConfig> {
   const env = options.env ?? process.env;
-  const configPath = env.GAMECLUB_CONFIG_PATH ?? defaultRuntimeConfigPath;
+  const { configPath, envPath } = resolveRuntimeConfigPaths(env);
   const readConfigFile = options.readConfigFile ?? defaultReadConfigFile;
+  const readEnvFile = options.readEnvFile ?? defaultReadEnvFile;
 
   let rawConfig: string;
 
@@ -49,8 +55,22 @@ export async function loadRuntimeConfig(
     );
   }
 
+  let envConfig: Record<string, string> = {};
+
   try {
-    return runtimeConfigSchema.parse(parsedConfig);
+    const rawEnv = await readEnvFile(envPath);
+    envConfig = parseEnvFile(rawEnv);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'Unknown read error';
+    throw new RuntimeConfigError(
+      `Could not read runtime environment file ${envPath}: ${reason}`,
+    );
+  }
+
+  const mergedConfig = mergeRuntimeConfigSources(parsedConfig, envConfig, env);
+
+  try {
+    return runtimeConfigSchema.parse(mergedConfig);
   } catch (error) {
     if (error instanceof ZodError) {
       const details = error.issues
@@ -71,4 +91,16 @@ export async function loadRuntimeConfig(
 
 async function defaultReadConfigFile(filePath: string): Promise<string> {
   return readFile(filePath, 'utf8');
+}
+
+async function defaultReadEnvFile(filePath: string): Promise<string> {
+  try {
+    return await readFile(filePath, 'utf8');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return '';
+    }
+
+    throw error;
+  }
 }
