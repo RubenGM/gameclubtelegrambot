@@ -56,7 +56,12 @@ function createRepository(initialUsers: MembershipUserRecord[] = []): Membership
     async listPendingUsers() {
       return Array.from(users.values()).filter((user) => user.status === 'pending');
     },
-    async updateUserStatus(input) {
+    async appendStatusAuditLog(input) {
+      statusLog.push(
+        `audit:${input.telegramUserId}:${input.previousStatus ?? 'null'}:${input.nextStatus}:${input.changedByTelegramUserId}`,
+      );
+    },
+    async approveMembershipRequest(input) {
       const existing = users.get(input.telegramUserId);
       if (!existing) {
         throw new Error(`unknown user ${input.telegramUserId}`);
@@ -64,17 +69,50 @@ function createRepository(initialUsers: MembershipUserRecord[] = []): Membership
 
       const next: MembershipUserRecord = {
         ...existing,
-        status: input.status,
-        isAdmin: input.status === 'approved' ? input.isAdmin ?? existing.isAdmin : existing.isAdmin,
+        status: 'approved',
       };
       users.set(input.telegramUserId, next);
-      statusLog.push(`${input.status}:${input.telegramUserId}:by:${input.changedByTelegramUserId}`);
+      statusLog.push(`approved:${input.telegramUserId}:by:${input.changedByTelegramUserId}`);
+      auditEvents.push({
+        actorTelegramUserId: input.changedByTelegramUserId,
+        actionKey: 'membership.approved',
+        targetType: 'membership-user',
+        targetId: String(input.telegramUserId),
+        summary: 'Usuari aprovat correctament',
+        details: {
+          previousStatus: input.previousStatus,
+          nextStatus: 'approved',
+        },
+        createdAt: '2026-04-04T10:00:00.000Z',
+      });
       return next;
     },
-    async appendStatusAuditLog(input) {
-      statusLog.push(
-        `audit:${input.telegramUserId}:${input.previousStatus ?? 'null'}:${input.nextStatus}:${input.changedByTelegramUserId}`,
-      );
+    async rejectMembershipRequest(input) {
+      const existing = users.get(input.telegramUserId);
+      if (!existing) {
+        throw new Error(`unknown user ${input.telegramUserId}`);
+      }
+
+      const next: MembershipUserRecord = {
+        ...existing,
+        status: 'blocked',
+      };
+      users.set(input.telegramUserId, next);
+      statusLog.push(`blocked:${input.telegramUserId}:by:${input.changedByTelegramUserId}`);
+      auditEvents.push({
+        actorTelegramUserId: input.changedByTelegramUserId,
+        actionKey: 'membership.rejected',
+        targetType: 'membership-user',
+        targetId: String(input.telegramUserId),
+        summary: 'Sollicitud d acces rebutjada',
+        details: {
+          previousStatus: input.previousStatus,
+          nextStatus: 'blocked',
+          reason: input.reason ?? null,
+        },
+        createdAt: '2026-04-04T10:00:00.000Z',
+      });
+      return next;
     },
     async backfillDisplayNames() {
       let updatedCount = 0;
@@ -91,17 +129,6 @@ function createRepository(initialUsers: MembershipUserRecord[] = []): Membership
         updatedCount += 1;
       }
       return updatedCount;
-    },
-    async appendAuditEvent(input) {
-      auditEvents.push({
-        actorTelegramUserId: input.actorTelegramUserId,
-        actionKey: input.actionKey,
-        targetType: input.targetType,
-        targetId: input.targetId,
-        summary: input.summary,
-        details: input.details ?? null,
-        createdAt: '2026-04-04T10:00:00.000Z',
-      });
     },
     __statusLog: statusLog,
     __auditEvents: auditEvents,

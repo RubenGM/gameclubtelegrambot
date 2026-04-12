@@ -1,9 +1,8 @@
 import { eq, sql } from 'drizzle-orm';
 
-import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
-import { userStatusAuditLog, users } from '../infrastructure/database/schema.js';
-import type { MembershipAccessRepository, MembershipUserRecord, MembershipUserStatus } from './access-flow.js';
+import { auditLog, userStatusAuditLog, users } from '../infrastructure/database/schema.js';
+import type { MembershipAccessRepository, MembershipUserRecord } from './access-flow.js';
 import { formatMembershipDisplayName, normalizeDisplayName } from './display-name.js';
 
 export function createDatabaseMembershipAccessRepository({
@@ -11,8 +10,6 @@ export function createDatabaseMembershipAccessRepository({
 }: {
   database: DatabaseConnection['db'];
 }): MembershipAccessRepository {
-  const auditRepository = createDatabaseAuditLogRepository({ database });
-
   return {
     async findUserByTelegramUserId(telegramUserId) {
       const result = await database
@@ -154,35 +151,6 @@ export function createDatabaseMembershipAccessRepository({
 
       return result as MembershipUserRecord[];
     },
-    async updateUserStatus(input) {
-      const nextStatus = input.status;
-      const updated = await database
-        .update(users)
-        .set({
-          status: nextStatus,
-          isApproved: nextStatus === 'approved',
-          ...(input.isAdmin !== undefined ? { isAdmin: input.isAdmin } : {}),
-          approvedAt: nextStatus === 'approved' ? new Date() : null,
-          blockedAt: nextStatus === 'blocked' ? new Date() : null,
-          ...(input.reason !== undefined ? { statusReason: input.reason } : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(users.telegramUserId, input.telegramUserId))
-        .returning({
-          telegramUserId: users.telegramUserId,
-          username: users.username,
-          displayName: users.displayName,
-          status: users.status,
-          isAdmin: users.isAdmin,
-        });
-
-      const row = updated[0];
-      if (!row) {
-        throw new Error(`Membership user ${input.telegramUserId} not found`);
-      }
-
-      return row as MembershipUserRecord;
-    },
     async appendStatusAuditLog(input) {
       await database.insert(userStatusAuditLog).values({
         subjectTelegramUserId: input.telegramUserId,
@@ -192,8 +160,101 @@ export function createDatabaseMembershipAccessRepository({
         ...(input.reason !== undefined ? { reason: input.reason } : {}),
       });
     },
-    async appendAuditEvent(input) {
-      await auditRepository.appendEvent(input);
+    async approveMembershipRequest(input) {
+      return database.transaction(async (tx) => {
+        const updated = await tx
+          .update(users)
+          .set({
+            status: 'approved',
+            isApproved: true,
+            approvedAt: new Date(),
+            blockedAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.telegramUserId, input.telegramUserId))
+          .returning({
+            telegramUserId: users.telegramUserId,
+            username: users.username,
+            displayName: users.displayName,
+            status: users.status,
+            isAdmin: users.isAdmin,
+          });
+
+        const row = updated[0];
+        if (!row) {
+          throw new Error(`Membership user ${input.telegramUserId} not found`);
+        }
+
+        await tx.insert(userStatusAuditLog).values({
+          subjectTelegramUserId: input.telegramUserId,
+          previousStatus: input.previousStatus,
+          nextStatus: 'approved',
+          changedByTelegramUserId: input.changedByTelegramUserId,
+          reason: 'member-access-approved',
+        });
+        await tx.insert(auditLog).values({
+          actorTelegramUserId: input.changedByTelegramUserId,
+          actionKey: 'membership.approved',
+          targetType: 'membership-user',
+          targetId: String(input.telegramUserId),
+          summary: 'Usuari aprovat correctament',
+          details: {
+            previousStatus: input.previousStatus,
+            nextStatus: 'approved',
+          },
+        });
+
+        return row as MembershipUserRecord;
+      });
+    },
+    async rejectMembershipRequest(input) {
+      return database.transaction(async (tx) => {
+        const updated = await tx
+          .update(users)
+          .set({
+            status: 'blocked',
+            isApproved: false,
+            approvedAt: null,
+            blockedAt: new Date(),
+            ...(input.reason !== undefined ? { statusReason: input.reason } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(users.telegramUserId, input.telegramUserId))
+          .returning({
+            telegramUserId: users.telegramUserId,
+            username: users.username,
+            displayName: users.displayName,
+            status: users.status,
+            isAdmin: users.isAdmin,
+          });
+
+        const row = updated[0];
+        if (!row) {
+          throw new Error(`Membership user ${input.telegramUserId} not found`);
+        }
+
+        await tx.insert(userStatusAuditLog).values({
+          subjectTelegramUserId: input.telegramUserId,
+          previousStatus: input.previousStatus,
+          nextStatus: 'blocked',
+          changedByTelegramUserId: input.changedByTelegramUserId,
+          reason: input.reason ?? 'member-access-rejected',
+        });
+        await tx.insert(auditLog).values({
+          actorTelegramUserId: input.changedByTelegramUserId,
+          actionKey: 'membership.rejected',
+          targetType: 'membership-user',
+          targetId: String(input.telegramUserId),
+          summary: 'Sollicitud d acces rebutjada',
+          details: {
+            previousStatus: input.previousStatus,
+            nextStatus: 'blocked',
+            reason: input.reason ?? null,
+          },
+        });
+
+        return row as MembershipUserRecord;
+      });
     },
   };
 }

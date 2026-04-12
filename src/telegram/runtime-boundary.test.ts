@@ -1165,7 +1165,31 @@ function createMembershipDatabaseStub({
   statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }>;
   auditEvents: Array<{ actionKey: string; targetType: string; targetId: string }>;
 }) {
-  return {
+  type MembershipDatabaseStub = {
+    transaction(handler: (tx: MembershipDatabaseStub) => Promise<unknown>): Promise<unknown>;
+    select(selection: Record<string, unknown>): {
+      from(): {
+        where: () => Promise<unknown[]>;
+      };
+    };
+    insert(): {
+      values(value: Record<string, unknown>): Promise<void> | {
+        onConflictDoUpdate(): {
+          returning(): Promise<Array<Record<string, unknown>>>;
+        };
+      };
+    };
+    update(): {
+      set(value: Record<string, unknown>): {
+        where(): {
+          returning(): Promise<Array<Record<string, unknown>>>;
+        };
+      };
+    };
+  };
+
+  let stub!: MembershipDatabaseStub;
+  stub = {
     select(selection: Record<string, unknown>) {
       return {
         from() {
@@ -1256,7 +1280,10 @@ function createMembershipDatabaseStub({
         },
       };
     },
+    transaction: async (handler) => handler(stub),
   };
+
+  return stub;
 }
 
 function createNewsGroupDatabaseStub() {

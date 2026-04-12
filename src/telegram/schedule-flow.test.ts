@@ -270,15 +270,21 @@ function createMembershipRepository(initialUsers: MembershipUserRecord[] = [
     async listPendingUsers() {
       return Array.from(users.values()).filter((user) => user.status === 'pending');
     },
-    async updateUserStatus(input) {
+    async approveMembershipRequest(input: { telegramUserId: number }) {
       const existing = users.get(input.telegramUserId);
       if (!existing) throw new Error(`unknown user ${input.telegramUserId}`);
-      const next: MembershipUserRecord = { ...existing, status: input.status, isAdmin: input.isAdmin ?? existing.isAdmin };
+      const next: MembershipUserRecord = { ...existing, status: 'approved' };
+      users.set(next.telegramUserId, next);
+      return next;
+    },
+    async rejectMembershipRequest(input: { telegramUserId: number }) {
+      const existing = users.get(input.telegramUserId);
+      if (!existing) throw new Error(`unknown user ${input.telegramUserId}`);
+      const next: MembershipUserRecord = { ...existing, status: 'blocked' };
       users.set(next.telegramUserId, next);
       return next;
     },
     async appendStatusAuditLog() {},
-    async appendAuditEvent() {},
   };
 }
 

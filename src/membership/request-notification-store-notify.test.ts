@@ -57,15 +57,13 @@ test('notifySubscribedAdminsOfMembershipRequest sends localized private messages
       async listPendingUsers() {
         return [];
       },
-      async updateUserStatus() {
+      async approveMembershipRequest() {
         throw new Error('not used');
       },
-      async appendStatusAuditLog() {
+      async rejectMembershipRequest() {
         throw new Error('not used');
       },
-      async appendAuditEvent() {
-        throw new Error('not used');
-      },
+      async appendStatusAuditLog() { throw new Error('not used'); },
     },
     languagePreferenceReader: {
       async loadLanguage(telegramUserId) {

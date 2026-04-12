@@ -144,10 +144,10 @@ function createMembershipRepository(users: MembershipUserRecord[] = []): Members
     },
     async upsertPendingUser() { throw new Error('not implemented'); },
     async listPendingUsers() { return []; },
-    async updateUserStatus() { throw new Error('not implemented'); },
     async backfillDisplayNames() { return 0; },
     async appendStatusAuditLog() { throw new Error('not implemented'); },
-    async appendAuditEvent() { throw new Error('not implemented'); },
+    async approveMembershipRequest() { throw new Error('not implemented'); },
+    async rejectMembershipRequest() { throw new Error('not implemented'); },
   };
 }
 

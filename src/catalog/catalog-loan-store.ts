@@ -130,7 +130,12 @@ function isActiveLoanConstraintViolation(error: unknown): boolean {
 
   const code = 'code' in error ? error.code : undefined;
   const constraint = 'constraint' in error ? error.constraint : undefined;
-  return code === '23505' && constraint === activeLoanConstraintName;
+  if (code === '23505' && constraint === activeLoanConstraintName) {
+    return true;
+  }
+
+  const cause = 'cause' in error ? error.cause : undefined;
+  return cause !== error && isActiveLoanConstraintViolation(cause);
 }
 
 async function findActiveLoanByItemIdUsing(

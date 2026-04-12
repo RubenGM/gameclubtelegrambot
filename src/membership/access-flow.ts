@@ -1,4 +1,3 @@
-import { appendAuditEvent, type AuditLogAppendInput } from '../audit/audit-log.js';
 import { normalizeDisplayName } from './display-name.js';
 
 export type MembershipUserStatus = 'pending' | 'approved' | 'blocked';
@@ -25,13 +24,6 @@ export interface MembershipAccessRepository {
     displayName: string;
   }): Promise<MembershipUserRecord>;
   listPendingUsers(): Promise<MembershipUserRecord[]>;
-  updateUserStatus(input: {
-    telegramUserId: number;
-    status: MembershipUserStatus;
-    changedByTelegramUserId: number;
-    isAdmin?: boolean;
-    reason?: string | null;
-  }): Promise<MembershipUserRecord>;
   appendStatusAuditLog(input: {
     telegramUserId: number;
     previousStatus: MembershipUserStatus | null;
@@ -39,7 +31,17 @@ export interface MembershipAccessRepository {
     changedByTelegramUserId: number;
     reason?: string | null;
   }): Promise<void>;
-  appendAuditEvent(input: AuditLogAppendInput): Promise<void>;
+  approveMembershipRequest(input: {
+    telegramUserId: number;
+    previousStatus: MembershipUserStatus;
+    changedByTelegramUserId: number;
+  }): Promise<MembershipUserRecord>;
+  rejectMembershipRequest(input: {
+    telegramUserId: number;
+    previousStatus: MembershipUserStatus;
+    changedByTelegramUserId: number;
+    reason?: string | null;
+  }): Promise<MembershipUserRecord>;
 }
 
 export async function requestMembershipAccess({
@@ -152,29 +154,10 @@ export async function approveMembershipRequest({
     };
   }
 
-  await repository.updateUserStatus({
-    telegramUserId: applicantTelegramUserId,
-    status: 'approved',
-    changedByTelegramUserId: adminTelegramUserId,
-  });
-  await repository.appendStatusAuditLog({
+  await repository.approveMembershipRequest({
     telegramUserId: applicantTelegramUserId,
     previousStatus: existing.status,
-    nextStatus: 'approved',
     changedByTelegramUserId: adminTelegramUserId,
-    reason: 'member-access-approved',
-  });
-  await appendAuditEvent({
-    repository: { appendEvent: repository.appendAuditEvent },
-    actorTelegramUserId: adminTelegramUserId,
-    actionKey: 'membership.approved',
-    targetType: 'membership-user',
-    targetId: applicantTelegramUserId,
-    summary: 'Usuari aprovat correctament',
-    details: {
-      previousStatus: existing.status,
-      nextStatus: 'approved',
-    },
   });
 
   return {
@@ -225,31 +208,11 @@ export async function rejectMembershipRequest({
     };
   }
 
-  await repository.updateUserStatus({
-    telegramUserId: applicantTelegramUserId,
-    status: 'blocked',
-    changedByTelegramUserId: adminTelegramUserId,
-    ...(reason !== undefined ? { reason } : {}),
-  });
-  await repository.appendStatusAuditLog({
+  await repository.rejectMembershipRequest({
     telegramUserId: applicantTelegramUserId,
     previousStatus: existing.status,
-    nextStatus: 'blocked',
     changedByTelegramUserId: adminTelegramUserId,
-    reason: reason ?? 'member-access-rejected',
-  });
-  await appendAuditEvent({
-    repository: { appendEvent: repository.appendAuditEvent },
-    actorTelegramUserId: adminTelegramUserId,
-    actionKey: 'membership.rejected',
-    targetType: 'membership-user',
-    targetId: applicantTelegramUserId,
-    summary: 'Sollicitud d acces rebutjada',
-    details: {
-      previousStatus: existing.status,
-      nextStatus: 'blocked',
-      reason: reason ?? null,
-    },
+    ...(reason !== undefined ? { reason } : {}),
   });
 
   return {
