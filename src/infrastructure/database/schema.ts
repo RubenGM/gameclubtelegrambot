@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   bigserial,
@@ -185,6 +186,7 @@ export const catalogLoans = pgTable(
   (table) => ({
     itemLookup: index('catalog_loans_item_id_idx').on(table.itemId),
     borrowerLookup: index('catalog_loans_borrower_telegram_user_id_idx').on(table.borrowerTelegramUserId),
+    oneActivePerItem: uniqueIndex('catalog_loans_one_active_per_item').on(table.itemId).where(sql`${table.returnedAt} is null`),
   }),
 );
 

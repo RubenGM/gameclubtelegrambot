@@ -4,6 +4,9 @@ import type { DatabaseConnection } from '../infrastructure/database/connection.j
 import { catalogItems, catalogLoans } from '../infrastructure/database/schema.js';
 import type { CatalogLoanRecord, CatalogLoanRepository } from './catalog-model.js';
 
+const duplicateActiveLoanMessage = 'Aquest item ja esta prestat.';
+const activeLoanConstraintName = 'catalog_loans_one_active_per_item';
+
 export function createDatabaseCatalogLoanRepository({
   database,
 }: {
@@ -14,7 +17,7 @@ export function createDatabaseCatalogLoanRepository({
       return database.transaction(async (tx) => {
         const active = await findActiveLoanByItemIdUsing(tx, input.itemId);
         if (active) {
-          throw new Error('Aquest item ja esta prestat.');
+          throw new Error(duplicateActiveLoanMessage);
         }
 
         const item = await tx.select().from(catalogItems).where(eq(catalogItems.id, input.itemId));
@@ -23,21 +26,30 @@ export function createDatabaseCatalogLoanRepository({
         }
 
         const now = new Date();
-        const created = await tx
-          .insert(catalogLoans)
-          .values({
-            itemId: input.itemId,
-            borrowerTelegramUserId: input.borrowerTelegramUserId,
-            borrowerDisplayName: input.borrowerDisplayName,
-            loanedByTelegramUserId: input.loanedByTelegramUserId,
-            dueAt: input.dueAt ? new Date(input.dueAt) : null,
-            notes: input.notes,
-            returnedAt: null,
-            returnedByTelegramUserId: null,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning();
+        let created;
+        try {
+          created = await tx
+            .insert(catalogLoans)
+            .values({
+              itemId: input.itemId,
+              borrowerTelegramUserId: input.borrowerTelegramUserId,
+              borrowerDisplayName: input.borrowerDisplayName,
+              loanedByTelegramUserId: input.loanedByTelegramUserId,
+              dueAt: input.dueAt ? new Date(input.dueAt) : null,
+              notes: input.notes,
+              returnedAt: null,
+              returnedByTelegramUserId: null,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning();
+        } catch (error) {
+          if (isActiveLoanConstraintViolation(error)) {
+            throw new Error(duplicateActiveLoanMessage);
+          }
+
+          throw error;
+        }
         const row = created[0];
         if (!row) {
           throw new Error('Catalog loan insert did not return a row');
@@ -86,15 +98,6 @@ export function createDatabaseCatalogLoanRepository({
       return mapCatalogLoanRow(row);
     },
     async closeLoan(input) {
-      const existing = await database.select().from(catalogLoans).where(eq(catalogLoans.id, input.loanId));
-      const row = existing[0];
-      if (!row) {
-        throw new Error(`Catalog loan ${input.loanId} not found`);
-      }
-      if (row.returnedAt) {
-        return mapCatalogLoanRow(row);
-      }
-
       const updated = await database
         .update(catalogLoans)
         .set({
@@ -102,15 +105,32 @@ export function createDatabaseCatalogLoanRepository({
           returnedByTelegramUserId: input.returnedByTelegramUserId,
           updatedAt: new Date(),
         })
-        .where(eq(catalogLoans.id, input.loanId))
+        .where(and(eq(catalogLoans.id, input.loanId), isNull(catalogLoans.returnedAt)))
         .returning();
       const updatedRow = updated[0];
-      if (!updatedRow) {
+      if (updatedRow) {
+        return mapCatalogLoanRow(updatedRow);
+      }
+
+      const existing = await database.select().from(catalogLoans).where(eq(catalogLoans.id, input.loanId));
+      const row = existing[0];
+      if (!row) {
         throw new Error(`Catalog loan ${input.loanId} not found`);
       }
-      return mapCatalogLoanRow(updatedRow);
+
+      return mapCatalogLoanRow(row);
     },
   };
+}
+
+function isActiveLoanConstraintViolation(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const code = 'code' in error ? error.code : undefined;
+  const constraint = 'constraint' in error ? error.constraint : undefined;
+  return code === '23505' && constraint === activeLoanConstraintName;
 }
 
 async function findActiveLoanByItemIdUsing(

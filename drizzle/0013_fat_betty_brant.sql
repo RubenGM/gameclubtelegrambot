@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "catalog_loans_one_active_per_item" ON "catalog_loans" USING btree ("item_id") WHERE "catalog_loans"."returned_at" is null;
