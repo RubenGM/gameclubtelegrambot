@@ -135,10 +135,16 @@ test('loadRuntimeConfig prefers process env over values from the .env file', asy
           },
         },
       }),
-    readEnvFile: async () => 'GAMECLUB_TELEGRAM_TOKEN="env-file-token"\n',
+    readEnvFile: async () => [
+      'GAMECLUB_TELEGRAM_TOKEN="env-file-token"',
+      'GAMECLUB_DATABASE_PASSWORD="env-db-password"',
+      'GAMECLUB_ADMIN_PASSWORD_HASH="env-admin-hash"',
+    ].join('\n'),
   });
 
   assert.equal(config.telegram.token, 'process-env-token');
+  assert.equal(config.database.password, 'env-db-password');
+  assert.equal(config.adminElevation.passwordHash, 'env-admin-hash');
 });
 
 test('loadRuntimeConfig applies defaults for schema version, notification defaults and feature flags', async () => {
@@ -289,6 +295,7 @@ test('loadRuntimeConfig fails when a required secret is missing from both env so
               publicName: 'Game Club Bot',
               clubName: 'Game Club',
             },
+            telegram: {},
             database: {
               host: 'localhost',
               port: 5432,
@@ -296,6 +303,7 @@ test('loadRuntimeConfig fails when a required secret is missing from both env so
               user: 'gameclub_user',
               ssl: false,
             },
+            adminElevation: {},
             bootstrap: {
               firstAdmin: {
                 telegramUserId: 123456789,
