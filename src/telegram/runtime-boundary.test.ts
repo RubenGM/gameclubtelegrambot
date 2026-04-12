@@ -579,6 +579,53 @@ test('createTelegramBoundary throws a predictable error when Telegram startup fa
   );
 });
 
+test('createTelegramBoundary reports unexpected polling failures after startup', async () => {
+  let emitFatalRuntimeError: ((error: unknown) => void) | undefined;
+  const reportedErrors: unknown[] = [];
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub({
+          membershipUsers: new Map(),
+          statusAuditLog: [],
+          auditEvents: [],
+        }) as never,
+        close: async () => {},
+      },
+    },
+    onFatalRuntimeError: (error) => {
+      reportedErrors.push(error);
+    },
+    createBot: ({ onFatalRuntimeError }) => {
+      emitFatalRuntimeError = onFatalRuntimeError;
+
+      return {
+        use: () => {},
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: () => {},
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {},
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  const error = new Error('polling failed');
+  emitFatalRuntimeError?.(error);
+
+  assert.deepEqual(reportedErrors, [error]);
+
+  await telegram.stop();
+});
+
 test('toGrammyReplyOptions converts inline keyboards to grammY reply markup', async () => {
   assert.deepEqual(
     toGrammyReplyOptions({

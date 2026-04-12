@@ -9,6 +9,7 @@ export interface ServiceLogger {
 export interface RunnableApp {
   start(): Promise<unknown>;
   stop(): Promise<void>;
+  onFatalRuntimeError?(handler: (error: unknown) => void): void;
 }
 
 export interface ProcessInterfaceLike {
@@ -71,6 +72,10 @@ export async function runService({
   const handleUnhandledRejection = (error: unknown) => {
     void shutdown('Unhandled promise rejection detected', 1, 'fatal', error);
   };
+
+  app.onFatalRuntimeError?.((error) => {
+    void shutdown('Fatal runtime error detected', 1, 'fatal', error);
+  });
 
   processInterface.once('SIGINT', handleSigint);
   processInterface.once('SIGTERM', handleSigterm);

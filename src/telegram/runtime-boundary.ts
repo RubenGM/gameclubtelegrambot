@@ -107,6 +107,8 @@ export interface TelegramBoundary {
   stop(): Promise<void>;
 }
 
+export type TelegramFatalRuntimeErrorHandler = (error: unknown) => void;
+
 export interface TelegramLogger {
   info(bindings: object, message: string): void;
   error(bindings: object, message: string): void;
@@ -189,6 +191,7 @@ export interface CreateTelegramBoundaryOptions {
     loadLanguage(telegramUserId: number): Promise<'ca' | 'es' | 'en' | null>;
     saveLanguage(telegramUserId: number, language: 'ca' | 'es' | 'en'): Promise<void>;
   };
+  onFatalRuntimeError?: TelegramFatalRuntimeErrorHandler;
   createBot?: (options: CreateTelegramBotOptions) => TelegramBotLike;
 }
 
@@ -196,6 +199,7 @@ export interface CreateTelegramBotOptions {
   token: string;
   logger: TelegramLogger;
   publicName: string;
+  onFatalRuntimeError?: TelegramFatalRuntimeErrorHandler;
 }
 
 export class TelegramStartupError extends Error {
@@ -231,13 +235,25 @@ export async function createTelegramBoundary({
         database: runtimeServices.database.db,
       }),
     }),
+  onFatalRuntimeError,
   createBot = createGrammyTelegramBot,
 }: CreateTelegramBoundaryOptions): Promise<TelegramBoundary> {
   try {
+    let didReportFatalRuntimeError = false;
+    const reportFatalRuntimeError = (error: unknown) => {
+      if (didReportFatalRuntimeError) {
+        return;
+      }
+
+      didReportFatalRuntimeError = true;
+      onFatalRuntimeError?.(error);
+    };
+
     const bot = createBot({
       token: config.telegram.token,
       logger,
       publicName: config.bot.publicName,
+      onFatalRuntimeError: reportFatalRuntimeError,
     });
 
     for (const middleware of createMiddlewarePipeline({
@@ -291,8 +307,11 @@ export async function createTelegramBoundary({
 function createGrammyTelegramBot({
   token,
   logger,
+  onFatalRuntimeError,
 }: CreateTelegramBotOptions): TelegramBotLike {
   const bot = new Bot<Context & TelegramContextLike>(token);
+  let pollingPromise: Promise<void> | undefined;
+  let isStopping = false;
 
   return {
     use(middleware) {
@@ -343,17 +362,25 @@ function createGrammyTelegramBot({
     async startPolling() {
       await bot.init();
 
-      void bot.start({
+      isStopping = false;
+      pollingPromise = bot.start({
         drop_pending_updates: false,
         onStart: ({ username }) => {
           logger.info({ username }, 'Telegram bot authenticated successfully');
         },
       }).catch((error) => {
+        if (isStopping) {
+          return;
+        }
+
         logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Telegram polling stopped unexpectedly');
+        onFatalRuntimeError?.(error);
       });
     },
     async stopPolling() {
+      isStopping = true;
       bot.stop();
+      await pollingPromise;
     },
   };
 }

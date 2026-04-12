@@ -8,6 +8,7 @@ import {
 import {
   createTelegramBoundary,
   type TelegramBoundary,
+  type TelegramFatalRuntimeErrorHandler,
 } from '../telegram/runtime-boundary.js';
 
 export interface LoggerLike {
@@ -19,12 +20,16 @@ export interface CreateAppOptions {
   config: RuntimeConfig;
   logger: LoggerLike;
   startInfrastructure?: () => Promise<InfrastructureBoundary>;
-  startTelegram?: (options: { services: InfrastructureRuntimeServices }) => Promise<TelegramBoundary>;
+  startTelegram?: (options: {
+    services: InfrastructureRuntimeServices;
+    onFatalRuntimeError: TelegramFatalRuntimeErrorHandler;
+  }) => Promise<TelegramBoundary>;
 }
 
 export interface App {
   start(): Promise<AppRuntimeStatus>;
   stop(): Promise<void>;
+  onFatalRuntimeError?(handler: TelegramFatalRuntimeErrorHandler): void;
 }
 
 export function createApp({
@@ -38,7 +43,7 @@ export function createApp({
         error: logger.error?.bind(logger) ?? (() => {}),
       },
     }),
-  startTelegram = ({ services }) =>
+  startTelegram = ({ services, onFatalRuntimeError }) =>
     createTelegramBoundary({
       config,
       services,
@@ -46,17 +51,30 @@ export function createApp({
         info: logger.info.bind(logger),
         error: logger.error?.bind(logger) ?? (() => {}),
       },
+      onFatalRuntimeError,
     }),
 }: CreateAppOptions): App {
   let infrastructure: InfrastructureBoundary | undefined;
   let telegram: TelegramBoundary | undefined;
+  const fatalRuntimeErrorHandlers = new Set<TelegramFatalRuntimeErrorHandler>();
+  const emitFatalRuntimeError = (error: unknown) => {
+    for (const handler of fatalRuntimeErrorHandlers) {
+      handler(error);
+    }
+  };
 
   return {
+    onFatalRuntimeError(handler) {
+      fatalRuntimeErrorHandlers.add(handler);
+    },
     async start() {
       infrastructure = await startInfrastructure();
 
       try {
-        telegram = await startTelegram({ services: infrastructure.services });
+        telegram = await startTelegram({
+          services: infrastructure.services,
+          onFatalRuntimeError: emitFatalRuntimeError,
+        });
       } catch (error) {
         await infrastructure.stop();
         infrastructure = undefined;

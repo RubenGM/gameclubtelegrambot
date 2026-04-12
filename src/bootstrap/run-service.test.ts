@@ -88,6 +88,104 @@ test('runService handles uncaught exceptions with fatal logging and shutdown', a
   ]);
 });
 
+test('runService handles app runtime failures with fatal logging and shutdown', async () => {
+  const events: string[] = [];
+  const signalHandlers = new Map<string, () => void>();
+  let runtimeFailureHandler: ((error: unknown) => void) | undefined;
+
+  const runPromise = runService({
+    logger: {
+      info: (_bindings: object, message: string) => {
+        events.push(`info:${message}`);
+      },
+      fatal: (_bindings: object, message: string) => {
+        events.push(`fatal:${message}`);
+      },
+      error: (_bindings: object, message: string) => {
+        events.push(`error:${message}`);
+      },
+    },
+    createApp: async () => ({
+      async start() {
+        events.push('app:start');
+      },
+      async stop() {
+        events.push('app:stop');
+      },
+      onFatalRuntimeError(handler) {
+        runtimeFailureHandler = handler;
+      },
+    }),
+    processInterface: createProcessDouble(signalHandlers),
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  runtimeFailureHandler?.(new Error('telegram polling failed'));
+  const exitCode = await runPromise;
+
+  assert.equal(exitCode, 1);
+  assert.deepEqual(events, [
+    'info:Service startup initiated',
+    'app:start',
+    'info:Service startup completed',
+    'fatal:Fatal runtime error detected',
+    'app:stop',
+    'info:Service shutdown completed',
+  ]);
+});
+
+test('runService keeps shutdown idempotent when a signal arrives during runtime failure shutdown', async () => {
+  const events: string[] = [];
+  const signalHandlers = new Map<string, () => void>();
+  let runtimeFailureHandler: ((error: unknown) => void) | undefined;
+  let releaseStop: (() => void) | undefined;
+
+  const runPromise = runService({
+    logger: {
+      info: (_bindings: object, message: string) => {
+        events.push(`info:${message}`);
+      },
+      fatal: (_bindings: object, message: string) => {
+        events.push(`fatal:${message}`);
+      },
+      error: (_bindings: object, message: string) => {
+        events.push(`error:${message}`);
+      },
+    },
+    createApp: async () => ({
+      async start() {
+        events.push('app:start');
+      },
+      async stop() {
+        events.push('app:stop');
+        await new Promise<void>((resolve) => {
+          releaseStop = resolve;
+        });
+      },
+      onFatalRuntimeError(handler) {
+        runtimeFailureHandler = handler;
+      },
+    }),
+    processInterface: createProcessDouble(signalHandlers),
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  runtimeFailureHandler?.(new Error('telegram polling failed'));
+  signalHandlers.get('SIGTERM')?.();
+  releaseStop?.();
+  const exitCode = await runPromise;
+
+  assert.equal(exitCode, 1);
+  assert.deepEqual(events, [
+    'info:Service startup initiated',
+    'app:start',
+    'info:Service startup completed',
+    'fatal:Fatal runtime error detected',
+    'app:stop',
+    'info:Service shutdown completed',
+  ]);
+});
+
 function createProcessDouble(
   signalHandlers: Map<string, () => void>,
   errorHandlers: Map<string, (error: Error) => void> = new Map(),

@@ -218,6 +218,48 @@ test('createApp stops Telegram before infrastructure during shutdown', async () 
   assert.deepEqual(events, ['stop:telegram', 'stop:infrastructure']);
 });
 
+test('createApp surfaces telegram runtime failures to subscribers', async () => {
+  const logger = {
+    info: (_bindings: object, _message: string) => {},
+  };
+  let emitFatalRuntimeError: ((error: unknown) => void) | undefined;
+  const receivedErrors: unknown[] = [];
+
+  const app = createApp({
+    config: runtimeConfig,
+    logger,
+    startInfrastructure: async () => ({
+      status: {
+        database: 'connected',
+      },
+      services: {
+        database: databaseConnection,
+      },
+      stop: async () => {},
+    }),
+    startTelegram: async ({ onFatalRuntimeError }) => {
+      emitFatalRuntimeError = onFatalRuntimeError;
+
+      return {
+        status: {
+          bot: 'connected',
+        },
+        stop: async () => {},
+      };
+    },
+  });
+
+  app.onFatalRuntimeError?.((error) => {
+    receivedErrors.push(error);
+  });
+
+  await app.start();
+  const error = new Error('polling failed');
+  emitFatalRuntimeError?.(error);
+
+  assert.deepEqual(receivedErrors, [error]);
+});
+
 test('createApp attempts infrastructure shutdown even when Telegram stop fails', async () => {
   const events: string[] = [];
   const logger = {
