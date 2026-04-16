@@ -65,6 +65,14 @@ import {
   formatCatalogAdminItemList,
   formatCatalogAdminSearchResultsMessage,
 } from './catalog-admin-browse-ui.js';
+import { parseCatalogAdminCallbackRoute } from './catalog-admin-callback-routing.js';
+import {
+  startCatalogAdminBrowseSearchSession,
+  startCatalogAdminDeactivateSession,
+  startCatalogAdminDeleteMediaSession,
+  startCatalogAdminEditMediaSession,
+  startCatalogAdminEditSelectionSession,
+} from './catalog-admin-callback-sessions.js';
 import {
   buildCatalogAdminFamilyOptions,
   buildCatalogAdminFamilyPrompt,
@@ -74,6 +82,10 @@ import {
   familyKindForItemType,
   listPopularCatalogFamilies,
 } from './catalog-admin-family-group-ui.js';
+import {
+  replyWithCatalogAdminGroupInspection,
+  replyWithCatalogAdminItemInspection,
+} from './catalog-admin-inspection-replies.js';
 import {
   buildCatalogAdminItemDeepLink as buildCatalogAdminItemDeepLinkUrl,
   formatCatalogBrowseItemLine,
@@ -281,8 +293,9 @@ export async function handleTelegramCatalogAdminStartText(context: TelegramCatal
   }
 
   const item = await loadItemOrThrow(context, payload);
-  await context.reply(await formatCatalogItemDetails(context, item), {
-    parseMode: 'HTML',
+  await replyWithCatalogAdminItemInspection({
+    reply: context.reply,
+    detailsMessage: await formatCatalogItemDetails(context, item),
     inlineKeyboard: await buildCatalogItemDetailButtons(context, item, normalizeBotLanguage(context.runtime.bot.language, 'ca')),
   });
   return true;
@@ -294,110 +307,120 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     return false;
   }
 
-  if (callbackData === catalogAdminCallbackPrefixes.browseMenu) {
+  const route = parseCatalogAdminCallbackRoute(callbackData, catalogAdminCallbackPrefixes);
+  if (route === null) {
+    return false;
+  }
+
+  if (route.kind === 'browse-menu') {
     await showCatalogBrowseMenu(context);
     return true;
   }
-  if (callbackData === catalogAdminCallbackPrefixes.browseSearch) {
-    await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'search-query', data: {} });
-    await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin.askSearchQuery, buildSingleCancelKeyboard());
+  if (route.kind === 'browse-search') {
+    await startCatalogAdminBrowseSearchSession({
+      session: context.runtime.session,
+      reply: context.reply,
+      language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+      browseFlowKey,
+    });
     return true;
   }
-  if (callbackData.startsWith(catalogAdminCallbackPrefixes.browseFamily)) {
-    const familyId = parseItemId(callbackData, catalogAdminCallbackPrefixes.browseFamily);
-    await showCatalogFamilyBrowse(context, familyId);
+  if (route.kind === 'browse-family') {
+    await showCatalogFamilyBrowse(context, route.familyId);
     return true;
   }
 
-  if (callbackData.startsWith(catalogAdminCallbackPrefixes.inspect)) {
-    const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.inspect);
-    const item = await loadItemOrThrow(context, itemId);
-    await context.reply(await formatCatalogItemDetails(context, item), {
-      parseMode: 'HTML',
+  if (route.kind === 'inspect-item') {
+    const item = await loadItemOrThrow(context, route.itemId);
+    await replyWithCatalogAdminItemInspection({
+      reply: context.reply,
+      detailsMessage: await formatCatalogItemDetails(context, item),
       inlineKeyboard: await buildCatalogItemDetailButtons(context, item, normalizeBotLanguage(context.runtime.bot.language, 'ca')),
     });
     return true;
   }
-  if (callbackData.startsWith(catalogAdminCallbackPrefixes.inspectGroup)) {
-    const groupId = parseItemId(callbackData, catalogAdminCallbackPrefixes.inspectGroup);
-    const group = await loadGroupOrThrow(context, groupId);
-    const items = await listCatalogItems({ repository: resolveCatalogRepository(context), groupId, includeDeactivated: true });
+  if (route.kind === 'inspect-group') {
+    const group = await loadGroupOrThrow(context, route.groupId);
+    const items = await listCatalogItems({ repository: resolveCatalogRepository(context), groupId: route.groupId, includeDeactivated: true });
     const inlineKeyboard = await Promise.all(
       items.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName)),
     );
-    await context.reply(await formatCatalogGroupDetails(context, group), {
+    await replyWithCatalogAdminGroupInspection({
+      reply: context.reply,
+      detailsMessage: await formatCatalogGroupDetails(context, group),
       inlineKeyboard,
     });
     return true;
   }
-  if (callbackData.startsWith(catalogAdminCallbackPrefixes.edit)) {
+  if (route.kind === 'edit-item') {
     if (!canAdministerCatalog(context)) {
       await replyAdminOnly(context);
       return true;
     }
-    const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.edit);
-    const item = await loadItemOrThrow(context, itemId);
+    const item = await loadItemOrThrow(context, route.itemId);
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-    const texts = createTelegramI18n(language).catalogAdmin;
-    await context.runtime.session.start({ flowKey: editFlowKey, stepKey: 'select-field', data: { itemId } });
-    await context.reply(`${await formatCatalogItemDetails(context, item)}
-
-${texts.selectEditField}`, { ...buildEditFieldMenuOptions(item.itemType, language), parseMode: 'HTML' });
-    return true;
-  }
-  if (callbackData.startsWith(catalogAdminCallbackPrefixes.deactivate)) {
-    if (!canAdministerCatalog(context)) {
-      await replyAdminOnly(context);
-      return true;
-    }
-    const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.deactivate);
-    const item = await loadItemOrThrow(context, itemId);
-    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-    const texts = createTelegramI18n(language).catalogAdmin;
-    await context.runtime.session.start({ flowKey: deactivateFlowKey, stepKey: 'confirm', data: { itemId } });
-    await context.reply(`${await formatCatalogItemDetails(context, item)}
-
-${texts.askDeactivate}`, { ...buildDeactivateConfirmOptions(language), parseMode: 'HTML' });
-    return true;
-  }
-  if (callbackData.startsWith(catalogAdminCallbackPrefixes.editMedia)) {
-    if (!canAdministerCatalog(context)) {
-      await replyAdminOnly(context);
-      return true;
-    }
-    const mediaId = parseItemId(callbackData, catalogAdminCallbackPrefixes.editMedia);
-    const media = await loadMediaOrThrow(context, mediaId);
-    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-    const texts = createTelegramI18n(language).catalogAdmin;
-    await context.runtime.session.start({
-      flowKey: mediaFlowKey,
-      stepKey: 'media-type',
-      data: {
-        mediaId,
-        itemId: media.itemId,
-        mediaType: media.mediaType,
-        url: media.url,
-        altText: media.altText,
-        sortOrder: media.sortOrder,
-      },
+    await startCatalogAdminEditSelectionSession({
+      session: context.runtime.session,
+      reply: context.reply,
+      language,
+      editFlowKey,
+      itemId: route.itemId,
+      item,
+      itemDetailsMessage: await formatCatalogItemDetails(context, item),
+      itemTypeSupportsPlayers,
     });
-    await context.reply(texts.mediaTypePromptEdit, buildEditMediaTypeOptions(language));
     return true;
   }
-  if (callbackData.startsWith(catalogAdminCallbackPrefixes.deleteMedia)) {
+  if (route.kind === 'deactivate-item') {
     if (!canAdministerCatalog(context)) {
       await replyAdminOnly(context);
       return true;
     }
-    const mediaId = parseItemId(callbackData, catalogAdminCallbackPrefixes.deleteMedia);
-    const media = await loadMediaOrThrow(context, mediaId);
-    await context.runtime.session.start({ flowKey: mediaDeleteFlowKey, stepKey: 'confirm', data: { mediaId, itemId: media.itemId } });
+    const item = await loadItemOrThrow(context, route.itemId);
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-    const texts = createTelegramI18n(language).catalogAdmin;
-    await context.reply(`${texts.confirmMediaDeletePrompt}
-- ${media.mediaType} · ${media.url}`, buildMediaDeleteConfirmOptions(language));
+    await startCatalogAdminDeactivateSession({
+      session: context.runtime.session,
+      reply: context.reply,
+      language,
+      deactivateFlowKey,
+      itemId: route.itemId,
+      itemDetailsMessage: await formatCatalogItemDetails(context, item),
+    });
     return true;
   }
+  if (route.kind === 'edit-media') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    const media = await loadMediaOrThrow(context, route.mediaId);
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    await startCatalogAdminEditMediaSession({
+      session: context.runtime.session,
+      reply: context.reply,
+      language,
+      mediaFlowKey,
+      media,
+    });
+    return true;
+  }
+  if (route.kind === 'delete-media') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    const media = await loadMediaOrThrow(context, route.mediaId);
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    await startCatalogAdminDeleteMediaSession({
+      session: context.runtime.session,
+      reply: context.reply,
+      language,
+      mediaDeleteFlowKey,
+      media,
+    });
+    return true;
+  }
+
   return false;
 }
 
