@@ -680,11 +680,11 @@ function registerTextHandlers({
       return;
     }
 
-    if (await handleTelegramCatalogReadText(context)) {
+    if (await handleTelegramCatalogAdminText(context)) {
       return;
     }
 
-    if (await handleTelegramCatalogAdminText(context)) {
+    if (await handleTelegramCatalogReadText(context)) {
       return;
     }
   });
@@ -871,7 +871,7 @@ function createDefaultCommands({
     {
       command: 'catalog',
       contexts: ['private'],
-      access: 'admin',
+      access: 'approved',
       description: 'Gestiona el cataleg manual del club',
       handle: async (context) => {
         await handleTelegramCatalogAdminText({ ...context, messageText: '/catalog' });

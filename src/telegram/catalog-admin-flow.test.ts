@@ -388,6 +388,19 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
   assert.match(replies.at(-1)?.message ?? '', /Escribe el nombre, o parte del nombre,/);
 });
 
+test('handleTelegramCatalogAdminText lets approved non-admin members open the catalog menu and start creation', async () => {
+  const { context, replies, getCurrentSession } = createContext({ isAdmin: false, language: 'es' });
+
+  context.messageText = 'Catalogo';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /No hay ningun item de catalogo disponible ahora mismo\./);
+
+  context.messageText = 'Crear item';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-create');
+  assert.equal(getCurrentSession()?.stepKey, 'item-type');
+});
+
 test('handleTelegramCatalogAdminText accepts Spanish item type buttons when creating', async () => {
   const { context, getCurrentSession, replies } = createContext({ language: 'es' });
 
@@ -1627,6 +1640,100 @@ test('handleTelegramCatalogAdminCallback shows item details without add media ac
   assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:create:3'));
   assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:my_loans'));
   assert.ok(!buttons.some((button) => button.text === 'Afegir media'));
+});
+
+test('handleTelegramCatalogAdminCallback hides admin-only item actions for approved non-admin members', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+    media: [
+      {
+        id: 8,
+        familyId: null,
+        itemId: 3,
+        mediaType: 'image',
+        url: 'https://example.com/root.png',
+        altText: 'Root cover',
+        sortOrder: 0,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+  });
+  const { context, replies } = createContext({ repository, isAdmin: false, language: 'es' });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
+  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.edit}3`));
+  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}3`));
+  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.editMedia}8`));
+  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deleteMedia}8`));
+  assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:create:3'));
+  assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:my_loans'));
+});
+
+test('handleTelegramCatalogAdminCallback blocks non-admin edit and deactivate actions', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies, getCurrentSession } = createContext({ repository, isAdmin: false });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.edit}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /nomes esta disponible per a administradors del club/i);
+  assert.equal(getCurrentSession(), null);
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.deactivate}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /nomes esta disponible per a administradors del club/i);
+  assert.equal(getCurrentSession(), null);
 });
 
 test('handleTelegramCatalogAdminCallback lets admins edit and delete item media', async () => {

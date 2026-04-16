@@ -149,7 +149,7 @@ export interface TelegramCatalogAdminContext {
 
 export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdminContext): Promise<boolean> {
   const text = context.messageText?.trim();
-  if (!text || context.runtime.chat.kind !== 'private' || !canManageCatalog(context)) {
+  if (!text || context.runtime.chat.kind !== 'private' || !canAccessCatalog(context)) {
     return false;
   }
 
@@ -187,10 +187,18 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
     return true;
   }
   if (text === texts.edit || text === catalogAdminLabels.edit || text === '/catalog_edit') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
     await replyWithCatalogList(context, 'edit');
     return true;
   }
   if (text === texts.deactivate || text === catalogAdminLabels.deactivate || text === '/catalog_deactivate') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
     await replyWithCatalogList(context, 'deactivate');
     return true;
   }
@@ -204,7 +212,7 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
 
 export async function handleTelegramCatalogAdminStartText(context: TelegramCatalogAdminContext): Promise<boolean> {
   const payload = parseCatalogAdminStartPayload(context.messageText);
-  if (payload === null || context.runtime.chat.kind !== 'private' || !canManageCatalog(context)) {
+  if (payload === null || context.runtime.chat.kind !== 'private' || !canAccessCatalog(context)) {
     return false;
   }
 
@@ -218,7 +226,7 @@ export async function handleTelegramCatalogAdminStartText(context: TelegramCatal
 
 export async function handleTelegramCatalogAdminCallback(context: TelegramCatalogAdminContext): Promise<boolean> {
   const callbackData = context.callbackData;
-  if (!callbackData || context.runtime.chat.kind !== 'private' || !canManageCatalog(context)) {
+  if (!callbackData || context.runtime.chat.kind !== 'private' || !canAccessCatalog(context)) {
     return false;
   }
 
@@ -259,6 +267,10 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.edit)) {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
     const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.edit);
     const item = await loadItemOrThrow(context, itemId);
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
@@ -270,6 +282,10 @@ ${texts.selectEditField}`, { ...buildEditFieldMenuOptions(item.itemType, languag
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.deactivate)) {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
     const itemId = parseItemId(callbackData, catalogAdminCallbackPrefixes.deactivate);
     const item = await loadItemOrThrow(context, itemId);
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
@@ -281,6 +297,10 @@ ${texts.askDeactivate}`, { ...buildDeactivateConfirmOptions(language), parseMode
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.editMedia)) {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
     const mediaId = parseItemId(callbackData, catalogAdminCallbackPrefixes.editMedia);
     const media = await loadMediaOrThrow(context, mediaId);
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
@@ -301,6 +321,10 @@ ${texts.askDeactivate}`, { ...buildDeactivateConfirmOptions(language), parseMode
     return true;
   }
   if (callbackData.startsWith(catalogAdminCallbackPrefixes.deleteMedia)) {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
     const mediaId = parseItemId(callbackData, catalogAdminCallbackPrefixes.deleteMedia);
     const media = await loadMediaOrThrow(context, mediaId);
     await context.runtime.session.start({ flowKey: mediaDeleteFlowKey, stepKey: 'confirm', data: { mediaId, itemId: media.itemId } });
@@ -313,8 +337,12 @@ ${texts.askDeactivate}`, { ...buildDeactivateConfirmOptions(language), parseMode
   return false;
 }
 
-function canManageCatalog(context: TelegramCatalogAdminContext): boolean {
-  return context.runtime.actor.isAdmin || context.runtime.authorization.can('catalog.manage');
+function canAccessCatalog(context: TelegramCatalogAdminContext): boolean {
+  return context.runtime.actor.isApproved && !context.runtime.actor.isBlocked;
+}
+
+function canAdministerCatalog(context: TelegramCatalogAdminContext): boolean {
+  return context.runtime.actor.isAdmin;
 }
 
 function isCatalogAdminSession(flowKey: string | undefined): boolean {
@@ -325,6 +353,11 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
   const session = context.runtime.session.current;
   if (!session) {
     return false;
+  }
+  if (isCatalogAdminOnlySession(session.flowKey) && !canAdministerCatalog(context)) {
+    await context.runtime.session.cancel();
+    await replyAdminOnly(context);
+    return true;
   }
   if (session.flowKey === createFlowKey) {
     return handleCreateSession(context, text, session.stepKey, session.data);
@@ -345,6 +378,14 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
     return handleBrowseSession(context, text, session.stepKey, session.data);
   }
   return false;
+}
+
+function isCatalogAdminOnlySession(flowKey: string): boolean {
+  return flowKey === editFlowKey || flowKey === deactivateFlowKey || flowKey === mediaFlowKey || flowKey === mediaDeleteFlowKey;
+}
+
+async function replyAdminOnly(context: TelegramCatalogAdminContext): Promise<void> {
+  await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).common.accessDeniedAdmin);
 }
 
 async function handleCreateSession(
@@ -1801,9 +1842,13 @@ async function buildCatalogItemDetailButtons(
   item: CatalogItemRecord,
   language: 'ca' | 'es' | 'en',
 ): Promise<NonNullable<TelegramReplyOptions['inlineKeyboard']>> {
+  const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
+  if (!canAdministerCatalog(context)) {
+    return buildLoanDetailButtons({ loan, itemId: item.id, language });
+  }
+
   const texts = createTelegramI18n(language).catalogAdmin;
   const media = await resolveCatalogRepository(context).listMedia({ itemId: item.id });
-  const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
   return [
     [{ text: texts.edit, callbackData: `${catalogAdminCallbackPrefixes.edit}${item.id}` }],
     ...media.flatMap((entry) => [[
