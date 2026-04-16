@@ -164,23 +164,6 @@ export interface CatalogLoanRepository {
   findActiveLoanByItemId(itemId: number): Promise<CatalogLoanRecord | null>;
   listActiveLoansByBorrower(borrowerTelegramUserId: number): Promise<CatalogLoanRecord[]>;
   listLoansByItem(itemId: number): Promise<CatalogLoanRecord[]>;
-  updateLoan(input: { loanId: number; dueAt: string | null; notes: string | null }): Promise<CatalogLoanRecord>;
-  closeLoan(input: { loanId: number; returnedByTelegramUserId: number }): Promise<CatalogLoanRecord>;
-}
-
-export interface CatalogLoanRepository {
-  createLoan(input: {
-    itemId: number;
-    borrowerTelegramUserId: number;
-    borrowerDisplayName: string;
-    loanedByTelegramUserId: number;
-    dueAt: string | null;
-    notes: string | null;
-  }): Promise<CatalogLoanRecord>;
-  findLoanById(loanId: number): Promise<CatalogLoanRecord | null>;
-  findActiveLoanByItemId(itemId: number): Promise<CatalogLoanRecord | null>;
-  listActiveLoansByBorrower(borrowerTelegramUserId: number): Promise<CatalogLoanRecord[]>;
-  listLoansByItem(itemId: number): Promise<CatalogLoanRecord[]>;
   updateLoan(input: {
     loanId: number;
     dueAt: string | null;

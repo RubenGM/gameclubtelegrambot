@@ -26,8 +26,14 @@ jobs:
       - name: Check Drizzle artifacts
         run: npm run db:check
 
+      - name: Lint
+        run: npm run lint
+
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Build
+        run: npm run build
 
       - name: Test
         run: npm test

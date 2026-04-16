@@ -6,6 +6,7 @@
   "description": "Game Club Telegram Bot project skeleton",
   "scripts": {
     "dev": "tsx watch src/main.ts",
+    "lint": "bash -O globstar -c 'node --import tsx src/scripts/check-repo-health.ts src/**/*.ts'",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bash -O globstar -c 'node --import tsx --test src/**/*.test.ts'",
