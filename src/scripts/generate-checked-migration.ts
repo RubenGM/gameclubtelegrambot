@@ -69,7 +69,7 @@ async function restoreDrizzleFiles(projectRoot: string, snapshot: Map<string, st
 
 async function runDrizzleGenerate(projectRoot: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn('npx', ['drizzle-kit', 'generate', '--config', 'drizzle.config.ts'], {
+    const child = spawn('npx', ['--yes', 'drizzle-kit@0.31.10', 'generate', '--config', 'drizzle.config.ts'], {
       cwd: projectRoot,
       stdio: 'inherit',
       shell: false,
