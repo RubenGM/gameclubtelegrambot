@@ -2,12 +2,10 @@ import { appendAuditEvent, type AuditLogRepository } from '../audit/audit-log.js
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
-import { formatCalendarMessage, loadUpcomingCalendarEntries } from './calendar-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import {
   cancelScheduleEvent,
   createScheduleEvent,
-  detectScheduleConflicts,
   getScheduleEventAttendance,
   getScheduleEventEndsAt,
   joinScheduleEvent,
@@ -68,6 +66,9 @@ import {
   parseTableSelection,
   parseTime,
 } from './schedule-parsing.js';
+import { formatScheduleDraftSummary } from './schedule-draft-summary.js';
+import { formatScheduleListWithVenueImpact } from './schedule-list-impact.js';
+import { notifyScheduleConflicts, publishCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
 import {
   buildCancelConfirmOptions,
   buildCreateConfirmOptions,
@@ -468,10 +469,19 @@ async function handleCreateSession(
       `${texts.created.replace('.', '')}: <b>${escapeHtml(created.title)}</b>\n${await formatScheduleEventView(context, created)}`,
       { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
     );
-    await notifyScheduleConflicts({ context, eventId: created.id });
-    await publishCalendarSnapshotToNewsGroups(context, {
-      action: 'created',
-      event: created,
+    await notifyScheduleConflicts({
+      eventId: created.id,
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      scheduleRepository: resolveScheduleRepository(context),
+      loadEvent: async (eventId) => loadEventOrThrow(context, eventId),
+      sendPrivateMessage: async (telegramUserId, message) => context.runtime.bot.sendPrivateMessage(telegramUserId, message),
+    });
+    await publishCalendarSnapshotToNewsGroups({
+      change: {
+        action: 'created',
+        event: created,
+      },
+      ...buildCalendarBroadcastDependencies(context),
     });
     return true;
   }
@@ -606,10 +616,17 @@ async function returnToEditMenu(
   const texts = createTelegramI18n(language).schedule;
   const nextData = { ...data, ...patch };
   await context.runtime.session.advance({ stepKey: 'select-field', data: nextData });
-  await context.reply(
-    `${await formatDraftSummary(context, nextData, event, event.organizerTelegramUserId)}\n\n${texts.selectFieldPrompt}`,
-    { ...buildEditFieldMenuOptions(language), parseMode: 'HTML' },
-  );
+    await context.reply(
+      `${await formatScheduleDraftSummary({
+        botLanguage: resolveBotLanguage(context),
+        data: nextData,
+        eventOrOrganizer: event,
+        organizerTelegramUserId: event.organizerTelegramUserId,
+        tableRepository: resolveTableRepository(context),
+        resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
+      })}\n\n${texts.selectFieldPrompt}`,
+      { ...buildEditFieldMenuOptions(language), parseMode: 'HTML' },
+    );
   return true;
 }
 
@@ -663,10 +680,19 @@ async function persistEditedScheduleEvent(
     `${texts.updated.replace('.', '')}: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId), language })}`,
     { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
   );
-  await notifyScheduleConflicts({ context, eventId: updated.id });
-    await publishCalendarSnapshotToNewsGroups(context, {
-      action: 'updated',
-      event: updated,
+  await notifyScheduleConflicts({
+    eventId: updated.id,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    scheduleRepository: resolveScheduleRepository(context),
+    loadEvent: async (eventId) => loadEventOrThrow(context, eventId),
+    sendPrivateMessage: async (telegramUserId, message) => context.runtime.bot.sendPrivateMessage(telegramUserId, message),
+  });
+    await publishCalendarSnapshotToNewsGroups({
+      change: {
+        action: 'updated',
+        event: updated,
+      },
+      ...buildCalendarBroadcastDependencies(context),
     });
 }
 
@@ -701,9 +727,12 @@ async function handleCancelSession(
   });
   await context.runtime.session.cancel();
   await context.reply(`${texts.cancelled.replace('.', '')}: <b>${escapeHtml(cancelled.title)}</b>`, { ...buildScheduleMenuOptions(language), parseMode: 'HTML' });
-    await publishCalendarSnapshotToNewsGroups(context, {
-      action: 'deleted',
-      event: cancelled,
+    await publishCalendarSnapshotToNewsGroups({
+      change: {
+        action: 'deleted',
+        event: cancelled,
+      },
+      ...buildCalendarBroadcastDependencies(context),
     });
   return true;
 }
@@ -731,10 +760,17 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
   const nextData = { ...session.data, tableId };
   await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
   const event = session.flowKey === editFlowKey ? await loadEventOrThrow(context, Number(session.data.eventId)) : null;
-  await context.reply(
-    `${await formatDraftSummary(context, nextData, event ?? undefined, event?.organizerTelegramUserId, selectedTable)}\n\n${texts.confirmPrompt}`,
-    { ...(session.flowKey === editFlowKey ? buildEditConfirmOptions(language) : buildCreateConfirmOptions(language)), parseMode: 'HTML' },
-  );
+    await context.reply(
+      `${await formatScheduleDraftSummary({
+        botLanguage: resolveBotLanguage(context),
+        data: nextData,
+        selectedTable,
+        tableRepository: resolveTableRepository(context),
+        resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
+        ...(event ? { eventOrOrganizer: event, organizerTelegramUserId: event.organizerTelegramUserId } : {}),
+      })}\n\n${texts.confirmPrompt}`,
+      { ...(session.flowKey === editFlowKey ? buildEditConfirmOptions(language) : buildCreateConfirmOptions(language)), parseMode: 'HTML' },
+    );
   return true;
 }
 
@@ -748,7 +784,12 @@ async function advanceCreateTableSelection(
   if (text === texts.noTable || text === scheduleLabels.noTable) {
     const nextData = { ...data, tableId: null };
     await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(`${await formatDraftSummary(context, nextData, undefined)}\n\n${texts.confirmPrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
+    await context.reply(`${await formatScheduleDraftSummary({
+      botLanguage: resolveBotLanguage(context),
+      data: nextData,
+      tableRepository: resolveTableRepository(context),
+      resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
+    })}\n\n${texts.confirmPrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
     return true;
   }
 
@@ -760,7 +801,13 @@ async function advanceCreateTableSelection(
 
   const nextData = { ...data, tableId: selectedTable.id };
   await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-  await context.reply(`${await formatDraftSummary(context, nextData, undefined, undefined, selectedTable)}\n\n${texts.confirmPrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
+  await context.reply(`${await formatScheduleDraftSummary({
+    botLanguage: resolveBotLanguage(context),
+    data: nextData,
+    selectedTable,
+    tableRepository: resolveTableRepository(context),
+    resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
+  })}\n\n${texts.confirmPrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
   return true;
 }
 
@@ -850,6 +897,13 @@ function resolveMembershipRepository(context: TelegramScheduleContext): Membersh
     return context.membershipRepository;
   }
   return createDatabaseMembershipAccessRepository({ database: context.runtime.services.database.db as never });
+}
+
+function resolveNewsGroupRepository(context: TelegramScheduleContext): NewsGroupRepository {
+  if (context.newsGroupRepository) {
+    return context.newsGroupRepository;
+  }
+  return createDatabaseNewsGroupRepository({ database: context.runtime.services.database.db as never });
 }
 
 async function loadEventOrThrow(context: TelegramScheduleContext, eventId: number): Promise<ScheduleEventRecord> {
@@ -946,7 +1000,17 @@ async function replyWithInspectableEventList(
     return true;
   }
 
-  const listMessage = await formatScheduleListWithVenueImpact(context, filteredEvents);
+  const listMessage = await formatScheduleListWithVenueImpact({
+    events: filteredEvents,
+    loadAttendance: async (eventId) => {
+      const attendance = await getScheduleEventAttendance({
+        repository: resolveScheduleRepository(context),
+        eventId,
+      });
+      return attendance.snapshot;
+    },
+    loadRelevantVenueEvents: async (event) => listRelevantVenueEventsForScheduleEvent(context, event),
+  });
   if (options.includeMenuKeyboard) {
     await context.reply(listMessage, { parseMode: 'HTML', ...buildScheduleMenuOptions(language) });
   } else {
@@ -960,47 +1024,6 @@ async function isActorAttending(context: TelegramScheduleContext, eventId: numbe
   return participant?.status === 'active';
 }
 
-async function formatDraftSummary(
-  context: TelegramScheduleContext,
-  data: Record<string, unknown>,
-  eventOrOrganizer?: ScheduleEventRecord | number,
-  organizerTelegramUserId?: number,
-  selectedTable?: ClubTableRecord | null,
-): Promise<string> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule;
-  const event = typeof eventOrOrganizer === 'object' && eventOrOrganizer !== null && 'startsAt' in eventOrOrganizer ? eventOrOrganizer : null;
-  const effectiveOrganizerTelegramUserId = typeof eventOrOrganizer === 'number' ? eventOrOrganizer : organizerTelegramUserId;
-  const title = String(data.title ?? event?.title ?? '');
-  const description = data.description === undefined ? event?.description ?? null : asNullableString(data.description);
-  const date = String(data.date ?? event?.startsAt.slice(0, 10) ?? '');
-  const time = String(data.time ?? event?.startsAt.slice(11, 16) ?? '');
-  const durationMinutes = Number(data.durationMinutes ?? event?.durationMinutes ?? 0);
-  const capacity = Number(data.capacity ?? event?.capacity ?? 0);
-  const effectiveTableId = data.tableId === undefined ? event?.tableId ?? null : asNullableNumber(data.tableId);
-
-  const table = selectedTable === undefined
-    ? await resolveScheduleTableReference({
-        repository: resolveTableRepository(context),
-        tableId: effectiveTableId,
-      })
-    : selectedTable;
-  const advisories = getScheduleTableCapacityAdvisories({
-    table,
-    requestedCapacity: capacity,
-  });
-
-  return [
-    `${texts.editFieldTitle}: ${escapeHtml(title)}`,
-    `${texts.detailsDescription}: ${escapeHtml(description ?? texts.noDescription)}`,
-    `${texts.detailsStart}: ${formatTimestamp(buildStartsAt(date, time))}`,
-    `${texts.detailsDuration}: ${durationMinutes} min`,
-    `${texts.detailsSeats}: ${capacity}`,
-    `${texts.detailsTable}: ${table?.displayName ?? texts.noTable}`,
-    ...advisories.map(escapeHtml),
-    ...(effectiveOrganizerTelegramUserId ? [`${texts.detailsOrganizer}: ${escapeHtml(await resolveMemberDisplayName(context, effectiveOrganizerTelegramUserId))}`] : []),
-  ].join('\n');
-}
-
 async function resolveMemberDisplayName(context: TelegramScheduleContext, telegramUserId: number): Promise<string> {
   const user = await resolveMembershipRepository(context).findUserByTelegramUserId(telegramUserId);
   if (user) {
@@ -1012,6 +1035,29 @@ async function resolveMemberDisplayName(context: TelegramScheduleContext, telegr
 
 function resolveBotLanguage(context: TelegramScheduleContext): string {
   return context.runtime.bot.language ?? 'ca';
+}
+
+function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): Omit<
+  Parameters<typeof publishCalendarSnapshotToNewsGroups>[0],
+  'change'
+> {
+  const sendGroupMessage = context.runtime.bot.sendGroupMessage;
+
+  return {
+    ...(sendGroupMessage
+      ? {
+          sendGroupMessage: async (chatId: number, message: string, options?: { parseMode?: 'HTML' }) =>
+            sendGroupMessage(chatId, message, options),
+        }
+      : {}),
+    newsGroupRepository: resolveNewsGroupRepository(context),
+    database: context.runtime.services.database.db,
+    botLanguage: resolveBotLanguage(context),
+    ...(context.scheduleRepository ? { scheduleRepository: context.scheduleRepository } : {}),
+    ...(context.venueEventRepository ? { venueEventRepository: context.venueEventRepository } : {}),
+    ...(context.tableRepository ? { tableRepository: context.tableRepository } : {}),
+    resolveActorDisplayName: async () => resolveBroadcastMemberName(context, context.runtime.actor.telegramUserId),
+  };
 }
 
 function resolveVenueEventRepository(context: TelegramScheduleContext): VenueEventRepository {
@@ -1062,138 +1108,6 @@ async function deletePastScheduleEvents(context: TelegramScheduleContext): Promi
       reason: 'Expired automatically',
     });
   }
-}
-
-async function formatScheduleListWithVenueImpact(
-  context: TelegramScheduleContext,
-  events: ScheduleEventRecord[],
-): Promise<string> {
-  const lines: string[] = [];
-  const groupedEvents = groupScheduleEventsByDay(sortScheduleEvents(events));
-
-  for (const [dayKey, dayEvents] of groupedEvents) {
-    if (lines.length > 0) {
-      lines.push('');
-    }
-    lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
-    for (const event of dayEvents) {
-      const attendance = await getScheduleEventAttendance({
-        repository: resolveScheduleRepository(context),
-        eventId: event.id,
-      });
-      lines.push(`- <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${event.id}`))}"><b>${escapeHtml(event.title)}</b></a> (${formatEventTime(event.startsAt)}) · ${formatParticipantCount(attendance.snapshot.occupiedSeats, attendance.snapshot.capacity)}`);
-      if (event.description) {
-        lines.push(`  <i>${escapeHtml(event.description)}</i>`);
-      }
-      const relevantVenueEvents = await listRelevantVenueEventsForScheduleEvent(context, event);
-      if (relevantVenueEvents.length > 0) {
-        const summary = relevantVenueEvents
-          .map((venueEvent) => `${escapeHtml(venueEvent.name)} (ocupacio ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`)
-          .join(', ');
-        lines.push(`  <b>Impacte local:</b> ${summary}`);
-      }
-    }
-  }
-
-  return lines.join('\n');
-}
-
-async function notifyScheduleConflicts({
-  context,
-  eventId,
-}: {
-  context: TelegramScheduleContext;
-  eventId: number;
-}): Promise<void> {
-  const conflicts = await detectScheduleConflicts({
-    repository: resolveScheduleRepository(context),
-    eventId,
-    actorTelegramUserId: context.runtime.actor.telegramUserId,
-  });
-
-  if (conflicts.overlappingEventIds.length === 0) {
-    return;
-  }
-
-  const subjectEvent = await loadEventOrThrow(context, eventId);
-  const overlappingEvents = await Promise.all(conflicts.overlappingEventIds.map((id) => loadEventOrThrow(context, id)));
-  const overlapSummary = overlappingEvents
-    .map((event) => `${event.title} (${event.startsAt.slice(0, 16).replace('T', ' ')} - ${getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')})`)
-    .join('\n- ');
-
-  await Promise.all(
-    conflicts.impactedTelegramUserIds.map((telegramUserId) =>
-      context.runtime.bot.sendPrivateMessage(
-        telegramUserId,
-        [
-          'S ha detectat un possible conflicte amb les teves reserves del club.',
-          `Nova activitat o canvi: ${subjectEvent.title} (${subjectEvent.startsAt.slice(0, 16).replace('T', ' ')} - ${getScheduleEventEndsAt(subjectEvent).slice(0, 16).replace('T', ' ')})`,
-          `Altres activitats afectades:\n- ${overlapSummary}`,
-          'El bot no ha bloquejat la reserva. Si us plau, coordina-t hi manualment amb la resta de persones implicades.',
-        ].join('\n'),
-      ),
-    ),
-  );
-}
-
-async function publishCalendarSnapshotToNewsGroups(
-  context: TelegramScheduleContext,
-  change: {
-    action: 'created' | 'updated' | 'deleted';
-    event: ScheduleEventRecord;
-  },
-): Promise<void> {
-  const sendGroupMessage = context.runtime.bot.sendGroupMessage;
-  if (!sendGroupMessage) {
-    return;
-  }
-
-  const repository = context.newsGroupRepository ?? createDatabaseNewsGroupRepository({
-    database: context.runtime.services.database.db as never,
-  });
-  const groups = await repository.listGroups({ includeDisabled: false });
-  if (groups.length === 0) {
-    return;
-  }
-
-  const entries = await loadUpcomingCalendarEntries({
-    database: context.runtime.services.database.db,
-    ...(context.scheduleRepository ? { scheduleRepository: context.scheduleRepository } : {}),
-    ...(context.venueEventRepository ? { venueEventRepository: context.venueEventRepository } : {}),
-    ...(context.tableRepository ? { tableRepository: context.tableRepository } : {}),
-  });
-  const message = entries.length > 0
-    ? `Calendari actualitzat:\n${formatCalendarMessage(entries, context.runtime.bot.language ?? 'ca')}`
-    : 'Calendari actualitzat: no hi ha activitats ni esdeveniments propers ara mateix.';
-  const footer = await formatCalendarBroadcastFooter(context, change);
-
-  await Promise.all(
-    groups.map(async (group) => {
-      try {
-        await sendGroupMessage(group.chatId, `${message}\n\n${footer}`, { parseMode: 'HTML' });
-      } catch {
-        // La notificació de grup no ha de bloquejar l'edició de l'activitat.
-      }
-    }),
-  );
-}
-
-async function formatCalendarBroadcastFooter(
-  context: TelegramScheduleContext,
-  change: {
-    action: 'created' | 'updated' | 'deleted';
-    event: ScheduleEventRecord;
-  },
-): Promise<string> {
-  const userName = await resolveBroadcastMemberName(context, context.runtime.actor.telegramUserId);
-  const actionLabel =
-    change.action === 'created'
-      ? 'creado'
-      : change.action === 'updated'
-        ? 'actualizado'
-        : 'eliminado';
-
-  return `<i>${escapeHtml(userName)} ha ${actionLabel} la actividad ${escapeHtml(change.event.title)} del ${escapeHtml(formatDayHeading(change.event.startsAt.slice(0, 10)))}</i>`;
 }
 
 async function resolveBroadcastMemberName(context: TelegramScheduleContext, telegramUserId: number): Promise<string> {
