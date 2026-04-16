@@ -35,5 +35,65 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Test
-        run: npm test
+      - name: Unit tests
+        run: npm run test:unit
+
+  integration-postgres:
+    runs-on: ubuntu-latest
+    needs: verify
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: gameclub
+          POSTGRES_USER: gameclub_user
+          POSTGRES_PASSWORD: gameclub_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gameclub_user -d gameclub"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write integration runtime files
+        run: |
+          node -e "const fs = require('node:fs');
+          fs.mkdirSync('.tmp/ci-runtime', { recursive: true });
+          fs.writeFileSync('.tmp/ci-runtime/runtime.json', JSON.stringify({
+            schemaVersion: 1,
+            bot: { publicName: 'Game Club Bot', clubName: 'Game Club', language: 'es' },
+            database: { host: '127.0.0.1', port: 5432, name: 'gameclub', user: 'gameclub_user', ssl: false },
+            bootstrap: { firstAdmin: { telegramUserId: 1, username: 'club_admin', displayName: 'Club Administrator' } },
+            notifications: { defaults: { groupAnnouncementsEnabled: true, eventRemindersEnabled: true, eventReminderLeadHours: 24 } },
+            featureFlags: { bootstrapWizard: true }
+          }, null, 2));
+          fs.writeFileSync('.tmp/ci-runtime/.env', [
+            'GAMECLUB_TELEGRAM_TOKEN=test-telegram-token',
+            'GAMECLUB_DATABASE_PASSWORD=gameclub_test_password',
+            'GAMECLUB_ADMIN_PASSWORD_HASH=test-admin-password-hash'
+          ].join('\n'));"
+
+      - name: Run migrations
+        env:
+          GAMECLUB_CONFIG_PATH: .tmp/ci-runtime/runtime.json
+        run: npm run db:migrate
+
+      - name: Integration tests
+        env:
+          GAMECLUB_CONFIG_PATH: .tmp/ci-runtime/runtime.json
+        run: npm run test:integration

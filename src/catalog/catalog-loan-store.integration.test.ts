@@ -1,20 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access } from 'node:fs/promises';
-import path from 'node:path';
 
 import { sql } from 'drizzle-orm';
 
-import { loadRuntimeConfig } from '../config/load-runtime-config.js';
 import { applyMigrations } from '../infrastructure/database/apply-migrations.js';
 import {
   connectPostgresDatabase,
   createPostgresConnectionString,
 } from '../infrastructure/database/connection.js';
+import { loadIntegrationRuntimeConfig } from '../test/integration-runtime.js';
 import { createDatabaseCatalogLoanRepository } from './catalog-loan-store.js';
 
-const localConfigPath = path.resolve(process.cwd(), 'config/runtime.local.json');
-const integrationConfig = await loadLocalRuntimeConfig();
+const integrationConfig = await loadIntegrationRuntimeConfig();
 
 const integrationTest = integrationConfig ? test : test.skip;
 
@@ -136,24 +133,9 @@ integrationTest('closing the same loan twice returns the same closed record', as
   }
 });
 
-async function loadLocalRuntimeConfig() {
-  try {
-    await access(localConfigPath);
-  } catch {
-    return null;
-  }
-
-  return loadRuntimeConfig({
-    env: {
-      ...process.env,
-      GAMECLUB_CONFIG_PATH: localConfigPath,
-    },
-  });
-}
-
 async function createIntegrationContext() {
   if (!integrationConfig) {
-    throw new Error('Local runtime config is not available');
+    throw new Error('Integration runtime config is not available');
   }
 
   await applyMigrations({ config: integrationConfig });
