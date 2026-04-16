@@ -29,6 +29,33 @@ import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { buildLoanDetailButtons, buildLoanItemButton, formatLoanAvailabilityLines, resolveLoanBorrowerDisplayName, type TelegramCatalogLoanContext } from './catalog-loan-flow.js';
+import {
+  buildCatalogAdminMenuOptions,
+  buildCreateConfirmOptions,
+  buildCreateFieldMenuOptions as buildCatalogCreateFieldMenuOptions,
+  buildCreateOptionalKeyboard,
+  buildDeactivateConfirmOptions,
+  buildEditConfirmOptions,
+  buildEditFamilyOptions,
+  buildEditFieldMenuOptions as buildCatalogEditFieldMenuOptions,
+  buildEditGroupOptions,
+  buildEditMediaTypeOptions,
+  buildEditOptionalKeyboard,
+  buildEditTypeOptions,
+  buildFamilyOptions as buildCatalogFamilyOptions,
+  buildGroupOptions,
+  buildKeepCurrentKeyboard,
+  buildMediaConfirmOptions,
+  buildMediaDeleteConfirmOptions,
+  buildMediaEditConfirmOptions,
+  buildMediaTypeOptions,
+  buildSingleCancelKeyboard,
+  buildSkipOptionalKeyboard,
+  buildTypeOptions,
+  buildWikipediaCandidateOptions,
+  buildWikipediaUrlOptions,
+} from './catalog-admin-keyboards.js';
+import { formatCatalogAdminDraftSummary } from './catalog-admin-draft-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import {
   escapeHtml,
@@ -1139,291 +1166,30 @@ async function handleMediaDeleteSession(
   return true;
 }
 
-function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
-  const i18n = createTelegramI18n(language);
-  const texts = i18n.catalogAdmin;
-  return {
-    replyKeyboard: [
-      [texts.create, texts.listBoardGames],
-      [texts.listBooks, texts.listRpgBooks],
-      [texts.searchByName],
-      [i18n.actionMenu.start],
-    ],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildTypeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [
-      [texts.typeBoardGame],
-      [texts.typeBook, texts.typeRpgBook],
-      [texts.typeAccessory],
-      [texts.cancel],
-    ],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildEditTypeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [
-      [texts.keepCurrent],
-      [texts.typeBoardGame],
-      [texts.typeBook, texts.typeRpgBook],
-      [texts.typeAccessory],
-      [texts.cancel],
-    ],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
 async function buildFamilyOptions(
   context: TelegramCatalogAdminContext,
   itemType: CatalogItemType,
   language: 'ca' | 'es' | 'en' = 'ca',
 ): Promise<TelegramReplyOptions> {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  if (itemType !== 'rpg-book' && itemType !== 'book' && itemType !== 'board-game') {
-    return {
-      replyKeyboard: [[texts.noFamily], [texts.cancel]],
-      resizeKeyboard: true,
-      persistentKeyboard: true,
-    };
-  }
-
-  const popularFamilies = await listPopularFamilies(context, itemType);
-  const replyKeyboard = chunkKeyboard(popularFamilies.map((family) => family.displayName), 3);
-  replyKeyboard.push([texts.noFamily], [texts.cancel]);
-  return {
-    replyKeyboard,
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildEditFamilyOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.keepCurrent, texts.noFamily], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildGroupOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.noGroup], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildEditGroupOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.keepCurrent, texts.noGroup], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildSkipOptionalKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.skipOptional], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildCreateOptionalKeyboard(currentValue: unknown, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  return currentValue === null || currentValue === undefined
-    ? buildSkipOptionalKeyboard(language)
-    : buildEditOptionalKeyboard(language);
-}
-
-function buildEditOptionalKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.keepCurrent, texts.skipOptional], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildEditFieldMenuOptions(itemType: CatalogItemType, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  const replyKeyboard: string[][] = [
-    [texts.editFieldDisplayName, texts.editFieldItemType],
-    [texts.editFieldFamily, texts.editFieldGroup],
-    [texts.editFieldOriginalName, texts.editFieldDescription],
-    [texts.editFieldLanguage, texts.editFieldPublisher],
-    [texts.editFieldPublicationYear, texts.editFieldRecommendedAge],
-    [texts.editFieldPlayTimeMinutes],
-    [texts.editFieldExternalRefs, texts.editFieldMetadata],
-  ];
-  if (itemTypeSupportsPlayers(itemType)) {
-    replyKeyboard.splice(5, 0, [texts.editFieldPlayerMin, texts.editFieldPlayerMax]);
-  }
-  replyKeyboard.push([texts.confirmEdit], [texts.cancel]);
-  return {
-    replyKeyboard,
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildCreateFieldMenuOptions(itemType: CatalogItemType, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  const replyKeyboard: string[][] = [
-    [texts.editFieldDisplayName, texts.editFieldItemType],
-    [texts.editFieldFamily, texts.editFieldGroup],
-    [texts.editFieldOriginalName, texts.editFieldDescription],
-    [texts.editFieldLanguage, texts.editFieldPublisher],
-    [texts.editFieldPublicationYear, texts.editFieldRecommendedAge],
-    [texts.editFieldPlayTimeMinutes],
-    [texts.editFieldExternalRefs, texts.editFieldMetadata],
-  ];
-  if (itemTypeSupportsPlayers(itemType)) {
-    replyKeyboard.splice(5, 0, [texts.editFieldPlayerMin, texts.editFieldPlayerMax]);
-  }
-  replyKeyboard.push([texts.searchOnlineServices]);
-  replyKeyboard.push([texts.confirmCreate], [texts.cancel]);
-  return {
-    replyKeyboard,
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
+  const allowNoFamily = itemType === 'rpg-book' || itemType === 'book' || itemType === 'board-game';
+  const popularFamilies = allowNoFamily ? await listPopularFamilies(context, itemType) : [];
+  return buildCatalogFamilyOptions({
+    allowNoFamily,
+    popularFamilyNames: popularFamilies.map((family) => family.displayName),
+    language,
+  });
 }
 
 function getDraftItemTypeFromData(data: Record<string, unknown>): CatalogItemType {
   return String(data.itemType ?? 'board-game') as CatalogItemType;
 }
 
-function buildCreateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.confirmCreate], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
+function buildEditFieldMenuOptions(itemType: CatalogItemType, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  return buildCatalogEditFieldMenuOptions({ itemType, itemTypeSupportsPlayers, language });
 }
 
-function buildEditConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.confirmEdit], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildDeactivateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.confirmDeactivate], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildMediaTypeOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [
-      [texts.mediaTypeImage, texts.mediaTypeLink],
-      [texts.mediaTypeDocument],
-      [texts.cancel],
-    ],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildEditMediaTypeOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [
-      [texts.keepCurrent],
-      [texts.mediaTypeImage, texts.mediaTypeLink],
-      [texts.mediaTypeDocument],
-      [texts.cancel],
-    ],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildMediaConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.confirmMediaCreate], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildMediaEditConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.confirmMediaEdit], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildMediaDeleteConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.confirmMediaDelete], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildKeepCurrentKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.keepCurrent], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildSingleCancelKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildWikipediaUrlOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  return {
-    replyKeyboard: [[texts.skipLookupImport], [texts.cancel]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
-}
-
-function buildWikipediaCandidateOptions(candidateTitles: string[], language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).catalogAdmin;
-  const replyKeyboard = chunkKeyboard(candidateTitles, 2);
-  replyKeyboard.push([texts.manualWikipediaUrl], [texts.skipLookupImport], [texts.cancel]);
-  return {
-    replyKeyboard,
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
+function buildCreateFieldMenuOptions(itemType: CatalogItemType, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  return buildCatalogCreateFieldMenuOptions({ itemType, itemTypeSupportsPlayers, language });
 }
 
 function formatWikipediaCandidateLinks(candidateTitles: string[]): string {
@@ -1952,29 +1718,13 @@ function formatCatalogListDate(value: string): string {
 }
 
 async function formatDraftSummary(context: TelegramCatalogAdminContext, data: Record<string, unknown>): Promise<string> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
-  const familyName = await loadFamilyName(context, asNullableNumber(data.familyId));
-  const groupName = await loadGroupName(context, asNullableNumber(data.groupId));
-  const itemType = String(data.itemType ?? 'board-game') as CatalogItemType;
-  return [
-    `<b>${texts.itemSummary}</b>`,
-    formatHtmlField(texts.name, escapeHtml(String(data.displayName ?? ''))),
-    formatHtmlField(texts.type, escapeHtml(renderCatalogItemType(itemType))),
-    formatHtmlField(texts.family, escapeHtml(familyName ?? texts.noFamily)),
-    formatHtmlField(texts.group, escapeHtml(groupName ?? texts.noGroup)),
-    formatHtmlField(texts.editFieldOriginalName, escapeHtml(asNullableString(data.originalName) ?? texts.noValue)),
-    formatHtmlField(texts.description, escapeHtml(asNullableString(data.description) ?? texts.noDescription)),
-    formatHtmlField(texts.language, escapeHtml(asNullableString(data.language) ?? texts.noValue)),
-    formatHtmlField(texts.publisher, escapeHtml(asNullableString(data.publisher) ?? texts.noValue)),
-    formatHtmlField(texts.publicationYear, escapeHtml(String(asNullableNumber(data.publicationYear) ?? texts.noValue))),
-    ...(itemTypeSupportsPlayers(itemType)
-      ? [formatHtmlField(texts.players, escapeHtml(renderCatalogPlayerRange(asNullableNumber(data.playerCountMin), asNullableNumber(data.playerCountMax))))]
-      : []),
-    formatHtmlField(texts.recommendedAge, escapeHtml(String(asNullableNumber(data.recommendedAge) ?? texts.noValue))),
-    formatHtmlField(texts.playTimeMinutes, escapeHtml(String(asNullableNumber(data.playTimeMinutes) ?? texts.noValue))),
-    formatHtmlField(texts.editFieldExternalRefs, escapeHtml(renderCatalogOptionalObject(asNullableObject(data.externalRefs)))),
-    formatHtmlField(texts.editFieldMetadata, escapeHtml(renderCatalogOptionalObject(asNullableObject(data.metadata)))),
-  ].join('\n');
+  return formatCatalogAdminDraftSummary({
+    botLanguage: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+    data,
+    resolveFamilyName: async (familyId) => loadFamilyName(context, familyId),
+    resolveGroupName: async (groupId) => loadGroupName(context, groupId),
+    itemTypeSupportsPlayers,
+  });
 }
 
 function parseItemTypeLabel(text: string, language: 'ca' | 'es' | 'en'): CatalogItemType | Error {
