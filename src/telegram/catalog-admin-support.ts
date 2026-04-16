@@ -58,6 +58,23 @@ import { formatCatalogAdminDraftSummary } from './catalog-admin-draft-summary.js
 import { buildCatalogAdminItemDetailButtons } from './catalog-admin-detail-buttons.js';
 import { formatCatalogAdminGroupDetails, formatCatalogAdminItemDetails } from './catalog-admin-details.js';
 import {
+  buildCatalogAdminBrowseFamilyKeyboard,
+  buildCatalogAdminBrowseSearchKeyboard,
+  buildCatalogAdminSelectionKeyboard,
+  formatCatalogAdminFamilyBrowseMessage,
+  formatCatalogAdminItemList,
+  formatCatalogAdminSearchResultsMessage,
+} from './catalog-admin-browse-ui.js';
+import {
+  buildCatalogAdminFamilyOptions,
+  buildCatalogAdminFamilyPrompt,
+  buildCatalogAdminGroupedInspectKeyboard,
+  buildCatalogAdminGroupPrompt,
+  chunkKeyboard,
+  familyKindForItemType,
+  listPopularCatalogFamilies,
+} from './catalog-admin-family-group-ui.js';
+import {
   buildCatalogAdminItemDeepLink as buildCatalogAdminItemDeepLinkUrl,
   formatCatalogBrowseItemLine,
   formatCatalogItemSummaryLine,
@@ -1191,11 +1208,9 @@ async function buildFamilyOptions(
   itemType: CatalogItemType,
   language: 'ca' | 'es' | 'en' = 'ca',
 ): Promise<TelegramReplyOptions> {
-  const allowNoFamily = itemType === 'rpg-book' || itemType === 'book' || itemType === 'board-game';
-  const popularFamilies = allowNoFamily ? await listPopularFamilies(context, itemType) : [];
-  return buildCatalogFamilyOptions({
-    allowNoFamily,
-    popularFamilyNames: popularFamilies.map((family) => family.displayName),
+  return buildCatalogAdminFamilyOptions({
+    repository: resolveCatalogRepository(context),
+    itemType,
     language,
   });
 }
@@ -1238,35 +1253,28 @@ async function showCatalogFamilyBrowse(context: TelegramCatalogAdminContext, fam
   const items = await repository.listItems({ familyId, includeDeactivated: true });
   const loanRepository = resolveCatalogLoanRepository(context);
   const activeLoans = await loadActiveLoansByItemMap(loanRepository, items);
-  const lines = [
-    `<b>Categoria:</b> ${escapeHtml(family.displayName)} (#${family.id})`,
-    formatHtmlField(texts.description, escapeHtml(family.description ?? texts.noDescription)),
-  ];
-
-  for (const group of groups) {
-    const groupItems = items.filter((item) => item.groupId === group.id);
-    lines.push(`<b>${texts.group}:</b> ${escapeHtml(group.displayName)} (#${group.id})`);
-    for (const item of groupItems) {
-      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null));
-    }
-  }
-
   const looseItems = items.filter((item) => item.groupId === null);
-  if (looseItems.length > 0) {
-    lines.push('Items sense grup:');
-    for (const item of looseItems) {
-      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null));
-    }
-  }
-
+  const groupSections = await Promise.all(groups.map(async (group) => ({
+    group,
+    itemLines: await Promise.all(items
+      .filter((item) => item.groupId === group.id)
+      .map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null))),
+  })));
+  const looseItemLines = await Promise.all(looseItems.map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)));
   const itemRows = await Promise.all(items.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName, catalogAdminCallbackPrefixes.inspect)));
-  await context.reply(lines.join('\n'), {
+  await context.reply(formatCatalogAdminFamilyBrowseMessage({
+    family,
+    texts,
+    groupSections,
+    looseItemLines,
+  }), {
     parseMode: 'HTML',
-    inlineKeyboard: [
-      ...itemRows,
-      [{ text: texts.searchByName, callbackData: catalogAdminCallbackPrefixes.browseSearch }],
-      [{ text: texts.browseBack, callbackData: catalogAdminCallbackPrefixes.browseMenu }],
-    ],
+    inlineKeyboard: buildCatalogAdminBrowseFamilyKeyboard({
+      itemRows,
+      texts,
+      browseSearchCallbackData: catalogAdminCallbackPrefixes.browseSearch,
+      browseMenuCallbackData: catalogAdminCallbackPrefixes.browseMenu,
+    }),
   });
 }
 
@@ -1299,17 +1307,16 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
   }
 
   const activeLoans = await loadActiveLoansByItemMap(loanRepository, matches);
-  const lines = [`Resultats per a "${query}":`];
-  for (const item of matches) {
-    lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null));
-  }
+  const itemLines = await Promise.all(matches.map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)));
+  const itemRows = await Promise.all(matches.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName, catalogAdminCallbackPrefixes.inspect)));
 
-  await context.reply(lines.join('\n'), {
+  await context.reply(formatCatalogAdminSearchResultsMessage(query, itemLines), {
     parseMode: 'HTML',
-    inlineKeyboard: [
-      ...await Promise.all(matches.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName, catalogAdminCallbackPrefixes.inspect))),
-      [{ text: texts.browseBack, callbackData: catalogAdminCallbackPrefixes.browseMenu }],
-    ],
+    inlineKeyboard: buildCatalogAdminBrowseSearchKeyboard({
+      itemRows,
+      browseBackText: texts.browseBack,
+      browseMenuCallbackData: catalogAdminCallbackPrefixes.browseMenu,
+    }),
   });
   return true;
 }
@@ -1327,14 +1334,13 @@ async function replyWithCatalogList(
     await context.reply(texts.noItems, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')));
     return;
   }
-  const inlineKeyboard = mode === 'list'
-    ? await buildGroupedInspectKeyboard(context, items)
-    : items.map((item) => [{
-      text: item.displayName,
-      callbackData: mode === 'edit'
-        ? `${catalogAdminCallbackPrefixes.edit}${item.id}`
-        : `${catalogAdminCallbackPrefixes.deactivate}${item.id}`,
-    }]);
+  const inlineKeyboard = buildCatalogAdminSelectionKeyboard({
+    items,
+    mode,
+    inspectKeyboard: await buildGroupedInspectKeyboard(context, items),
+    editPrefix: catalogAdminCallbackPrefixes.edit,
+    deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
+  });
   await context.reply(
     mode === 'list' ? await formatCatalogItemList(context, items, itemTypeFilter !== undefined) : mode === 'edit' ? texts.chooseItemToEdit : texts.chooseItemToDeactivate,
     mode === 'list'
@@ -1554,73 +1560,18 @@ async function formatCatalogItemList(
   const loanRepository = resolveCatalogLoanRepository(context);
   const families = await repository.listFamilies();
   const groups = await listCatalogGroups({ repository });
-  const familyNames = new Map(families.map((family) => [family.id, family.displayName]));
-  const groupNames = new Map(groups.map((group) => [group.id, group.displayName]));
   const activeLoans = await loadActiveLoansByItemMap(loanRepository, items);
-  const groupedItems = items.filter((item) => item.groupId !== null);
-  const standaloneItems = items.filter((item) => item.groupId === null);
-  const lines: string[] = [];
-
-  for (const group of groups) {
-    const groupItems = groupedItems.filter((item) => item.groupId === group.id);
-    if (groupItems.length === 0) {
-      continue;
-    }
-    if (lines.length > 0) {
-      lines.push('');
-    }
-    lines.push(`${texts.group}: ${escapeHtml(group.displayName)} · ${escapeHtml(group.familyId ? familyNames.get(group.familyId) ?? texts.familyFallback.replace('{id}', String(group.familyId)) : texts.noFamily)}`);
-    lines.push('------');
-    lines.push('');
-    for (const item of groupItems) {
-      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, 'Disponible', omitTypeLabel));
-    }
-  }
-
-  const standaloneItemsWithFamily = standaloneItems.filter((item) => item.familyId !== null);
-  const standaloneItemsWithoutFamily = standaloneItems.filter((item) => item.familyId === null);
-
-  for (const family of families) {
-    const familyItems = standaloneItemsWithFamily.filter((item) => item.familyId === family.id);
-    if (familyItems.length === 0) {
-      continue;
-    }
-    if (lines.length > 0) {
-      lines.push('');
-    }
-    lines.push(`${texts.family}: ${escapeHtml(family.displayName)}`);
-    lines.push('------');
-    lines.push('');
-    for (const item of familyItems) {
-      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, 'Disponible', omitTypeLabel));
-    }
-  }
-
-  if (standaloneItemsWithoutFamily.length > 0) {
-    if (lines.length > 0) {
-      lines.push('');
-    }
-    lines.push(`${texts.noGroup}:`);
-    lines.push('------');
-    lines.push('');
-    for (const item of standaloneItemsWithoutFamily) {
-      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, 'Disponible', omitTypeLabel));
-    }
-  }
-
-  for (const item of groupedItems) {
-    if (item.groupId !== null && !groupNames.has(item.groupId)) {
-      if (lines.length > 0) {
-        lines.push('');
-      }
-      lines.push(texts.groupUndefined.replace('{id}', String(item.groupId)));
-      lines.push('------');
-      lines.push('');
-      lines.push(await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, 'Disponible', omitTypeLabel));
-    }
-  }
-
-  return lines.join('\n');
+  const itemLines = new Map<number, string>(await Promise.all(items.map(async (item): Promise<[number, string]> => [
+    item.id,
+    await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, 'Disponible', omitTypeLabel),
+  ])));
+  return formatCatalogAdminItemList({
+    texts,
+    families,
+    groups,
+    items,
+    itemLines,
+  });
 }
 
 async function buildCatalogItemDetailButtons(
@@ -1899,80 +1850,11 @@ async function loadGroupName(context: TelegramCatalogAdminContext, groupId: numb
 }
 
 async function buildFamilyPrompt(context: TelegramCatalogAdminContext, itemType: CatalogItemType): Promise<string> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
-  const families = await resolveCatalogRepository(context).listFamilies();
-  if (itemType === 'rpg-book' || itemType === 'book' || itemType === 'board-game') {
-    const popularFamilies = await listPopularFamilies(context, itemType);
-    if (popularFamilies.length === 0) {
-      if (itemType === 'board-game') {
-        return texts.promptFamilyWriteBoardGame;
-      }
-      return itemType === 'rpg-book'
-        ? texts.promptFamilyWriteRpgBook
-        : texts.promptFamilyWriteBook;
-    }
-    if (itemType === 'board-game') {
-      return texts.promptFamilyChooseBoardGame;
-    }
-    return itemType === 'rpg-book'
-      ? texts.promptFamilyChooseRpgBook
-      : texts.promptFamilyChooseBook;
-  }
-  if (families.length === 0) {
-    return texts.promptNoFamilies;
-  }
-  return [texts.promptFamilyId, ...families.map(formatFamilyOption)].join('\n');
-}
-
-async function listPopularFamilies(
-  context: TelegramCatalogAdminContext,
-  itemType: CatalogItemType,
-): Promise<CatalogFamilyRecord[]> {
-  const repository = resolveCatalogRepository(context);
-  const [families, items] = await Promise.all([
-    repository.listFamilies(),
-    listCatalogItems({ repository, includeDeactivated: false }),
-  ]);
-  const compatibleFamilies = families.filter((family) => family.familyKind === familyKindForItemType(itemType));
-  const counts = new Map<number, number>();
-  for (const item of items) {
-    if (item.itemType !== itemType || item.familyId === null) {
-      continue;
-    }
-    counts.set(item.familyId, (counts.get(item.familyId) ?? 0) + 1);
-  }
-  return compatibleFamilies
-    .slice()
-    .sort((left, right) => {
-      const popularityDifference = (counts.get(right.id) ?? 0) - (counts.get(left.id) ?? 0);
-      if (popularityDifference !== 0) {
-        return popularityDifference;
-      }
-      return left.displayName.localeCompare(right.displayName);
-    })
-    .slice(0, 6);
-}
-
-function familyKindForItemType(itemType: CatalogItemType): CatalogFamilyRecord['familyKind'] {
-  switch (itemType) {
-    case 'rpg-book':
-      return 'rpg-line';
-    case 'book':
-      return 'generic-line';
-    case 'board-game':
-    case 'expansion':
-      return 'board-game-line';
-    case 'accessory':
-      return 'generic-line';
-  }
-}
-
-function chunkKeyboard(values: string[], size: number): string[][] {
-  const rows: string[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    rows.push(values.slice(index, index + size));
-  }
-  return rows;
+  return buildCatalogAdminFamilyPrompt({
+    repository: resolveCatalogRepository(context),
+    itemType,
+    language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+  });
 }
 
 function normalizeFamilyLookupKey(value: string): string {
@@ -1988,32 +1870,24 @@ function formatFamilyOption(family: CatalogFamilyRecord): string {
 }
 
 async function buildGroupPrompt(context: TelegramCatalogAdminContext, familyId: number | null): Promise<string> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
-  if (familyId === null) {
-    return texts.promptNoGroupsWithNoFamily;
-  }
-  const groups = await listCatalogGroups({ repository: resolveCatalogRepository(context), ...(familyId !== null ? { familyId } : {}) });
-  if (groups.length === 0) {
-    return texts.promptNoGroups;
-  }
-  return [texts.promptGroupId, ...groups.map(formatGroupOption)].join('\n');
-}
-
-function formatGroupOption(group: CatalogGroupRecord): string {
-  return `- #${group.id}: ${group.displayName}`;
+  return buildCatalogAdminGroupPrompt({
+    repository: resolveCatalogRepository(context),
+    familyId,
+    language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+  });
 }
 
 async function buildGroupedInspectKeyboard(
   context: TelegramCatalogAdminContext,
   items: CatalogItemRecord[],
 ): Promise<NonNullable<TelegramReplyOptions['inlineKeyboard']>> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
-  const groups = await listCatalogGroups({ repository: resolveCatalogRepository(context) });
-  const grouped = groups
-    .filter((group) => items.some((item) => item.groupId === group.id))
-    .map((group) => [{ text: texts.inspectGroupButton.replace('{name}', group.displayName), callbackData: `${catalogAdminCallbackPrefixes.inspectGroup}${group.id}` }]);
-  const itemRows = items.map((item) => [{ text: item.displayName, callbackData: `${catalogAdminCallbackPrefixes.inspect}${item.id}` }]);
-  return [...grouped, ...itemRows];
+  return buildCatalogAdminGroupedInspectKeyboard({
+    repository: resolveCatalogRepository(context),
+    items,
+    language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+    inspectPrefix: catalogAdminCallbackPrefixes.inspect,
+    inspectGroupPrefix: catalogAdminCallbackPrefixes.inspectGroup,
+  });
 }
 
 function asNullableString(value: unknown): string | null {
