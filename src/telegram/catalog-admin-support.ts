@@ -56,7 +56,26 @@ import {
   buildWikipediaUrlOptions,
 } from './catalog-admin-keyboards.js';
 import { formatCatalogAdminDraftSummary } from './catalog-admin-draft-summary.js';
-import { buildTelegramStartUrl } from './deep-links.js';
+import { formatCatalogAdminGroupDetails, formatCatalogAdminItemDetails } from './catalog-admin-details.js';
+import {
+  buildCatalogAdminItemDeepLink as buildCatalogAdminItemDeepLinkUrl,
+  formatCatalogBrowseItemLine,
+  formatCatalogItemSummaryLine,
+  formatCatalogListDate,
+  formatCatalogLoanSummary,
+  parseCatalogAdminStartPayload as parseCatalogAdminStartPayloadValue,
+} from './catalog-admin-list-formatting.js';
+import {
+  asLookupCandidate,
+  asLookupCandidates,
+  asStringArray,
+  parseItemId,
+  parseLookupCandidateInput,
+  parseOptionalJsonObject,
+  parseOptionalNonNegativeInteger,
+  parseOptionalPositiveInteger,
+  parseWikipediaTitleFromUrl,
+} from './catalog-admin-parsing.js';
 import {
   escapeHtml,
   formatCatalogDescriptionLine,
@@ -1626,54 +1645,34 @@ async function buildCatalogItemDetailButtons(
 }
 
 async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
   const familyName = await loadFamilyName(context, item.familyId);
   const groupName = await loadGroupName(context, item.groupId);
   const media = await resolveCatalogRepository(context).listMedia({ itemId: item.id });
   const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
-  const mediaLines = media.length === 0
-    ? []
-    : [
-      formatHtmlField(texts.media, `${media.length} ${texts.mediaCount(media.length)}`),
-      ...media.map((entry) => `- #${entry.id}: ${escapeHtml(entry.mediaType)} · ${escapeHtml(entry.url)}`),
-    ];
-  const descriptionLine = formatCatalogDescriptionLine(item.itemType, item.description);
-  return [
-    `<b>${escapeHtml(item.displayName)}</b> (#${item.id})`,
-    formatHtmlField(texts.type, renderCatalogItemType(item.itemType)),
-    ...(familyName ? [formatHtmlField(texts.family, escapeHtml(familyName))] : []),
-    formatHtmlField(texts.group, escapeHtml(groupName ?? texts.noGroup)),
-    ...(await formatLoanAvailabilityLines(context, loan)),
-    ...(item.originalName ? [formatHtmlField(texts.editFieldOriginalName, escapeHtml(item.originalName))] : []),
-    ...(descriptionLine ? [descriptionLine] : []),
-    ...(item.language ? [formatHtmlField(texts.language, escapeHtml(item.language))] : []),
-    ...(item.publisher ? [formatHtmlField(texts.publisher, escapeHtml(item.publisher))] : []),
-    ...(item.publicationYear !== null ? [formatHtmlField(texts.publicationYear, String(item.publicationYear))] : []),
-    ...(itemTypeSupportsPlayers(item.itemType) && (item.playerCountMin !== null || item.playerCountMax !== null)
-      ? [formatHtmlField(texts.players, renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax))]
-      : []),
-    ...(item.recommendedAge !== null ? [formatHtmlField(texts.recommendedAge, String(item.recommendedAge))] : []),
-    ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.playTimeMinutes, String(item.playTimeMinutes))] : []),
-    ...(item.externalRefs ? [`${texts.editFieldExternalRefs}: ${escapeHtml(renderCatalogOptionalObject(item.externalRefs))}`] : []),
-    ...(item.metadata ? [`${texts.editFieldMetadata}: ${escapeHtml(renderCatalogOptionalObject(item.metadata))}`] : []),
-    ...mediaLines,
-    formatHtmlField(texts.status, item.lifecycleStatus),
-  ].join('\n');
+  return formatCatalogAdminItemDetails({
+    botLanguage: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+    item,
+    familyName,
+    groupName,
+    media,
+    loanAvailabilityLines: await formatLoanAvailabilityLines(context, loan),
+    itemTypeSupportsPlayers,
+  });
 }
 
 async function formatCatalogGroupDetails(context: TelegramCatalogAdminContext, group: CatalogGroupRecord): Promise<string> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
   const familyName = await loadFamilyName(context, group.familyId);
   const items = await listCatalogItems({ repository: resolveCatalogRepository(context), groupId: group.id, includeDeactivated: true });
   const loanRepository = resolveCatalogLoanRepository(context);
   const activeLoans = await loadActiveLoansByItemMap(loanRepository, items);
-  return [
-    `<b>${escapeHtml(group.displayName)}</b>`,
-    formatHtmlField(texts.family, escapeHtml(familyName ?? texts.noFamily)),
-    formatHtmlField(texts.description, escapeHtml(group.description ?? texts.noDescription)),
-    '<b>Items:</b>',
-    ...(items.length > 0 ? await Promise.all(items.map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null))) : ['- Cap item assignat']),
-  ].join('\n');
+  return formatCatalogAdminGroupDetails({
+    botLanguage: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+    group,
+    familyName,
+    itemLines: items.length > 0
+      ? await Promise.all(items.map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)))
+      : [],
+  });
 }
 
 async function formatCatalogListItemLine(
@@ -1683,38 +1682,27 @@ async function formatCatalogListItemLine(
   fallbackAvailability: string = 'Disponible',
   omitTypeLabel = false,
 ): Promise<string> {
-  const typeLabel = omitTypeLabel ? null : escapeHtml(renderCatalogItemType(item.itemType));
-  const availability = loan
-    ? `<i>${[typeLabel, `Prestat a ${escapeHtml(await resolveLoanBorrowerDisplayName(context, loan))}`, `des de ${escapeHtml(formatCatalogListDate(loan.createdAt))}`].filter(Boolean).join(' · ')}</i>`
-    : `<i>${[typeLabel, escapeHtml(fallbackAvailability === 'Disponible' ? createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogLoan.available : fallbackAvailability)].filter(Boolean).join(' · ')}</i>`;
-  return `- <a href="${escapeHtml(buildCatalogAdminItemDeepLink(item.id))}"><b>${escapeHtml(item.displayName)}</b></a>${availability ? ` · ${availability}` : ''}`;
+  return formatCatalogBrowseItemLine({
+    item,
+    fallbackAvailability,
+    omitTypeLabel,
+    availableLabel: createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogLoan.available,
+    startPayloadPrefix: catalogAdminStartPayloadPrefix,
+    ...(loan
+      ? {
+          loanBorrowerDisplayName: await resolveLoanBorrowerDisplayName(context, loan),
+          loanCreatedAt: loan.createdAt,
+        }
+      : {}),
+  });
 }
 
 function buildCatalogAdminItemDeepLink(itemId: number): string {
-  return buildTelegramStartUrl(`${catalogAdminStartPayloadPrefix}${itemId}`);
+  return buildCatalogAdminItemDeepLinkUrl(itemId, catalogAdminStartPayloadPrefix);
 }
 
 function parseCatalogAdminStartPayload(messageText: string | undefined): number | null {
-  const payload = messageText?.trim().split(/\s+/).slice(1).join(' ');
-  if (!payload || !payload.startsWith(catalogAdminStartPayloadPrefix)) {
-    return null;
-  }
-
-  const value = Number(payload.slice(catalogAdminStartPayloadPrefix.length));
-  if (!Number.isInteger(value) || value <= 0) {
-    return null;
-  }
-
-  return value;
-}
-
-function formatCatalogListDate(value: string): string {
-  return new Intl.DateTimeFormat('ca-ES', {
-    timeZone: 'UTC',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(new Date(value));
+  return parseCatalogAdminStartPayloadValue(messageText, catalogAdminStartPayloadPrefix);
 }
 
 async function formatDraftSummary(context: TelegramCatalogAdminContext, data: Record<string, unknown>): Promise<string> {
@@ -1824,56 +1812,6 @@ async function parseGroupInput(
   return value;
 }
 
-function parseOptionalPositiveInteger(text: string, language: 'ca' | 'es' | 'en' = 'ca'): number | null | Error {
-  if (text === createTelegramI18n(language).catalogAdmin.skipOptional) {
-    return null;
-  }
-  const value = Number(text);
-  if (!Number.isInteger(value) || value <= 0) {
-    return new Error('invalid-number');
-  }
-  return value;
-}
-
-function parseOptionalNonNegativeInteger(text: string, language: 'ca' | 'es' | 'en' = 'ca'): number | null | Error {
-  if (text === createTelegramI18n(language).catalogAdmin.skipOptional) {
-    return null;
-  }
-  const value = Number(text);
-  if (!Number.isInteger(value) || value < 0) {
-    return new Error('invalid-number');
-  }
-  return value;
-}
-
-function parseOptionalJsonObject(text: string, language: 'ca' | 'es' | 'en' = 'ca'): Record<string, unknown> | null | Error {
-  if (text === createTelegramI18n(language).catalogAdmin.skipOptional) {
-    return null;
-  }
-  try {
-    const value = JSON.parse(text) as unknown;
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return new Error('invalid-json-object');
-    }
-    return value as Record<string, unknown>;
-  } catch {
-    return new Error('invalid-json-object');
-  }
-}
-
-function parseLookupCandidateInput(text: string, value: unknown): CatalogLookupCandidate | Error {
-  const candidates = asLookupCandidates(value);
-  return candidates.find((candidate) => candidate.title === text) ?? new Error('invalid-lookup-candidate');
-}
-
-function parseItemId(callbackData: string, prefix: string): number {
-  const value = Number(callbackData.slice(prefix.length));
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error('No s ha pogut identificar l item seleccionat.');
-  }
-  return value;
-}
-
 async function loadMediaOrThrow(context: TelegramCatalogAdminContext, mediaId: number) {
   const media = (await resolveCatalogRepository(context).listMedia({})).find((entry) => entry.id === mediaId);
   if (!media) {
@@ -1928,26 +1866,18 @@ async function loadActiveLoansByItemMap(
 }
 
 async function formatCatalogItemLine(context: TelegramCatalogAdminContext, item: CatalogItemRecord, loan: CatalogLoanRecord | null, extraSuffix?: string | null): Promise<string> {
-  const parts = [`- ${item.displayName} (#${item.id})`, renderCatalogItemType(item.itemType)];
-  if (extraSuffix) {
-    parts.push(extraSuffix);
-  }
-  if (loan) {
-    parts.push(await formatLoanSummary(context, loan));
-  }
-  return parts.join(' · ');
+  return formatCatalogItemSummaryLine({
+    item,
+    loanSummary: loan ? await formatLoanSummary(context, loan) : null,
+    ...(extraSuffix === undefined ? {} : { extraSuffix }),
+  });
 }
 
 async function formatLoanSummary(context: TelegramCatalogAdminContext, loan: CatalogLoanRecord): Promise<string> {
-  const parts = [`Prestat a ${await resolveLoanBorrowerDisplayName(context, loan)}`, `des de ${formatDateLabel(loan.createdAt)}`];
-  if (loan.dueAt) {
-    parts.push(`fins ${formatDateLabel(loan.dueAt)}`);
-  }
-  return parts.join(' · ');
-}
-
-function formatDateLabel(value: string): string {
-  return value.slice(0, 10).split('-').reverse().join('/');
+  return formatCatalogLoanSummary({
+    borrowerDisplayName: await resolveLoanBorrowerDisplayName(context, loan),
+    loan,
+  });
 }
 
 function countItemsForFamily(items: CatalogItemRecord[], familyId: number): number {
@@ -2134,17 +2064,6 @@ function asNullableObject(value: unknown): Record<string, unknown> | null {
     return null;
   }
   return value as Record<string, unknown>;
-}
-
-function asLookupCandidate(value: unknown): CatalogLookupCandidate {
-  if (!value || typeof value !== 'object') {
-    throw new Error('Invalid lookup candidate');
-  }
-  return value as CatalogLookupCandidate;
-}
-
-function asLookupCandidates(value: unknown): CatalogLookupCandidate[] {
-  return Array.isArray(value) ? value.filter((entry) => entry && typeof entry === 'object') as CatalogLookupCandidate[] : [];
 }
 
 function buildMediaDraftSummary(data: Record<string, unknown>): string {
@@ -2362,33 +2281,6 @@ async function createWikipediaImportedBoardGame(
     `${texts.wikipediaImportedDraft.replace('{name}', escapeHtml(item.displayName))}\n\n${await formatDraftSummary(context, importedData as unknown as Record<string, unknown>)}\n\n${texts.selectEditField}`,
     { ...buildEditFieldMenuOptions(item.itemType, language), parseMode: 'HTML' },
   );
-}
-
-function parseWikipediaTitleFromUrl(value: string): string | null {
-  try {
-    const url = new URL(value.trim());
-    if (!url.hostname.endsWith('wikipedia.org')) {
-      return null;
-    }
-
-    if (url.pathname.startsWith('/wiki/')) {
-      const encodedTitle = url.pathname.slice('/wiki/'.length);
-      return decodeURIComponent(encodedTitle).replace(/_/g, ' ').trim() || null;
-    }
-
-    const title = url.searchParams.get('title');
-    return title ? decodeURIComponent(title).replace(/_/g, ' ').trim() || null : null;
-  } catch {
-    return null;
-  }
-}
-
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
 function importWikipediaErrorMessage(result: Extract<WikipediaBoardGameImportResult, { ok: false }>): string {
