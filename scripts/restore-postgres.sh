@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_PATH="${GAMECLUB_CONFIG_PATH:-/etc/gameclubtelegrambot/runtime.json}"
+ENV_PATH="${GAMECLUB_ENV_PATH:-}"
 INPUT_FILE=""
 DRY_RUN=0
 
@@ -63,6 +65,14 @@ fi
 
 require_command node
 
+HELPER_SCRIPT="$ROOT_DIR/dist/scripts/print-database-runtime-config.js"
+
+if [ ! -f "$HELPER_SCRIPT" ]; then
+  printf 'No s ha trobat el helper compilat: %s\n' "$HELPER_SCRIPT" >&2
+  printf 'Executa npm run build abans de fer restore o usa la copia desplegada a /opt/gameclubtelegrambot.\n' >&2
+  exit 1
+fi
+
 if [ "$DRY_RUN" -eq 0 ]; then
   require_command psql
   require_command gzip
@@ -78,22 +88,13 @@ if [ ! -f "$INPUT_FILE" ]; then
   exit 1
 fi
 
-mapfile -t DB_VALUES < <(CONFIG_PATH="$CONFIG_PATH" node --input-type=module <<'EOF'
-import { readFileSync } from 'node:fs';
+helper_cmd=(env "GAMECLUB_CONFIG_PATH=$CONFIG_PATH")
+if [ -n "$ENV_PATH" ]; then
+  helper_cmd+=("GAMECLUB_ENV_PATH=$ENV_PATH")
+fi
+helper_cmd+=(node "$HELPER_SCRIPT")
 
-const configPath = process.env.CONFIG_PATH;
-if (!configPath) {
-  throw new Error('Missing CONFIG_PATH');
-}
-
-const config = JSON.parse(readFileSync(configPath, 'utf8'));
-console.log(config.database.host);
-console.log(String(config.database.port));
-console.log(config.database.name);
-console.log(config.database.user);
-console.log(config.database.password);
-EOF
-)
+mapfile -t DB_VALUES < <("${helper_cmd[@]}")
 
 DB_HOST="${DB_VALUES[0]}"
 DB_PORT="${DB_VALUES[1]}"

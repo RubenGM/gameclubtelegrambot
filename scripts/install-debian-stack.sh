@@ -178,6 +178,11 @@ prepare_build_artifacts() {
     printf 'No s ha generat dist/scripts/check-runtime-config.js despres del build local\n' >&2
     exit 1
   fi
+
+  if [ ! -f "$ROOT_DIR/dist/scripts/print-database-runtime-config.js" ]; then
+    printf 'No s ha generat dist/scripts/print-database-runtime-config.js despres del build local\n' >&2
+    exit 1
+  fi
 }
 
 deploy_application() {
@@ -244,12 +249,12 @@ EOF"
 
 validate_installed_runtime() {
   log 'Validant la configuracio runtime instal.lada'
-  run_as_user "$SERVICE_USER" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/check-runtime-config.js"
+  run_as_user "$SERVICE_USER" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/check-runtime-config.js"
 }
 
 apply_runtime_migrations() {
   log 'Aplicant migracions de base de dades abans d arrencar el servei'
-  run_as_user "$SERVICE_USER" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/migrate.js"
+  run_as_user "$SERVICE_USER" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/migrate.js"
 }
 
 install_service_assets() {
@@ -262,6 +267,8 @@ install_service_assets() {
     -e "s|^User=.*|User=$SERVICE_USER|" \
     -e "s|^Group=.*|Group=$SERVICE_GROUP|" \
     -e "s|^WorkingDirectory=.*|WorkingDirectory=$APP_ROOT|" \
+    -e "s|^ExecStartPre=/usr/bin/test -f .*dist/main.js|ExecStartPre=/usr/bin/test -f $APP_ROOT/dist/main.js|" \
+    -e "s|^ExecStartPre=/usr/bin/node .*dist/scripts/check-runtime-config.js|ExecStartPre=/usr/bin/node $APP_ROOT/dist/scripts/check-runtime-config.js|" \
     -e "s|^ExecStart=.*|ExecStart=/usr/bin/node $APP_ROOT/dist/main.js|" \
     "$ROOT_DIR/deploy/systemd/gameclubtelegrambot.service" > "$service_tmp"
 

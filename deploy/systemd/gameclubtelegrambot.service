@@ -9,11 +9,15 @@ User=gameclubbot
 Group=gameclubbot
 WorkingDirectory=/opt/gameclubtelegrambot
 EnvironmentFile=-/etc/default/gameclubtelegrambot
-ExecStartPre=/usr/bin/test -f /etc/gameclubtelegrambot/runtime.json
 ExecStartPre=/usr/bin/test -f /opt/gameclubtelegrambot/dist/main.js
+ExecStartPre=/usr/bin/node /opt/gameclubtelegrambot/dist/scripts/check-runtime-config.js
 ExecStart=/usr/bin/node /opt/gameclubtelegrambot/dist/main.js
 Restart=on-failure
 RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
 StandardOutput=journal
 StandardError=journal
 
