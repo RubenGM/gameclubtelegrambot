@@ -1,4 +1,5 @@
 import type { CatalogLookupCandidate } from '../catalog/catalog-lookup-service.js';
+import type { CatalogMediaType } from '../catalog/catalog-model.js';
 import { createTelegramI18n } from './i18n.js';
 
 export function parseOptionalPositiveInteger(text: string, language: 'ca' | 'es' | 'en' = 'ca'): number | null | Error {
@@ -60,6 +61,28 @@ export function parseItemId(callbackData: string, prefix: string): number {
     throw new Error('No s ha pogut identificar l item seleccionat.');
   }
   return value;
+}
+
+export function parseMediaTypeLabel(text: string, language: 'ca' | 'es' | 'en' = 'ca'): CatalogMediaType | Error {
+  const labels = createTelegramI18n(language).catalogAdmin;
+  switch (text) {
+    case labels.mediaTypeImage:
+      return 'image';
+    case labels.mediaTypeLink:
+      return 'link';
+    case labels.mediaTypeDocument:
+      return 'document';
+    default:
+      return new Error('invalid-media-type');
+  }
+}
+
+export function asNullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+export function asNullableNumber(value: unknown): number | null {
+  return typeof value === 'number' ? value : null;
 }
 
 export function parseWikipediaTitleFromUrl(value: string): string | null {
