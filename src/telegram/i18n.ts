@@ -1,4 +1,6 @@
 import { catalogAdminTexts } from './i18n-catalog-admin.js';
+import { actionMenuTexts, commonTexts, languageTexts } from './i18n-common.js';
+import { membershipTexts } from './i18n-membership.js';
 import { scheduleTexts } from './i18n-schedule.js';
 
 export const supportedBotLanguages = ['ca', 'es', 'en'] as const;
@@ -32,105 +34,18 @@ export function createTelegramI18n(language: BotLanguage) {
     common: commonTexts[language],
     actionMenu: actionMenuTexts[language],
     language: languageTexts[language],
-  membership: membershipTexts[language],
-  schedule: scheduleTexts[language],
-  tableAdmin: tableAdminTexts[language],
-  tableRead: tableReadTexts[language],
-  venueEventAdmin: venueEventAdminTexts[language],
-  catalogAdmin: catalogAdminTexts[language],
-  catalogLoan: catalogLoanTexts[language],
-  calendar: calendarTexts[language],
-  catalogRead: catalogReadTexts[language],
-  newsGroup: newsGroupTexts[language],
-};
+    membership: membershipTexts[language],
+    schedule: scheduleTexts[language],
+    tableAdmin: tableAdminTexts[language],
+    tableRead: tableReadTexts[language],
+    venueEventAdmin: venueEventAdminTexts[language],
+    catalogAdmin: catalogAdminTexts[language],
+    catalogLoan: catalogLoanTexts[language],
+    calendar: calendarTexts[language],
+    catalogRead: catalogReadTexts[language],
+    newsGroup: newsGroupTexts[language],
+  };
 }
-
-const commonTexts = {
-  ca: {
-    unexpectedError: 'S ha produit un error inesperat. Torna-ho a provar en uns moments.',
-    accessDeniedApproved:
-      'Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
-    accessDeniedAdmin: 'Aquesta accio nomes esta disponible per a administradors del club.',
-    accessDeniedGeneric: 'No tens permisos per fer aquesta accio.',
-    privateOnly: 'Aquest comandament nomes esta disponible en xat privat.',
-    contextRestricted: 'Aquest comandament no esta disponible en aquest context de xat.',
-    flowCancelled: 'Flux cancel.lat correctament.',
-    noActiveFlowToCancel: 'No hi ha cap flux actiu per cancel.lar.',
-    invalidTelegramUserId: 'Has d indicar un Telegram user ID valid amb /{command} <telegramUserId>.',
-    invalidPassword: 'Has d indicar la contrasenya amb /{command} <contrasenya>.',
-    invalidCallbackTarget: 'No s ha pogut identificar l usuari destinatari d aquesta accio.',
-    startMessageAdmin: '{publicName} online (v{version}). Escriu /help per veure les opcions disponibles.',
-    startMessagePublic: 'Benvingut a {publicName}. Escriu /help per veure les opcions disponibles.',
-    startMessagePending:
-      'Benvingut a {publicName}. Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
-    helpHeader: 'Comandes disponibles en aquest xat:',
-    helpFooterPrivate: 'Per veure totes les funcions, escriu-me en privat.',
-    helpPendingApproval:
-      'Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
-    noPendingRequests: 'No hi ha cap sollicitud pendent ara mateix.',
-    pendingRequestsHeader: 'Sollicituds pendents:',
-    approveButton: 'Aprovar',
-    rejectButton: 'Rebutjar',
-    currentLanguage: 'Idioma actual: {language}',
-    memberMenuDebugOpened: 'Mostrant el menu normal de soci aprovat.',
-  },
-  es: {
-    unexpectedError: 'Se ha producido un error inesperado. Vuelve a intentarlo en unos momentos.',
-    accessDeniedApproved:
-      'Todavia no tienes el acceso aprobado. Avisa a un administrador del club para que apruebe tu solicitud y asi podras usar actividades, calendario, catalogo y mesas.',
-    accessDeniedAdmin: 'Esta accion solo esta disponible para administradores del club.',
-    accessDeniedGeneric: 'No tienes permisos para hacer esta accion.',
-    privateOnly: 'Este comando solo esta disponible en chat privado.',
-    contextRestricted: 'Este comando no esta disponible en este contexto de chat.',
-    flowCancelled: 'Flujo cancelado correctamente.',
-    noActiveFlowToCancel: 'No hay ningun flujo activo para cancelar.',
-    invalidTelegramUserId: 'Debes indicar un Telegram user ID valido con /{command} <telegramUserId>.',
-    invalidPassword: 'Debes indicar la contrasena con /{command} <contrasena>.',
-    invalidCallbackTarget: 'No se ha podido identificar al usuario destinatario de esta accion.',
-    startMessageAdmin: '{publicName} online (v{version}). Escribe /help para ver las opciones disponibles.',
-    startMessagePublic: 'Bienvenido a {publicName}. Escribe /help para ver las opciones disponibles.',
-    startMessagePending:
-      'Bienvenido a {publicName}. Todavia no tienes el acceso aprobado. Avisa a un administrador del club para que apruebe tu solicitud y asi podras usar actividades, calendario, catalogo y mesas.',
-    helpHeader: 'Comandos disponibles en este chat:',
-    helpFooterPrivate: 'Para ver todas las funciones, escribeme en privado.',
-    helpPendingApproval:
-      'Todavia no tienes el acceso aprobado. Avisa a un administrador del club para que apruebe tu solicitud y asi podras usar actividades, calendario, catalogo y mesas.',
-    noPendingRequests: 'No hay ninguna solicitud pendiente ahora mismo.',
-    pendingRequestsHeader: 'Solicitudes pendientes:',
-    approveButton: 'Aprobar',
-    rejectButton: 'Rechazar',
-    currentLanguage: 'Idioma actual: {language}',
-    memberMenuDebugOpened: 'Mostrando el menu normal de socio aprobado.',
-  },
-  en: {
-    unexpectedError: 'An unexpected error occurred. Please try again in a few moments.',
-    accessDeniedApproved:
-      'Your access is still pending approval. Ask a club administrator to approve your request so you can use activities, calendar, catalog, and tables.',
-    accessDeniedAdmin: 'This action is only available to club administrators.',
-    accessDeniedGeneric: 'You do not have permission to perform this action.',
-    privateOnly: 'This command is only available in private chat.',
-    contextRestricted: 'This command is not available in this chat context.',
-    flowCancelled: 'Flow cancelled successfully.',
-    noActiveFlowToCancel: 'There is no active flow to cancel.',
-    invalidTelegramUserId: 'You must provide a valid Telegram user ID with /{command} <telegramUserId>.',
-    invalidPassword: 'You must provide the password with /{command} <password>.',
-    invalidCallbackTarget: 'Could not identify the target user for this action.',
-    startMessageAdmin: '{publicName} online (v{version}). Type /help to see the available options.',
-    startMessagePublic: 'Welcome to {publicName}. Type /help to see the available options.',
-    startMessagePending:
-      'Welcome to {publicName}. Your access is still pending approval. Ask a club administrator to approve your request so you can use activities, calendar, catalog, and tables.',
-    helpHeader: 'Commands available in this chat:',
-    helpFooterPrivate: 'To see all features, message me in private.',
-    helpPendingApproval:
-      'Your access is still pending approval. Ask a club administrator to approve your request so you can use activities, calendar, catalog, and tables.',
-    noPendingRequests: 'There are no pending requests right now.',
-    pendingRequestsHeader: 'Pending requests:',
-    approveButton: 'Approve',
-    rejectButton: 'Reject',
-    currentLanguage: 'Current language: {language}',
-    memberMenuDebugOpened: 'Showing the standard approved member menu.',
-  },
-} as const;
 
 const tableReadTexts = {
   ca: { available: 'Taules disponibles:', noActiveTables: 'No hi ha cap taula activa disponible ara mateix.' },
@@ -138,125 +53,6 @@ const tableReadTexts = {
   en: { available: 'Available tables:', noActiveTables: 'There are no active tables available right now.' },
 } as const;
 
-const actionMenuTexts = {
-  ca: {
-    access: '/access',
-    schedule: 'Activitats',
-    calendar: 'Calendari',
-    tablesRead: '/tables',
-    elevateAdmin: '/elevate_admin',
-    catalog: 'Cataleg',
-    tables: 'Taules',
-    reviewAccess: 'Revisar sollicituds',
-    venueEvents: 'Esdeveniments local',
-    memberDebug: 'Menu soci',
-    start: 'Inici',
-    help: 'Ajuda',
-    cancel: '/cancel',
-    language: 'Idioma',
-  },
-  es: {
-    access: '/access',
-    schedule: 'Actividades',
-    calendar: 'Calendario',
-    tablesRead: '/tables',
-    elevateAdmin: '/elevate_admin',
-    catalog: 'Catalogo',
-    tables: 'Mesas',
-    reviewAccess: 'Revisar solicitudes',
-    venueEvents: 'Eventos del local',
-    memberDebug: 'Menu socio',
-    start: 'Inicio',
-    help: 'Ayuda',
-    cancel: '/cancel',
-    language: 'Idioma',
-  },
-  en: {
-    access: '/access',
-    schedule: 'Activities',
-    calendar: 'Calendar',
-    tablesRead: '/tables',
-    elevateAdmin: '/elevate_admin',
-    catalog: 'Catalog',
-    tables: 'Tables',
-    reviewAccess: 'Review requests',
-    venueEvents: 'Venue events',
-    memberDebug: 'Member menu',
-    start: 'Start',
-    help: 'Help',
-    cancel: '/cancel',
-    language: 'Language',
-  },
-} as const;
-
-const languageTexts = {
-  ca: {
-    prompt: 'Selecciona l idioma que vols fer servir:',
-    saved: 'Idioma actualitzat a {language}.',
-    help: 'Pots escriure /language ca, /language es o /language en, o tocar un botó.',
-  },
-  es: {
-    prompt: 'Selecciona el idioma que quieres usar:',
-    saved: 'Idioma actualizado a {language}.',
-    help: 'Puedes escribir /language ca, /language es o /language en, o tocar un botón.',
-  },
-  en: {
-    prompt: 'Select the language you want to use:',
-    saved: 'Language updated to {language}.',
-    help: 'You can type /language ca, /language es or /language en, or tap a button.',
-  },
-} as const;
-
-const membershipTexts = {
-  ca: {
-    alreadyApproved: 'Ja tens accés aprovat. Pots utilitzar les funcionalitats normals del bot.',
-    blocked: 'El teu accés esta blocat. Contacta amb l administracio del club si necessites revisio.',
-    alreadyPending: 'La teva sollicitud ja esta pendent de revisio per part d un administrador.',
-    created: 'Hem registrat la teva sollicitud d accés. Un administrador la revisara al mes aviat possible.',
-    missing: 'No s ha trobat cap sollicitud per a aquest usuari.',
-    applicantApproved: 'La teva sollicitud ha estat aprovada. Ja pots utilitzar les funcionalitats del club.',
-    adminApproved: 'Usuari aprovat correctament.',
-    applicantRejected: 'La teva sollicitud d accés ha estat rebutjada. Si creus que es un error, contacta amb el club.',
-    adminRejected: 'Sollicitud rebutjada i usuari blocat.',
-    requestNotificationsEnabled: 'Ara rebràs avisos privats de noves sollicituds d accés.',
-    requestNotificationsDisabled: 'Ja no rebràs avisos privats de noves sollicituds d accés.',
-    requestNotificationsAlreadyEnabled: 'Ja tenies activats els avisos de noves sollicituds d accés.',
-    requestNotificationsAlreadyDisabled: 'Ja tenies desactivats els avisos de noves sollicituds d accés.',
-    newRequestNotification: 'Nova sollicitud d accés de {label}.',
-  },
-  es: {
-    alreadyApproved: 'Ya tienes acceso aprobado. Puedes usar las funcionalidades normales del bot.',
-    blocked: 'Tu acceso esta bloqueado. Contacta con la administracion del club si necesitas revision.',
-    alreadyPending: 'Tu solicitud ya esta pendiente de revision por parte de un administrador.',
-    created: 'Hemos registrado tu solicitud de acceso. Un administrador la revisara lo antes posible.',
-    missing: 'No se ha encontrado ninguna solicitud para este usuario.',
-    applicantApproved: 'Tu solicitud ha sido aprobada. Ya puedes usar las funcionalidades del club.',
-    adminApproved: 'Usuario aprobado correctamente.',
-    applicantRejected: 'Tu solicitud de acceso ha sido rechazada. Si crees que es un error, contacta con el club.',
-    adminRejected: 'Solicitud rechazada y usuario bloqueado.',
-    requestNotificationsEnabled: 'Ahora recibirás avisos privados de nuevas solicitudes de acceso.',
-    requestNotificationsDisabled: 'Ya no recibirás avisos privados de nuevas solicitudes de acceso.',
-    requestNotificationsAlreadyEnabled: 'Ya tenías activados los avisos de nuevas solicitudes de acceso.',
-    requestNotificationsAlreadyDisabled: 'Ya tenías desactivados los avisos de nuevas solicitudes de acceso.',
-    newRequestNotification: 'Nueva solicitud de acceso de {label}.',
-  },
-  en: {
-    alreadyApproved: 'You already have approved access. You can use the bot normally.',
-    blocked: 'Your access is blocked. Contact the club administration if you need a review.',
-    alreadyPending: 'Your request is already pending review by an administrator.',
-    created: 'We registered your access request. An administrator will review it as soon as possible.',
-    missing: 'No request was found for this user.',
-    applicantApproved: 'Your request has been approved. You can now use the club features.',
-    adminApproved: 'User approved successfully.',
-    applicantRejected: 'Your access request has been rejected. If you think this is a mistake, contact the club.',
-    adminRejected: 'Request rejected and user blocked.',
-    requestNotificationsEnabled: 'You will now receive private alerts for new access requests.',
-    requestNotificationsDisabled: 'You will no longer receive private alerts for new access requests.',
-    requestNotificationsAlreadyEnabled: 'You already had new access request alerts enabled.',
-    requestNotificationsAlreadyDisabled: 'You already had new access request alerts disabled.',
-    newRequestNotification: 'New access request from {label}.',
-  },
-} as const;
 
 const tableAdminTexts = {
   ca: {
