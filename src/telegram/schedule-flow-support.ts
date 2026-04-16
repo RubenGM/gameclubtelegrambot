@@ -41,6 +41,34 @@ import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
 import { formatMembershipDisplayName } from '../membership/display-name.js';
+import {
+  buildScheduleDayButtons,
+  buildScheduleDetailActionOptions,
+  buildUpcomingDateRows,
+  escapeHtml,
+  formatDayHeading,
+  formatEventTime,
+  formatHtmlField,
+  formatParticipantCount,
+  formatScheduleEventDetails,
+  formatScheduleListMessage,
+  formatTimestamp,
+  groupScheduleEventsByDay,
+  sortScheduleEvents,
+} from './schedule-presentation.js';
+import {
+  asNullableNumber,
+  asNullableString,
+  buildStartsAt,
+  parseCapacity,
+  parseDate,
+  parseDayKey,
+  parseEntityId,
+  parseOptionalDurationMinutes,
+  parseScheduleStartPayload,
+  parseTableSelection,
+  parseTime,
+} from './schedule-parsing.js';
 
 const createFlowKey = 'schedule-create';
 const editFlowKey = 'schedule-edit';
@@ -85,49 +113,8 @@ export const scheduleLabels = {
 
 const defaultScheduleDurationMinutes = 180;
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function formatHtmlField(label: string, value: string): string {
-  return `<b>${escapeHtml(label)}:</b> ${value}`;
-}
-
 function getUtcDayStartIso(date = new Date()): string {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).toISOString();
-}
-
-function getEventDayKey(startsAt: string): string {
-  return startsAt.slice(0, 10);
-}
-
-function formatDayHeading(dayKey: string): string {
-  return dayKey.split('-').reverse().join('/');
-}
-
-function formatEventTime(startsAt: string): string {
-  return startsAt.slice(11, 16);
-}
-
-function sortScheduleEvents(events: ScheduleEventRecord[]): ScheduleEventRecord[] {
-  return events.slice().sort((left, right) => left.startsAt.localeCompare(right.startsAt));
-}
-
-function groupScheduleEventsByDay(events: ScheduleEventRecord[]): Map<string, ScheduleEventRecord[]> {
-  const groups = new Map<string, ScheduleEventRecord[]>();
-  for (const event of events) {
-    const dayKey = getEventDayKey(event.startsAt);
-    const bucket = groups.get(dayKey) ?? [];
-    bucket.push(event);
-    groups.set(dayKey, bucket);
-  }
-
-  return groups;
 }
 
 export interface TelegramScheduleContext {
@@ -200,14 +187,20 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
 }
 
 export async function handleTelegramScheduleStartText(context: TelegramScheduleContext): Promise<boolean> {
-  const eventId = parseScheduleStartPayload(context.messageText);
+  const eventId = parseScheduleStartPayload(context.messageText, scheduleStartPayloadPrefix);
   if (eventId === null || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
     return false;
   }
 
   const event = await loadEventOrThrow(context, eventId);
   await context.reply(await formatScheduleEventView(context, event), {
-    ...buildScheduleDetailActionOptions(context, event, await isActorAttending(context, event.id)),
+    ...buildScheduleDetailActionOptions({
+      actor: context.runtime.actor,
+      event,
+      isAttending: await isActorAttending(context, event.id),
+      language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+      callbackPrefixes: scheduleCallbackPrefixes,
+    }),
     parseMode: 'HTML',
   });
   return true;
@@ -225,7 +218,16 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
   if (callbackData.startsWith(scheduleCallbackPrefixes.inspect)) {
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.inspect, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
-    await context.reply(await formatScheduleEventView(context, event), { ...buildScheduleDetailActionOptions(context, event, await isActorAttending(context, event.id)), parseMode: 'HTML' });
+    await context.reply(await formatScheduleEventView(context, event), {
+      ...buildScheduleDetailActionOptions({
+        actor: context.runtime.actor,
+        event,
+        isAttending: await isActorAttending(context, event.id),
+        language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+        callbackPrefixes: scheduleCallbackPrefixes,
+      }),
+      parseMode: 'HTML',
+    });
     return true;
   }
 
@@ -240,7 +242,16 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     });
     await context.reply(
       `T'has apuntat correctament a <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
-      { ...buildScheduleDetailActionOptions(context, event, true), parseMode: 'HTML' },
+      {
+        ...buildScheduleDetailActionOptions({
+          actor: context.runtime.actor,
+          event,
+          isAttending: true,
+          language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+          callbackPrefixes: scheduleCallbackPrefixes,
+        }),
+        parseMode: 'HTML',
+      },
     );
     return true;
   }
@@ -256,7 +267,16 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     });
     await context.reply(
       `Has sortit correctament de <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
-      { ...buildScheduleDetailActionOptions(context, event, false), parseMode: 'HTML' },
+      {
+        ...buildScheduleDetailActionOptions({
+          actor: context.runtime.actor,
+          event,
+          isAttending: false,
+          language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+          callbackPrefixes: scheduleCallbackPrefixes,
+        }),
+        parseMode: 'HTML',
+      },
     );
     return true;
   }
@@ -383,7 +403,12 @@ async function handleCreateSession(
   }
 
   if (stepKey === 'duration') {
-    const durationMinutes = parseOptionalDurationMinutes(text, language);
+    const durationMinutes = parseOptionalDurationMinutes({
+      value: text,
+      language,
+      skipOptionalLabels: [scheduleLabels.skipOptional],
+      defaultDurationMinutes: defaultScheduleDurationMinutes,
+    });
     if (durationMinutes instanceof Error) {
       await context.reply(texts.askDuration, buildCreateDurationOptions(language));
       return true;
@@ -544,7 +569,15 @@ async function handleEditSession(
     return returnToEditMenu(context, event, data, { time });
   }
   if (stepKey === 'duration') {
-    const durationMinutes = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? event.durationMinutes : parseOptionalDurationMinutes(text, language);
+    const durationMinutes =
+      text === texts.keepCurrent || text === scheduleLabels.keepCurrent
+        ? event.durationMinutes
+        : parseOptionalDurationMinutes({
+            value: text,
+            language,
+            skipOptionalLabels: [scheduleLabels.skipOptional],
+            defaultDurationMinutes: defaultScheduleDurationMinutes,
+          });
     if (durationMinutes instanceof Error) {
       await context.reply(texts.askEditDuration, buildKeepCurrentKeyboard(language));
       return true;
@@ -693,7 +726,7 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
     return false;
   }
 
-  const tableId = parseTableSelection(callbackData);
+  const tableId = parseTableSelection(callbackData, scheduleCallbackPrefixes.tableSelection);
   let selectedTable: ClubTableRecord | null;
   try {
     selectedTable = await requireSchedulableTableSelection({
@@ -1026,57 +1059,6 @@ function chunkTableButtons(tableNames: string[]): string[][] {
   return rows;
 }
 
-function formatScheduleListMessage(events: ScheduleEventRecord[]): string {
-  const groupedEvents = groupScheduleEventsByDay(sortScheduleEvents(events));
-  const lines: string[] = [];
-
-  for (const [dayKey, dayEvents] of groupedEvents) {
-    if (lines.length > 0) {
-      lines.push('');
-    }
-    lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
-    for (const event of dayEvents) {
-      lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)}) · ${event.capacity} places`);
-      if (event.description) {
-        lines.push(`  <i>${escapeHtml(event.description)}</i>`);
-      }
-    }
-  }
-
-  return lines.join('\n');
-}
-
-function parseScheduleStartPayload(messageText: string | undefined): number | null {
-  const payload = messageText?.trim().split(/\s+/).slice(1).join(' ');
-  if (!payload || !payload.startsWith(scheduleStartPayloadPrefix)) {
-    return null;
-  }
-
-  const eventId = Number(payload.slice(scheduleStartPayloadPrefix.length));
-  if (!Number.isInteger(eventId) || eventId <= 0) {
-    return null;
-  }
-
-  return eventId;
-}
-
-function buildScheduleDayButtons(events: ScheduleEventRecord[], language: string): NonNullable<TelegramReplyOptions['inlineKeyboard']> {
-  const dayKeys = Array.from(new Set(events.map((event) => event.startsAt.slice(0, 10))));
-  return dayKeys.map((dayKey) => [{ text: formatScheduleDayButtonLabel(dayKey, language), callbackData: `${scheduleCallbackPrefixes.day}${dayKey}` }]);
-}
-
-function formatScheduleEventDetails({ event, tableName, language = 'ca' }: { event: ScheduleEventRecord; tableName: string | null; language?: 'ca' | 'es' | 'en' }): string {
-  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule;
-  return [
-    `<b>${escapeHtml(event.title)}</b>`,
-    formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
-    formatHtmlField(texts.detailsDuration, `${event.durationMinutes} min`),
-    formatHtmlField(texts.detailsSeats, String(event.capacity)),
-    formatHtmlField(texts.detailsTable, escapeHtml(tableName ?? texts.noTable)),
-    formatHtmlField(texts.detailsDescription, escapeHtml(event.description ?? texts.noDescription)),
-  ].join('\n');
-}
-
 async function formatScheduleEventView(
   context: TelegramScheduleContext,
   event: ScheduleEventRecord,
@@ -1107,27 +1089,6 @@ async function formatScheduleEventView(
         ]
       : []),
   ].join('\n');
-}
-
-function canEditScheduleEvent(actor: TelegramActor, event: ScheduleEventRecord): boolean {
-  return actor.isAdmin || event.createdByTelegramUserId === actor.telegramUserId;
-}
-
-function buildScheduleDetailActionOptions(context: TelegramScheduleContext, event: ScheduleEventRecord, isAttending: boolean): TelegramReplyOptions {
-  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-  const texts = createTelegramI18n(language).schedule;
-  const rows: TelegramReplyOptions['inlineKeyboard'] = [
-    [{ text: isAttending ? texts.leaveButton : texts.joinButton, callbackData: `${isAttending ? scheduleCallbackPrefixes.leave : scheduleCallbackPrefixes.join}${event.id}` }],
-  ];
-
-  if (canEditScheduleEvent(context.runtime.actor, event)) {
-    rows.push([
-      { text: texts.editButton, callbackData: `${scheduleCallbackPrefixes.selectEdit}${event.id}` },
-      { text: texts.deleteButton, callbackData: `${scheduleCallbackPrefixes.selectCancel}${event.id}` },
-    ]);
-  }
-
-  return { inlineKeyboard: rows };
 }
 
 async function replyWithInspectableEventList(
@@ -1213,154 +1174,8 @@ async function resolveMemberDisplayName(context: TelegramScheduleContext, telegr
   return 'Usuari';
 }
 
-function parseDate(value: string): string | Error {
-  const normalizedValue = value.includes(',') ? value.slice(value.indexOf(',') + 1).trim() : value;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
-    return normalizedValue;
-  }
-
-  const match = normalizedValue.match(/^(\d{2})\/(\d{2})(?:\/(\d{4}))?$/);
-  if (!match) {
-    return new Error('invalid-date');
-  }
-
-  const [, dayText, monthText, yearText] = match;
-  const year = Number(yearText ?? String(new Date().getUTCFullYear()));
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const candidate = new Date(Date.UTC(year, month - 1, day));
-
-  if (
-    Number.isNaN(candidate.getTime()) ||
-    candidate.getUTCFullYear() !== year ||
-    candidate.getUTCMonth() !== month - 1 ||
-    candidate.getUTCDate() !== day
-  ) {
-    return new Error('invalid-date');
-  }
-
-  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
-function parseTime(value: string): string | Error {
-  return /^\d{2}:\d{2}$/.test(value) ? value : new Error('invalid-time');
-}
-
-function parseCapacity(value: string): number | Error {
-  return parsePositiveInteger(value, 'invalid-capacity');
-}
-
-function parsePositiveInteger(value: string, code = 'invalid-positive-integer'): number | Error {
-  if (!/^\d+$/.test(value)) {
-    return new Error(code);
-  }
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : new Error(code);
-}
-
-function parseOptionalDurationMinutes(value: string, language: 'ca' | 'es' | 'en' = 'ca'): number | Error {
-  const texts = createTelegramI18n(language).schedule;
-  if (value === texts.skipOptional || value === scheduleLabels.skipOptional) {
-    return defaultScheduleDurationMinutes;
-  }
-  return parsePositiveInteger(value, 'invalid-duration');
-}
-
-function buildStartsAt(date: string, time: string): string {
-  return `${date}T${time}:00.000Z`;
-}
-
-function formatTimestamp(value: string): string {
-  const date = new Date(value);
-  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCFullYear())} ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
-}
-
-function buildUpcomingDateRows(language: string, now = new Date()): string[][] {
-  const rows: string[][] = [];
-  const values: string[] = [];
-
-  for (let index = 0; index < 6; index += 1) {
-    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + index));
-    values.push(formatUpcomingDateLabel(date, language));
-  }
-
-  for (let index = 0; index < values.length; index += 2) {
-    rows.push(values.slice(index, index + 2));
-  }
-
-  return rows;
-}
-
-function formatUpcomingDateLabel(date: Date, language: string): string {
-  const weekday = new Intl.DateTimeFormat(resolveLanguageLocale(language), {
-    weekday: 'long',
-    timeZone: 'UTC',
-  }).format(date);
-  return `${capitalizeFirstLetter(weekday)}, ${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-function resolveLanguageLocale(language: string): string {
-  switch (language) {
-    case 'ca':
-      return 'ca-ES';
-    case 'es':
-      return 'es-ES';
-    case 'en':
-      return 'en-GB';
-    default:
-      return language;
-  }
-}
-
-function capitalizeFirstLetter(value: string): string {
-  return value.length === 0 ? value : value[0]!.toUpperCase() + value.slice(1);
-}
-
 function resolveBotLanguage(context: TelegramScheduleContext): string {
   return context.runtime.bot.language ?? 'ca';
-}
-
-function parseEntityId(callbackData: string, prefix: string, kind: string): number {
-  const candidate = Number(callbackData.slice(prefix.length));
-  if (!Number.isInteger(candidate) || candidate <= 0) {
-    throw new Error(`No s ha pogut identificar la ${kind} seleccionada.`);
-  }
-  return candidate;
-}
-
-function parseDayKey(callbackData: string, prefix: string): string {
-  const dayKey = callbackData.slice(prefix.length);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
-    throw new Error('No s ha pogut identificar el dia seleccionat.');
-  }
-  return dayKey;
-}
-
-function formatScheduleDayButtonLabel(dayKey: string, language: string): string {
-  const date = new Date(`${dayKey}T00:00:00.000Z`);
-  const weekday = new Intl.DateTimeFormat(resolveLanguageLocale(language), { weekday: 'long', timeZone: 'UTC' }).format(date);
-  return `Veure ${capitalizeFirstLetter(weekday)} ${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-function parseTableSelection(callbackData: string): number | null {
-  const value = callbackData.slice(scheduleCallbackPrefixes.tableSelection.length);
-  if (value === 'none') {
-    return null;
-  }
-  const tableId = Number(value);
-  if (!Number.isInteger(tableId) || tableId <= 0) {
-    throw new Error('No s ha pogut identificar la taula seleccionada.');
-  }
-  return tableId;
-}
-
-function asNullableString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-function asNullableNumber(value: unknown): number | null {
-  return typeof value === 'number' ? value : null;
 }
 
 function resolveVenueEventRepository(context: TelegramScheduleContext): VenueEventRepository {
@@ -1445,10 +1260,6 @@ async function formatScheduleListWithVenueImpact(
   }
 
   return lines.join('\n');
-}
-
-function formatParticipantCount(occupiedSeats: number, capacity: number): string {
-  return `${occupiedSeats}/${capacity} participants`;
 }
 
 async function notifyScheduleConflicts({
