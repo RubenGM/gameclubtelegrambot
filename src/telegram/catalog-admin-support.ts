@@ -6,7 +6,6 @@ import {
   type CatalogLookupService,
 } from '../catalog/catalog-lookup-service.js';
 import {
-  createCatalogFamily,
   createCatalogItem,
   createCatalogMedia,
   deactivateCatalogItem,
@@ -28,7 +27,7 @@ import type { WikipediaBoardGameCatalogDraft, WikipediaBoardGameImportResult, Wi
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
-import { buildLoanDetailButtons, buildLoanItemButton, formatLoanAvailabilityLines, resolveLoanBorrowerDisplayName, type TelegramCatalogLoanContext } from './catalog-loan-flow.js';
+import { buildLoanItemButton, formatLoanAvailabilityLines, resolveLoanBorrowerDisplayName, type TelegramCatalogLoanContext } from './catalog-loan-flow.js';
 import {
   buildCatalogAdminMenuOptions,
   buildCreateConfirmOptions,
@@ -56,6 +55,7 @@ import {
   buildWikipediaUrlOptions,
 } from './catalog-admin-keyboards.js';
 import { formatCatalogAdminDraftSummary } from './catalog-admin-draft-summary.js';
+import { buildCatalogAdminItemDetailButtons } from './catalog-admin-detail-buttons.js';
 import { formatCatalogAdminGroupDetails, formatCatalogAdminItemDetails } from './catalog-admin-details.js';
 import {
   buildCatalogAdminItemDeepLink as buildCatalogAdminItemDeepLinkUrl,
@@ -76,6 +76,7 @@ import {
   parseOptionalPositiveInteger,
   parseWikipediaTitleFromUrl,
 } from './catalog-admin-parsing.js';
+import { parseCatalogFamilyInput, parseCatalogGroupInput } from './catalog-admin-repository-parsing.js';
 import {
   escapeHtml,
   formatCatalogDescriptionLine,
@@ -1628,20 +1629,18 @@ async function buildCatalogItemDetailButtons(
   language: 'ca' | 'es' | 'en',
 ): Promise<NonNullable<TelegramReplyOptions['inlineKeyboard']>> {
   const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
-  if (!canAdministerCatalog(context)) {
-    return buildLoanDetailButtons({ loan, itemId: item.id, language });
-  }
-
-  const texts = createTelegramI18n(language).catalogAdmin;
   const media = await resolveCatalogRepository(context).listMedia({ itemId: item.id });
-  return [
-    [{ text: texts.edit, callbackData: `${catalogAdminCallbackPrefixes.edit}${item.id}` }],
-    ...media.flatMap((entry) => [[
-      { text: `${texts.confirmMediaEdit} #${entry.id}`, callbackData: `${catalogAdminCallbackPrefixes.editMedia}${entry.id}` },
-      { text: `${texts.confirmMediaDelete} #${entry.id}`, callbackData: `${catalogAdminCallbackPrefixes.deleteMedia}${entry.id}` },
-    ]]),
-    ...buildLoanDetailButtons({ loan, itemId: item.id, language, deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }),
-  ];
+  return buildCatalogAdminItemDetailButtons({
+    itemId: item.id,
+    loan,
+    media,
+    language,
+    canAdminister: canAdministerCatalog(context),
+    editPrefix: catalogAdminCallbackPrefixes.edit,
+    editMediaPrefix: catalogAdminCallbackPrefixes.editMedia,
+    deleteMediaPrefix: catalogAdminCallbackPrefixes.deleteMedia,
+    deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
+  });
 }
 
 async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string> {
@@ -1751,41 +1750,16 @@ async function parseFamilyInput(
 ): Promise<number | null | Error> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).catalogAdmin;
-  if (text === texts.noFamily) {
-    return null;
-  }
   const repository = resolveCatalogRepository(context);
-  const value = Number(text);
-  if (Number.isInteger(value) && value > 0) {
-    const family = await repository.findFamilyById(value);
-    if (!family) {
-      return new Error('unknown-family');
-    }
-    return value;
-  }
-
-  const normalizedText = normalizeFamilyLookupKey(text);
-  if (!normalizedText) {
-    return new Error('invalid-family-name');
-  }
-
-  const existingFamily = (await repository.listFamilies()).find((family) => {
-    return normalizeFamilyLookupKey(family.displayName) === normalizedText || normalizeFamilyLookupKey(family.slug) === normalizedText;
-  });
-  if (existingFamily) {
-    return existingFamily.id;
-  }
-  if (itemType !== 'rpg-book' && itemType !== 'book' && itemType !== 'board-game') {
-    return new Error('unknown-family');
-  }
-
-  const createdFamily = await createCatalogFamily({
+  return parseCatalogFamilyInput({
     repository,
-    slug: buildFamilySlug(text),
-    displayName: text.trim(),
-    familyKind: familyKindForItemType(itemType),
+    text,
+    itemType,
+    noFamilyLabel: texts.noFamily,
+    normalizeFamilyLookupKey,
+    buildFamilySlug,
+    familyKindForItemType,
   });
-  return createdFamily.id;
 }
 
 async function parseGroupInput(
@@ -1795,21 +1769,12 @@ async function parseGroupInput(
 ): Promise<number | null | Error> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).catalogAdmin;
-  if (text === texts.noGroup) {
-    return null;
-  }
-  const value = Number(text);
-  if (!Number.isInteger(value) || value <= 0) {
-    return new Error('invalid-group-id');
-  }
-  const group = await resolveCatalogRepository(context).findGroupById(value);
-  if (!group) {
-    return new Error('unknown-group');
-  }
-  if (group.familyId !== familyId) {
-    return new Error('group-family-mismatch');
-  }
-  return value;
+  return parseCatalogGroupInput({
+    repository: resolveCatalogRepository(context),
+    text,
+    familyId,
+    noGroupLabel: texts.noGroup,
+  });
 }
 
 async function loadMediaOrThrow(context: TelegramCatalogAdminContext, mediaId: number) {
