@@ -641,9 +641,13 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
 
   context.messageText = '16:00';
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'duration-mode');
+
+  context.messageText = scheduleLabels.durationMinutes;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'duration');
 
-  context.messageText = scheduleLabels.skipOptional;
+  context.messageText = '180';
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
 
@@ -666,10 +670,130 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.match(replies.at(-1)?.message ?? '', /Activitat creada correctament: <b>Dungeons &amp; Dragons<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Taula:<\/b> Mesa TV/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Inici:<\/b> 05\/04\/2026 16:00/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Durada:<\/b> 180 min/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Durada:<\/b> 3 h/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\)/);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.created');
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
+});
+
+test('handleTelegramScheduleText creates an activity with no duration using the internal two-hour default', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Catan';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+
+  context.messageText = scheduleLabels.durationNone;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'capacity');
+
+  context.messageText = '4';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.noTable;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.confirmCreate;
+  await handleTelegramScheduleText(context);
+
+  assert.equal((await scheduleRepository.findEventById(1))?.durationMinutes, 120);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Durada:<\/b> 2 h/);
+});
+
+test('handleTelegramScheduleText creates an activity from whole hours duration input', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Brass';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+
+  context.messageText = scheduleLabels.durationHours;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'duration-hours');
+
+  context.messageText = '3';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'capacity');
+
+  context.messageText = '4';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.noTable;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.confirmCreate;
+  await handleTelegramScheduleText(context);
+
+  assert.equal((await scheduleRepository.findEventById(1))?.durationMinutes, 180);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Durada:<\/b> 3 h/);
+});
+
+test('handleTelegramScheduleText creates an activity from hours-and-minutes duration input', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Eclipse';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+
+  context.messageText = scheduleLabels.durationHoursMinutes;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'duration-hours-minutes');
+
+  context.messageText = '02:30';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'capacity');
+
+  context.messageText = '6';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.noTable;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.confirmCreate;
+  await handleTelegramScheduleText(context);
+
+  assert.equal((await scheduleRepository.findEventById(1))?.durationMinutes, 150);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Durada:<\/b> 2 h 30 min/);
+});
+
+test('handleTelegramScheduleText rejects invalid hours-and-minutes duration input', async () => {
+  const { context, replies, getCurrentSession } = createContext({ actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Eclipse';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.durationHoursMinutes;
+  await handleTelegramScheduleText(context);
+
+  context.messageText = '2:30';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'duration-hours-minutes');
+  assert.match(replies.at(-1)?.message ?? '', /HH:mm/);
 });
 
 test('handleTelegramScheduleText offers quick minute buttons when creating an activity with hour-only input', async () => {
@@ -700,9 +824,12 @@ test('handleTelegramScheduleText offers quick minute buttons when creating an ac
 
   context.messageText = ':15';
   assert.equal(await handleTelegramScheduleText(context), true);
-  assert.equal(getCurrentSession()?.stepKey, 'duration');
+  assert.equal(getCurrentSession()?.stepKey, 'duration-mode');
 
-  context.messageText = scheduleLabels.skipOptional;
+  context.messageText = scheduleLabels.durationMinutes;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'duration');
+  context.messageText = '120';
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = '4';
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -776,7 +903,9 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
   await handleTelegramScheduleText(context);
   context.messageText = '16:00';
   await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
+  context.messageText = scheduleLabels.durationMinutes;
+  await handleTelegramScheduleText(context);
+  context.messageText = '180';
   await handleTelegramScheduleText(context);
   context.messageText = '5';
   await handleTelegramScheduleText(context);
@@ -848,7 +977,7 @@ test('handleTelegramScheduleText shows created tables as reply keyboard buttons 
   await handleTelegramScheduleText(context);
   context.messageText = '16:00';
   await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
+  context.messageText = scheduleLabels.durationNone;
   await handleTelegramScheduleText(context);
   context.messageText = '5';
   await handleTelegramScheduleText(context);
@@ -923,7 +1052,7 @@ test('handleTelegramScheduleCallback rejects selecting a deactivated table for a
   await handleTelegramScheduleText(context);
   context.messageText = '16:00';
   await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
+  context.messageText = scheduleLabels.durationNone;
   await handleTelegramScheduleText(context);
   context.messageText = '5';
   await handleTelegramScheduleText(context);
@@ -999,7 +1128,7 @@ test('handleTelegramScheduleText shows advisory warning when requested capacity 
   await handleTelegramScheduleText(context);
   context.messageText = '16:00';
   await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
+  context.messageText = scheduleLabels.durationNone;
   await handleTelegramScheduleText(context);
   context.messageText = '6';
   await handleTelegramScheduleText(context);
@@ -1479,6 +1608,40 @@ test('handleTelegramScheduleCallback offers quick minute buttons when editing wi
   assert.equal((await scheduleRepository.findEventById(3))?.startsAt, '2026-04-05T19:45:00.000Z');
 });
 
+test('handleTelegramScheduleCallback keeps the current duration from the duration mode step when editing', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 3,
+      title: 'Root',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.callbackData = `${scheduleCallbackPrefixes.selectEdit}3`;
+  await handleTelegramScheduleCallback(context);
+  context.messageText = scheduleLabels.editFieldDuration;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'duration-mode');
+
+  context.messageText = scheduleLabels.keepCurrent;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  assert.match(replies.at(-1)?.message ?? '', /Durada: 3 h/);
+});
+
 test('handleTelegramScheduleCallback keeps the current time from the quick minute step when editing', async () => {
   const scheduleRepository = createScheduleRepository([
     {
@@ -1622,6 +1785,8 @@ test('handleTelegramScheduleText sends private conflict notifications after crea
   await handleTelegramScheduleText(context);
   context.messageText = '17:00';
   await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.durationMinutes;
+  await handleTelegramScheduleText(context);
   context.messageText = '120';
   await handleTelegramScheduleText(context);
   context.messageText = '4';
@@ -1689,6 +1854,8 @@ test('handleTelegramScheduleText sends private conflict notifications after edit
   context.messageText = '17:00';
   await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.editFieldDuration;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.durationMinutes;
   await handleTelegramScheduleText(context);
   context.messageText = '180';
   await handleTelegramScheduleText(context);

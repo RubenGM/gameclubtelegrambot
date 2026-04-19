@@ -82,6 +82,26 @@ export function parseOptionalDurationMinutes({
   return parsePositiveInteger(value, 'invalid-duration');
 }
 
+export function parseDurationHours(value: string): number | Error {
+  const hours = parsePositiveInteger(value, 'invalid-duration-hours');
+  return hours instanceof Error ? hours : hours * 60;
+}
+
+export function parseDurationHoursMinutes(value: string): number | Error {
+  const match = value.match(/^(\d{2}):(\d{2})$/);
+  if (!match) {
+    return new Error('invalid-duration-hours-minutes');
+  }
+  const [, hoursText, minutesText] = match;
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || minutes < 0 || minutes > 59) {
+    return new Error('invalid-duration-hours-minutes');
+  }
+  const totalMinutes = hours * 60 + minutes;
+  return totalMinutes > 0 ? totalMinutes : new Error('invalid-duration-hours-minutes');
+}
+
 export function buildStartsAt(date: string, time: string): string {
   return `${date}T${time}:00.000Z`;
 }

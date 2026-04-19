@@ -86,11 +86,23 @@ export function formatScheduleEventDetails({
   return [
     `<b>${escapeHtml(event.title)}</b>`,
     formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
-    formatHtmlField(texts.detailsDuration, `${event.durationMinutes} min`),
+    formatHtmlField(texts.detailsDuration, formatDurationMinutes(event.durationMinutes)),
     formatHtmlField(texts.detailsSeats, String(event.capacity)),
     formatHtmlField(texts.detailsTable, escapeHtml(tableName ?? texts.noTable)),
     formatHtmlField(texts.detailsDescription, escapeHtml(event.description ?? texts.noDescription)),
   ].join('\n');
+}
+
+export function formatDurationMinutes(durationMinutes: number): string {
+  const hours = Math.floor(durationMinutes / 60);
+  const minutes = durationMinutes % 60;
+  if (hours === 0) {
+    return `${minutes} min`;
+  }
+  if (minutes === 0) {
+    return `${hours} h`;
+  }
+  return `${hours} h ${minutes} min`;
 }
 
 export function buildScheduleDetailActionOptions({

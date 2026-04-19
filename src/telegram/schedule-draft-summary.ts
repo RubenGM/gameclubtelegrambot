@@ -3,7 +3,7 @@ import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { asNullableNumber, asNullableString, buildStartsAt } from './schedule-parsing.js';
-import { escapeHtml, formatTimestamp } from './schedule-presentation.js';
+import { escapeHtml, formatDurationMinutes, formatTimestamp } from './schedule-presentation.js';
 
 export async function formatScheduleDraftSummary({
   botLanguage,
@@ -48,7 +48,7 @@ export async function formatScheduleDraftSummary({
     `${texts.editFieldTitle}: ${escapeHtml(title)}`,
     `${texts.detailsDescription}: ${escapeHtml(description ?? texts.noDescription)}`,
     `${texts.detailsStart}: ${formatTimestamp(buildStartsAt(date, time))}`,
-    `${texts.detailsDuration}: ${durationMinutes} min`,
+    `${texts.detailsDuration}: ${formatDurationMinutes(durationMinutes)}`,
     `${texts.detailsSeats}: ${capacity}`,
     `${texts.detailsTable}: ${table?.displayName ?? texts.noTable}`,
     ...advisories.map(escapeHtml),

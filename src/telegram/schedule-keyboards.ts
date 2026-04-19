@@ -23,6 +23,10 @@ export const scheduleLabels = {
   noTable: 'Sense taula',
   keepCurrentDuration: 'Mantenir durada actual',
   defaultDuration: '180 min per defecte',
+  durationNone: 'Sense durada',
+  durationHours: 'Hores',
+  durationHoursMinutes: 'Hores i minuts',
+  durationMinutes: 'Minuts',
   confirmCreate: 'Guardar activitat',
   confirmEdit: 'Guardar canvis',
   confirmCancel: 'Confirmar cancel.lacio',
@@ -106,9 +110,10 @@ export function buildEditTitleOptions(): TelegramReplyOptions {
   };
 }
 
-export function buildEditDurationOptions(): TelegramReplyOptions {
+export function buildEditDurationOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[scheduleLabels.keepCurrent], [scheduleLabels.skipOptional], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], [texts.durationNone, texts.durationHours], [texts.durationHoursMinutes, texts.durationMinutes], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -117,7 +122,7 @@ export function buildEditDurationOptions(): TelegramReplyOptions {
 export function buildCreateDurationOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.skipOptional], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.durationNone, texts.durationHours], [texts.durationHoursMinutes, texts.durationMinutes], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };

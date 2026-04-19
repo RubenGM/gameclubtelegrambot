@@ -60,6 +60,8 @@ import {
   buildStartsAt,
   parseCapacity,
   parseDate,
+  parseDurationHours,
+  parseDurationHoursMinutes,
   parseDayKey,
   parseEntityId,
   parseOptionalDurationMinutes,
@@ -81,6 +83,7 @@ import {
   buildEditConfirmOptions,
   buildEditDateOptions,
   buildEditDescriptionOptions,
+  buildEditDurationOptions,
   buildEditFieldMenuOptions,
   buildEditTableOptions,
   buildEditTimeMinuteOptions,
@@ -390,7 +393,7 @@ async function handleCreateSession(
   if (stepKey === 'time') {
     const time = parseTime(text);
     if (!(time instanceof Error)) {
-      await context.runtime.session.advance({ stepKey: 'duration', data: { ...data, time } });
+      await context.runtime.session.advance({ stepKey: 'duration-mode', data: { ...data, time } });
       await context.reply(texts.askDuration, buildCreateDurationOptions(language));
       return true;
     }
@@ -417,8 +420,55 @@ async function handleCreateSession(
       return true;
     }
     const time = buildTimeFromHourAndMinute(timeHour, minuteSelection);
-    await context.runtime.session.advance({ stepKey: 'duration', data: { ...data, time } });
+    await context.runtime.session.advance({ stepKey: 'duration-mode', data: { ...data, time } });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+    return true;
+  }
+
+  if (stepKey === 'duration-mode') {
+    if (text === texts.durationNone || text === scheduleLabels.durationNone) {
+      await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes: 120 } });
+      await context.reply(texts.askCapacity, buildSingleCancelKeyboard());
+      return true;
+    }
+    if (text === texts.durationHours || text === scheduleLabels.durationHours) {
+      await context.runtime.session.advance({ stepKey: 'duration-hours', data });
+      await context.reply(texts.askDurationHours, buildSingleCancelKeyboard());
+      return true;
+    }
+    if (text === texts.durationHoursMinutes || text === scheduleLabels.durationHoursMinutes) {
+      await context.runtime.session.advance({ stepKey: 'duration-hours-minutes', data });
+      await context.reply(texts.askDurationHoursMinutes, buildSingleCancelKeyboard());
+      return true;
+    }
+    if (text === texts.durationMinutes || text === scheduleLabels.durationMinutes) {
+      await context.runtime.session.advance({ stepKey: 'duration', data });
+      await context.reply(texts.askDurationMinutes, buildSingleCancelKeyboard());
+      return true;
+    }
+    await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+    return true;
+  }
+
+  if (stepKey === 'duration-hours') {
+    const durationMinutes = parseDurationHours(text);
+    if (durationMinutes instanceof Error) {
+      await context.reply(texts.invalidDurationHours, buildSingleCancelKeyboard());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
+    await context.reply(texts.askCapacity, buildSingleCancelKeyboard());
+    return true;
+  }
+
+  if (stepKey === 'duration-hours-minutes') {
+    const durationMinutes = parseDurationHoursMinutes(text);
+    if (durationMinutes instanceof Error) {
+      await context.reply(texts.invalidDurationHoursMinutes, buildSingleCancelKeyboard());
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
+    await context.reply(texts.askCapacity, buildSingleCancelKeyboard());
     return true;
   }
 
@@ -430,7 +480,7 @@ async function handleCreateSession(
       defaultDurationMinutes: defaultScheduleDurationMinutes,
     });
     if (durationMinutes instanceof Error) {
-      await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+      await context.reply(texts.invalidDurationMinutes, buildSingleCancelKeyboard());
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
@@ -553,8 +603,8 @@ async function handleEditSession(
       return true;
     }
     if (text === texts.editFieldDuration || text === scheduleLabels.editFieldDuration) {
-      await context.runtime.session.advance({ stepKey: 'duration', data });
-      await context.reply(texts.askEditDuration, buildKeepCurrentKeyboard(language));
+      await context.runtime.session.advance({ stepKey: 'duration-mode', data });
+      await context.reply(texts.askEditDuration, buildEditDurationOptions(language));
       return true;
     }
     if (text === texts.editFieldCapacity || text === scheduleLabels.editFieldCapacity) {
@@ -625,6 +675,53 @@ async function handleEditSession(
     const time = buildTimeFromHourAndMinute(timeHour, minuteSelection);
     return returnToEditMenu(context, event, data, { time });
   }
+  if (stepKey === 'duration-mode') {
+    if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
+      return returnToEditMenu(context, event, data, { durationMinutes: event.durationMinutes });
+    }
+    if (text === texts.durationNone || text === scheduleLabels.durationNone) {
+      return returnToEditMenu(context, event, data, { durationMinutes: 120 });
+    }
+    if (text === texts.durationHours || text === scheduleLabels.durationHours) {
+      await context.runtime.session.advance({ stepKey: 'duration-hours', data });
+      await context.reply(texts.askEditDurationHours, buildKeepCurrentKeyboard(language));
+      return true;
+    }
+    if (text === texts.durationHoursMinutes || text === scheduleLabels.durationHoursMinutes) {
+      await context.runtime.session.advance({ stepKey: 'duration-hours-minutes', data });
+      await context.reply(texts.askEditDurationHoursMinutes, buildKeepCurrentKeyboard(language));
+      return true;
+    }
+    if (text === texts.durationMinutes || text === scheduleLabels.durationMinutes) {
+      await context.runtime.session.advance({ stepKey: 'duration', data });
+      await context.reply(texts.askEditDurationMinutes, buildKeepCurrentKeyboard(language));
+      return true;
+    }
+    await context.reply(texts.askEditDuration, buildEditDurationOptions(language));
+    return true;
+  }
+  if (stepKey === 'duration-hours') {
+    if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
+      return returnToEditMenu(context, event, data, { durationMinutes: event.durationMinutes });
+    }
+    const durationMinutes = parseDurationHours(text);
+    if (durationMinutes instanceof Error) {
+      await context.reply(texts.invalidDurationHours, buildKeepCurrentKeyboard(language));
+      return true;
+    }
+    return returnToEditMenu(context, event, data, { durationMinutes });
+  }
+  if (stepKey === 'duration-hours-minutes') {
+    if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
+      return returnToEditMenu(context, event, data, { durationMinutes: event.durationMinutes });
+    }
+    const durationMinutes = parseDurationHoursMinutes(text);
+    if (durationMinutes instanceof Error) {
+      await context.reply(texts.invalidDurationHoursMinutes, buildKeepCurrentKeyboard(language));
+      return true;
+    }
+    return returnToEditMenu(context, event, data, { durationMinutes });
+  }
   if (stepKey === 'duration') {
     const durationMinutes =
       text === texts.keepCurrent || text === scheduleLabels.keepCurrent
@@ -632,11 +729,11 @@ async function handleEditSession(
         : parseOptionalDurationMinutes({
             value: text,
             language,
-            skipOptionalLabels: [scheduleLabels.skipOptional],
-            defaultDurationMinutes: defaultScheduleDurationMinutes,
-          });
+           skipOptionalLabels: [scheduleLabels.skipOptional],
+           defaultDurationMinutes: defaultScheduleDurationMinutes,
+         });
     if (durationMinutes instanceof Error) {
-      await context.reply(texts.askEditDuration, buildKeepCurrentKeyboard(language));
+      await context.reply(texts.invalidDurationMinutes, buildKeepCurrentKeyboard(language));
       return true;
     }
     return returnToEditMenu(context, event, data, { durationMinutes });
