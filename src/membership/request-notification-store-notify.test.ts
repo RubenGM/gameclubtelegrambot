@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createAppMetadataMembershipRequestNotificationSubscriptionStore, notifySubscribedAdminsOfMembershipRequest } from './request-notification-store.js';
+import {
+  createAppMetadataMembershipRequestNotificationSubscriptionStore,
+  notifyApprovedAdminsOfMembershipRevocation,
+  notifySubscribedAdminsOfMembershipRequest,
+} from './request-notification-store.js';
 
 function createMemoryStorage() {
   const entries = new Map<string, string>();
@@ -57,10 +61,22 @@ test('notifySubscribedAdminsOfMembershipRequest sends localized private messages
       async listPendingUsers() {
         return [];
       },
+      async listRevocableUsers() {
+        return [];
+      },
+      async listApprovedAdminUsers() {
+        return Array.from(users.values()).filter((user) => user.isAdmin) as never;
+      },
+      async findLatestRevocation() {
+        return null;
+      },
       async approveMembershipRequest() {
         throw new Error('not used');
       },
       async rejectMembershipRequest() {
+        throw new Error('not used');
+      },
+      async revokeMembershipAccess() {
         throw new Error('not used');
       },
       async appendStatusAuditLog() { throw new Error('not used'); },
@@ -101,4 +117,106 @@ test('notifySubscribedAdminsOfMembershipRequest sends localized private messages
       },
     },
   ]);
+});
+
+test('notifySubscribedAdminsOfMembershipRequest includes prior revocation context when present', async () => {
+  const storage = createMemoryStorage();
+  const store = createAppMetadataMembershipRequestNotificationSubscriptionStore({ storage });
+  await store.setSubscribed(10, true);
+
+  const messages: Array<{ telegramUserId: number; message: string }> = [];
+
+  await notifySubscribedAdminsOfMembershipRequest({
+    store,
+    membershipRepository: {
+      async findUserByTelegramUserId() {
+        return { telegramUserId: 10, displayName: 'Admin CA', status: 'approved', isAdmin: true } as never;
+      },
+      async syncUserProfile() { return null; },
+      async backfillDisplayNames() { return 0; },
+      async upsertPendingUser() { throw new Error('not used'); },
+      async listPendingUsers() { return []; },
+      async listRevocableUsers() { return []; },
+      async listApprovedAdminUsers() { return []; },
+      async findLatestRevocation() { return null; },
+      async approveMembershipRequest() { throw new Error('not used'); },
+      async rejectMembershipRequest() { throw new Error('not used'); },
+      async revokeMembershipAccess() { throw new Error('not used'); },
+      async appendStatusAuditLog() { throw new Error('not used'); },
+    },
+    languagePreferenceReader: {
+      async loadLanguage() {
+        return 'es';
+      },
+    },
+    privateMessageSender: {
+      async sendPrivateMessage(telegramUserId, message) {
+        messages.push({ telegramUserId, message });
+      },
+    },
+    requesterTelegramUserId: 42,
+    requesterDisplayName: 'New Member',
+    requesterUsername: 'new_member',
+    priorRevocation: {
+      changedByTelegramUserId: 99,
+      createdAt: '2026-04-19T10:00:00.000Z',
+      reason: 'Incumplio las normas',
+    },
+  });
+
+  assert.equal(messages.length, 1);
+  assert.match(messages[0]!.message, /Nueva solicitud de acceso de New Member/);
+  assert.match(messages[0]!.message, /ya fue expulsado el 2026-04-19/);
+  assert.match(messages[0]!.message, /Incumplio las normas/);
+});
+
+test('notifyApprovedAdminsOfMembershipRevocation alerts all approved admins with the reason', async () => {
+  const messages: Array<{ telegramUserId: number; message: string }> = [];
+
+  const sentCount = await notifyApprovedAdminsOfMembershipRevocation({
+    membershipRepository: {
+      async findUserByTelegramUserId() { return null; },
+      async syncUserProfile() { return null; },
+      async backfillDisplayNames() { return 0; },
+      async upsertPendingUser() { throw new Error('not used'); },
+      async listPendingUsers() { return []; },
+      async listRevocableUsers() { return []; },
+      async listApprovedAdminUsers() {
+        return [
+          { telegramUserId: 10, displayName: 'Admin Uno', status: 'approved', isAdmin: true },
+          { telegramUserId: 11, displayName: 'Admin Dos', status: 'approved', isAdmin: true },
+        ] as never;
+      },
+      async findLatestRevocation() { return null; },
+      async appendStatusAuditLog() { throw new Error('not used'); },
+      async approveMembershipRequest() { throw new Error('not used'); },
+      async rejectMembershipRequest() { throw new Error('not used'); },
+      async revokeMembershipAccess() { throw new Error('not used'); },
+    },
+    languagePreferenceReader: {
+      async loadLanguage(telegramUserId) {
+        return telegramUserId === 11 ? 'en' : 'ca';
+      },
+    },
+    privateMessageSender: {
+      async sendPrivateMessage(telegramUserId, message) {
+        messages.push({ telegramUserId, message });
+      },
+    },
+    revokedUser: {
+      telegramUserId: 42,
+      displayName: 'Usuari Expulsat',
+      username: 'expulsat',
+    },
+    revokedBy: {
+      telegramUserId: 99,
+      displayName: 'Admin Responsable',
+      username: 'admin',
+    },
+    reason: 'Conducta inapropiada',
+  });
+
+  assert.equal(sentCount, 2);
+  assert.match(messages[0]!.message, /Motiu: Conducta inapropiada/);
+  assert.match(messages[1]!.message, /Reason: Conducta inapropiada/);
 });

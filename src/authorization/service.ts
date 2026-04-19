@@ -8,7 +8,7 @@ export interface AuthorizationPermissionAssignment {
 
 export interface AuthorizationSubject {
   actorId: number;
-  status: 'pending' | 'approved' | 'blocked';
+  status: 'pending' | 'approved' | 'blocked' | 'revoked';
   isAdmin: boolean;
   permissions: AuthorizationPermissionAssignment[];
 }

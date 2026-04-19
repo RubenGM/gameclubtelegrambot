@@ -257,10 +257,14 @@ function createMembershipRepository(users: MembershipUserRecord[] = []): Members
     },
     async upsertPendingUser() { throw new Error('not implemented'); },
     async listPendingUsers() { return []; },
+    async listRevocableUsers() { return []; },
+    async listApprovedAdminUsers() { return []; },
+    async findLatestRevocation() { return null; },
     async backfillDisplayNames() { return 0; },
     async appendStatusAuditLog() { throw new Error('not implemented'); },
     async approveMembershipRequest() { throw new Error('not implemented'); },
     async rejectMembershipRequest() { throw new Error('not implemented'); },
+    async revokeMembershipAccess() { throw new Error('not implemented'); },
   };
 }
 

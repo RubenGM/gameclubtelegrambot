@@ -38,6 +38,16 @@ test('authorize denies blocked subjects before permission evaluation', async () 
   assert.equal(decision.reason, 'blocked-subject');
 });
 
+test('authorize keeps revoked subjects outside approved permissions unless explicitly allowed', async () => {
+  const decision = authorize({
+    subject: createSubject({ status: 'revoked', isAdmin: false }),
+    permissionKey: 'table.manage',
+  });
+
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.reason, 'no-match');
+});
+
 test('authorize applies resource deny before broader allows', async () => {
   const decision = authorize({
     subject: createSubject({

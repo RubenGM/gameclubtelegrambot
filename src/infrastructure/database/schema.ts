@@ -30,6 +30,7 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   approvedAt: timestamp('approved_at', { withTimezone: true }),
   blockedAt: timestamp('blocked_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
   statusReason: text('status_reason'),
 });
 

@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import {
   approveMembershipRequest,
   listPendingMembershipRequests,
+  listRevocableMembershipUsers,
   rejectMembershipRequest,
+  revokeMembershipAccess,
   requestMembershipAccess,
   type MembershipAccessRepository,
   type MembershipUserRecord,
@@ -55,6 +57,24 @@ function createRepository(initialUsers: MembershipUserRecord[] = []): Membership
     },
     async listPendingUsers() {
       return Array.from(users.values()).filter((user) => user.status === 'pending');
+    },
+    async listRevocableUsers() {
+      return Array.from(users.values()).filter((user) => user.status === 'approved' && !user.isAdmin);
+    },
+    async listApprovedAdminUsers() {
+      return Array.from(users.values()).filter((user) => user.status === 'approved' && user.isAdmin);
+    },
+    async findLatestRevocation(telegramUserId) {
+      const user = users.get(telegramUserId);
+      if (!user || user.status !== 'revoked') {
+        return null;
+      }
+
+      return {
+        changedByTelegramUserId: 99,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        reason: 'historic reason',
+      };
     },
     async appendStatusAuditLog(input) {
       statusLog.push(
@@ -109,6 +129,33 @@ function createRepository(initialUsers: MembershipUserRecord[] = []): Membership
           previousStatus: input.previousStatus,
           nextStatus: 'blocked',
           reason: input.reason ?? null,
+        },
+        createdAt: '2026-04-04T10:00:00.000Z',
+      });
+      return next;
+    },
+    async revokeMembershipAccess(input) {
+      const existing = users.get(input.telegramUserId);
+      if (!existing) {
+        throw new Error(`unknown user ${input.telegramUserId}`);
+      }
+
+      const next: MembershipUserRecord = {
+        ...existing,
+        status: 'revoked',
+      };
+      users.set(input.telegramUserId, next);
+      statusLog.push(`revoked:${input.telegramUserId}:by:${input.changedByTelegramUserId}`);
+      auditEvents.push({
+        actorTelegramUserId: input.changedByTelegramUserId,
+        actionKey: 'membership.revoked',
+        targetType: 'membership-user',
+        targetId: String(input.telegramUserId),
+        summary: 'Acces de membre revocat',
+        details: {
+          previousStatus: input.previousStatus,
+          nextStatus: 'revoked',
+          reason: input.reason,
         },
         createdAt: '2026-04-04T10:00:00.000Z',
       });
@@ -218,6 +265,28 @@ test('requestMembershipAccess keeps blocked users restricted', async () => {
   assert.match(result.message, /El teu accés esta blocat/);
 });
 
+test('requestMembershipAccess recreates a pending request for revoked users', async () => {
+  const repository = createRepository([
+    {
+      telegramUserId: 10,
+      username: 'revoked_member',
+      displayName: 'Revoked Member',
+      status: 'revoked',
+      isAdmin: false,
+    },
+  ]);
+
+  const result = await requestMembershipAccess({
+    repository,
+    telegramUserId: 10,
+    username: 'revoked_member',
+    displayName: 'Revoked Member',
+  });
+
+  assert.equal(result.outcome, 'created');
+  assert.equal(repository.__users.get(10)?.status, 'pending');
+});
+
 test('listPendingMembershipRequests returns pending applicants for admin review', async () => {
   const repository = createRepository([
     {
@@ -240,6 +309,36 @@ test('listPendingMembershipRequests returns pending applicants for admin review'
 
   assert.equal(result.pendingUsers.length, 1);
   assert.equal(result.pendingUsers[0]?.telegramUserId, 10);
+});
+
+test('listRevocableMembershipUsers only returns approved non-admin members', async () => {
+  const repository = createRepository([
+    {
+      telegramUserId: 10,
+      username: 'approved_member',
+      displayName: 'Approved Member',
+      status: 'approved',
+      isAdmin: false,
+    },
+    {
+      telegramUserId: 11,
+      username: 'admin_member',
+      displayName: 'Admin Member',
+      status: 'approved',
+      isAdmin: true,
+    },
+    {
+      telegramUserId: 12,
+      username: 'pending_member',
+      displayName: 'Pending Member',
+      status: 'pending',
+      isAdmin: false,
+    },
+  ]);
+
+  const result = await listRevocableMembershipUsers({ repository });
+
+  assert.deepEqual(result.users.map((user) => user.telegramUserId), [10]);
 });
 
 test('approveMembershipRequest approves a pending user and returns applicant notification', async () => {
@@ -285,6 +384,27 @@ test('approveMembershipRequest is safe against duplicate approvals', async () =>
   assert.equal(result.outcome, 'already-approved');
 });
 
+test('approveMembershipRequest requires revoked users to request access again', async () => {
+  const repository = createRepository([
+    {
+      telegramUserId: 10,
+      username: 'revoked_a',
+      displayName: 'Revoked A',
+      status: 'revoked',
+      isAdmin: false,
+    },
+  ]);
+
+  const result = await approveMembershipRequest({
+    repository,
+    applicantTelegramUserId: 10,
+    adminTelegramUserId: 99,
+  });
+
+  assert.equal(result.outcome, 'missing');
+  assert.match(result.adminMessage, /ha de tornar a demanar \/access/i);
+});
+
 test('rejectMembershipRequest blocks a pending user and returns applicant notification', async () => {
   const repository = createRepository([
     {
@@ -307,4 +427,28 @@ test('rejectMembershipRequest blocks a pending user and returns applicant notifi
   assert.match(result.applicantMessage, /La teva sollicitud d accés ha estat rebutjada/);
   assert.equal(repository.__auditEvents.at(-1)?.actionKey, 'membership.rejected');
   assert.equal(repository.__auditEvents.at(-1)?.actorTelegramUserId, 99);
+});
+
+test('revokeMembershipAccess revokes an approved user and records audit history', async () => {
+  const repository = createRepository([
+    {
+      telegramUserId: 10,
+      username: 'approved_a',
+      displayName: 'Approved A',
+      status: 'approved',
+      isAdmin: false,
+    },
+  ]);
+
+  const result = await revokeMembershipAccess({
+    repository,
+    applicantTelegramUserId: 10,
+    adminTelegramUserId: 99,
+    reason: 'Conducta inapropiada',
+  });
+
+  assert.equal(result.outcome, 'revoked');
+  assert.match(result.applicantMessage, /\/access/);
+  assert.equal(repository.__users.get(10)?.status, 'revoked');
+  assert.equal(repository.__auditEvents.at(-1)?.actionKey, 'membership.revoked');
 });

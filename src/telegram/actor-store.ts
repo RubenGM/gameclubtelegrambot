@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { userPermissionAssignments, users } from '../infrastructure/database/schema.js';
 
-export type TelegramActorStatus = 'pending' | 'approved' | 'blocked';
+export type TelegramActorStatus = 'pending' | 'approved' | 'blocked' | 'revoked';
 
 export interface TelegramActorPermission {
   permissionKey: string;
@@ -59,7 +59,7 @@ export function createDatabaseTelegramActorStore({
       return {
         telegramUserId,
         status,
-        isApproved: status === 'approved' || actor?.isApproved === true,
+        isApproved: status === 'approved' || (status !== 'revoked' && actor?.isApproved === true),
         isBlocked: status === 'blocked',
         isAdmin: actor?.isAdmin ?? false,
         permissions: permissions as TelegramActorPermission[],

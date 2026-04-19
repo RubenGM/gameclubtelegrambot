@@ -148,11 +148,12 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
               const startHandler = commandHandlers.get('start');
               const accessHandler = commandHandlers.get('access');
               const reviewHandler = commandHandlers.get('review_access');
+              const manageUsersHandler = commandHandlers.get('manage_users');
               const approveHandler = callbackHandlers.get('approve_access:');
               if (!startHandler) {
                 throw new Error('start handler not registered');
               }
-              if (!accessHandler || !reviewHandler || !approveHandler) {
+              if (!accessHandler || !reviewHandler || !approveHandler || !manageUsersHandler) {
                 throw new Error('membership handlers not registered');
               }
 
@@ -177,6 +178,8 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
               }
               context.messageText = '/review_access';
               await reviewHandler(commandContext);
+              context.messageText = '/manage_users';
+              await manageUsersHandler(commandContext);
               context.callbackData = 'approve_access:42';
               await approveHandler(commandContext);
               await commandHandlers.get('help')?.(commandContext);
@@ -228,6 +231,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:/venue_events',
     'register:/catalog',
     'register:/review_access',
+    'register:/manage_users',
     'register:/approve',
     'register:/reject',
     'register:/cancel',
@@ -237,6 +241,9 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:menu:help',
     'register:callback:approve_access:',
     'register:callback:reject_access:',
+    'register:callback:membership_revoke:select:',
+    'register:callback:membership_revoke:confirm',
+    'register:callback:membership_revoke:cancel',
     'register:callback:schedule:inspect:',
     'register:callback:schedule:join:',
     'register:callback:schedule:leave:',
@@ -276,8 +283,9 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'reply-keyboard:/access|Idioma|Inici|Ajuda',
     'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
+    'reply:No hi ha cap usuari aprovat disponible per expulsar.',
     'reply:Usuari aprovat correctament.',
-    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/subscribe_requests - Activa avisos privats de noves sollicituds d accés\n/unsubscribe_requests - Desactiva avisos privats de noves sollicituds d accés\n/language - Canvia l idioma del bot\n/schedule - Gestiona les teves activitats del club\n/tables - Consulta les taules actives del club\n/catalog_search - Consulta i cerca el cataleg\n/catalog - Gestiona el cataleg manual del club\n/review_access - Revisa sollicituds pendents\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
+    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/subscribe_requests - Activa avisos privats de noves sollicituds d accés\n/unsubscribe_requests - Desactiva avisos privats de noves sollicituds d accés\n/language - Canvia l idioma del bot\n/schedule - Gestiona les teves activitats del club\n/tables - Consulta les taules actives del club\n/catalog_search - Consulta i cerca el cataleg\n/catalog - Gestiona el cataleg manual del club\n/review_access - Revisa sollicituds pendents\n/manage_users - Administra i expulsa usuaris aprovats\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
     'start-polling',
     'stop-polling',
   ]);
@@ -794,7 +802,7 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Idioma'], ['Inici', 'Ajuda']]);
+  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Administrar usuaris'], ['Idioma'], ['Inici', 'Ajuda']]);
   assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.2\.0\)/);
   assert.match(replies[1]?.message ?? '', /Comandes disponibles en aquest xat/);
   assert.match(replies[2]?.message ?? '', /Sollicituds pendents/);
@@ -1169,7 +1177,14 @@ function createMembershipDatabaseStub({
     transaction(handler: (tx: MembershipDatabaseStub) => Promise<unknown>): Promise<unknown>;
     select(selection: Record<string, unknown>): {
       from(): {
-        where: () => Promise<unknown[]>;
+        where(): Promise<unknown[]> & {
+          orderBy(): Promise<unknown[]> & {
+            limit(): Promise<unknown[]>;
+          };
+        };
+        orderBy(): {
+          limit(): Promise<unknown[]>;
+        };
       };
     };
     insert(): {
@@ -1193,21 +1208,48 @@ function createMembershipDatabaseStub({
     select(selection: Record<string, unknown>) {
       return {
         from() {
-          return {
-            where: async () => {
-              if ('permissionKey' in selection) {
-                return [];
-              }
-
-              if ('status' in selection && 'displayName' in selection) {
-                return Array.from(membershipUsers.values());
-              }
-
-              if ('telegramUserId' in selection && 'displayName' in selection) {
-                return Array.from(membershipUsers.values());
-              }
-
+          const rows = async () => {
+            if ('permissionKey' in selection) {
               return [];
+            }
+
+            if ('changedByTelegramUserId' in selection && 'createdAt' in selection && 'reason' in selection) {
+              return [];
+            }
+
+            if ('status' in selection && 'displayName' in selection) {
+              return Array.from(membershipUsers.values());
+            }
+
+            if ('telegramUserId' in selection && 'displayName' in selection) {
+              return Array.from(membershipUsers.values());
+            }
+
+            return [];
+          };
+          const approvedNonAdmins = async () =>
+            Array.from(membershipUsers.values()).filter((user) => user.status === 'approved' && !user.isAdmin);
+
+          return {
+            where() {
+              const promise = rows() as Promise<unknown[]> & {
+                orderBy(): Promise<unknown[]> & {
+                  limit(): Promise<unknown[]>;
+                };
+              };
+              promise.orderBy = (() => {
+                const ordered = approvedNonAdmins() as Promise<unknown[]> & {
+                  limit(): Promise<unknown[]>;
+                };
+                ordered.limit = approvedNonAdmins;
+                return ordered;
+              }) as typeof promise.orderBy;
+              return promise;
+            },
+            orderBy() {
+              return {
+                limit: approvedNonAdmins,
+              };
             },
           };
         },

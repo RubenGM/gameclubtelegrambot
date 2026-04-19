@@ -270,6 +270,15 @@ function createMembershipRepository(initialUsers: MembershipUserRecord[] = [
     async listPendingUsers() {
       return Array.from(users.values()).filter((user) => user.status === 'pending');
     },
+    async listRevocableUsers() {
+      return Array.from(users.values()).filter((user) => user.status === 'approved' && !user.isAdmin);
+    },
+    async listApprovedAdminUsers() {
+      return Array.from(users.values()).filter((user) => user.status === 'approved' && user.isAdmin);
+    },
+    async findLatestRevocation() {
+      return null;
+    },
     async approveMembershipRequest(input: { telegramUserId: number }) {
       const existing = users.get(input.telegramUserId);
       if (!existing) throw new Error(`unknown user ${input.telegramUserId}`);
@@ -281,6 +290,13 @@ function createMembershipRepository(initialUsers: MembershipUserRecord[] = [
       const existing = users.get(input.telegramUserId);
       if (!existing) throw new Error(`unknown user ${input.telegramUserId}`);
       const next: MembershipUserRecord = { ...existing, status: 'blocked' };
+      users.set(next.telegramUserId, next);
+      return next;
+    },
+    async revokeMembershipAccess(input: { telegramUserId: number }) {
+      const existing = users.get(input.telegramUserId);
+      if (!existing) throw new Error(`unknown user ${input.telegramUserId}`);
+      const next: MembershipUserRecord = { ...existing, status: 'revoked' };
       users.set(next.telegramUserId, next);
       return next;
     },

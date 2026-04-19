@@ -119,6 +119,37 @@ test('createDatabaseMembershipAccessRepository rolls back rejection when status 
   assert.equal(state.auditRows.length, 0);
 });
 
+test('createDatabaseMembershipAccessRepository revokes approved membership atomically', async () => {
+  const state: MembershipStoreTestState = {
+    user: {
+      telegramUserId: 10,
+      username: 'approved_a',
+      displayName: 'Approved A',
+      status: 'approved',
+      isAdmin: false,
+      isApproved: true,
+    },
+    statusAuditRows: [],
+    auditRows: [],
+  };
+
+  const repository = createDatabaseMembershipAccessRepository({
+    database: createMembershipDatabaseDouble(state),
+  });
+
+  const updated = await repository.revokeMembershipAccess({
+    telegramUserId: 10,
+    previousStatus: 'approved',
+    changedByTelegramUserId: 99,
+    reason: 'Conducta inapropiada',
+  });
+
+  assert.equal(updated.status, 'revoked');
+  assert.equal(state.user.status, 'revoked');
+  assert.equal(state.statusAuditRows.length, 1);
+  assert.equal(state.auditRows.length, 1);
+});
+
 function createMembershipDatabaseDouble(
   state: MembershipStoreTestState,
   options: {
@@ -151,7 +182,7 @@ function createMembershipDatabaseDouble(
 
                     draft.user = {
                       ...draft.user,
-                      status: values.status as 'pending' | 'approved' | 'blocked',
+                      status: values.status as 'pending' | 'approved' | 'blocked' | 'revoked',
                       isApproved: (values.isApproved as boolean | undefined) ?? draft.user.isApproved,
                     };
 

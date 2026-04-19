@@ -1,6 +1,12 @@
 import { normalizeDisplayName } from './display-name.js';
 
-export type MembershipUserStatus = 'pending' | 'approved' | 'blocked';
+export type MembershipUserStatus = 'pending' | 'approved' | 'blocked' | 'revoked';
+
+export interface MembershipRevocationRecord {
+  changedByTelegramUserId: number;
+  createdAt: string;
+  reason: string | null;
+}
 
 export interface MembershipUserRecord {
   telegramUserId: number;
@@ -24,6 +30,9 @@ export interface MembershipAccessRepository {
     displayName: string;
   }): Promise<MembershipUserRecord>;
   listPendingUsers(): Promise<MembershipUserRecord[]>;
+  listRevocableUsers(): Promise<MembershipUserRecord[]>;
+  listApprovedAdminUsers(): Promise<MembershipUserRecord[]>;
+  findLatestRevocation(telegramUserId: number): Promise<MembershipRevocationRecord | null>;
   appendStatusAuditLog(input: {
     telegramUserId: number;
     previousStatus: MembershipUserStatus | null;
@@ -41,6 +50,12 @@ export interface MembershipAccessRepository {
     previousStatus: MembershipUserStatus;
     changedByTelegramUserId: number;
     reason?: string | null;
+  }): Promise<MembershipUserRecord>;
+  revokeMembershipAccess(input: {
+    telegramUserId: number;
+    previousStatus: MembershipUserStatus;
+    changedByTelegramUserId: number;
+    reason: string;
   }): Promise<MembershipUserRecord>;
 }
 
@@ -92,7 +107,7 @@ export async function requestMembershipAccess({
   });
   await repository.appendStatusAuditLog({
     telegramUserId,
-    previousStatus: null,
+    previousStatus: existing?.status ?? null,
     nextStatus: 'pending',
     changedByTelegramUserId: telegramUserId,
     reason: 'member-access-request',
@@ -112,6 +127,16 @@ export async function listPendingMembershipRequests({
 }): Promise<{ pendingUsers: MembershipUserRecord[] }> {
   return {
     pendingUsers: await repository.listPendingUsers(),
+  };
+}
+
+export async function listRevocableMembershipUsers({
+  repository,
+}: {
+  repository: MembershipAccessRepository;
+}): Promise<{ users: MembershipUserRecord[] }> {
+  return {
+    users: await repository.listRevocableUsers(),
   };
 }
 
@@ -151,6 +176,14 @@ export async function approveMembershipRequest({
       outcome: 'blocked',
       applicantMessage: 'No s ha pogut aprovar la teva sollicitud perquè el compte esta blocat.',
       adminMessage: 'Aquest usuari esta blocat i no es pot aprovar directament.',
+    };
+  }
+
+  if (existing.status !== 'pending') {
+    return {
+      outcome: 'missing',
+      applicantMessage: 'Aquest usuari ha de tornar a demanar accés amb /access abans de poder-se aprovar.',
+      adminMessage: 'Aquest usuari no te cap sollicitud pendent activa. Primer ha de tornar a demanar /access.',
     };
   }
 
@@ -219,5 +252,61 @@ export async function rejectMembershipRequest({
     outcome: 'blocked',
     applicantMessage: 'La teva sollicitud d accés ha estat rebutjada. Si creus que es un error, contacta amb el club.',
     adminMessage: 'Sollicitud rebutjada i usuari blocat.',
+  };
+}
+
+export async function revokeMembershipAccess({
+  repository,
+  applicantTelegramUserId,
+  adminTelegramUserId,
+  reason,
+}: {
+  repository: MembershipAccessRepository;
+  applicantTelegramUserId: number;
+  adminTelegramUserId: number;
+  reason: string;
+}): Promise<{
+  outcome: 'revoked' | 'missing' | 'not-approved' | 'admin-user';
+  applicantMessage: string;
+  adminMessage: string;
+}> {
+  const existing = await repository.findUserByTelegramUserId(applicantTelegramUserId);
+
+  if (!existing) {
+    return {
+      outcome: 'missing',
+      applicantMessage: 'No s ha trobat cap usuari amb aquest identificador.',
+      adminMessage: 'No s ha trobat cap usuari amb aquest identificador.',
+    };
+  }
+
+  if (existing.isAdmin) {
+    return {
+      outcome: 'admin-user',
+      applicantMessage: 'Els administradors no es poden expulsar des d aquest flux.',
+      adminMessage: 'Els administradors no es poden expulsar des d aquest flux.',
+    };
+  }
+
+  if (existing.status !== 'approved') {
+    return {
+      outcome: 'not-approved',
+      applicantMessage: 'Aquest usuari ja no te accés aprovat.',
+      adminMessage: 'Aquest usuari ja no te accés aprovat.',
+    };
+  }
+
+  await repository.revokeMembershipAccess({
+    telegramUserId: applicantTelegramUserId,
+    previousStatus: existing.status,
+    changedByTelegramUserId: adminTelegramUserId,
+    reason,
+  });
+
+  return {
+    outcome: 'revoked',
+    applicantMessage:
+      'Un administrador t ha revocat l accés al bot. Si vols tornar a entrar, torna a demanar accés amb /access.',
+    adminMessage: 'Accés revocat correctament. L usuari haura de tornar a demanar /access si vol reingressar.',
   };
 }

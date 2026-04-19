@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { auditLog, userStatusAuditLog, users } from '../infrastructure/database/schema.js';
@@ -151,6 +151,59 @@ export function createDatabaseMembershipAccessRepository({
 
       return result as MembershipUserRecord[];
     },
+    async listRevocableUsers() {
+      const result = await database
+        .select({
+          telegramUserId: users.telegramUserId,
+          username: users.username,
+          displayName: users.displayName,
+          status: users.status,
+          isAdmin: users.isAdmin,
+        })
+        .from(users)
+        .where(and(eq(users.status, 'approved'), eq(users.isAdmin, false)))
+        .orderBy(users.displayName, users.telegramUserId);
+
+      return result as MembershipUserRecord[];
+    },
+    async listApprovedAdminUsers() {
+      const result = await database
+        .select({
+          telegramUserId: users.telegramUserId,
+          username: users.username,
+          displayName: users.displayName,
+          status: users.status,
+          isAdmin: users.isAdmin,
+        })
+        .from(users)
+        .where(and(eq(users.status, 'approved'), eq(users.isAdmin, true)))
+        .orderBy(users.displayName, users.telegramUserId);
+
+      return result as MembershipUserRecord[];
+    },
+    async findLatestRevocation(telegramUserId) {
+      const result = await database
+        .select({
+          changedByTelegramUserId: userStatusAuditLog.changedByTelegramUserId,
+          createdAt: userStatusAuditLog.createdAt,
+          reason: userStatusAuditLog.reason,
+        })
+        .from(userStatusAuditLog)
+        .where(and(eq(userStatusAuditLog.subjectTelegramUserId, telegramUserId), eq(userStatusAuditLog.nextStatus, 'revoked')))
+        .orderBy(desc(userStatusAuditLog.createdAt), desc(userStatusAuditLog.id))
+        .limit(1);
+
+      const row = result[0];
+      if (!row) {
+        return null;
+      }
+
+      return {
+        changedByTelegramUserId: row.changedByTelegramUserId,
+        createdAt: row.createdAt.toISOString(),
+        reason: row.reason,
+      };
+    },
     async appendStatusAuditLog(input) {
       await database.insert(userStatusAuditLog).values({
         subjectTelegramUserId: input.telegramUserId,
@@ -169,6 +222,7 @@ export function createDatabaseMembershipAccessRepository({
             isApproved: true,
             approvedAt: new Date(),
             blockedAt: null,
+            revokedAt: null,
             updatedAt: new Date(),
           })
           .where(eq(users.telegramUserId, input.telegramUserId))
@@ -216,6 +270,7 @@ export function createDatabaseMembershipAccessRepository({
             isApproved: false,
             approvedAt: null,
             blockedAt: new Date(),
+            revokedAt: null,
             ...(input.reason !== undefined ? { statusReason: input.reason } : {}),
             updatedAt: new Date(),
           })
@@ -250,6 +305,56 @@ export function createDatabaseMembershipAccessRepository({
             previousStatus: input.previousStatus,
             nextStatus: 'blocked',
             reason: input.reason ?? null,
+          },
+        });
+
+        return row as MembershipUserRecord;
+      });
+    },
+    async revokeMembershipAccess(input) {
+      return database.transaction(async (tx) => {
+        const updated = await tx
+          .update(users)
+          .set({
+            status: 'revoked',
+            isApproved: false,
+            approvedAt: null,
+            blockedAt: null,
+            revokedAt: new Date(),
+            statusReason: input.reason,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.telegramUserId, input.telegramUserId))
+          .returning({
+            telegramUserId: users.telegramUserId,
+            username: users.username,
+            displayName: users.displayName,
+            status: users.status,
+            isAdmin: users.isAdmin,
+          });
+
+        const row = updated[0];
+        if (!row) {
+          throw new Error(`Membership user ${input.telegramUserId} not found`);
+        }
+
+        await tx.insert(userStatusAuditLog).values({
+          subjectTelegramUserId: input.telegramUserId,
+          previousStatus: input.previousStatus,
+          nextStatus: 'revoked',
+          changedByTelegramUserId: input.changedByTelegramUserId,
+          reason: input.reason,
+        });
+        await tx.insert(auditLog).values({
+          actorTelegramUserId: input.changedByTelegramUserId,
+          actionKey: 'membership.revoked',
+          targetType: 'membership-user',
+          targetId: String(input.telegramUserId),
+          summary: 'Acces de membre revocat',
+          details: {
+            previousStatus: input.previousStatus,
+            nextStatus: 'revoked',
+            reason: input.reason,
           },
         });
 

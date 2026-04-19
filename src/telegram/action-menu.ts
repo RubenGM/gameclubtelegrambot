@@ -87,6 +87,12 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isAdmin,
   },
   {
+    id: 'manage_users',
+    label: (language) => createTelegramI18n(language).actionMenu.manageUsers,
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'venue_events',
     label: (language) => createTelegramI18n(language).actionMenu.venueEvents,
     contexts: ['private'],
@@ -127,7 +133,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['schedule'], ['tables', 'catalog'], ['member_debug'], ['review_access'], ['language'], ['start', 'help']],
+    rows: [['schedule'], ['tables', 'catalog'], ['member_debug'], ['review_access'], ['manage_users'], ['language'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',

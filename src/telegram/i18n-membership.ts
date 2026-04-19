@@ -14,6 +14,8 @@ export const membershipTexts = {
     requestNotificationsAlreadyEnabled: 'Ja tenies activats els avisos de noves sollicituds d accés.',
     requestNotificationsAlreadyDisabled: 'Ja tenies desactivats els avisos de noves sollicituds d accés.',
     newRequestNotification: 'Nova sollicitud d accés de {label}.',
+    previousRevocationNotification: 'Atencio: aquest usuari ja va ser expulsat el {date}. Motiu: {reason}',
+    membershipRevokedAdminAlert: 'S ha expulsat {targetLabel}. Administrador responsable: {actorLabel}. Motiu: {reason}',
   },
   es: {
     alreadyApproved: 'Ya tienes acceso aprobado. Puedes usar las funcionalidades normales del bot.',
@@ -30,6 +32,8 @@ export const membershipTexts = {
     requestNotificationsAlreadyEnabled: 'Ya tenías activados los avisos de nuevas solicitudes de acceso.',
     requestNotificationsAlreadyDisabled: 'Ya tenías desactivados los avisos de nuevas solicitudes de acceso.',
     newRequestNotification: 'Nueva solicitud de acceso de {label}.',
+    previousRevocationNotification: 'Atencion: este usuario ya fue expulsado el {date}. Motivo: {reason}',
+    membershipRevokedAdminAlert: 'Se ha expulsado a {targetLabel}. Administrador responsable: {actorLabel}. Motivo: {reason}',
   },
   en: {
     alreadyApproved: 'You already have approved access. You can use the bot normally.',
@@ -46,5 +50,7 @@ export const membershipTexts = {
     requestNotificationsAlreadyEnabled: 'You already had new access request alerts enabled.',
     requestNotificationsAlreadyDisabled: 'You already had new access request alerts disabled.',
     newRequestNotification: 'New access request from {label}.',
+    previousRevocationNotification: 'Attention: this user was previously expelled on {date}. Reason: {reason}',
+    membershipRevokedAdminAlert: '{targetLabel} has been expelled. Responsible admin: {actorLabel}. Reason: {reason}',
   },
 } as const;

@@ -3,14 +3,17 @@ import { elevateApprovedUserToAdmin } from '../membership/admin-elevation.js';
 import { createDatabaseAdminElevationRepository } from '../membership/admin-elevation-store.js';
 import {
   approveMembershipRequest,
+  listRevocableMembershipUsers,
   listPendingMembershipRequests,
   rejectMembershipRequest,
+  revokeMembershipAccess,
   requestMembershipAccess,
 } from '../membership/access-flow.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
 import {
   createAppMetadataMembershipRequestNotificationSubscriptionStore,
+  notifyApprovedAdminsOfMembershipRevocation,
   notifySubscribedAdminsOfMembershipRequest,
   toggleMembershipRequestNotifications,
 } from '../membership/request-notification-store.js';
@@ -72,8 +75,14 @@ import {
 } from './venue-event-admin-flow.js';
 import type {
   TelegramBotLike,
+  TelegramInlineButton,
   TelegramReplyOptions,
 } from './runtime-boundary.js';
+
+const membershipRevokeFlowKey = 'membership-revoke';
+const membershipRevokeSelectPrefix = 'membership_revoke:select:';
+const membershipRevokeConfirmCallback = 'membership_revoke:confirm';
+const membershipRevokeCancelCallback = 'membership_revoke:cancel';
 
 export function registerHandlers({
   bot,
@@ -197,6 +206,9 @@ function createDefaultCommands({
           ...(context.from?.username !== undefined ? { username: context.from.username } : {}),
           displayName: resolveRequesterDisplayName(context),
         });
+        const priorRevocation = result.outcome === 'created'
+          ? await repository.findLatestRevocation(context.runtime.actor.telegramUserId)
+          : null;
 
         await context.reply(result.message);
 
@@ -215,6 +227,7 @@ function createDefaultCommands({
             requesterTelegramUserId: context.runtime.actor.telegramUserId,
             requesterDisplayName: resolveRequesterDisplayName(context),
             ...(context.from?.username !== undefined ? { requesterUsername: context.from.username } : {}),
+            priorRevocation,
           });
         }
       },
@@ -347,6 +360,13 @@ function createDefaultCommands({
       access: 'admin',
       description: 'Revisa sollicituds pendents',
       handle: async (context) => handleReviewAccess(context),
+    },
+    {
+      command: 'manage_users',
+      contexts: ['private'],
+      access: 'admin',
+      description: 'Administra i expulsa usuaris aprovats',
+      handle: async (context) => handleManageUsers(context),
     },
     {
       command: 'approve',
@@ -628,6 +648,95 @@ function registerMembershipCallbacks({
       await context.runtime.bot.sendPrivateMessage(applicantTelegramUserId, result.applicantMessage);
     }
   });
+
+  bot.onCallback(membershipRevokeSelectPrefix, async (context) => {
+    const targetTelegramUserId = parseCallbackTarget(
+      context.callbackData,
+      membershipRevokeSelectPrefix,
+      context.runtime.bot.language ?? 'ca',
+    );
+    const repository = createDatabaseMembershipAccessRepository({
+      database: context.runtime.services.database.db,
+    });
+    const targetUser = await repository.findUserByTelegramUserId(targetTelegramUserId);
+    const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+
+    if (!targetUser || targetUser.status !== 'approved' || targetUser.isAdmin) {
+      await context.reply(i18n.common.noRevocableUsers);
+      return;
+    }
+
+    await context.runtime.session.start({
+      flowKey: membershipRevokeFlowKey,
+      stepKey: 'reason',
+      data: {
+        targetTelegramUserId,
+      },
+    });
+    await context.reply(
+      `${formatMembershipUserLabel(targetUser)}\n\n${i18n.common.revokeReasonPrompt}`,
+      { replyKeyboard: [['/cancel']], resizeKeyboard: true, persistentKeyboard: true },
+    );
+  });
+
+  bot.onCallback(membershipRevokeConfirmCallback, async (context) => {
+    const session = context.runtime.session.current;
+    if (session?.flowKey !== membershipRevokeFlowKey || session.stepKey !== 'confirm') {
+      await context.reply(createTelegramI18n(context.runtime.bot.language ?? 'ca').common.noActiveFlowToCancel);
+      return;
+    }
+
+    const targetTelegramUserId = getSessionNumber(session.data, 'targetTelegramUserId');
+    const reason = getSessionString(session.data, 'reason');
+    const repository = createDatabaseMembershipAccessRepository({
+      database: context.runtime.services.database.db,
+    });
+    const targetUser = await repository.findUserByTelegramUserId(targetTelegramUserId);
+    if (!targetUser) {
+      throw new Error(`Membership user ${targetTelegramUserId} not found before revocation`);
+    }
+
+    const result = await revokeMembershipAccess({
+      repository,
+      applicantTelegramUserId: targetTelegramUserId,
+      adminTelegramUserId: context.runtime.actor.telegramUserId,
+      reason,
+    });
+
+    await context.runtime.session.cancel();
+    await context.reply(result.adminMessage, buildReplyOptionsForCurrentActionMenu(context));
+
+    if (result.outcome !== 'revoked') {
+      return;
+    }
+
+    await context.runtime.bot.sendPrivateMessage(targetTelegramUserId, result.applicantMessage);
+
+    const storage = createDatabaseAppMetadataSessionStorage({
+      database: context.runtime.services.database.db,
+    });
+    const languagePreferenceStore = createAppMetadataTelegramLanguagePreferenceStore({ storage });
+    await notifyApprovedAdminsOfMembershipRevocation({
+      membershipRepository: repository,
+      languagePreferenceReader: languagePreferenceStore,
+      privateMessageSender: context.runtime.bot,
+      revokedUser: targetUser,
+      revokedBy: {
+        telegramUserId: context.runtime.actor.telegramUserId,
+        displayName: resolveRequesterDisplayName(context),
+        ...(context.from?.username !== undefined ? { username: context.from.username } : {}),
+      },
+      reason,
+    });
+  });
+
+  bot.onCallback(membershipRevokeCancelCallback, async (context) => {
+    await context.runtime.session.cancel();
+    await context.reply(
+      createTelegramI18n(context.runtime.bot.language ?? 'ca').common.flowCancelled,
+      buildReplyOptionsForCurrentActionMenu(context),
+    );
+  });
 }
 
 function registerTableAdminCallbacks({
@@ -783,6 +892,31 @@ async function handleReviewAccess(context: TelegramCommandHandlerContext): Promi
   });
 }
 
+async function handleManageUsers(context: TelegramCommandHandlerContext): Promise<void> {
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  const repository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+  const result = await listRevocableMembershipUsers({ repository });
+
+  if (result.users.length === 0) {
+    await context.reply(i18n.common.noRevocableUsers);
+    return;
+  }
+
+  const lines = [
+    i18n.common.revocableUsersHeader,
+    ...result.users.map((user) => `- ${formatMembershipUserLabel(user)} -> ${i18n.common.revokeButton}`),
+  ];
+
+  await context.reply(lines.join('\n'), {
+    inlineKeyboard: result.users.map((user) => [{
+      text: `${i18n.common.revokeButton}: ${shortMembershipUserLabel(user)}`,
+      callbackData: `${membershipRevokeSelectPrefix}${user.telegramUserId}`,
+    }]),
+  });
+}
+
 async function handleTelegramTranslatedActionMenuText(
   context: TelegramCommandHandlerContext,
   commandConfig: {
@@ -805,6 +939,19 @@ async function handleTelegramTranslatedActionMenuText(
     }
 
     return false;
+  }
+
+  if (text === i18n.actionMenu.manageUsers) {
+    if (context.runtime.chat.kind === 'private' && context.runtime.actor.isAdmin) {
+      await handleManageUsers(context);
+      return true;
+    }
+
+    return false;
+  }
+
+  if (await handleMembershipRevocationText(context)) {
+    return true;
   }
 
   if (text === i18n.actionMenu.start) {
@@ -881,4 +1028,98 @@ async function handleTelegramMemberMenuDebugText(
 
 function resolveRequesterDisplayName(context: Pick<TelegramCommandHandlerContext, 'from' | 'runtime'>): string {
   return resolveTelegramDisplayName(context.from);
+}
+
+function formatMembershipUserLabel(user: {
+  telegramUserId: number;
+  displayName: string;
+  username?: string | null;
+}): string {
+  if (user.username && user.username.trim().length > 0) {
+    return `${user.displayName} (@${user.username.replace(/^@/, '')})`;
+  }
+
+  return `${user.displayName} (${user.telegramUserId})`;
+}
+
+function shortMembershipUserLabel(user: {
+  displayName: string;
+  username?: string | null;
+}): string {
+  return user.username && user.username.trim().length > 0
+    ? `${user.displayName} (@${user.username.replace(/^@/, '')})`
+    : user.displayName;
+}
+
+async function handleMembershipRevocationText(
+  context: TelegramCommandHandlerContext,
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  const text = context.messageText?.trim();
+  if (!text || session?.flowKey !== membershipRevokeFlowKey || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isAdmin) {
+    return false;
+  }
+
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  if (session.stepKey !== 'reason') {
+    return false;
+  }
+
+  const reason = text.trim();
+  if (reason.length === 0) {
+    await context.reply(i18n.common.revokeReasonPrompt, {
+      replyKeyboard: [['/cancel']],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    });
+    return true;
+  }
+
+  const targetTelegramUserId = getSessionNumber(session.data, 'targetTelegramUserId');
+  const repository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+  const targetUser = await repository.findUserByTelegramUserId(targetTelegramUserId);
+  if (!targetUser) {
+    throw new Error(`Membership user ${targetTelegramUserId} not found before revocation reason confirmation`);
+  }
+
+  await context.runtime.session.advance({
+    stepKey: 'confirm',
+    data: {
+      ...session.data,
+      reason,
+    },
+  });
+
+  await context.reply(
+    i18n.common.revokeConfirmPrompt
+      .replace('{label}', formatMembershipUserLabel(targetUser))
+      .replace('{reason}', reason),
+    {
+      inlineKeyboard: [[
+        { text: i18n.common.revokeConfirmButton, callbackData: membershipRevokeConfirmCallback },
+        { text: i18n.common.revokeCancelButton, callbackData: membershipRevokeCancelCallback },
+      ]],
+    },
+  );
+  return true;
+}
+
+function getSessionNumber(data: Record<string, unknown>, key: string): number {
+  const value = data[key];
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new Error(`Conversation session is missing numeric field ${key}`);
+  }
+
+  return value;
+}
+
+function getSessionString(data: Record<string, unknown>, key: string): string {
+  const value = data[key];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`Conversation session is missing string field ${key}`);
+  }
+
+  return value;
 }

@@ -78,7 +78,7 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Idioma'], ['Inici', 'Ajuda']],
+    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Administrar usuaris'], ['Idioma'], ['Inici', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -128,7 +128,32 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Idioma'], ['Inici', 'Ajuda']],
+    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Administrar usuaris'], ['Idioma'], ['Inici', 'Ajuda']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+});
+
+test('resolveTelegramActionMenu treats revoked users like pending users for access re-request', async () => {
+  const menu = resolveTelegramActionMenu({
+    context: createContext({
+      actor: {
+        telegramUserId: 43,
+        status: 'revoked',
+        isApproved: false,
+        isBlocked: false,
+        isAdmin: false,
+        permissions: [],
+      },
+      chat: {
+        kind: 'private',
+        chatId: 1,
+      },
+    }),
+  });
+
+  assert.deepEqual(menu, {
+    replyKeyboard: [['/access', 'Idioma', 'Inici'], ['Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
