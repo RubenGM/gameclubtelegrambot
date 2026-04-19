@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+APP_ROOT="${GAMECLUB_APP_ROOT:-/opt/gameclubtelegrambot}"
 CONFIG_PATH="${GAMECLUB_CONFIG_PATH:-/etc/gameclubtelegrambot/runtime.json}"
 ENV_PATH="${GAMECLUB_ENV_PATH:-}"
 INPUT_FILE=""
@@ -29,6 +30,29 @@ require_command() {
     printf 'Falta la comanda requerida: %s\n' "$1" >&2
     exit 1
   fi
+}
+
+resolve_helper_script() {
+  local local_helper deployed_helper
+
+  local_helper="$ROOT_DIR/dist/scripts/print-database-runtime-config.js"
+  deployed_helper="$APP_ROOT/dist/scripts/print-database-runtime-config.js"
+
+  if [ -f "$local_helper" ]; then
+    printf '%s\n' "$local_helper"
+    return 0
+  fi
+
+  if [ -f "$deployed_helper" ]; then
+    printf '%s\n' "$deployed_helper"
+    return 0
+  fi
+
+  printf 'No s ha trobat el helper compilat ni al repo ni al desplegament:\n' >&2
+  printf '  - %s\n' "$local_helper" >&2
+  printf '  - %s\n' "$deployed_helper" >&2
+  printf 'Executa npm run build al clon o usa la copia desplegada a %s.\n' "$APP_ROOT" >&2
+  exit 1
 }
 
 while [ "$#" -gt 0 ]; do
@@ -65,16 +89,11 @@ fi
 
 require_command node
 
-HELPER_SCRIPT="$ROOT_DIR/dist/scripts/print-database-runtime-config.js"
+node "$ROOT_DIR/dist/scripts/ensure-backup-dependencies.js" psql python3 >/dev/null
 
-if [ ! -f "$HELPER_SCRIPT" ]; then
-  printf 'No s ha trobat el helper compilat: %s\n' "$HELPER_SCRIPT" >&2
-  printf 'Executa npm run build abans de fer restore o usa la copia desplegada a /opt/gameclubtelegrambot.\n' >&2
-  exit 1
-fi
+HELPER_SCRIPT="$(resolve_helper_script)"
 
 if [ "$DRY_RUN" -eq 0 ]; then
-  require_command psql
   require_command gzip
 fi
 

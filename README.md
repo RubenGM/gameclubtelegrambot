@@ -82,6 +82,9 @@ npm run config:check
 npm run db:generate
 npm run db:check
 npm run db:migrate
+npm run backup:console
+./scripts/backup-full.sh
+./scripts/restore-full.sh --input /ruta/al/backup.zip
 ```
 
 Otros comandos de entorno local:
@@ -125,6 +128,24 @@ Campos principales:
 La referencia completa está en `docs/runtime-configuration.md` y el ejemplo en `config/runtime.example.json`.
 
 ## Arranque y operación en Debian
+
+La instalación Debian incorpora `postgresql-client` para que los scripts `backup-full`, `restore-full`, `backup-postgres` y `restore-postgres` puedan ejecutar `pg_dump` y `psql` en la propia máquina del bot.
+
+También hay una consola TUI para gestionar backups sobre el CLI existente:
+
+```bash
+npm run backup:console
+```
+
+La TUI muestra:
+
+- estado del servicio
+- estado de ficheros runtime
+- resumen de la base de datos
+- backups `.zip` disponibles
+- acciones para crear o restaurar backups
+
+Si faltan dependencias soportadas como `pg_dump` o `psql`, la herramienta intenta instalarlas automáticamente en Debian con `apt-get` y `sudo` cuando hace falta.
 
 Entrada central recomendada:
 

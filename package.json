@@ -14,6 +14,7 @@
     "test:integration": "bash -O globstar -c 'node --import tsx --test src/**/*.integration.test.ts'",
     "start": "node dist/main.js",
     "tray:debian": "node dist/scripts/debian-tray.js",
+    "backup:console": "node dist/scripts/backup-console.js",
     "bootstrap:wizard": "node --import tsx src/scripts/bootstrap-wizard.ts",
     "config:check": "node --import tsx src/scripts/check-runtime-config.ts",
     "config:edit": "node --import tsx src/scripts/runtime-config-editor.ts",

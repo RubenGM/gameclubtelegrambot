@@ -43,12 +43,45 @@ Per un club petit o mitjà amb màquina Debian pròpia:
 
 ## Scripts operatius inclosos
 
-El repositori inclou dos scripts simples per ajudar l'operador:
+El repositori inclou scripts simples per ajudar l'operador:
 
 - `./scripts/backup-postgres.sh`
 - `./scripts/restore-postgres.sh`
+- `./scripts/backup-full.sh`
+- `./scripts/restore-full.sh`
+- `npm run backup:console`
 
-Els dos llegeixen la connexió PostgreSQL des de `GAMECLUB_CONFIG_PATH` o, si no s'indica res, de `/etc/gameclubtelegrambot/runtime.json`.
+Els scripts que toquen PostgreSQL llegeixen la connexió des de `GAMECLUB_CONFIG_PATH` o, si no s'indica res, de `/etc/gameclubtelegrambot/runtime.json`.
+
+Per executar backup o restore de base de dades cal tenir disponibles `pg_dump` i `psql`, habitualment via el paquet `postgresql-client`.
+
+Els scripts de backup/restore intenten ara auto-instal.lar aquestes dependencies a Debian quan falten, usant `apt-get` i `sudo` si cal.
+
+## Consola TUI de backup
+
+La capa operativa continua sent el CLI, pero el repositori inclou una TUI per gestionar-lo:
+
+```bash
+npm run backup:console
+```
+
+La TUI mostra:
+
+- estat del servei `gameclubtelegrambot.service`
+- estat dels fitxers runtime requerits
+- resum de la base de dades
+- llista de backups `.zip` disponibles
+- log de l'ultima operacio
+
+Accions disponibles a la v1:
+
+- `Refresh`
+- `Create Backup`
+- `Restore Selected`
+- `Show Path`
+- `Quit`
+
+La TUI no substitueix els scripts. Simplement els crida i mostra l'estat del sistema al damunt.
 
 ### Backup de PostgreSQL
 
@@ -80,11 +113,62 @@ Mode simulació:
 ./scripts/restore-postgres.sh --config /etc/gameclubtelegrambot/runtime.json --input /var/backups/gameclubtelegrambot/gameclub-postgres-20260404-120000.sql.gz --dry-run
 ```
 
+### Backup complet en un sol zip
+
+Exemple habitual:
+
+```bash
+./scripts/backup-full.sh --output-dir /var/backups/gameclubtelegrambot
+```
+
+Mode simulació:
+
+```bash
+./scripts/backup-full.sh --output-dir /var/backups/gameclubtelegrambot --dry-run
+```
+
+El resultat és un fitxer `gameclub-backup-YYYYMMDD-HHMMSS.zip` que conté:
+
+- `config/runtime.json`
+- `config/runtime.env`
+- `config/default.env`
+- `database/postgres.sql.gz`
+- `systemd/gameclubtelegrambot.service` si existia a la màquina
+- `polkit/50-gameclubtelegrambot.rules` si existia a la màquina
+
+Aquest és ara el camí recomanat per a backups operatius perquè empaqueta en un únic arxiu tant la configuració com la base de dades.
+
+### Restore complet des del zip
+
+Exemple habitual:
+
+```bash
+./scripts/restore-full.sh --input /var/backups/gameclubtelegrambot/gameclub-backup-20260404-120000.zip
+```
+
+Mode simulació:
+
+```bash
+./scripts/restore-full.sh --input /var/backups/gameclubtelegrambot/gameclub-backup-20260404-120000.zip --dry-run
+```
+
+Per deixar el servei aturat després del restore:
+
+```bash
+./scripts/restore-full.sh --input /var/backups/gameclubtelegrambot/gameclub-backup-20260404-120000.zip --no-start
+```
+
 ## Procediment de backup recomanat
 
 ### 1. Configuració
 
-Guardar com a mínim:
+La manera recomanada és generar un únic zip:
+
+```bash
+./scripts/backup-full.sh --output-dir /var/backups/gameclubtelegrambot
+```
+
+Si cal una còpia manual separada dels fitxers, guardar com a mínim:
 
 ```bash
 sudo install -d /var/backups/gameclubtelegrambot
@@ -95,7 +179,7 @@ sudo cp /etc/default/gameclubtelegrambot /var/backups/gameclubtelegrambot/defaul
 
 ### 2. Base de dades
 
-Executar:
+Si no es fa servir `backup-full.sh`, executar:
 
 ```bash
 ./scripts/backup-postgres.sh --config /etc/gameclubtelegrambot/runtime.json --output-dir /var/backups/gameclubtelegrambot
@@ -103,7 +187,11 @@ Executar:
 
 ### 3. Verificació mínima
 
-Comprovar que existeixen:
+Comprovar que existeix com a mínim:
+
+- un `gameclub-backup-*.zip` recent
+
+Si s'està usant el procediment manual separat, comprovar que existeixen:
 
 - `runtime.json`
 - `runtime.env`
@@ -125,6 +213,15 @@ Recuperar el codi o la versió desplegada i executar el camí Debian normal:
 Si no vols sobreescriure encara la configuració final restaurada, pots desplegar primer l'app i després copiar manualment els fitxers sota `/etc`.
 
 ### 2. Restaurar configuració
+
+Si tens un backup complet `.zip`, el camí recomanat és:
+
+```bash
+cd /opt/gameclubtelegrambot
+./scripts/restore-full.sh --input /var/backups/gameclubtelegrambot/gameclub-backup-YYYYMMDD-HHMMSS.zip
+```
+
+Si estàs restaurant manualment fitxers separats:
 
 ```bash
 sudo install -d /etc/gameclubtelegrambot

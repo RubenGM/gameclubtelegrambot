@@ -120,7 +120,7 @@ ensure_packages() {
     return 0
   fi
 
-  for package in rsync nodejs npm python3 python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1 gnome-shell-extension-appindicator; do
+  for package in rsync nodejs npm python3 postgresql-client python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1 gnome-shell-extension-appindicator; do
     if ! package_installed "$package"; then
       packages+=("$package")
     fi
