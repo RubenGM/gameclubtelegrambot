@@ -5,6 +5,11 @@
       "source": "github/awesome-copilot",
       "sourceType": "github",
       "computedHash": "d0ece1b2164ce1376e4ab6e98d6ac079df3a2a94f5f02224362b6a1ce2516ae9"
+    },
+    "telegram-bot-builder": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "a57b1413132d277829e3e357270e993a5ae67a41fa757c9b201d46c30c6289fc"
     }
   }
 }
