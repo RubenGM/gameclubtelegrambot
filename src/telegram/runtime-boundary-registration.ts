@@ -1,4 +1,6 @@
 import { APP_VERSION } from '../app-version.js';
+import { appendAuditEvent } from '../audit/audit-log.js';
+import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { elevateApprovedUserToAdmin } from '../membership/admin-elevation.js';
 import { createDatabaseAdminElevationRepository } from '../membership/admin-elevation-store.js';
 import {
@@ -17,7 +19,11 @@ import {
   notifySubscribedAdminsOfMembershipRequest,
   toggleMembershipRequestNotifications,
 } from '../membership/request-notification-store.js';
-import { resolveTelegramActionMenu } from './action-menu.js';
+import {
+  resolveTelegramActionMenu,
+  resolveTelegramMenuSelection,
+  type TelegramResolvedActionMenu,
+} from './action-menu.js';
 import { handleTelegramCalendarText } from './calendar-flow.js';
 import {
   handleTelegramCatalogAdminCallback,
@@ -121,6 +127,8 @@ function registerTextHandlers({
   adminElevationPasswordHash: string;
 }): void {
   bot.onText(async (context) => {
+    await recordCurrentMenuActionSelection(context);
+
     if (await handleTelegramLanguageText(context)) {
       return;
     }
@@ -427,7 +435,7 @@ function createDefaultCommands({
 
         await context.reply(
           cancelled ? i18n.common.flowCancelled : i18n.common.noActiveFlowToCancel,
-          buildReplyOptionsForCurrentActionMenu(context),
+          await buildReplyOptionsForCurrentActionMenu(context),
         );
       },
     },
@@ -460,7 +468,7 @@ function createDefaultCommands({
           return;
         }
 
-        const startReply = buildStartReply({
+        const startReply = await buildStartReply({
           context,
           publicName,
           version: APP_VERSION,
@@ -607,7 +615,7 @@ function formatGroupStartMessage({
   return createTelegramI18n(language).common.startMessageGroup.replace('{publicName}', publicName);
 }
 
-function buildStartReply({
+async function buildStartReply({
   context,
   publicName,
   version,
@@ -615,7 +623,7 @@ function buildStartReply({
   context: TelegramCommandHandlerContext;
   publicName: string;
   version: string;
-}): { message: string; options: TelegramReplyOptions | undefined } {
+}): Promise<{ message: string; options: TelegramReplyOptions | undefined }> {
   const language = context.runtime.bot.language ?? 'ca';
   if (context.runtime.chat.kind === 'private') {
     return {
@@ -626,7 +634,7 @@ function buildStartReply({
         isApproved: context.runtime.actor.isApproved,
         language,
       }),
-      options: buildReplyOptionsForCurrentActionMenu(context),
+      options: await buildReplyOptionsForCurrentActionMenu(context),
     };
   }
 
@@ -752,7 +760,7 @@ function registerMembershipCallbacks({
     });
 
     await context.runtime.session.cancel();
-    await context.reply(result.adminMessage, buildReplyOptionsForCurrentActionMenu(context));
+    await context.reply(result.adminMessage, await buildReplyOptionsForCurrentActionMenu(context));
 
     if (result.outcome !== 'revoked') {
       return;
@@ -782,7 +790,7 @@ function registerMembershipCallbacks({
     await context.runtime.session.cancel();
     await context.reply(
       createTelegramI18n(context.runtime.bot.language ?? 'ca').common.flowCancelled,
-      buildReplyOptionsForCurrentActionMenu(context),
+      await buildReplyOptionsForCurrentActionMenu(context),
     );
   });
 }
@@ -1028,7 +1036,7 @@ async function handleTelegramTranslatedActionMenuText(
       return true;
     }
 
-    const startReply = buildStartReply({
+    const startReply = await buildStartReply({
       context,
       publicName: context.runtime.bot.publicName,
       version: APP_VERSION,
@@ -1092,13 +1100,23 @@ async function handlePrivateAutoMembershipRequest(
     });
   }
 
-  await context.reply(result.message, buildReplyOptionsForCurrentActionMenu(context));
+  await context.reply(result.message, await buildReplyOptionsForCurrentActionMenu(context));
   return true;
 }
 
-function buildReplyOptionsForCurrentActionMenu(
+async function buildReplyOptionsForCurrentActionMenu(
   context: TelegramCommandHandlerContext,
-): TelegramReplyOptions | undefined {
+): Promise<TelegramReplyOptions | undefined> {
+  const menu = resolveCurrentActionMenu(context);
+  if (!menu) {
+    return undefined;
+  }
+
+  await recordTelegramMenuShown(context, menu);
+  return menu;
+}
+
+function resolveCurrentActionMenu(context: TelegramCommandHandlerContext): TelegramResolvedActionMenu | undefined {
   return resolveTelegramActionMenu({
     context: {
       actor: context.runtime.actor,
@@ -1108,6 +1126,108 @@ function buildReplyOptionsForCurrentActionMenu(
       language: context.runtime.bot.language ?? 'ca',
     },
   });
+}
+
+async function recordCurrentMenuActionSelection(
+  context: TelegramCommandHandlerContext,
+): Promise<void> {
+  const text = context.messageText?.trim();
+  if (!text) {
+    return;
+  }
+
+  const selection = resolveTelegramMenuSelection({
+    context: {
+      actor: context.runtime.actor,
+      authorization: context.runtime.authorization,
+      chat: context.runtime.chat,
+      session: context.runtime.session.current,
+      language: context.runtime.bot.language ?? 'ca',
+    },
+    text,
+  });
+  if (!selection || selection.uxSection === 'flow') {
+    return;
+  }
+
+  await safeAppendTelegramMenuEvent(context, {
+    actionKey: 'telegram.menu.action_selected',
+    targetType: 'telegram-menu',
+    targetId: selection.menuId,
+    summary: `Telegram menu action selected: ${selection.actionId}`,
+    details: {
+      chatKind: context.runtime.chat.kind,
+      actorRole: resolveTelegramMenuActorRole(context),
+      language: context.runtime.bot.language ?? 'ca',
+      menuId: selection.menuId,
+      actionId: selection.actionId,
+      telemetryActionKey: selection.telemetryActionKey,
+      label: selection.label,
+    },
+  });
+}
+
+async function recordTelegramMenuShown(
+  context: TelegramCommandHandlerContext,
+  menu: TelegramResolvedActionMenu,
+): Promise<void> {
+  if (menu.menuId === 'active-flow') {
+    return;
+  }
+
+  await safeAppendTelegramMenuEvent(context, {
+    actionKey: 'telegram.menu.shown',
+    targetType: 'telegram-menu',
+    targetId: menu.menuId,
+    summary: `Telegram menu shown: ${menu.menuId}`,
+    details: {
+      chatKind: context.runtime.chat.kind,
+      actorRole: resolveTelegramMenuActorRole(context),
+      language: context.runtime.bot.language ?? 'ca',
+      visibleActionIds: menu.actions.map((action) => action.id),
+      visibleLabels: menu.actions.map((action) => action.label),
+    },
+  });
+}
+
+async function safeAppendTelegramMenuEvent(
+  context: TelegramCommandHandlerContext,
+  event: {
+    actionKey: string;
+    targetType: string;
+    targetId: string;
+    summary: string;
+    details: Record<string, unknown>;
+  },
+): Promise<void> {
+  try {
+    await appendAuditEvent({
+      repository: createDatabaseAuditLogRepository({ database: context.runtime.services.database.db as never }),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: event.actionKey,
+      targetType: event.targetType,
+      targetId: event.targetId,
+      summary: event.summary,
+      details: event.details,
+    });
+  } catch {
+    return;
+  }
+}
+
+function resolveTelegramMenuActorRole(
+  context: TelegramCommandHandlerContext,
+): 'pending' | 'member' | 'admin' | 'blocked' {
+  if (context.runtime.actor.isBlocked) {
+    return 'blocked';
+  }
+  if (context.runtime.actor.isAdmin) {
+    return 'admin';
+  }
+  if (context.runtime.actor.isApproved) {
+    return 'member';
+  }
+  return 'pending';
 }
 
 async function handleTelegramMemberMenuDebugText(

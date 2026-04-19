@@ -61,7 +61,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }
   >();
   const statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }> = [];
-  const auditEvents: Array<{ actionKey: string; targetType: string; targetId: string }> = [];
+  const auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }> = [];
   const databaseConnection = {
     pool: undefined as never,
     db: createMembershipDatabaseStub({ membershipUsers, statusAuditLog, auditEvents }) as never,
@@ -298,7 +298,31 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     statusAuditLog.map((entry) => `${entry.telegramUserId}:${entry.nextStatus}`),
     ['42:pending', '42:approved'],
   );
-  assert.deepEqual(auditEvents, [{ actionKey: 'membership.approved', targetType: 'membership-user', targetId: '42' }]);
+  assert.deepEqual(auditEvents, [
+    {
+      actionKey: 'telegram.menu.shown',
+      targetType: 'telegram-menu',
+      targetId: 'private-pending-default',
+      summary: 'Telegram menu shown: private-pending-default',
+      details: {
+        chatKind: 'private',
+        actorRole: 'pending',
+        language: 'ca',
+        visibleActionIds: ['access', 'language', 'help'],
+        visibleLabels: ['Acces al club', 'Idioma', 'Ajuda'],
+      },
+    },
+    {
+      actionKey: 'membership.approved',
+      targetType: 'membership-user',
+      targetId: '42',
+      summary: 'Usuari aprovat correctament',
+      details: {
+        previousStatus: 'pending',
+        nextStatus: 'approved',
+      },
+    },
+  ]);
 });
 
 test('createTelegramBoundary marks configured news groups as group-news chats', async () => {
@@ -951,7 +975,16 @@ test('cancel restores the default action menu after an active flow', async () =>
     {
       message: 'Proces cancel.lat correctament.',
       options: {
+        menuId: 'private-approved-default',
         replyKeyboard: [['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']],
+        actionRows: [['schedule', 'tables_read'], ['catalog'], ['language', 'help']],
+        actions: [
+          { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
+          { id: 'tables_read', label: 'Taules', telemetryActionKey: 'menu.tables', uxSection: 'primary' },
+          { id: 'catalog', label: 'Cataleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
+          { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
+          { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
+        ],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },
@@ -1255,6 +1288,7 @@ test('createTelegramBoundary routes plain text keyboard actions for admin table 
 
 test('createTelegramBoundary routes plain text keyboard actions for member table browsing', async () => {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }> = [];
 
   const telegram = await createTelegramBoundary({
     config: runtimeConfig,
@@ -1266,6 +1300,7 @@ test('createTelegramBoundary routes plain text keyboard actions for member table
       database: {
         pool: undefined as never,
         db: createClubTableDatabaseStub({
+          auditEvents,
           tables: [
             {
               id: 1,
@@ -1360,6 +1395,144 @@ test('createTelegramBoundary routes plain text keyboard actions for member table
   assert.equal(telegram.status.bot, 'connected');
   assert.match(replies[0]?.message ?? '', /Taules disponibles/);
   assert.match(replies[0]?.message ?? '', /Mesa TV/);
+  assert.deepEqual(auditEvents, [
+    {
+      actionKey: 'telegram.menu.action_selected',
+      targetType: 'telegram-menu',
+      targetId: 'private-approved-default',
+      summary: 'Telegram menu action selected: tables_read',
+      details: {
+        chatKind: 'private',
+        actorRole: 'member',
+        language: 'ca',
+        menuId: 'private-approved-default',
+        actionId: 'tables_read',
+        telemetryActionKey: 'menu.tables',
+        label: 'Taules',
+      },
+    },
+  ]);
+});
+
+test('createTelegramBoundary records menu telemetry when showing the approved member start menu', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const membershipUsers = new Map<
+    number,
+    { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }
+  >();
+  const statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }> = [];
+  const auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }> = [];
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub({ membershipUsers, statusAuditLog, auditEvents }) as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+      const commandHandlers = new Map<string, TelegramCommandHandler>();
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: (command, handler) => {
+          commandHandlers.set(command, handler);
+        },
+        onCallback: () => {},
+        onText: () => {},
+        username: 'gameclub_test_bot',
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 77,
+              username: 'member77',
+              first_name: 'Member',
+            },
+            messageText: '/start',
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push({ message, ...(options ? { options } : {}) });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              const startHandler = commandHandlers.get('start');
+              if (!startHandler) {
+                throw new Error('start handler not registered');
+              }
+
+              await startHandler(context as unknown as TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.match(replies[0]?.message ?? '', /Des del menu pots obrir activitats, taules i cataleg/);
+  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(auditEvents, [
+    {
+      actionKey: 'telegram.menu.shown',
+      targetType: 'telegram-menu',
+      targetId: 'private-approved-default',
+      summary: 'Telegram menu shown: private-approved-default',
+      details: {
+        chatKind: 'private',
+        actorRole: 'member',
+        language: 'ca',
+        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'language', 'help'],
+        visibleLabels: ['Activitats', 'Taules', 'Cataleg', 'Idioma', 'Ajuda'],
+      },
+    },
+  ]);
 });
 
 test('createTelegramBoundary routes plain text keyboard actions for schedule management', async () => {
@@ -1575,7 +1748,7 @@ function createMembershipDatabaseStub({
     { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }
   >;
   statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }>;
-  auditEvents: Array<{ actionKey: string; targetType: string; targetId: string }>;
+  auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }>;
 }) {
   type MembershipDatabaseStub = {
     transaction(handler: (tx: MembershipDatabaseStub) => Promise<unknown>): Promise<unknown>;
@@ -1675,6 +1848,8 @@ function createMembershipDatabaseStub({
               actionKey: String(value.actionKey),
               targetType: String(value.targetType),
               targetId: String(value.targetId),
+              summary: String(value.summary),
+              details: (value.details as Record<string, unknown> | null | undefined) ?? null,
             });
             return Promise.resolve();
           }
@@ -1804,8 +1979,10 @@ function createEmptyScheduleDatabaseStub() {
 }
 
 function createClubTableDatabaseStub({
+  auditEvents = [],
   tables,
 }: {
+  auditEvents?: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }>;
   tables: Array<{
     id: number;
     displayName: string;
@@ -1824,6 +2001,23 @@ function createClubTableDatabaseStub({
             where: async () => tables.filter((table) => table.lifecycleStatus === 'active').map(mapClubTableStubRow),
             orderBy: async () => tables.map(mapClubTableStubRow),
           };
+        },
+      };
+    },
+    insert() {
+      return {
+        values(value: Record<string, unknown>) {
+          if ('actionKey' in value && 'targetType' in value && 'targetId' in value) {
+            auditEvents.push({
+              actionKey: String(value.actionKey),
+              targetType: String(value.targetType),
+              targetId: String(value.targetId),
+              summary: String(value.summary),
+              details: (value.details as Record<string, unknown> | null | undefined) ?? null,
+            });
+          }
+
+          return Promise.resolve();
         },
       };
     },
