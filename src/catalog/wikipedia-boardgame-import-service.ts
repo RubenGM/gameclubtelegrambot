@@ -28,7 +28,41 @@ export interface WikipediaBoardGameImportService {
 }
 
 export interface BoardGameGeekCollectionImportService {
+  listCollections(username: string): Promise<BoardGameGeekCollectionListResult>;
+  importCollection(input: { username: string; collectionKey?: BoardGameGeekCollectionKey; collectionName?: string }): Promise<BoardGameGeekCollectionImportResult>;
   importByUsername(username: string): Promise<BoardGameGeekCollectionImportResult>;
+}
+
+export type BoardGameGeekCollectionKey = 'owned' | 'wishlist' | 'preordered' | 'for-trade' | 'want-to-play' | 'want-to-buy' | 'previously-owned';
+
+export type BoardGameGeekCollectionErrorStage = 'list-collections' | 'import-collection' | 'load-things';
+
+export type BoardGameGeekCollectionErrorReason =
+  | 'missing-api-key'
+  | 'auth-invalid'
+  | 'http-error'
+  | 'not-ready'
+  | 'unsupported-collection-name'
+  | 'no-importable-items'
+  | 'invalid-thing-response'
+  | 'unexpected';
+
+export interface BoardGameGeekCollectionDescriptor {
+  key: BoardGameGeekCollectionKey;
+  itemCount?: number;
+}
+
+export interface BoardGameGeekCollectionError {
+  type: 'bad-input' | 'connection' | 'invalid-response' | 'not-found' | 'unexpected';
+  stage: BoardGameGeekCollectionErrorStage;
+  reason: BoardGameGeekCollectionErrorReason;
+  message: string;
+  username: string;
+  httpStatus?: number;
+  canRetryManually: boolean;
+  collectionKey?: BoardGameGeekCollectionKey;
+  collectionName?: string;
+  supportedCollectionKeys?: BoardGameGeekCollectionKey[];
 }
 
 interface BoardGameGeekCandidate {
@@ -58,17 +92,82 @@ export type BoardGameGeekCollectionImportResult =
   | {
       ok: true;
       username: string;
+      collectionKey: BoardGameGeekCollectionKey;
       totalCount: number;
       items: WikipediaBoardGameCatalogDraft[];
       errors: string[];
     }
   | {
       ok: false;
-      error: {
-        type: 'bad-input' | 'connection' | 'invalid-response' | 'not-found' | 'unexpected';
-        message: string;
-      };
+      error: BoardGameGeekCollectionError;
     };
+
+export type BoardGameGeekCollectionListResult =
+  | {
+      ok: true;
+      username: string;
+      collections: BoardGameGeekCollectionDescriptor[];
+      canWriteCollectionName: boolean;
+    }
+  | {
+      ok: false;
+      error: BoardGameGeekCollectionError;
+    };
+
+type BoardGameGeekCollectionFilters = Partial<Record<'own' | 'wishlist' | 'preordered' | 'trade' | 'wanttoplay' | 'wanttobuy' | 'prevowned', '1'>>;
+
+const boardGameGeekCollectionDefinitions: Array<{
+  key: BoardGameGeekCollectionKey;
+  filters: BoardGameGeekCollectionFilters;
+  aliases: string[];
+}> = [
+  {
+    key: 'owned',
+    filters: { own: '1' },
+    aliases: ['owned', 'own', 'collection', 'my collection', 'coleccion propia', 'colección propia', 'col leccio propia', 'colleccio propia'],
+  },
+  {
+    key: 'wishlist',
+    filters: { wishlist: '1' },
+    aliases: ['wishlist', 'wish list', 'lista de deseos', 'llista de desitjos'],
+  },
+  {
+    key: 'preordered',
+    filters: { preordered: '1' },
+    aliases: ['preordered', 'preorder', 'reservados', 'reservat', 'reservados por adelantado'],
+  },
+  {
+    key: 'for-trade',
+    filters: { trade: '1' },
+    aliases: ['for trade', 'trade', 'en intercambio', 'para intercambio', 'per intercanvi'],
+  },
+  {
+    key: 'want-to-play',
+    filters: { wanttoplay: '1' },
+    aliases: ['want to play', 'wanttoplay', 'quiero jugar', 'vull jugar'],
+  },
+  {
+    key: 'want-to-buy',
+    filters: { wanttobuy: '1' },
+    aliases: ['want to buy', 'wanttobuy', 'quiero comprar', 'vull comprar'],
+  },
+  {
+    key: 'previously-owned',
+    filters: { prevowned: '1' },
+    aliases: ['previously owned', 'prevowned', 'owned before', 'antes en propiedad', 'abans en propietat'],
+  },
+];
+
+class BoardGameGeekLookupError extends Error {
+  constructor(
+    message: string,
+    readonly kind: 'http' | 'not-ready',
+    readonly httpStatus?: number,
+  ) {
+    super(message);
+    this.name = 'BoardGameGeekLookupError';
+  }
+}
 
 export function createWikipediaBoardGameImportService({
   scriptPath = './scripts/wikipedia-boardgame-catalog-import.sh',
@@ -124,57 +223,195 @@ export function createBoardGameGeekCollectionImportService({
   fetchImpl?: typeof fetch;
   bggApiKey?: string;
 } = {}): BoardGameGeekCollectionImportService {
-  return {
-    async importByUsername(username: string) {
-      const normalizedUsername = username.trim();
-      if (!normalizedUsername) {
-        return { ok: false, error: { type: 'bad-input', message: 'Falta el nom d usuari de BoardGameGeek.' } };
-      }
-
-      const normalizedBggApiKey = bggApiKey?.trim();
-      if (!normalizedBggApiKey) {
-        return { ok: false, error: { type: 'connection', message: 'La configuracio de BoardGameGeek no esta disponible.' } };
-      }
-
-      try {
-        const collectionEntries = await importBoardGameGeekCollectionEntries(fetchImpl, normalizedBggApiKey, normalizedUsername);
-        if (collectionEntries.length === 0) {
-          return { ok: false, error: { type: 'not-found', message: 'La col.leccio de BoardGameGeek no conte jocs importables.' } };
-        }
-
-        const thingXml = await importBoardGameGeekThingXml(fetchImpl, normalizedBggApiKey, collectionEntries.map((entry) => entry.id));
-        const items: WikipediaBoardGameCatalogDraft[] = [];
-        const errors: string[] = [];
-        for (const entry of collectionEntries) {
-          const draft = parseBoardGameGeekThing(thingXml, entry.id);
-          if (!draft) {
-            errors.push(`No s ha pogut carregar el detall de ${entry.displayName} [API #${entry.id}].`);
-            continue;
-          }
-          items.push(draft);
-        }
-
-        if (items.length === 0) {
-          return { ok: false, error: { type: 'invalid-response', message: 'BoardGameGeek no ha retornat detalls utils per a la col.leccio.' } };
-        }
-
-        return {
-          ok: true,
+  async function listCollections(username: string): Promise<BoardGameGeekCollectionListResult> {
+    const normalizedUsername = username.trim();
+    if (!normalizedUsername) {
+      return {
+        ok: false,
+        error: {
+          type: 'bad-input',
+          stage: 'list-collections',
+          reason: 'unexpected',
+          message: 'Missing BoardGameGeek username.',
           username: normalizedUsername,
-          totalCount: collectionEntries.length,
-          items,
-          errors,
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          error: {
-            type: 'connection',
-            message: error instanceof Error ? error.message : 'No s ha pogut connectar amb BoardGameGeek.',
-          },
-        };
+          canRetryManually: false,
+        },
+      };
+    }
+
+    const normalizedBggApiKey = bggApiKey?.trim();
+    if (!normalizedBggApiKey) {
+      return {
+        ok: false,
+        error: {
+          type: 'connection',
+          stage: 'list-collections',
+          reason: 'missing-api-key',
+          message: 'BoardGameGeek API key is missing.',
+          username: normalizedUsername,
+          canRetryManually: false,
+        },
+      };
+    }
+
+    return {
+      ok: true,
+      username: normalizedUsername,
+      collections: boardGameGeekCollectionDefinitions.map((definition) => ({ key: definition.key })),
+      canWriteCollectionName: true,
+    };
+  }
+
+  async function importCollection({
+    username,
+    collectionKey,
+    collectionName,
+  }: {
+    username: string;
+    collectionKey?: BoardGameGeekCollectionKey;
+    collectionName?: string;
+  }): Promise<BoardGameGeekCollectionImportResult> {
+    const normalizedUsername = username.trim();
+    if (!normalizedUsername) {
+      return {
+        ok: false,
+        error: {
+          type: 'bad-input',
+          stage: 'import-collection',
+          reason: 'unexpected',
+          message: 'Missing BoardGameGeek username.',
+          username: normalizedUsername,
+          canRetryManually: false,
+        },
+      };
+    }
+
+    const normalizedBggApiKey = bggApiKey?.trim();
+    const normalizedCollectionName = normalizeOptionalText(collectionName ?? null);
+    if (!normalizedBggApiKey) {
+      return {
+        ok: false,
+        error: {
+          type: 'connection',
+          stage: 'import-collection',
+          reason: 'missing-api-key',
+          message: 'BoardGameGeek API key is missing.',
+          username: normalizedUsername,
+          canRetryManually: false,
+          ...(collectionKey ? { collectionKey } : {}),
+          ...(normalizedCollectionName ? { collectionName: normalizedCollectionName } : {}),
+        },
+      };
+    }
+
+    const resolvedDefinition = collectionKey
+      ? boardGameGeekCollectionDefinitions.find((definition) => definition.key === collectionKey) ?? null
+      : resolveBoardGameGeekCollectionDefinition(collectionName ?? '');
+    if (!resolvedDefinition) {
+      return {
+        ok: false,
+        error: {
+          type: 'bad-input',
+          stage: 'import-collection',
+          reason: 'unsupported-collection-name',
+          message: 'Unsupported BoardGameGeek collection name.',
+          username: normalizedUsername,
+          supportedCollectionKeys: boardGameGeekCollectionDefinitions.map((definition) => definition.key),
+          canRetryManually: true,
+          ...(normalizedCollectionName ? { collectionName: normalizedCollectionName } : {}),
+        },
+      };
+    }
+
+    let collectionEntries: Array<{ id: string; displayName: string }>;
+    try {
+      collectionEntries = await importBoardGameGeekCollectionEntries(fetchImpl, normalizedBggApiKey, normalizedUsername, resolvedDefinition.filters);
+    } catch (error) {
+      return {
+        ok: false,
+        error: mapBoardGameGeekCollectionError(error, {
+          username: normalizedUsername,
+          stage: 'import-collection',
+          collectionKey: resolvedDefinition.key,
+          collectionName: normalizedCollectionName,
+          canRetryManually: !collectionKey,
+        }),
+      };
+    }
+
+    if (collectionEntries.length === 0) {
+      return {
+        ok: false,
+        error: {
+          type: 'not-found',
+          stage: 'import-collection',
+          reason: 'no-importable-items',
+          message: 'The selected BoardGameGeek collection does not contain importable items.',
+          username: normalizedUsername,
+          collectionKey: resolvedDefinition.key,
+          canRetryManually: !collectionKey,
+          ...(normalizedCollectionName ? { collectionName: normalizedCollectionName } : {}),
+        },
+      };
+    }
+
+    let thingXml: string;
+    try {
+      thingXml = await importBoardGameGeekThingXml(fetchImpl, normalizedBggApiKey, collectionEntries.map((entry) => entry.id));
+    } catch (error) {
+      return {
+        ok: false,
+        error: mapBoardGameGeekCollectionError(error, {
+          username: normalizedUsername,
+          stage: 'load-things',
+          collectionKey: resolvedDefinition.key,
+          collectionName: normalizedCollectionName,
+          canRetryManually: false,
+        }),
+      };
+    }
+
+    const items: WikipediaBoardGameCatalogDraft[] = [];
+    const errors: string[] = [];
+    for (const entry of collectionEntries) {
+      const draft = parseBoardGameGeekThing(thingXml, entry.id);
+      if (!draft) {
+        errors.push(`No s ha pogut carregar el detall de ${entry.displayName} [API #${entry.id}].`);
+        continue;
       }
-    },
+      items.push(draft);
+    }
+
+    if (items.length === 0) {
+      return {
+        ok: false,
+        error: {
+          type: 'invalid-response',
+          stage: 'load-things',
+          reason: 'invalid-thing-response',
+          message: 'BoardGameGeek did not return usable thing details for this collection.',
+          username: normalizedUsername,
+          collectionKey: resolvedDefinition.key,
+          canRetryManually: false,
+          ...(normalizedCollectionName ? { collectionName: normalizedCollectionName } : {}),
+        },
+      };
+    }
+
+    return {
+      ok: true,
+      username: normalizedUsername,
+      collectionKey: resolvedDefinition.key,
+      totalCount: collectionEntries.length,
+      items,
+      errors,
+    };
+  }
+
+  return {
+    listCollections,
+    importCollection,
+    importByUsername: (username: string) => importCollection({ username, collectionKey: 'owned' }),
   };
 }
 
@@ -241,9 +478,14 @@ async function importBoardGameGeekThingXml(fetchImpl: typeof fetch, apiKey: stri
   return fetchBoardGameGeekXml(fetchImpl, `https://boardgamegeek.com/xmlapi2/thing?${thingParams.toString()}`, apiKey);
 }
 
-async function importBoardGameGeekCollectionEntries(fetchImpl: typeof fetch, apiKey: string, username: string): Promise<Array<{ id: string; displayName: string }>> {
-  const boardGames = await importBoardGameGeekCollectionSubtype(fetchImpl, apiKey, username, 'boardgame');
-  const expansions = await importBoardGameGeekCollectionSubtype(fetchImpl, apiKey, username, 'boardgameexpansion');
+async function importBoardGameGeekCollectionEntries(
+  fetchImpl: typeof fetch,
+  apiKey: string,
+  username: string,
+  filters: BoardGameGeekCollectionFilters,
+): Promise<Array<{ id: string; displayName: string }>> {
+  const boardGames = await importBoardGameGeekCollectionSubtype(fetchImpl, apiKey, username, 'boardgame', filters);
+  const expansions = await importBoardGameGeekCollectionSubtype(fetchImpl, apiKey, username, 'boardgameexpansion', filters);
   const entries = [...boardGames, ...expansions];
   const deduped = new Map<string, { id: string; displayName: string }>();
   for (const entry of entries) {
@@ -259,12 +501,14 @@ async function importBoardGameGeekCollectionSubtype(
   apiKey: string,
   username: string,
   subtype: 'boardgame' | 'boardgameexpansion',
+  filters: BoardGameGeekCollectionFilters,
 ): Promise<Array<{ id: string; displayName: string }>> {
-  const params = new URLSearchParams({
-    username,
-    own: '1',
-    subtype,
-  });
+  const params = new URLSearchParams({ username, subtype });
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) {
+      params.set(key, value);
+    }
+  }
   const xml = await fetchBoardGameGeekXml(fetchImpl, `https://boardgamegeek.com/xmlapi2/collection?${params.toString()}`, apiKey);
   return parseBoardGameGeekCollection(xml);
 }
@@ -385,6 +629,104 @@ function asStringArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
+function resolveBoardGameGeekCollectionDefinition(value: string): (typeof boardGameGeekCollectionDefinitions)[number] | null {
+  const normalizedValue = normalizeSearchText(value);
+  if (!normalizedValue) {
+    return null;
+  }
+
+  return boardGameGeekCollectionDefinitions.find((definition) => {
+    if (normalizeSearchText(definition.key) === normalizedValue) {
+      return true;
+    }
+
+    return definition.aliases.some((alias) => normalizeSearchText(alias) === normalizedValue);
+  }) ?? null;
+}
+
+function mapBoardGameGeekCollectionError(
+  error: unknown,
+  {
+    username,
+    stage,
+    collectionKey,
+    collectionName,
+    canRetryManually,
+  }: {
+    username: string;
+    stage: BoardGameGeekCollectionErrorStage;
+    collectionKey?: BoardGameGeekCollectionKey;
+    collectionName?: string | null;
+    canRetryManually: boolean;
+  },
+): BoardGameGeekCollectionError {
+  const optionalContext = {
+    ...(collectionKey ? { collectionKey } : {}),
+    ...(collectionName ? { collectionName } : {}),
+  };
+
+  if (error instanceof BoardGameGeekLookupError) {
+    if (error.httpStatus === 401) {
+      return {
+        type: 'connection',
+        stage,
+        reason: 'auth-invalid',
+        message: 'BoardGameGeek authentication failed.',
+        username,
+        httpStatus: 401,
+        canRetryManually: false,
+        ...optionalContext,
+      };
+    }
+
+    if (error.httpStatus === 404) {
+      return {
+        type: 'not-found',
+        stage,
+        reason: 'no-importable-items',
+        message: 'BoardGameGeek did not find importable items for this request.',
+        username,
+        httpStatus: 404,
+        canRetryManually: false,
+        ...optionalContext,
+      };
+    }
+
+    if (error.kind === 'not-ready') {
+      return {
+        type: 'connection',
+        stage,
+        reason: 'not-ready',
+        message: 'BoardGameGeek did not become ready in time.',
+        username,
+        canRetryManually,
+        ...optionalContext,
+      };
+    }
+
+    return {
+      type: 'connection',
+      stage,
+      reason: 'http-error',
+      message: 'BoardGameGeek returned an HTTP error.',
+      username,
+      canRetryManually,
+      ...(typeof error.httpStatus === 'number' ? { httpStatus: error.httpStatus } : {}),
+      ...optionalContext,
+    };
+  }
+
+  return {
+    type: 'unexpected',
+    stage,
+    reason: 'unexpected',
+    message: error instanceof Error ? error.message : 'Unexpected BoardGameGeek error.',
+    username,
+    canRetryManually,
+    ...optionalContext,
+  };
+}
+
 async function fetchBoardGameGeekXml(fetchImpl: typeof fetch, url: string, apiKey: string): Promise<string> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const response = await fetchImpl(url, {
@@ -400,13 +742,13 @@ async function fetchBoardGameGeekXml(fetchImpl: typeof fetch, url: string, apiKe
     }
 
     if (!response.ok) {
-      throw new Error(`BoardGameGeek lookup failed with status ${response.status}`);
+      throw new BoardGameGeekLookupError(`BoardGameGeek lookup failed with status ${response.status}`, 'http', response.status);
     }
 
     return response.text();
   }
 
-  throw new Error('BoardGameGeek lookup did not become ready in time');
+  throw new BoardGameGeekLookupError('BoardGameGeek lookup did not become ready in time', 'not-ready');
 }
 
 function parseBoardGameGeekSearchResults(xml: string): BoardGameGeekCandidate[] {

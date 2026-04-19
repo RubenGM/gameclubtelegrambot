@@ -197,6 +197,24 @@ export function buildSingleCancelKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): 
   return buildReplyKeyboard([[texts.cancel]]);
 }
 
+export function buildBggCollectionChoiceOptions({
+  collectionLabels,
+  allowManualEntry,
+  language = 'ca',
+}: {
+  collectionLabels: string[];
+  allowManualEntry: boolean;
+  language?: 'ca' | 'es' | 'en';
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const replyKeyboard = chunkKeyboard(collectionLabels, 2);
+  if (allowManualEntry) {
+    replyKeyboard.push([texts.bggCollectionWriteManual]);
+  }
+  replyKeyboard.push([texts.cancel]);
+  return buildReplyKeyboard(replyKeyboard);
+}
+
 export function buildWikipediaUrlOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
   return buildReplyKeyboard([[texts.skipLookupImport], [texts.cancel]]);

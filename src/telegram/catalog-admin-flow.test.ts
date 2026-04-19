@@ -441,11 +441,65 @@ test('handleTelegramCatalogAdminText imports a BGG collection and refreshes exis
   const auditRepository = createAuditRepository();
   const collectionCalls: string[] = [];
   const boardGameGeekCollectionImportService: BoardGameGeekCollectionImportService = {
-    async importByUsername(username) {
-      collectionCalls.push(username);
+    async listCollections(username) {
       return {
         ok: true,
         username,
+        collections: [{ key: 'owned' }],
+        canWriteCollectionName: true,
+      };
+    },
+    async importCollection({ username, collectionKey }) {
+      collectionCalls.push(`${username}:${collectionKey ?? 'manual'}`);
+      return {
+        ok: true,
+        username,
+        collectionKey: collectionKey ?? 'owned',
+        totalCount: 2,
+        items: [
+          {
+            familyId: null,
+            groupId: null,
+            itemType: 'board-game',
+            displayName: 'Root',
+            originalName: 'Root',
+            description: 'Woodland war game',
+            language: null,
+            publisher: 'Leder Games',
+            publicationYear: 2018,
+            playerCountMin: 2,
+            playerCountMax: 4,
+            recommendedAge: 10,
+            playTimeMinutes: 90,
+            externalRefs: { boardGameGeekId: '101', boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/101' },
+            metadata: { source: 'boardgamegeek', boardGameGeekId: '101', imageUrl: 'https://example.com/root.jpg' },
+          },
+          {
+            familyId: null,
+            groupId: null,
+            itemType: 'expansion',
+            displayName: 'Riverfolk Expansion',
+            originalName: 'Riverfolk Expansion',
+            description: 'Root expansion',
+            language: null,
+            publisher: 'Leder Games',
+            publicationYear: 2018,
+            playerCountMin: 1,
+            playerCountMax: 6,
+            recommendedAge: 10,
+            playTimeMinutes: 90,
+            externalRefs: { boardGameGeekId: '202', boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/202' },
+            metadata: { source: 'boardgamegeek', boardGameGeekId: '202', imageUrl: 'https://example.com/riverfolk.jpg' },
+          },
+        ],
+        errors: [],
+      };
+    },
+    async importByUsername(username) {
+      return {
+        ok: true,
+        username,
+        collectionKey: 'owned',
         totalCount: 2,
         items: [
           {
@@ -501,7 +555,10 @@ test('handleTelegramCatalogAdminText imports a BGG collection and refreshes exis
   context.messageText = 'ruben';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.deepEqual(collectionCalls, ['ruben']);
+  context.messageText = 'Propia';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.deepEqual(collectionCalls, ['ruben:owned']);
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /ruben/);
   assert.match(replies.at(-1)?.message ?? '', /Creats:\s*1/i);

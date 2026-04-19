@@ -24,7 +24,11 @@ import {
   type CatalogRepository,
 } from '../catalog/catalog-model.js';
 import type {
+  BoardGameGeekCollectionDescriptor,
+  BoardGameGeekCollectionError,
+  BoardGameGeekCollectionKey,
   BoardGameGeekCollectionImportResult,
+  BoardGameGeekCollectionListResult,
   BoardGameGeekCollectionImportService,
   WikipediaBoardGameCatalogDraft,
   WikipediaBoardGameImportResult,
@@ -40,6 +44,7 @@ import {
   buildCreateFieldMenuOptions as buildCatalogCreateFieldMenuOptions,
   buildCreateOptionalKeyboard,
   buildDeactivateConfirmOptions,
+  buildBggCollectionChoiceOptions,
   buildEditConfirmOptions,
   buildEditFamilyOptions,
   buildEditFieldMenuOptions as buildCatalogEditFieldMenuOptions,
@@ -1441,22 +1446,202 @@ async function handleBggCollectionImportSession(
   stepKey: string,
 ): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-  const texts = createTelegramI18n(language).catalogAdmin;
-  if (stepKey !== 'bgg-username') {
-    return false;
+  const sessionData = context.runtime.session.current?.data ?? {};
+
+  if (stepKey === 'bgg-username') {
+    return handleBggCollectionUsernameStep(context, text, language);
   }
 
+  if (stepKey === 'bgg-collection-choice') {
+    return handleBggCollectionChoiceStep(context, text, sessionData, language);
+  }
+
+  if (stepKey === 'bgg-collection-manual-name') {
+    return handleBggCollectionManualNameStep(context, text, sessionData, language);
+  }
+
+  return false;
+}
+
+async function handleBggCollectionUsernameStep(
+  context: TelegramCatalogAdminContext,
+  text: string,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).catalogAdmin;
   const username = text.trim();
   if (!username) {
     await context.reply(texts.invalidBggCollectionUsername, buildSingleCancelKeyboard(language));
     return true;
   }
 
-  await context.reply(texts.importingBggCollection, buildSingleCancelKeyboard(language));
-  const importResult = await resolveBoardGameGeekCollectionImportService(context).importByUsername(username);
-  if (!importResult.ok) {
+  await context.reply(texts.loadingBggCollections, buildSingleCancelKeyboard(language));
+  const listResult = await resolveBoardGameGeekCollectionImportService(context).listCollections(username);
+  if (!listResult.ok) {
+    return replyAfterBggCollectionListFailure(context, listResult, language);
+  }
+
+  if (listResult.collections.length === 0) {
+    await context.runtime.session.advance({ stepKey: 'bgg-collection-manual-name', data: { username } });
+    await context.reply(texts.askBggCollectionManualName, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  const collectionLabels = listResult.collections.map((collection) => formatBggCollectionLabel(language, collection));
+  await context.runtime.session.advance({
+    stepKey: 'bgg-collection-choice',
+    data: {
+      username,
+      collectionKeys: listResult.collections.map((collection) => collection.key),
+      collectionLabels,
+      canWriteCollectionName: listResult.canWriteCollectionName,
+    },
+  });
+  await context.reply(
+    texts.askBggCollectionChoice,
+    buildBggCollectionChoiceOptions({
+      collectionLabels,
+      allowManualEntry: listResult.canWriteCollectionName,
+      language,
+    }),
+  );
+  return true;
+}
+
+async function replyAfterBggCollectionListFailure(
+  context: TelegramCatalogAdminContext,
+  listResult: Extract<BoardGameGeekCollectionListResult, { ok: false }>,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  if (!listResult.error.canRetryManually) {
     await context.runtime.session.cancel();
-    await context.reply(`${texts.bggCollectionImportFailed} ${importResult.error.message}`, buildCatalogAdminMenuOptions(language));
+    await context.reply(formatBggCollectionImportError(texts, listResult.error), buildCatalogAdminMenuOptions(language));
+    return true;
+  }
+
+  await context.runtime.session.advance({
+    stepKey: 'bgg-collection-manual-name',
+    data: { username: listResult.error.username },
+  });
+  await context.reply(
+    `${formatBggCollectionImportError(texts, listResult.error)} ${texts.askBggCollectionManualName}`,
+    buildSingleCancelKeyboard(language),
+  );
+  return true;
+}
+
+async function handleBggCollectionChoiceStep(
+  context: TelegramCatalogAdminContext,
+  text: string,
+  data: Record<string, unknown>,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const username = typeof data.username === 'string' ? data.username : '';
+  const collectionLabels = asStringArray(data.collectionLabels);
+  const collectionKeys = asStringArray(data.collectionKeys) as BoardGameGeekCollectionKey[];
+  const canWriteCollectionName = data.canWriteCollectionName === true;
+  if (!username || collectionLabels.length !== collectionKeys.length) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.bggCollectionImportFailed, buildCatalogAdminMenuOptions(language));
+    return true;
+  }
+
+  if (canWriteCollectionName && text === texts.bggCollectionWriteManual) {
+    await context.runtime.session.advance({ stepKey: 'bgg-collection-manual-name', data: { username } });
+    await context.reply(texts.askBggCollectionManualName, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  const selectedIndex = collectionLabels.findIndex((label) => label === text);
+  if (selectedIndex < 0) {
+    await context.reply(
+      texts.invalidBggCollectionChoice,
+      buildBggCollectionChoiceOptions({
+        collectionLabels,
+        allowManualEntry: canWriteCollectionName,
+        language,
+      }),
+    );
+    return true;
+  }
+
+  const selectedCollectionKey = collectionKeys[selectedIndex];
+  if (!selectedCollectionKey) {
+    await context.reply(texts.invalidBggCollectionChoice, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  return importBggCollectionSelection(context, {
+    username,
+    collectionKey: selectedCollectionKey,
+    language,
+  });
+}
+
+async function handleBggCollectionManualNameStep(
+  context: TelegramCatalogAdminContext,
+  text: string,
+  data: Record<string, unknown>,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const username = typeof data.username === 'string' ? data.username : '';
+  const collectionName = text.trim();
+  if (!username) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.bggCollectionImportFailed, buildCatalogAdminMenuOptions(language));
+    return true;
+  }
+  if (!collectionName) {
+    await context.reply(texts.invalidBggCollectionManualName, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  return importBggCollectionSelection(context, {
+    username,
+    collectionName,
+    language,
+  });
+}
+
+async function importBggCollectionSelection(
+  context: TelegramCatalogAdminContext,
+  {
+    username,
+    collectionKey,
+    collectionName,
+    language,
+  }: {
+    username: string;
+    collectionKey?: BoardGameGeekCollectionKey;
+    collectionName?: string;
+    language: 'ca' | 'es' | 'en';
+  },
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  await context.reply(texts.importingBggCollection, buildSingleCancelKeyboard(language));
+  const importResult = await resolveBoardGameGeekCollectionImportService(context).importCollection({
+    username,
+    ...(collectionKey ? { collectionKey } : {}),
+    ...(collectionName ? { collectionName } : {}),
+  });
+  if (!importResult.ok) {
+    if (importResult.error.canRetryManually && importResult.error.reason !== 'unsupported-collection-name') {
+      await context.runtime.session.advance({
+        stepKey: 'bgg-collection-manual-name',
+        data: { username },
+      });
+      await context.reply(
+        `${formatBggCollectionImportError(texts, importResult.error)} ${texts.askBggCollectionManualName}`,
+        buildSingleCancelKeyboard(language),
+      );
+      return true;
+    }
+
+    await context.runtime.session.cancel();
+    await context.reply(formatBggCollectionImportError(texts, importResult.error), buildCatalogAdminMenuOptions(language));
     return true;
   }
 
@@ -1472,6 +1657,54 @@ async function handleBggCollectionImportSession(
     buildCatalogAdminMenuOptions(language),
   );
   return true;
+}
+
+function formatBggCollectionLabel(language: 'ca' | 'es' | 'en', collection: BoardGameGeekCollectionDescriptor): string {
+  return renderBggCollectionKey(language, collection.key);
+}
+
+function renderBggCollectionKey(language: 'ca' | 'es' | 'en', key: BoardGameGeekCollectionKey): string {
+  const labels = {
+    owned: { ca: 'Propia', es: 'Propia', en: 'Owned' },
+    wishlist: { ca: 'Wishlist', es: 'Wishlist', en: 'Wishlist' },
+    preordered: { ca: 'Preordered', es: 'Preordered', en: 'Preordered' },
+    'for-trade': { ca: 'For trade', es: 'For trade', en: 'For trade' },
+    'want-to-play': { ca: 'Want to play', es: 'Want to play', en: 'Want to play' },
+    'want-to-buy': { ca: 'Want to buy', es: 'Want to buy', en: 'Want to buy' },
+    'previously-owned': { ca: 'Previously owned', es: 'Previously owned', en: 'Previously owned' },
+  } as const;
+  return labels[key][language];
+}
+
+function formatBggCollectionImportError(
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+  error: BoardGameGeekCollectionError,
+): string {
+  const stageLabel = error.stage === 'list-collections'
+    ? 'listar las colecciones'
+    : error.stage === 'import-collection'
+      ? 'importar la colección'
+      : 'cargar los juegos de la colección';
+  const statusLabel = typeof error.httpStatus === 'number' ? ` (HTTP ${error.httpStatus})` : '';
+
+  if (error.reason === 'missing-api-key' || error.reason === 'auth-invalid') {
+    return `${texts.bggCollectionImportFailed} Problema de configuración o autenticación de BoardGameGeek${statusLabel}.`;
+  }
+  if (error.reason === 'unsupported-collection-name') {
+    const supported = (error.supportedCollectionKeys ?? []).join(', ');
+    return `${texts.bggCollectionImportFailed} No reconozco esa colección de BoardGameGeek. Usa uno de estos nombres: ${supported}.`;
+  }
+  if (error.reason === 'not-ready') {
+    return `${texts.bggCollectionImportFailed} BoardGameGeek no terminó de preparar la respuesta al ${stageLabel} para ${error.username}.`;
+  }
+  if (error.reason === 'no-importable-items') {
+    return `${texts.bggCollectionImportFailed} No he encontrado items importables para ${error.username} al ${stageLabel}${statusLabel}.`;
+  }
+  if (error.reason === 'invalid-thing-response') {
+    return `${texts.bggCollectionImportFailed} BoardGameGeek devolvió detalles no utilizables para ${error.username}.`;
+  }
+
+  return `${texts.bggCollectionImportFailed} Falló al ${stageLabel} para ${error.username}${statusLabel}.`;
 }
 
 async function reconcileBoardGameGeekCollectionImport(
