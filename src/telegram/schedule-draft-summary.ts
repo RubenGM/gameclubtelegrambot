@@ -52,7 +52,7 @@ export async function formatScheduleDraftSummary({
     `${texts.detailsStart}: ${formatTimestamp(buildStartsAt(date, time))}`,
     `${texts.detailsDuration}: ${formatDurationMinutes(durationMinutes)}`,
     `${texts.detailsAttendanceMode}: ${attendanceMode === 'closed' ? texts.closedDetailTag : texts.openDetailTag}`,
-    `${texts.detailsSeats}: ${capacity}`,
+    `${attendanceMode === 'closed' ? texts.detailsPeople : texts.detailsSeats}: ${capacity}`,
     ...(attendanceMode === 'open' ? [`${texts.detailsInitialOccupiedSeats}: ${initialOccupiedSeats}`] : []),
     `${texts.detailsTable}: ${table?.displayName ?? texts.noTable}`,
     ...advisories.map(escapeHtml),

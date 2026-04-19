@@ -892,6 +892,86 @@ test('handleTelegramScheduleText offers quick minute buttons when creating an ac
   assert.equal((await scheduleRepository.findEventById(1))?.startsAt, '2026-04-05T17:15:00.000Z');
 });
 
+test('handleTelegramScheduleText accepts one-digit hours when creating an activity', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = 'Ark Nova';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.skipOptional;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = 'Diumenge, 05/04';
+  assert.equal(await handleTelegramScheduleText(context), true);
+
+  context.messageText = '2';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(getCurrentSession(), {
+    flowKey: 'schedule-create',
+    stepKey: 'time-minute',
+    data: { title: 'Ark Nova', description: null, date: '2026-04-05', timeHour: '02' },
+  });
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = ':15';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'duration-mode');
+
+  context.messageText = scheduleLabels.durationMinutes;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '120';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Tria si es mesa abierta o mesa cerrada\./);
+  context.messageText = scheduleLabels.attendanceOpen;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '4';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '0';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.noTable;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+
+  assert.equal((await scheduleRepository.findEventById(1))?.startsAt, '2026-04-05T02:15:00.000Z');
+});
+
+test('handleTelegramScheduleText shows people instead of seats in the closed-table confirmation summary', async () => {
+  const { context, replies, getCurrentSession } = createContext({ actorTelegramUserId: 42, language: 'es' });
+
+  context.messageText = scheduleLabels.create;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = 'Nemesis';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.skipOptional;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '05/04';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '16:00';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.durationMinutes;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '120';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.attendanceClosed;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'capacity');
+  context.messageText = '5';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.noTable;
+  assert.equal(await handleTelegramScheduleText(context), true);
+
+  assert.match(replies.at(-1)?.message ?? '', /Tipo: Mesa cerrada/);
+  assert.match(replies.at(-1)?.message ?? '', /Personas: 5/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Plazas: 5/);
+  assert.match(replies.at(-1)?.message ?? '', /Confirma o cancela el flujo\./);
+});
+
 test('handleTelegramScheduleText rejects invalid quick minute selections while creating an activity', async () => {
   const { context, replies, getCurrentSession } = createContext({ actorTelegramUserId: 42 });
 

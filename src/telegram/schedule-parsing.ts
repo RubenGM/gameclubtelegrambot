@@ -49,7 +49,7 @@ export function parseTime(value: string): string | Error {
 }
 
 export function parseTimeHour(value: string): string | Error {
-  return /^\d{2}$/.test(value) ? value : new Error('invalid-time-hour');
+  return /^\d{1,2}$/.test(value) ? value.padStart(2, '0') : new Error('invalid-time-hour');
 }
 
 export function parseTimeMinuteSelection(value: string): string | Error {
