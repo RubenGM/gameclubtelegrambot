@@ -27,6 +27,10 @@ export interface WikipediaBoardGameImportService {
   importByTitle(title: string): Promise<WikipediaBoardGameImportResult>;
 }
 
+export interface BoardGameGeekCollectionImportService {
+  importByUsername(username: string): Promise<BoardGameGeekCollectionImportResult>;
+}
+
 interface BoardGameGeekCandidate {
   id: string;
   names: string[];
@@ -49,6 +53,22 @@ export type WikipediaBoardGameImportResult =
     };
 
 export type WikipediaBoardGameImportErrorType = 'ambiguous' | 'bad-input' | 'connection' | 'invalid-response' | 'not-found' | 'unexpected';
+
+export type BoardGameGeekCollectionImportResult =
+  | {
+      ok: true;
+      username: string;
+      totalCount: number;
+      items: WikipediaBoardGameCatalogDraft[];
+      errors: string[];
+    }
+  | {
+      ok: false;
+      error: {
+        type: 'bad-input' | 'connection' | 'invalid-response' | 'not-found' | 'unexpected';
+        message: string;
+      };
+    };
 
 export function createWikipediaBoardGameImportService({
   scriptPath = './scripts/wikipedia-boardgame-catalog-import.sh',
@@ -90,6 +110,67 @@ export function createWikipediaBoardGameImportService({
           error: {
             type: 'connection',
             message: error instanceof Error ? error.message : 'No s ha pogut connectar amb el servei d importacio.',
+          },
+        };
+      }
+    },
+  };
+}
+
+export function createBoardGameGeekCollectionImportService({
+  fetchImpl = fetch,
+  bggApiKey,
+}: {
+  fetchImpl?: typeof fetch;
+  bggApiKey?: string;
+} = {}): BoardGameGeekCollectionImportService {
+  return {
+    async importByUsername(username: string) {
+      const normalizedUsername = username.trim();
+      if (!normalizedUsername) {
+        return { ok: false, error: { type: 'bad-input', message: 'Falta el nom d usuari de BoardGameGeek.' } };
+      }
+
+      const normalizedBggApiKey = bggApiKey?.trim();
+      if (!normalizedBggApiKey) {
+        return { ok: false, error: { type: 'connection', message: 'La configuracio de BoardGameGeek no esta disponible.' } };
+      }
+
+      try {
+        const collectionEntries = await importBoardGameGeekCollectionEntries(fetchImpl, normalizedBggApiKey, normalizedUsername);
+        if (collectionEntries.length === 0) {
+          return { ok: false, error: { type: 'not-found', message: 'La col.leccio de BoardGameGeek no conte jocs importables.' } };
+        }
+
+        const thingXml = await importBoardGameGeekThingXml(fetchImpl, normalizedBggApiKey, collectionEntries.map((entry) => entry.id));
+        const items: WikipediaBoardGameCatalogDraft[] = [];
+        const errors: string[] = [];
+        for (const entry of collectionEntries) {
+          const draft = parseBoardGameGeekThing(thingXml, entry.id);
+          if (!draft) {
+            errors.push(`No s ha pogut carregar el detall de ${entry.displayName} [API #${entry.id}].`);
+            continue;
+          }
+          items.push(draft);
+        }
+
+        if (items.length === 0) {
+          return { ok: false, error: { type: 'invalid-response', message: 'BoardGameGeek no ha retornat detalls utils per a la col.leccio.' } };
+        }
+
+        return {
+          ok: true,
+          username: normalizedUsername,
+          totalCount: collectionEntries.length,
+          items,
+          errors,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          error: {
+            type: 'connection',
+            message: error instanceof Error ? error.message : 'No s ha pogut connectar amb BoardGameGeek.',
           },
         };
       }
@@ -143,12 +224,74 @@ async function importFromBoardGameGeek({
 }
 
 async function importBoardGameGeekThingById(fetchImpl: typeof fetch, apiKey: string, itemId: string): Promise<WikipediaBoardGameCatalogDraft | null> {
+  const thingXml = await importBoardGameGeekThingXml(fetchImpl, apiKey, [itemId]);
+  return parseBoardGameGeekThing(thingXml, itemId);
+}
+
+async function importBoardGameGeekThingXml(fetchImpl: typeof fetch, apiKey: string, itemIds: string[]): Promise<string> {
+  const uniqueItemIds = [...new Set(itemIds.filter((itemId) => itemId.trim().length > 0))];
+  if (uniqueItemIds.length === 0) {
+    throw new Error('BoardGameGeek thing lookup requires at least one item id');
+  }
+
   const thingParams = new URLSearchParams({
-    id: itemId,
+    id: uniqueItemIds.join(','),
     stats: '1',
   });
-  const thingXml = await fetchBoardGameGeekXml(fetchImpl, `https://boardgamegeek.com/xmlapi2/thing?${thingParams.toString()}`, apiKey);
-  return parseBoardGameGeekThing(thingXml, itemId);
+  return fetchBoardGameGeekXml(fetchImpl, `https://boardgamegeek.com/xmlapi2/thing?${thingParams.toString()}`, apiKey);
+}
+
+async function importBoardGameGeekCollectionEntries(fetchImpl: typeof fetch, apiKey: string, username: string): Promise<Array<{ id: string; displayName: string }>> {
+  const boardGames = await importBoardGameGeekCollectionSubtype(fetchImpl, apiKey, username, 'boardgame');
+  const expansions = await importBoardGameGeekCollectionSubtype(fetchImpl, apiKey, username, 'boardgameexpansion');
+  const entries = [...boardGames, ...expansions];
+  const deduped = new Map<string, { id: string; displayName: string }>();
+  for (const entry of entries) {
+    if (!deduped.has(entry.id)) {
+      deduped.set(entry.id, entry);
+    }
+  }
+  return [...deduped.values()];
+}
+
+async function importBoardGameGeekCollectionSubtype(
+  fetchImpl: typeof fetch,
+  apiKey: string,
+  username: string,
+  subtype: 'boardgame' | 'boardgameexpansion',
+): Promise<Array<{ id: string; displayName: string }>> {
+  const params = new URLSearchParams({
+    username,
+    own: '1',
+    subtype,
+  });
+  const xml = await fetchBoardGameGeekXml(fetchImpl, `https://boardgamegeek.com/xmlapi2/collection?${params.toString()}`, apiKey);
+  return parseBoardGameGeekCollection(xml);
+}
+
+function parseBoardGameGeekCollection(xml: string): Array<{ id: string; displayName: string }> {
+  const matches = [...xml.matchAll(/<item\b([^>]*)>([\s\S]*?)<\/item>/g)];
+  const items: Array<{ id: string; displayName: string }> = [];
+  for (const match of matches) {
+    const attributes = match[1] ?? '';
+    const body = match[2] ?? '';
+    const id = readXmlAttribute(attributes, 'objectid') ?? readXmlAttribute(attributes, 'id');
+    if (!id) {
+      continue;
+    }
+
+    const displayName = firstNonEmpty([
+      normalizeOptionalText(readXmlElementText(body, 'name')),
+      decodeXmlEntities(readXmlAttributeFromTag(body, 'name', { type: 'primary' }, 'value') ?? '').trim(),
+      decodeXmlEntities(readXmlAttributeFromTag(body, 'name', {}, 'value') ?? '').trim(),
+    ]);
+    if (!displayName) {
+      continue;
+    }
+
+    items.push({ id, displayName });
+  }
+  return items;
 }
 
 function parseImportResult(value: unknown): WikipediaBoardGameImportResult {
@@ -480,9 +623,9 @@ function normalizeOptionalText(value: string | null): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function firstNonEmpty(values: string[]): string | null {
+function firstNonEmpty(values: Array<string | null>): string | null {
   for (const value of values) {
-    if (value.trim().length > 0) {
+    if (value && value.trim().length > 0) {
       return value;
     }
   }

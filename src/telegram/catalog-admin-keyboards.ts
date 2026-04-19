@@ -8,7 +8,8 @@ export function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): Tele
   return buildReplyKeyboard([
     [texts.create, texts.listBoardGames],
     [texts.listBooks, texts.listRpgBooks],
-    [texts.searchByName],
+    [texts.listExpansions, texts.searchByName],
+    [texts.importBggCollection],
     [i18n.actionMenu.start],
   ]);
 }

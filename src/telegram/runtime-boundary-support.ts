@@ -25,6 +25,7 @@ import { createMiddlewarePipeline } from './runtime-boundary-middleware.js';
 import { registerHandlers, toGrammyReplyOptions } from './runtime-boundary-registration.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 
 export { formatStartMessage, toGrammyReplyOptions } from './runtime-boundary-registration.js';
@@ -79,6 +80,7 @@ export interface TelegramRuntime {
   };
   services: InfrastructureRuntimeServices;
   wikipediaBoardGameImportService: ReturnType<typeof createWikipediaBoardGameImportService>;
+  boardGameGeekCollectionImportService: ReturnType<typeof createBoardGameGeekCollectionImportService>;
   chat?: TelegramChatContext;
   actor?: TelegramActor;
   authorization?: AuthorizationService;

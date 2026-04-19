@@ -4,6 +4,7 @@ import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-bo
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import {
   resolveTelegramChatContext,
 } from './chat-context.js';
@@ -53,11 +54,14 @@ export function createMiddlewarePipeline({
   const wikipediaBoardGameImportService = createWikipediaBoardGameImportService(
     config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {},
   );
+  const boardGameGeekCollectionImportService = createBoardGameGeekCollectionImportService(
+    config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {},
+  );
 
   return [
     createErrorHandlingMiddleware({ logger }),
     createLoggingMiddleware({ logger }),
-    createRuntimeContextMiddleware({ config, services, bot, wikipediaBoardGameImportService }),
+    createRuntimeContextMiddleware({ config, services, bot, wikipediaBoardGameImportService, boardGameGeekCollectionImportService }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
     createActorMiddleware({ services, loadActor }),
     createLanguageMiddleware({ config, languagePreferenceStore }),
@@ -179,11 +183,13 @@ function createRuntimeContextMiddleware({
   services,
   bot,
   wikipediaBoardGameImportService,
+  boardGameGeekCollectionImportService,
 }: {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
   bot: TelegramBotLike;
   wikipediaBoardGameImportService: ReturnType<typeof createWikipediaBoardGameImportService>;
+  boardGameGeekCollectionImportService: ReturnType<typeof createBoardGameGeekCollectionImportService>;
 }): TelegramMiddleware {
   return async (context, next) => {
     context.runtime = {
@@ -196,6 +202,7 @@ function createRuntimeContextMiddleware({
       },
       services,
       wikipediaBoardGameImportService,
+      boardGameGeekCollectionImportService,
     };
 
     await next();

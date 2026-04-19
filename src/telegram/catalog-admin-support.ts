@@ -23,10 +23,16 @@ import {
   type CatalogItemType,
   type CatalogRepository,
 } from '../catalog/catalog-model.js';
-import type { WikipediaBoardGameCatalogDraft, WikipediaBoardGameImportResult, WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import type {
+  BoardGameGeekCollectionImportResult,
+  BoardGameGeekCollectionImportService,
+  WikipediaBoardGameCatalogDraft,
+  WikipediaBoardGameImportResult,
+  WikipediaBoardGameImportService,
+} from '../catalog/wikipedia-boardgame-import-service.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
-import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import { createBoardGameGeekCollectionImportService, createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { buildLoanItemButton, formatLoanAvailabilityLines, resolveLoanBorrowerDisplayName, type TelegramCatalogLoanContext } from './catalog-loan-flow.js';
 import {
   buildCatalogAdminMenuOptions,
@@ -134,6 +140,7 @@ const deactivateFlowKey = 'catalog-admin-deactivate';
 const mediaFlowKey = 'catalog-admin-media';
 const mediaDeleteFlowKey = 'catalog-admin-media-delete';
 const browseFlowKey = 'catalog-admin-browse';
+const bggCollectionImportFlowKey = 'catalog-admin-bgg-collection-import';
 const catalogAdminStartPayloadPrefix = 'catalog_admin_item_';
 
 export const catalogAdminCallbackPrefixes = {
@@ -153,9 +160,11 @@ export const catalogAdminLabels = {
   create: 'Crear item',
   list: 'Llistar items',
   listBoardGames: 'Llistar jocs de taula',
+  listExpansions: 'Llistar expansions',
   listBooks: 'Llistar llibres',
   listRpgBooks: 'Llistar llibres RPG',
   searchByName: 'Cerca per nom',
+  importBggCollection: 'Importar col.leccio BGG',
   edit: 'Editar item',
   deactivate: 'Desactivar item',
   typeBoardGame: 'Joc de taula',
@@ -215,6 +224,7 @@ export interface TelegramCatalogAdminContext {
       };
     };
     wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
+    boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
     bot: {
       publicName: string;
       clubName: string;
@@ -228,6 +238,7 @@ export interface TelegramCatalogAdminContext {
   auditRepository?: AuditLogRepository;
   catalogLookupService?: CatalogLookupService;
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
+  boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
 }
 
 export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdminContext): Promise<boolean> {
@@ -255,6 +266,10 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
   }
   if (text === texts.listBoardGames || text === catalogAdminLabels.listBoardGames) {
     await replyWithCatalogList(context, 'list', 'board-game');
+    return true;
+  }
+  if (text === texts.listExpansions || text === catalogAdminLabels.listExpansions) {
+    await replyWithCatalogList(context, 'list', 'expansion');
     return true;
   }
   if (text === texts.listBooks || text === catalogAdminLabels.listBooks) {
@@ -288,6 +303,15 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
   if (text === texts.searchByName || text === catalogAdminLabels.searchByName || text === '/catalog_search') {
     await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'search-query', data: {} });
     await context.reply(texts.askSearchQuery, buildSingleCancelKeyboard());
+    return true;
+  }
+  if (text === texts.importBggCollection || text === catalogAdminLabels.importBggCollection) {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    await context.runtime.session.start({ flowKey: bggCollectionImportFlowKey, stepKey: 'bgg-username', data: {} });
+    await context.reply(texts.askBggCollectionUsername, buildSingleCancelKeyboard());
     return true;
   }
   return false;
@@ -440,7 +464,7 @@ function canAdministerCatalog(context: TelegramCatalogAdminContext): boolean {
 }
 
 function isCatalogAdminSession(flowKey: string | undefined): boolean {
-  return flowKey === createFlowKey || flowKey === editFlowKey || flowKey === deactivateFlowKey || flowKey === mediaFlowKey || flowKey === mediaDeleteFlowKey || flowKey === browseFlowKey;
+  return flowKey === createFlowKey || flowKey === editFlowKey || flowKey === deactivateFlowKey || flowKey === mediaFlowKey || flowKey === mediaDeleteFlowKey || flowKey === browseFlowKey || flowKey === bggCollectionImportFlowKey;
 }
 
 async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, text: string): Promise<boolean> {
@@ -495,11 +519,14 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
   if (session.flowKey === browseFlowKey) {
     return handleBrowseSession(context, text, session.stepKey, session.data);
   }
+  if (session.flowKey === bggCollectionImportFlowKey) {
+    return handleBggCollectionImportSession(context, text, session.stepKey);
+  }
   return false;
 }
 
 function isCatalogAdminOnlySession(flowKey: string): boolean {
-  return flowKey === editFlowKey || flowKey === deactivateFlowKey || flowKey === mediaFlowKey || flowKey === mediaDeleteFlowKey;
+  return flowKey === editFlowKey || flowKey === deactivateFlowKey || flowKey === mediaFlowKey || flowKey === mediaDeleteFlowKey || flowKey === bggCollectionImportFlowKey;
 }
 
 async function replyAdminOnly(context: TelegramCatalogAdminContext): Promise<void> {
@@ -743,12 +770,11 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
 async function replyWithCatalogList(
   context: TelegramCatalogAdminContext,
   mode: 'list' | 'edit' | 'deactivate',
-  itemTypeFilter?: Exclude<CatalogItemType, 'expansion'>,
+  itemTypeFilter?: CatalogItemType,
 ): Promise<void> {
   const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
   const items = (await listCatalogItems({ repository: resolveCatalogRepository(context), includeDeactivated: false }))
-    .filter((item) => item.itemType !== 'expansion')
-    .filter((item) => (itemTypeFilter ? item.itemType === itemTypeFilter : true));
+    .filter((item) => itemTypeFilter ? item.itemType === itemTypeFilter : item.itemType !== 'expansion');
   if (items.length === 0) {
     await context.reply(texts.noItems, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')));
     return;
@@ -1315,6 +1341,18 @@ function resolveWikipediaBoardGameImportService(context: TelegramCatalogAdminCon
   return createWikipediaBoardGameImportService();
 }
 
+function resolveBoardGameGeekCollectionImportService(context: TelegramCatalogAdminContext): BoardGameGeekCollectionImportService {
+  if (context.boardGameGeekCollectionImportService) {
+    return context.boardGameGeekCollectionImportService;
+  }
+
+  if (context.runtime.boardGameGeekCollectionImportService) {
+    return context.runtime.boardGameGeekCollectionImportService;
+  }
+
+  return createBoardGameGeekCollectionImportService();
+}
+
 async function importWikipediaBoardGameDraft(
   context: TelegramCatalogAdminContext,
   title: string,
@@ -1395,4 +1433,189 @@ function importWikipediaErrorMessage(result: Extract<WikipediaBoardGameImportRes
   }
 
   return 'No he pogut importar les dades del cataleg extern. Continuem manualment.';
+}
+
+async function handleBggCollectionImportSession(
+  context: TelegramCatalogAdminContext,
+  text: string,
+  stepKey: string,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  if (stepKey !== 'bgg-username') {
+    return false;
+  }
+
+  const username = text.trim();
+  if (!username) {
+    await context.reply(texts.invalidBggCollectionUsername, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  await context.reply(texts.importingBggCollection, buildSingleCancelKeyboard(language));
+  const importResult = await resolveBoardGameGeekCollectionImportService(context).importByUsername(username);
+  if (!importResult.ok) {
+    await context.runtime.session.cancel();
+    await context.reply(`${texts.bggCollectionImportFailed} ${importResult.error.message}`, buildCatalogAdminMenuOptions(language));
+    return true;
+  }
+
+  const summary = await reconcileBoardGameGeekCollectionImport(context, importResult);
+  await context.runtime.session.cancel();
+  await context.reply(
+    texts.bggCollectionImportSummary
+      .replace('{username}', importResult.username)
+      .replace('{created}', String(summary.created))
+      .replace('{updated}', String(summary.updated))
+      .replace('{skipped}', String(summary.skipped))
+      .replace('{errors}', String(summary.errors)),
+    buildCatalogAdminMenuOptions(language),
+  );
+  return true;
+}
+
+async function reconcileBoardGameGeekCollectionImport(
+  context: TelegramCatalogAdminContext,
+  importResult: Extract<BoardGameGeekCollectionImportResult, { ok: true }>,
+): Promise<{ created: number; updated: number; skipped: number; errors: number }> {
+  const repository = resolveCatalogRepository(context);
+  const allItems = await listCatalogItems({ repository, includeDeactivated: true });
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  let errors = importResult.errors.length;
+
+  for (const draft of importResult.items) {
+    const bggId = readBoardGameGeekId(draft.externalRefs);
+    if (!bggId) {
+      skipped += 1;
+      continue;
+    }
+
+    const existingByBggId = allItems.find((item) => readBoardGameGeekId(item.externalRefs) === bggId);
+    if (existingByBggId) {
+      await updateCatalogItem({
+        repository,
+        itemId: existingByBggId.id,
+        familyId: existingByBggId.familyId,
+        groupId: existingByBggId.groupId,
+        itemType: draft.itemType,
+        displayName: draft.displayName,
+        originalName: draft.originalName,
+        description: draft.description,
+        language: draft.language,
+        publisher: draft.publisher,
+        publicationYear: draft.publicationYear,
+        playerCountMin: draft.playerCountMin,
+        playerCountMax: draft.playerCountMax,
+        recommendedAge: draft.recommendedAge,
+        playTimeMinutes: draft.playTimeMinutes,
+        externalRefs: draft.externalRefs,
+        metadata: draft.metadata,
+      });
+      await appendAuditEvent({
+        repository: resolveAuditRepository(context),
+        actorTelegramUserId: context.runtime.actor.telegramUserId,
+        actionKey: 'catalog.item.updated',
+        targetType: 'catalog-item',
+        targetId: existingByBggId.id,
+        summary: `Item de cataleg actualitzat: ${draft.displayName}`,
+        details: { source: 'bgg-collection-import', boardGameGeekId: bggId, username: importResult.username },
+      });
+      updated += 1;
+      continue;
+    }
+
+    const matchingByName = allItems.filter((item) => item.itemType === draft.itemType && normalizeCatalogMatchText(item.displayName) === normalizeCatalogMatchText(draft.displayName));
+    if (matchingByName.length > 1) {
+      skipped += 1;
+      errors += 1;
+      continue;
+    }
+
+    if (matchingByName.length === 1 && matchingByName[0]) {
+      await updateCatalogItem({
+        repository,
+        itemId: matchingByName[0].id,
+        familyId: matchingByName[0].familyId,
+        groupId: matchingByName[0].groupId,
+        itemType: draft.itemType,
+        displayName: draft.displayName,
+        originalName: draft.originalName,
+        description: draft.description,
+        language: draft.language,
+        publisher: draft.publisher,
+        publicationYear: draft.publicationYear,
+        playerCountMin: draft.playerCountMin,
+        playerCountMax: draft.playerCountMax,
+        recommendedAge: draft.recommendedAge,
+        playTimeMinutes: draft.playTimeMinutes,
+        externalRefs: draft.externalRefs,
+        metadata: draft.metadata,
+      });
+      await appendAuditEvent({
+        repository: resolveAuditRepository(context),
+        actorTelegramUserId: context.runtime.actor.telegramUserId,
+        actionKey: 'catalog.item.updated',
+        targetType: 'catalog-item',
+        targetId: matchingByName[0].id,
+        summary: `Item de cataleg actualitzat: ${draft.displayName}`,
+        details: { source: 'bgg-collection-import', boardGameGeekId: bggId, username: importResult.username },
+      });
+      updated += 1;
+      continue;
+    }
+
+    const createdItem = await createCatalogItem({
+      repository,
+      familyId: draft.familyId,
+      groupId: draft.groupId,
+      itemType: draft.itemType,
+      displayName: draft.displayName,
+      originalName: draft.originalName,
+      description: draft.description,
+      language: draft.language,
+      publisher: draft.publisher,
+      publicationYear: draft.publicationYear,
+      playerCountMin: draft.playerCountMin,
+      playerCountMax: draft.playerCountMax,
+      recommendedAge: draft.recommendedAge,
+      playTimeMinutes: draft.playTimeMinutes,
+      externalRefs: draft.externalRefs,
+      metadata: draft.metadata,
+    });
+    allItems.push(createdItem);
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'catalog.item.created',
+      targetType: 'catalog-item',
+      targetId: createdItem.id,
+      summary: `Item de cataleg creat: ${createdItem.displayName}`,
+      details: { source: 'bgg-collection-import', boardGameGeekId: bggId, username: importResult.username },
+    });
+    created += 1;
+  }
+
+  return { created, updated, skipped, errors };
+}
+
+function readBoardGameGeekId(externalRefs: Record<string, unknown> | null): string | null {
+  const value = externalRefs?.boardGameGeekId;
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim();
+  }
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    return String(value);
+  }
+  return null;
+}
+
+function normalizeCatalogMatchText(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }

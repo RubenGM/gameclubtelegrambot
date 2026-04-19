@@ -15,6 +15,7 @@ import type {
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import { normalizeDisplayName } from '../membership/display-name.js';
 import type { WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import type { BoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import {
@@ -275,6 +276,7 @@ function createContext({
   auditRepository = createAuditRepository(),
   catalogLookupService,
   wikipediaBoardGameImportService,
+  boardGameGeekCollectionImportService,
   isAdmin = true,
   language = 'ca',
 }: {
@@ -284,6 +286,7 @@ function createContext({
   auditRepository?: AuditLogRepository;
   catalogLookupService?: CatalogLookupService;
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
+  boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
   isAdmin?: boolean;
   language?: 'ca' | 'es' | 'en';
 } = {}) {
@@ -345,6 +348,7 @@ function createContext({
     auditRepository,
     ...(catalogLookupService ? { catalogLookupService } : {}),
     ...(wikipediaBoardGameImportService ? { wikipediaBoardGameImportService } : {}),
+    ...(boardGameGeekCollectionImportService ? { boardGameGeekCollectionImportService } : {}),
   };
 
   return { context, replies, getCurrentSession: () => currentSession };
@@ -359,7 +363,8 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     [catalogAdminLabels.create, catalogAdminLabels.listBoardGames],
     [catalogAdminLabels.listBooks, catalogAdminLabels.listRpgBooks],
-    [catalogAdminLabels.searchByName],
+    [catalogAdminLabels.listExpansions, catalogAdminLabels.searchByName],
+    [catalogAdminLabels.importBggCollection],
     [catalogAdminLabels.start],
   ]);
 });
@@ -374,7 +379,8 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     [catalogAdminLabels.create, 'Listar juegos de mesa'],
     ['Listar libros', 'Listar libros RPG'],
-    ['Buscar por nombre'],
+    ['Listar expansiones', 'Buscar por nombre'],
+    ['Importar colección BGG'],
     ['Inicio'],
   ]);
 
@@ -387,9 +393,161 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
   context.messageText = 'Listar libros RPG';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
+  context.messageText = 'Listar expansiones';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
   context.messageText = 'Buscar por nombre';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /Escribe el nombre, o parte del nombre,/);
+});
+
+test('handleTelegramCatalogAdminText rejects BGG collection import for non-admin members', async () => {
+  const { context, replies, getCurrentSession } = createContext({ isAdmin: false, language: 'es' });
+
+  context.messageText = 'Importar colección BGG';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /solo administradores|administrador/i);
+});
+
+test('handleTelegramCatalogAdminText imports a BGG collection and refreshes existing items', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root old',
+        originalName: 'Root old',
+        description: 'old description',
+        language: null,
+        publisher: 'Old Publisher',
+        publicationYear: 2017,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: 8,
+        playTimeMinutes: 60,
+        externalRefs: { boardGameGeekId: '101', boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/101' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '101' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const auditRepository = createAuditRepository();
+  const collectionCalls: string[] = [];
+  const boardGameGeekCollectionImportService: BoardGameGeekCollectionImportService = {
+    async importByUsername(username) {
+      collectionCalls.push(username);
+      return {
+        ok: true,
+        username,
+        totalCount: 2,
+        items: [
+          {
+            familyId: null,
+            groupId: null,
+            itemType: 'board-game',
+            displayName: 'Root',
+            originalName: 'Root',
+            description: 'Woodland war game',
+            language: null,
+            publisher: 'Leder Games',
+            publicationYear: 2018,
+            playerCountMin: 2,
+            playerCountMax: 4,
+            recommendedAge: 10,
+            playTimeMinutes: 90,
+            externalRefs: { boardGameGeekId: '101', boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/101' },
+            metadata: { source: 'boardgamegeek', boardGameGeekId: '101', imageUrl: 'https://example.com/root.jpg' },
+          },
+          {
+            familyId: null,
+            groupId: null,
+            itemType: 'expansion',
+            displayName: 'Riverfolk Expansion',
+            originalName: 'Riverfolk Expansion',
+            description: 'Root expansion',
+            language: null,
+            publisher: 'Leder Games',
+            publicationYear: 2018,
+            playerCountMin: 1,
+            playerCountMax: 6,
+            recommendedAge: 10,
+            playTimeMinutes: 90,
+            externalRefs: { boardGameGeekId: '202', boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/202' },
+            metadata: { source: 'boardgamegeek', boardGameGeekId: '202', imageUrl: 'https://example.com/riverfolk.jpg' },
+          },
+        ],
+        errors: [],
+      };
+    },
+  };
+  const { context, replies, getCurrentSession } = createContext({
+    repository,
+    auditRepository,
+    boardGameGeekCollectionImportService,
+  });
+
+  context.messageText = catalogAdminLabels.importBggCollection;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-bgg-collection-import');
+  assert.equal(getCurrentSession()?.stepKey, 'bgg-username');
+
+  context.messageText = 'ruben';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.deepEqual(collectionCalls, ['ruben']);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /ruben/);
+  assert.match(replies.at(-1)?.message ?? '', /Creats:\s*1/i);
+  assert.match(replies.at(-1)?.message ?? '', /Actualitzats:\s*1/i);
+  assert.equal((await repository.findItemById(3))?.displayName, 'Root');
+  assert.equal((await repository.findItemById(3))?.publisher, 'Leder Games');
+  assert.equal((await repository.findItemById(3))?.recommendedAge, 10);
+  assert.equal((await repository.findItemById(4))?.itemType, 'expansion');
+  assert.equal((await repository.findItemById(4))?.displayName, 'Riverfolk Expansion');
+  assert.equal(auditRepository.__events.filter((event) => event.actionKey === 'catalog.item.updated').length, 1);
+  assert.equal(auditRepository.__events.filter((event) => event.actionKey === 'catalog.item.created').length, 1);
+});
+
+test('handleTelegramCatalogAdminText lists expansions from the catalog menu', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 7,
+        familyId: null,
+        groupId: null,
+        itemType: 'expansion',
+        displayName: 'Riverfolk Expansion',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: { boardGameGeekId: '202' },
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies } = createContext({ repository, language: 'es' });
+
+  context.messageText = 'Listar expansiones';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.match(replies.at(-1)?.message ?? '', /Riverfolk Expansion/);
 });
 
 test('handleTelegramCatalogAdminText lets approved non-admin members open the catalog menu and start creation', async () => {
