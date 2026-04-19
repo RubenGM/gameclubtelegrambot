@@ -53,7 +53,7 @@ test('resolveTelegramActionMenu returns pending private user actions by default'
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['/access', 'Idioma', 'Inici'], ['Ajuda']],
+    replyKeyboard: [['Acces al club'], ['Idioma', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -78,13 +78,13 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Administrar usuaris'], ['Idioma'], ['Inici', 'Ajuda']],
+    replyKeyboard: [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
 });
 
-test('resolveTelegramActionMenu hides tables for approved non-admin members', async () => {
+test('resolveTelegramActionMenu shows a compact member menu for approved non-admin members', async () => {
   const menu = resolveTelegramActionMenu({
     context: createContext({
       actor: {
@@ -103,7 +103,7 @@ test('resolveTelegramActionMenu hides tables for approved non-admin members', as
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['Cataleg'], ['/elevate_admin'], ['Idioma'], ['Inici', 'Ajuda']],
+    replyKeyboard: [['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -128,7 +128,7 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Administrar usuaris'], ['Idioma'], ['Inici', 'Ajuda']],
+    replyKeyboard: [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -153,7 +153,7 @@ test('resolveTelegramActionMenu treats revoked users like pending users for acce
   });
 
   assert.deepEqual(menu, {
-    replyKeyboard: [['/access', 'Idioma', 'Inici'], ['Ajuda']],
+    replyKeyboard: [['Acces al club'], ['Idioma', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });

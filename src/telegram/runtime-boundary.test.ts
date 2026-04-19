@@ -284,12 +284,12 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'runtime:database:1',
     'reply:He registrat la teva sollicitud d acces. Ara queda pendent de revisio per part d un administrador del club. Quan te l aprovin, ja podras fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
     'reply:La teva sollicitud d acces ja esta pendent. Un administrador del club l ha de revisar abans que puguis fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
-    'reply-keyboard:/access|Idioma|Inici|Ajuda',
+    'reply-keyboard:Acces al club|Idioma|Ajuda',
     'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
     'reply:No hi ha cap usuari aprovat disponible per expulsar.',
     'reply:Usuari aprovat correctament.',
-    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/subscribe_requests - Activa avisos privats de noves sollicituds d accés\n/unsubscribe_requests - Desactiva avisos privats de noves sollicituds d accés\n/language - Canvia l idioma del bot\n/schedule - Gestiona les teves activitats del club\n/tables - Consulta les taules actives del club\n/catalog_search - Consulta i cerca el cataleg\n/catalog - Gestiona el cataleg manual del club\n/review_access - Revisa sollicituds pendents\n/manage_users - Administra i expulsa usuaris aprovats\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el proces actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
+    'reply:Que pots fer ara:\nRevisar sollicituds: revisa i resol les sollicituds pendents.\nAdministrar usuaris: administra usuaris aprovats i expulsions.\nActivitats: consulta, crea o edita activitats del club.\nTaules: consulta les taules actives del local.\nCataleg: explora el cataleg i revisa prestecs.\n\nToca un boto del menu per continuar.',
     'start-polling',
     'stop-polling',
   ]);
@@ -827,9 +827,10 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Activitats'], ['Taules', 'Cataleg'], ['Menu soci'], ['Revisar sollicituds'], ['Administrar usuaris'], ['Idioma'], ['Inici', 'Ajuda']]);
+  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']]);
   assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.2\.0\)/);
-  assert.match(replies[1]?.message ?? '', /Comandes disponibles en aquest xat/);
+  assert.match(replies[0]?.message ?? '', /sollicituds/i);
+  assert.match(replies[1]?.message ?? '', /Que pots fer ara/);
   assert.match(replies[2]?.message ?? '', /Sollicituds pendents/);
   assert.deepEqual(
     replies[2]?.options?.inlineKeyboard?.flat().map((button) => button.text),
@@ -950,7 +951,7 @@ test('cancel restores the default action menu after an active flow', async () =>
     {
       message: 'Proces cancel.lat correctament.',
       options: {
-        replyKeyboard: [['Activitats'], ['Cataleg'], ['/elevate_admin'], ['Idioma'], ['Inici', 'Ajuda']],
+        replyKeyboard: [['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },
@@ -1252,6 +1253,115 @@ test('createTelegramBoundary routes plain text keyboard actions for admin table 
   ]);
 });
 
+test('createTelegramBoundary routes plain text keyboard actions for member table browsing', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createClubTableDatabaseStub({
+          tables: [
+            {
+              id: 1,
+              displayName: 'Mesa TV',
+              description: null,
+              recommendedCapacity: 6,
+              lifecycleStatus: 'active',
+              createdAt: '2026-04-05T10:00:00.000Z',
+              updatedAt: '2026-04-05T10:00:00.000Z',
+            },
+          ],
+        }) as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+      const textHandlers: TelegramCommandHandler[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: (handler: TelegramCommandHandler) => {
+          textHandlers.push(handler);
+        },
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 77,
+            },
+            messageText: 'Taules',
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push({ message, ...(options ? { options } : {}) });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              const textHandler = textHandlers[0];
+              if (!textHandler) {
+                throw new Error('text handler not registered');
+              }
+
+              await textHandler(context as unknown as import('./command-registry.js').TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.match(replies[0]?.message ?? '', /Taules disponibles/);
+  assert.match(replies[0]?.message ?? '', /Mesa TV/);
+});
+
 test('createTelegramBoundary routes plain text keyboard actions for schedule management', async () => {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
 
@@ -1364,11 +1474,11 @@ test('formatStartMessage shows version only to admins', async () => {
   );
   assert.equal(
     formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false, isApproved: true, language: 'ca' }),
-    'Benvingut a Game Club Bot. Escriu /help per veure les opcions disponibles.',
+    'Benvingut a Game Club Bot. Des del menu pots obrir activitats, taules i cataleg.',
   );
   assert.equal(
     formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false, isApproved: false, language: 'ca' }),
-    'Benvingut a Game Club Bot. Encara no tens l acces aprovat. La teva sollicitud esta pendent de revisio. Quan un administrador l aprovi, podras fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
+    'Benvingut a Game Club Bot. Per començar, toca Acces al club o escriu /start. Si la teva sollicitud ja esta pendent, espera l aprovacio d un administrador.',
   );
 });
 
@@ -1690,5 +1800,49 @@ function createEmptyScheduleDatabaseStub() {
         },
       };
     },
+  };
+}
+
+function createClubTableDatabaseStub({
+  tables,
+}: {
+  tables: Array<{
+    id: number;
+    displayName: string;
+    description: string | null;
+    recommendedCapacity: number | null;
+    lifecycleStatus: 'active' | 'deactivated';
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}) {
+  return {
+    select() {
+      return {
+        from() {
+          return {
+            where: async () => tables.filter((table) => table.lifecycleStatus === 'active').map(mapClubTableStubRow),
+            orderBy: async () => tables.map(mapClubTableStubRow),
+          };
+        },
+      };
+    },
+  };
+}
+
+function mapClubTableStubRow(table: {
+  id: number;
+  displayName: string;
+  description: string | null;
+  recommendedCapacity: number | null;
+  lifecycleStatus: 'active' | 'deactivated';
+  createdAt: string;
+  updatedAt: string;
+}) {
+  return {
+    ...table,
+    createdAt: new Date(table.createdAt),
+    updatedAt: new Date(table.updatedAt),
+    deactivatedAt: null,
   };
 }

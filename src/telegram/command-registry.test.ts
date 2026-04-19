@@ -184,9 +184,11 @@ test('renderTelegramHelpMessage reminds pending private users to ask an admin fo
     context: createContext({ kind: 'private', isApproved: false, isAdmin: false }),
   });
 
-  assert.match(message, /Comandes disponibles en aquest xat/);
-  assert.match(message, /\/start - Comprova l estat del bot/);
+  assert.match(message, /Que pots fer ara/);
+  assert.match(message, /Acces al club/);
+  assert.match(message, /Idioma/);
   assert.match(message, /avisa un administrador/i);
+  assert.doesNotMatch(message, /\/start/);
   assert.doesNotMatch(message, /\/reserve/);
 });
 
@@ -280,9 +282,9 @@ test('renderTelegramHelpMessage adapts shared help to chat context and access', 
     context: createContext({ kind: 'group', isApproved: true, isAdmin: false }),
   });
 
-  assert.match(message, /Comandes disponibles en aquest xat/);
-  assert.match(message, /\/start - Comprova l estat del bot/);
+  assert.match(message, /Que pots fer ara/);
+  assert.match(message, /escriu-me en privat/i);
   assert.doesNotMatch(message, /\/reserve/);
   assert.doesNotMatch(message, /\/admin/);
-  assert.match(message, /Per veure totes les funcions, escriu-me en privat/);
+  assert.doesNotMatch(message, /\/start/);
 });

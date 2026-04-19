@@ -111,35 +111,43 @@ export function renderTelegramHelpMessage({
   commands: TelegramCommandDefinition[];
   context: TelegramCommandHandlerContext;
 }): string {
+  void commands;
   const language = context.runtime.bot.language ?? 'ca';
   const i18n = createTelegramI18n(language);
-  const visibleCommands = commands.filter((command) => {
-    const access = command.access ?? 'public';
-    return (
-      (command.description || command.descriptionByLanguage) &&
-      command.contexts.includes(context.runtime.chat.kind) &&
-      hasRequiredAccess(context, access)
-    );
-  });
-
   const lines: string[] = [i18n.common.helpHeader];
 
-  for (const command of visibleCommands) {
-    const description = command.descriptionByLanguage?.[language] ?? command.description;
-    if (description) {
-      lines.push(`/${command.command} - ${description}`);
-    }
-  }
-
   if (context.runtime.chat.kind !== 'private') {
-    lines.push('');
     lines.push(i18n.common.helpFooterPrivate);
+    lines.push('');
+    lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
+    return lines.join('\n');
   }
 
-  if (context.runtime.chat.kind === 'private' && !context.runtime.actor.isApproved) {
+  if (!context.runtime.actor.isApproved) {
+    lines.push(`${i18n.actionMenu.access}: ${i18n.common.helpAccessAction}`);
+    lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
     lines.push('');
     lines.push(i18n.common.helpPendingApproval);
+    return lines.join('\n');
   }
+
+  if (context.runtime.actor.isAdmin) {
+    lines.push(`${i18n.actionMenu.reviewAccess}: ${i18n.common.helpReviewAccessAction}`);
+    lines.push(`${i18n.actionMenu.manageUsers}: ${i18n.common.helpManageUsersAction}`);
+    lines.push(`${i18n.actionMenu.schedule}: ${i18n.common.helpScheduleAction}`);
+    lines.push(`${i18n.actionMenu.tables}: ${i18n.common.helpTablesAction}`);
+    lines.push(`${i18n.actionMenu.catalog}: ${i18n.common.helpCatalogAction}`);
+    lines.push('');
+    lines.push(i18n.common.helpMenuHint);
+    return lines.join('\n');
+  }
+
+  lines.push(`${i18n.actionMenu.schedule}: ${i18n.common.helpScheduleAction}`);
+  lines.push(`${i18n.actionMenu.tablesRead}: ${i18n.common.helpTablesAction}`);
+  lines.push(`${i18n.actionMenu.catalog}: ${i18n.common.helpCatalogAction}`);
+  lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
+  lines.push('');
+  lines.push(i18n.common.helpMenuHint);
 
   return lines.join('\n');
 }

@@ -1001,6 +1001,24 @@ async function handleTelegramTranslatedActionMenuText(
     return false;
   }
 
+  if (text === i18n.actionMenu.access) {
+    if (context.runtime.chat.kind === 'private' && !context.runtime.actor.isApproved && !context.runtime.actor.isBlocked) {
+      await handlePrivateAutoMembershipRequest(context);
+      return true;
+    }
+
+    return false;
+  }
+
+  if (text === i18n.actionMenu.tablesRead) {
+    if (context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved && !context.runtime.actor.isBlocked && !context.runtime.actor.isAdmin) {
+      await handleTelegramTableReadCommand(context);
+      return true;
+    }
+
+    return false;
+  }
+
   if (await handleMembershipRevocationText(context)) {
     return true;
   }

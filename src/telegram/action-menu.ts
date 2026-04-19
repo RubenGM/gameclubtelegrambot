@@ -133,7 +133,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['schedule'], ['tables', 'catalog'], ['member_debug'], ['review_access'], ['manage_users'], ['language'], ['start', 'help']],
+    rows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog'], ['language', 'help']],
   },
   {
     id: 'private-approved-default',
@@ -142,7 +142,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['schedule'], ['catalog'], ['elevate_admin'], ['language'], ['start', 'help']],
+    rows: [['schedule', 'tables_read'], ['catalog'], ['language', 'help']],
   },
   {
     id: 'private-pending-default',
@@ -151,12 +151,12 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       !context.actor.isApproved &&
       !context.actor.isBlocked,
-    rows: [['access', 'language', 'start'], ['help']],
+    rows: [['access'], ['language', 'help']],
   },
   {
     id: 'default-shared',
     matches: (context) => context.session === null,
-    rows: [['language', 'start', 'help']],
+    rows: [['language', 'help']],
   },
 ];
 
