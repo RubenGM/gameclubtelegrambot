@@ -11,9 +11,10 @@ import {
   type TelegramMiddleware,
   toGrammyReplyOptions,
 } from './runtime-boundary.js';
-import type { TelegramCommandHandler } from './command-registry.js';
+import type { TelegramCommandHandler, TelegramCommandHandlerContext } from './command-registry.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import { createTelegramI18n } from './i18n.js';
+import { registerHandlers } from './runtime-boundary-registration.js';
 
 const runtimeConfig = {
   schemaVersion: 1,
@@ -113,6 +114,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
           callbackHandlers.set(callbackPrefix, handler);
         },
         onText: () => {},
+        username: 'gameclub_test_bot',
         sendPrivateMessage: async () => {},
         startPolling: async () => {
           const context: TelegramContextLike = {
@@ -1180,6 +1182,88 @@ test('formatStartMessage shows version only to admins', async () => {
     formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false, isApproved: false, language: 'ca' }),
     'Benvingut a Game Club Bot. Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
   );
+});
+
+test('toGrammyReplyOptions converts inline url buttons to grammY reply markup', async () => {
+  assert.deepEqual(
+    toGrammyReplyOptions({
+      inlineKeyboard: [[{ text: 'Abrir chat privado', url: 'https://t.me/gameclub_test_bot?start=from_group' }]],
+    }),
+    {
+      reply_markup: {
+        inline_keyboard: [[{ text: 'Abrir chat privado', url: 'https://t.me/gameclub_test_bot?start=from_group' }]],
+      },
+    },
+  );
+});
+
+test('group start reply explains private-chat usage and offers a private button', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const startHandlerCalls: TelegramCommandHandler[] = [];
+
+  registerHandlers({
+    bot: {
+      username: 'gameclub_test_bot',
+      use: () => {},
+      onCommand: (command: string, handler: TelegramCommandHandler) => {
+        if (command === 'start') {
+          startHandlerCalls.push(handler);
+        }
+      },
+      onCallback: () => {},
+      onText: () => {},
+      sendPrivateMessage: async () => {},
+      startPolling: async () => {},
+      stopPolling: async () => {},
+    },
+    publicName: 'Game Club Bot',
+    adminElevationPasswordHash: 'hashed:admin-secret',
+  });
+
+  const startHandler = startHandlerCalls[0];
+  assert.ok(startHandler);
+
+  await startHandler({
+    chat: { id: -100, type: 'group' },
+    from: { id: 77, username: 'agatha', first_name: 'Agatha' },
+    messageText: '/start',
+    reply: async (message: string, options?: TelegramReplyOptions) => {
+      replies.push({ message, ...(options ? { options } : {}) });
+    },
+    runtime: {
+      bot: {
+        publicName: 'Game Club Bot',
+        clubName: 'Game Club',
+        language: 'es',
+        username: 'gameclub_test_bot',
+        sendPrivateMessage: async () => {},
+      },
+      services: { database: { db: undefined as never } },
+      wikipediaBoardGameImportService: undefined as never,
+      boardGameGeekCollectionImportService: undefined as never,
+      chat: { kind: 'group', chatId: -100 },
+      actor: {
+        telegramUserId: 77,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: false,
+        permissions: [],
+      },
+      authorization: { authorize: () => ({ allowed: true, permissionKey: 'any', reason: 'test' }), can: () => true },
+      session: {
+        current: null,
+        start: async () => undefined as never,
+        advance: async () => undefined as never,
+        cancel: async () => false,
+      },
+    },
+  } as unknown as TelegramCommandHandlerContext);
+
+  assert.match(replies[0]?.message ?? '', /chat privado/i);
+  assert.match(replies[0]?.message ?? '', /grupos solo puedo orientarte/i);
+  assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[0]?.text, 'Abrir chat privado');
+  assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[0]?.url, 'https://t.me/gameclub_test_bot?start=from_group');
 });
 
 

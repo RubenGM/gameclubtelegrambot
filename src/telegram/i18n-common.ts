@@ -16,6 +16,9 @@ export const commonTexts = {
     startMessagePublic: 'Benvingut a {publicName}. Escriu /help per veure les opcions disponibles.',
     startMessagePending:
       'Benvingut a {publicName}. Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
+    startMessageGroup:
+      'Per fer servir {publicName}, has d escriure m en xat privat. En els grups nomes et puc orientar. Prem el boto per obrir el privat i envia m alla qualsevol missatge, per exemple /start.',
+    startOpenPrivateButton: 'Obrir xat privat',
     helpHeader: 'Comandes disponibles en aquest xat:',
     helpFooterPrivate: 'Per veure totes les funcions, escriu-me en privat.',
     helpPendingApproval:
@@ -51,6 +54,9 @@ export const commonTexts = {
     startMessagePublic: 'Bienvenido a {publicName}. Escribe /help para ver las opciones disponibles.',
     startMessagePending:
       'Bienvenido a {publicName}. Todavia no tienes el acceso aprobado. Avisa a un administrador del club para que apruebe tu solicitud y asi podras usar actividades, calendario, catalogo y mesas.',
+    startMessageGroup:
+      'Para usar {publicName}, tienes que escribirme por chat privado. En los grupos solo puedo orientarte. Pulsa el boton para abrir el privado y enviame alli cualquier mensaje, por ejemplo /start.',
+    startOpenPrivateButton: 'Abrir chat privado',
     helpHeader: 'Comandos disponibles en este chat:',
     helpFooterPrivate: 'Para ver todas las funciones, escribeme en privado.',
     helpPendingApproval:
@@ -86,6 +92,9 @@ export const commonTexts = {
     startMessagePublic: 'Welcome to {publicName}. Type /help to see the available options.',
     startMessagePending:
       'Welcome to {publicName}. Your access is still pending approval. Ask a club administrator to approve your request so you can use activities, calendar, catalog, and tables.',
+    startMessageGroup:
+      'To use {publicName}, you need to message me in private chat. In groups I can only point you in the right direction. Press the button to open the private chat and send me any message there, for example /start.',
+    startOpenPrivateButton: 'Open private chat',
     helpHeader: 'Commands available in this chat:',
     helpFooterPrivate: 'To see all features, message me in private.',
     helpPendingApproval:

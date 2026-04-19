@@ -197,6 +197,7 @@ function createRuntimeContextMiddleware({
         clubName: config.bot.clubName,
         language: config.bot.language,
         publicName: config.bot.publicName,
+        username: bot.username,
         sendPrivateMessage: bot.sendPrivateMessage.bind(bot),
         ...(bot.sendGroupMessage ? { sendGroupMessage: bot.sendGroupMessage.bind(bot) } : {}),
       },

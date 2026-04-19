@@ -452,16 +452,12 @@ function createDefaultCommands({
           return;
         }
 
-        await context.reply(
-          formatStartMessage({
-            publicName,
-            version: APP_VERSION,
-            isAdmin: context.runtime.actor.isAdmin,
-            isApproved: context.runtime.actor.isApproved,
-            language: context.runtime.bot.language ?? 'ca',
-          }),
-          buildReplyOptionsForCurrentActionMenu(context),
-        );
+        const startReply = buildStartReply({
+          context,
+          publicName,
+          version: APP_VERSION,
+        });
+        await context.reply(startReply.message, startReply.options);
       },
     },
     {
@@ -560,7 +556,7 @@ export function toGrammyReplyOptions(options?: TelegramReplyOptions): Record<str
       inline_keyboard: inlineKeyboard.map((row) =>
         row.map((button) => ({
           text: button.text,
-          callback_data: button.callbackData,
+          ...(button.url ? { url: button.url } : { callback_data: button.callbackData }),
         })),
       ),
     },
@@ -591,6 +587,50 @@ export function formatStartMessage({
   return template
     .replace('{publicName}', publicName)
     .replace('{version}', version);
+}
+
+function formatGroupStartMessage({
+  publicName,
+  language,
+}: {
+  publicName: string;
+  language: 'ca' | 'es' | 'en';
+}): string {
+  return createTelegramI18n(language).common.startMessageGroup.replace('{publicName}', publicName);
+}
+
+function buildStartReply({
+  context,
+  publicName,
+  version,
+}: {
+  context: TelegramCommandHandlerContext;
+  publicName: string;
+  version: string;
+}): { message: string; options: TelegramReplyOptions | undefined } {
+  const language = context.runtime.bot.language ?? 'ca';
+  if (context.runtime.chat.kind === 'private') {
+    return {
+      message: formatStartMessage({
+        publicName,
+        version,
+        isAdmin: context.runtime.actor.isAdmin,
+        isApproved: context.runtime.actor.isApproved,
+        language,
+      }),
+      options: buildReplyOptionsForCurrentActionMenu(context),
+    };
+  }
+
+  const privateUrl = context.runtime.bot.username ? `https://t.me/${context.runtime.bot.username}?start=from_group` : undefined;
+  return {
+    message: formatGroupStartMessage({ publicName, language }),
+    options: privateUrl
+      ? {
+          inlineKeyboard: [[{ text: createTelegramI18n(language).common.startOpenPrivateButton, url: privateUrl }]],
+        }
+      : undefined,
+  };
 }
 
 function registerMembershipCallbacks({
@@ -955,16 +995,12 @@ async function handleTelegramTranslatedActionMenuText(
   }
 
   if (text === i18n.actionMenu.start) {
-    await context.reply(
-      formatStartMessage({
-        publicName: context.runtime.bot.publicName,
-        version: APP_VERSION,
-        isAdmin: context.runtime.actor.isAdmin,
-        isApproved: context.runtime.actor.isApproved,
-        language,
-      }),
-      buildReplyOptionsForCurrentActionMenu(context),
-    );
+    const startReply = buildStartReply({
+      context,
+      publicName: context.runtime.bot.publicName,
+      version: APP_VERSION,
+    });
+    await context.reply(startReply.message, startReply.options);
     return true;
   }
 

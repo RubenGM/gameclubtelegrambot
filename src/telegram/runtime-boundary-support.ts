@@ -62,7 +62,8 @@ export interface TelegramContextLike {
 
 export interface TelegramInlineButton {
   text: string;
-  callbackData: string;
+  callbackData?: string;
+  url?: string;
 }
 
 export interface TelegramReplyOptions {
@@ -75,6 +76,7 @@ export interface TelegramReplyOptions {
 
 export interface TelegramRuntime {
   bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName' | 'language'> & {
+    username?: string | undefined;
     sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   };
@@ -93,6 +95,7 @@ export type TelegramMiddleware = (
 ) => Promise<void>;
 
 export interface TelegramBotLike {
+  username?: string | undefined;
   use(middleware: TelegramMiddleware): void;
   onCommand(command: string, handler: TelegramCommandHandler): void;
   onCallback(callbackPrefix: string, handler: TelegramCommandHandler): void;
@@ -249,8 +252,12 @@ function createGrammyTelegramBot({
   const bot = new Bot<Context & TelegramContextLike>(token);
   let pollingPromise: Promise<void> | undefined;
   let isStopping = false;
+  let botUsername: string | undefined;
 
   return {
+    get username() {
+      return botUsername;
+    },
     use(middleware) {
       bot.use(async (context, next) => middleware(context, next));
     },
@@ -305,6 +312,7 @@ function createGrammyTelegramBot({
       pollingPromise = bot.start({
         drop_pending_updates: false,
         onStart: ({ username }) => {
+          botUsername = username;
           logger.info({ username }, 'Telegram bot authenticated successfully');
         },
       }).catch((error) => {
