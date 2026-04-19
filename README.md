@@ -83,6 +83,10 @@ npm run db:generate
 npm run db:check
 npm run db:migrate
 npm run backup:console
+./scripts/backup-cli.sh status
+./scripts/backup-cli.sh backup [--output-dir /path]
+./scripts/backup-cli.sh list [--output-dir /path]
+./scripts/backup-cli.sh restore /ruta/al/backup.zip
 ./scripts/backup-full.sh
 ./scripts/restore-full.sh --input /ruta/al/backup.zip
 ```
@@ -146,6 +150,14 @@ La TUI muestra:
 - acciones para crear o restaurar backups
 
 Si faltan dependencias soportadas como `pg_dump` o `psql`, la herramienta intenta instalarlas automáticamente en Debian con `apt-get` y `sudo` cuando hace falta.
+
+Per a una gestió operativa ràpida també hi ha un wrapper shell:
+
+```bash
+./scripts/backup-cli.sh backup
+./scripts/backup-cli.sh list
+./scripts/backup-cli.sh restore /ruta/al/backup.zip
+```
 
 Entrada central recomendada:
 

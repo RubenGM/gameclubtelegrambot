@@ -15,6 +15,7 @@
     "start": "node dist/main.js",
     "tray:debian": "node dist/scripts/debian-tray.js",
     "backup:console": "node dist/scripts/backup-console.js",
+    "backup:cli": "./scripts/backup-cli.sh",
     "bootstrap:wizard": "node --import tsx src/scripts/bootstrap-wizard.ts",
     "config:check": "node --import tsx src/scripts/check-runtime-config.ts",
     "config:edit": "node --import tsx src/scripts/runtime-config-editor.ts",

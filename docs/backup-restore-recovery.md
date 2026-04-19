@@ -50,6 +50,7 @@ El repositori inclou scripts simples per ajudar l'operador:
 - `./scripts/backup-full.sh`
 - `./scripts/restore-full.sh`
 - `npm run backup:console`
+- `./scripts/backup-cli.sh`
 
 Els scripts que toquen PostgreSQL llegeixen la connexió des de `GAMECLUB_CONFIG_PATH` o, si no s'indica res, de `/etc/gameclubtelegrambot/runtime.json`.
 
@@ -72,6 +73,15 @@ La TUI mostra:
 - resum de la base de dades
 - llista de backups `.zip` disponibles
 - log de l'ultima operacio
+
+També hi ha un wrapper shell senzill per a operacions des de terminal:
+
+```bash
+./scripts/backup-cli.sh status
+./scripts/backup-cli.sh backup --output-dir /var/backups/gameclub
+./scripts/backup-cli.sh list --output-dir /var/backups/gameclub
+./scripts/backup-cli.sh restore /var/backups/gameclub/gameclub-backup-YYYYMMDD-HHMMSS.zip
+```
 
 Accions disponibles a la v1:
 
