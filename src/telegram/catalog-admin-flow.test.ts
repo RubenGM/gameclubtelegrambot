@@ -1855,10 +1855,56 @@ test('handleTelegramCatalogAdminCallback shows item details without add media ac
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
   const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
   assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.edit}3`));
+  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.createActivity}3`));
   assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}3`));
   assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:create:3'));
   assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:my_loans'));
   assert.ok(!buttons.some((button) => button.text === 'Afegir media'));
+});
+
+test('handleTelegramCatalogAdminCallback starts activity creation from a board game detail', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies, getCurrentSession } = createContext({ repository, language: 'es' });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.createActivity}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.deepEqual(getCurrentSession(), {
+    flowKey: 'schedule-create',
+    stepKey: 'description',
+    data: { title: 'Root' },
+  });
+  assert.match(replies.at(-1)?.message ?? '', /Escribe una descripcion opcional/i);
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [['Omitir'], ['Volver'], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
 });
 
 test('handleTelegramCatalogAdminCallback hides admin-only item actions for approved non-admin members', async () => {

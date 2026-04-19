@@ -38,6 +38,7 @@ import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createBoardGameGeekCollectionImportService, createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { buildLoanItemButton, formatLoanAvailabilityLines, resolveLoanBorrowerDisplayName, type TelegramCatalogLoanContext } from './catalog-loan-flow.js';
+import { buildDescriptionOptions } from './schedule-keyboards.js';
 import {
   buildCatalogAdminMenuOptions,
   buildCreateConfirmOptions,
@@ -155,6 +156,7 @@ export const catalogAdminCallbackPrefixes = {
   inspect: 'catalog_admin:inspect:',
   inspectGroup: 'catalog_admin:inspect_group:',
   edit: 'catalog_admin:edit:',
+  createActivity: 'catalog_admin:create_activity:',
   deactivate: 'catalog_admin:deactivate:',
   editMedia: 'catalog_admin:edit_media:',
   deleteMedia: 'catalog_admin:delete_media:',
@@ -405,6 +407,20 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
       itemDetailsMessage: await formatCatalogItemDetails(context, item),
       itemTypeSupportsPlayers,
     });
+    return true;
+  }
+  if (route.kind === 'create-activity') {
+    const item = await loadItemOrThrow(context, route.itemId);
+    if (item.itemType !== 'board-game') {
+      return false;
+    }
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    await context.runtime.session.start({
+      flowKey: 'schedule-create',
+      stepKey: 'description',
+      data: { title: item.displayName },
+    });
+    await context.reply(createTelegramI18n(language).schedule.askDescription, buildDescriptionOptions(language));
     return true;
   }
   if (route.kind === 'deactivate-item') {
@@ -1005,11 +1021,13 @@ async function buildCatalogItemDetailButtons(
   const media = await resolveCatalogRepository(context).listMedia({ itemId: item.id });
   return buildCatalogAdminItemDetailButtons({
     itemId: item.id,
+    itemType: item.itemType,
     loan,
     media,
     language,
     canAdminister: canAdministerCatalog(context),
     editPrefix: catalogAdminCallbackPrefixes.edit,
+    createActivityPrefix: catalogAdminCallbackPrefixes.createActivity,
     editMediaPrefix: catalogAdminCallbackPrefixes.editMedia,
     deleteMediaPrefix: catalogAdminCallbackPrefixes.deleteMedia,
     deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
