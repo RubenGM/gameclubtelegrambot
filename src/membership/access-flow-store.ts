@@ -3,7 +3,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { auditLog, userStatusAuditLog, users } from '../infrastructure/database/schema.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from './access-flow.js';
-import { formatMembershipDisplayName, normalizeDisplayName } from './display-name.js';
+import { formatMembershipDisplayName, normalizeDisplayName, resolveMembershipDisplayName } from './display-name.js';
 
 export function createDatabaseMembershipAccessRepository({
   database,
@@ -46,7 +46,15 @@ export function createDatabaseMembershipAccessRepository({
         return null;
       }
 
-      const nextDisplayName = normalizeDisplayName(input.displayName) ?? formatMembershipDisplayName(existing);
+      const nextDisplayName = resolveMembershipDisplayName({
+        displayName: input.displayName,
+        ...(input.username !== undefined
+          ? { username: input.username }
+          : existing.username !== undefined
+            ? { username: existing.username }
+            : {}),
+        fallbackLabel: formatMembershipDisplayName(existing),
+      });
       const nextUsername = input.username !== undefined ? normalizeDisplayName(input.username) : normalizeDisplayName(existing.username);
 
       if (nextDisplayName === existing.displayName && nextUsername === normalizeDisplayName(existing.username)) {
@@ -77,7 +85,10 @@ export function createDatabaseMembershipAccessRepository({
         .values({
           telegramUserId: input.telegramUserId,
           ...(input.username !== undefined ? { username: normalizeDisplayName(input.username) } : {}),
-          displayName: normalizeDisplayName(input.displayName) ?? 'Usuari',
+          displayName: resolveMembershipDisplayName({
+            displayName: input.displayName,
+            ...(input.username !== undefined ? { username: input.username } : {}),
+          }),
           status: 'pending',
           isApproved: false,
           isAdmin: false,
@@ -86,7 +97,10 @@ export function createDatabaseMembershipAccessRepository({
           target: users.telegramUserId,
           set: {
             ...(input.username !== undefined ? { username: input.username } : {}),
-            displayName: input.displayName,
+            displayName: resolveMembershipDisplayName({
+              displayName: input.displayName,
+              ...(input.username !== undefined ? { username: input.username } : {}),
+            }),
             status: 'pending',
             isApproved: false,
             updatedAt: new Date(),
@@ -120,13 +134,10 @@ export function createDatabaseMembershipAccessRepository({
           continue;
         }
 
-        const nextDisplayName = formatMembershipDisplayName(
-          {
-            displayName: row.displayName,
-            username: row.username,
-          },
-          'Usuari',
-        );
+        const nextDisplayName = resolveMembershipDisplayName({
+          displayName: row.displayName,
+          username: row.username,
+        });
 
         await database
           .update(users)

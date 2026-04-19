@@ -1,4 +1,4 @@
-import { normalizeDisplayName } from './display-name.js';
+import { normalizeDisplayName, resolveMembershipDisplayName } from './display-name.js';
 
 export type MembershipUserStatus = 'pending' | 'approved' | 'blocked' | 'revoked';
 
@@ -70,10 +70,15 @@ export async function requestMembershipAccess({
   username?: string | null;
   displayName: string;
 }): Promise<{ outcome: 'created' | 'already-pending' | 'already-approved' | 'blocked'; message: string }> {
+  const resolvedDisplayName = resolveMembershipDisplayName({
+    displayName,
+    ...(username !== undefined ? { username } : {}),
+  });
+
   await repository.syncUserProfile({
     telegramUserId,
     ...(username !== undefined ? { username } : {}),
-    displayName,
+    displayName: resolvedDisplayName,
   });
 
   const existing = await repository.findUserByTelegramUserId(telegramUserId);
@@ -96,14 +101,14 @@ export async function requestMembershipAccess({
     return {
       outcome: 'already-pending',
       message:
-        'Ja hem rebut la teva sollicitud d acces. Ara avisa un administrador del club perque l aprovi i podras fer servir activitats, calendari, cataleg i taules.',
+        'La teva sollicitud d acces ja esta pendent. Un administrador del club l ha de revisar abans que puguis fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
     };
   }
 
   await repository.upsertPendingUser({
     telegramUserId,
     ...(username !== undefined ? { username: normalizeDisplayName(username) } : {}),
-    displayName: normalizeDisplayName(displayName) ?? 'Usuari',
+    displayName: resolvedDisplayName,
   });
   await repository.appendStatusAuditLog({
     telegramUserId,
@@ -116,7 +121,7 @@ export async function requestMembershipAccess({
   return {
     outcome: 'created',
     message:
-      'Ja hem rebut la teva sollicitud d acces. Ara avisa un administrador del club perque l aprovi i podras fer servir activitats, calendari, cataleg i taules.',
+      'He registrat la teva sollicitud d acces. Ara queda pendent de revisio per part d un administrador del club. Quan te l aprovin, ja podras fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
   };
 }
 

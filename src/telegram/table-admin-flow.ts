@@ -439,7 +439,7 @@ async function handleDeactivateSession(
   const texts = createTelegramI18n(language).tableAdmin;
   if (text !== texts.confirmDeactivate && text !== tableAdminLabels.confirmDeactivate) {
     await context.reply(
-      'Per desactivar la taula, tria el boto de confirmacio o cancel.la el flux.',
+      'Per desactivar la taula, tria el boto de confirmacio o cancel.la el proces.',
       buildDeactivateConfirmOptions(language),
     );
     return true;

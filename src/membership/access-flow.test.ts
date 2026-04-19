@@ -194,8 +194,37 @@ test('requestMembershipAccess creates a pending access request for unknown users
   });
 
   assert.equal(result.outcome, 'created');
-  assert.match(result.message, /Ja hem rebut la teva sollicitud/);
-  assert.match(result.message, /avisa un administrador del club/i);
+  assert.match(result.message, /He registrat la teva sollicitud/);
+  assert.match(result.message, /avisa un administrador/i);
+});
+
+test('requestMembershipAccess stores username as display label when Telegram name is missing', async () => {
+  const repository = createRepository();
+
+  const result = await requestMembershipAccess({
+    repository,
+    telegramUserId: 10,
+    username: 'new_member',
+    displayName: '@new_member',
+  });
+
+  assert.equal(result.outcome, 'created');
+  assert.equal(repository.__users.get(10)?.displayName, '@new_member');
+  assert.equal(repository.__users.get(10)?.username, 'new_member');
+});
+
+test('requestMembershipAccess preserves explicit Telegram name instead of generic fallback labels', async () => {
+  const repository = createRepository();
+
+  await requestMembershipAccess({
+    repository,
+    telegramUserId: 10,
+    username: 'real_username',
+    displayName: 'Ada Lovelace',
+  });
+
+  assert.equal(repository.__users.get(10)?.displayName, 'Ada Lovelace');
+  assert.equal(repository.__users.get(10)?.username, 'real_username');
 });
 
 test('requestMembershipAccess is idempotent for pending users', async () => {
@@ -217,8 +246,8 @@ test('requestMembershipAccess is idempotent for pending users', async () => {
   });
 
   assert.equal(result.outcome, 'already-pending');
-  assert.match(result.message, /Ja hem rebut la teva sollicitud/);
-  assert.match(result.message, /avisa un administrador del club/i);
+  assert.match(result.message, /ja esta pendent/i);
+  assert.match(result.message, /avisa un administrador/i);
 });
 
 test('requestMembershipAccess keeps approved users on normal access path', async () => {

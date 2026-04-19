@@ -160,7 +160,7 @@ test('registerTelegramCommands blocks unapproved users consistently', async () =
   await handlers.get('reserve')?.(context);
 
   assert.match(context.__replies?.[0] ?? '', /Encara no tens l acces aprovat/);
-  assert.match(context.__replies?.[0] ?? '', /Avisa un administrador del club/);
+  assert.match(context.__replies?.[0] ?? '', /avisa un administrador/i);
 });
 
 test('renderTelegramHelpMessage reminds pending private users to ask an admin for approval', async () => {
@@ -186,7 +186,7 @@ test('renderTelegramHelpMessage reminds pending private users to ask an admin fo
 
   assert.match(message, /Comandes disponibles en aquest xat/);
   assert.match(message, /\/start - Comprova l estat del bot/);
-  assert.match(message, /Avisa un administrador del club/);
+  assert.match(message, /avisa un administrador/i);
   assert.doesNotMatch(message, /\/reserve/);
 });
 

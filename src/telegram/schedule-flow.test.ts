@@ -969,7 +969,7 @@ test('handleTelegramScheduleText shows people instead of seats in the closed-tab
   assert.match(replies.at(-1)?.message ?? '', /Tipo: Mesa cerrada/);
   assert.match(replies.at(-1)?.message ?? '', /Personas: 5/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Plazas: 5/);
-  assert.match(replies.at(-1)?.message ?? '', /Confirma o cancela el flujo\./);
+  assert.match(replies.at(-1)?.message ?? '', /Confirma o cancela el proceso\./);
 });
 
 test('handleTelegramScheduleText rejects invalid quick minute selections while creating an activity', async () => {

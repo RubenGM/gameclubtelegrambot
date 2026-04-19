@@ -121,7 +121,11 @@ async function replyWithLanguageConfirmation(
     },
   });
   const startMessage = (
-    context.runtime.actor.isAdmin ? i18n.common.startMessageAdmin : i18n.common.startMessagePublic
+    context.runtime.actor.isAdmin
+      ? i18n.common.startMessageAdmin
+      : context.runtime.actor.isApproved
+        ? i18n.common.startMessagePublic
+        : i18n.common.startMessagePending
   )
     .replace('{publicName}', context.runtime.bot.publicName)
     .replace('{version}', APP_VERSION);

@@ -281,14 +281,14 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:venue_event_admin:edit:',
     'register:callback:venue_event_admin:cancel:',
     'runtime:database:1',
-    'reply:Ja hem rebut la teva sollicitud d acces. Ara avisa un administrador del club perque l aprovi i podras fer servir activitats, calendari, cataleg i taules.',
-    'reply:Benvingut a Game Club Bot. Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
+    'reply:He registrat la teva sollicitud d acces. Ara queda pendent de revisio per part d un administrador del club. Quan te l aprovin, ja podras fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
+    'reply:La teva sollicitud d acces ja esta pendent. Un administrador del club l ha de revisar abans que puguis fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
     'reply-keyboard:/access|Idioma|Inici|Ajuda',
     'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
     'reply:No hi ha cap usuari aprovat disponible per expulsar.',
     'reply:Usuari aprovat correctament.',
-    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/subscribe_requests - Activa avisos privats de noves sollicituds d accés\n/unsubscribe_requests - Desactiva avisos privats de noves sollicituds d accés\n/language - Canvia l idioma del bot\n/schedule - Gestiona les teves activitats del club\n/tables - Consulta les taules actives del club\n/catalog_search - Consulta i cerca el cataleg\n/catalog - Gestiona el cataleg manual del club\n/review_access - Revisa sollicituds pendents\n/manage_users - Administra i expulsa usuaris aprovats\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el flux actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
+    'reply:Comandes disponibles en aquest xat:\n/elevate_admin - Eleva privilegis amb contrasenya\n/access - Sollicita accés al club\n/subscribe_requests - Activa avisos privats de noves sollicituds d accés\n/unsubscribe_requests - Desactiva avisos privats de noves sollicituds d accés\n/language - Canvia l idioma del bot\n/schedule - Gestiona les teves activitats del club\n/tables - Consulta les taules actives del club\n/catalog_search - Consulta i cerca el cataleg\n/catalog - Gestiona el cataleg manual del club\n/review_access - Revisa sollicituds pendents\n/manage_users - Administra i expulsa usuaris aprovats\n/approve - Aprova una sollicitud\n/reject - Rebutja una sollicitud\n/cancel - Cancel.la el proces actual\n/start - Comprova que el bot esta actiu\n/help - Mostra ajuda contextual',
     'start-polling',
     'stop-polling',
   ]);
@@ -947,7 +947,7 @@ test('cancel restores the default action menu after an active flow', async () =>
   assert.equal(telegram.status.bot, 'connected');
   assert.deepEqual(replies, [
     {
-      message: 'Flux cancel.lat correctament.',
+      message: 'Proces cancel.lat correctament.',
       options: {
         replyKeyboard: [['Activitats'], ['Cataleg'], ['/elevate_admin'], ['Idioma'], ['Inici', 'Ajuda']],
         resizeKeyboard: true,
@@ -955,6 +955,193 @@ test('cancel restores the default action menu after an active flow', async () =>
       },
     },
   ]);
+
+  await telegram.stop();
+});
+
+test('private free text auto-creates a pending access request with detailed guidance', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const membershipUsers = new Map<
+    number,
+    { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }
+  >();
+  let textHandler: TelegramCommandHandler | undefined;
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub({
+          membershipUsers,
+          statusAuditLog: [],
+          auditEvents: [],
+        }) as never,
+        close: async () => {},
+      },
+    },
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: (handler) => {
+          textHandler = handler;
+        },
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 42,
+              username: 'new_member',
+            },
+            messageText: 'hola',
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push(options ? { message, options } : { message });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              if (!textHandler) {
+                throw new Error('text handler not registered');
+              }
+
+              const commandContext = context as unknown as TelegramCommandHandlerContext;
+              await textHandler(commandContext);
+              return;
+            }
+
+            await middlewares[middlewareIndex]!(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(membershipUsers.get(42)?.status, 'pending');
+  assert.equal(membershipUsers.get(42)?.displayName, '@new_member');
+  assert.match(replies[0]?.message ?? '', /sollicitud d acces/i);
+  assert.match(replies[0]?.message ?? '', /administrador/i);
+  assert.match(replies[0]?.message ?? '', /pendent/i);
+
+  await telegram.stop();
+});
+
+test('group free text does not auto-create a pending access request', async () => {
+  const membershipUsers = new Map<
+    number,
+    { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }
+  >();
+  let textHandler: TelegramCommandHandler | undefined;
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub({
+          membershipUsers,
+          statusAuditLog: [],
+          auditEvents: [],
+        }) as never,
+        close: async () => {},
+      },
+    },
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: (handler) => {
+          textHandler = handler;
+        },
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: -200,
+              type: 'group',
+            },
+            from: {
+              id: 42,
+              username: 'new_member',
+            },
+            messageText: 'hola',
+            reply: async () => {},
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              if (!textHandler) {
+                throw new Error('text handler not registered');
+              }
+
+              const commandContext = context as unknown as TelegramCommandHandlerContext;
+              await textHandler(commandContext);
+              return;
+            }
+
+            await middlewares[middlewareIndex]!(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(membershipUsers.get(42), undefined);
 
   await telegram.stop();
 });
@@ -1180,7 +1367,7 @@ test('formatStartMessage shows version only to admins', async () => {
   );
   assert.equal(
     formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false, isApproved: false, language: 'ca' }),
-    'Benvingut a Game Club Bot. Encara no tens l acces aprovat. Avisa un administrador del club perque aprovi la teva sollicitud i aixi podras fer servir activitats, calendari, cataleg i taules.',
+    'Benvingut a Game Club Bot. Encara no tens l acces aprovat. La teva sollicitud esta pendent de revisio. Quan un administrador l aprovi, podras fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
   );
 });
 

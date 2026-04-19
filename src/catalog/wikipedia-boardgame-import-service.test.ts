@@ -121,8 +121,8 @@ test('createBoardGameGeekCollectionImportService imports owned board games and e
   assert.equal(result.items[1]?.displayName, 'Riverfolk Expansion');
   assert.equal(result.items[1]?.itemType, 'expansion');
   assert.deepEqual(requests, [
-    'https://boardgamegeek.com/xmlapi2/collection?username=ruben&own=1&subtype=boardgame',
-    'https://boardgamegeek.com/xmlapi2/collection?username=ruben&own=1&subtype=boardgameexpansion',
+    'https://boardgamegeek.com/xmlapi2/collection?username=ruben&subtype=boardgame&own=1',
+    'https://boardgamegeek.com/xmlapi2/collection?username=ruben&subtype=boardgameexpansion&own=1',
     'https://boardgamegeek.com/xmlapi2/thing?id=101%2C202&stats=1',
   ]);
 });

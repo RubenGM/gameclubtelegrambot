@@ -133,6 +133,10 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handlePrivateAutoMembershipRequest(context)) {
+      return;
+    }
+
     if (await handleTelegramCatalogLoanText(context)) {
       return;
     }
@@ -416,7 +420,7 @@ function createDefaultCommands({
       command: 'cancel',
       contexts: ['private', 'group', 'group-news'],
       access: 'public',
-      description: 'Cancel.la el flux actual',
+      description: 'Cancel.la el proces actual',
       handle: async (context) => {
         const cancelled = await context.runtime.session.cancel();
         const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
@@ -433,6 +437,10 @@ function createDefaultCommands({
       access: 'public',
       description: 'Comprova que el bot esta actiu',
       handle: async (context) => {
+        if (await handlePrivateAutoMembershipRequest(context)) {
+          return;
+        }
+
         if (await handleTelegramScheduleStartText({ ...context })) {
           return;
         }
@@ -995,6 +1003,10 @@ async function handleTelegramTranslatedActionMenuText(
   }
 
   if (text === i18n.actionMenu.start) {
+    if (await handlePrivateAutoMembershipRequest(context)) {
+      return true;
+    }
+
     const startReply = buildStartReply({
       context,
       publicName: context.runtime.bot.publicName,
@@ -1015,6 +1027,52 @@ async function handleTelegramTranslatedActionMenuText(
   }
 
   return false;
+}
+
+async function handlePrivateAutoMembershipRequest(
+  context: TelegramCommandHandlerContext,
+): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
+    return false;
+  }
+
+  const repository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+  const existing = await repository.findUserByTelegramUserId(context.runtime.actor.telegramUserId);
+
+  if (existing?.status === 'blocked' || existing?.status === 'approved') {
+    return false;
+  }
+
+  const result = await requestMembershipAccess({
+    repository,
+    telegramUserId: context.runtime.actor.telegramUserId,
+    ...(context.from?.username !== undefined ? { username: context.from.username } : {}),
+    displayName: resolveRequesterDisplayName(context),
+  });
+
+  if (result.outcome === 'created') {
+    const storage = createDatabaseAppMetadataSessionStorage({
+      database: context.runtime.services.database.db,
+    });
+    const subscriptionStore = createAppMetadataMembershipRequestNotificationSubscriptionStore({ storage });
+    const languagePreferenceStore = createAppMetadataTelegramLanguagePreferenceStore({ storage });
+
+    await notifySubscribedAdminsOfMembershipRequest({
+      store: subscriptionStore,
+      membershipRepository: repository,
+      languagePreferenceReader: languagePreferenceStore,
+      privateMessageSender: context.runtime.bot,
+      requesterTelegramUserId: context.runtime.actor.telegramUserId,
+      requesterDisplayName: resolveRequesterDisplayName(context),
+      ...(context.from?.username !== undefined ? { requesterUsername: context.from.username } : {}),
+      priorRevocation: await repository.findLatestRevocation(context.runtime.actor.telegramUserId),
+    });
+  }
+
+  await context.reply(result.message, buildReplyOptionsForCurrentActionMenu(context));
+  return true;
 }
 
 function buildReplyOptionsForCurrentActionMenu(

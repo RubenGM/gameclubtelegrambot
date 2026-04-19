@@ -3,6 +3,11 @@ export function normalizeDisplayName(value: string | null | undefined): string |
   return trimmed ? trimmed : null;
 }
 
+export function isGenericDisplayName(value: string | null | undefined): boolean {
+  const normalized = normalizeDisplayName(value)?.toLowerCase();
+  return normalized === 'usuari' || normalized === 'usuario' || normalized === 'user';
+}
+
 export function resolveTelegramDisplayName(input: {
   first_name?: string | null;
   last_name?: string | null;
@@ -22,6 +27,25 @@ export function resolveTelegramDisplayName(input: {
   }
 
   return 'Usuari';
+}
+
+export function resolveMembershipDisplayName(input: {
+  displayName?: string | null;
+  username?: string | null;
+  fallbackLabel?: string;
+}): string {
+  const displayName = normalizeDisplayName(input.displayName);
+  const username = normalizeDisplayName(input.username);
+
+  if (displayName && !isGenericDisplayName(displayName)) {
+    return displayName;
+  }
+
+  if (username) {
+    return `@${username.replace(/^@/, '')}`;
+  }
+
+  return input.fallbackLabel ?? 'Usuari';
 }
 
 export function formatMembershipDisplayName(
