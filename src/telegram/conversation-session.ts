@@ -52,8 +52,6 @@ export async function loadConversationSessionRuntime({
   const sessionKey = createConversationSessionKey(scope);
   const nowIso = now().toISOString();
 
-  await store.deleteExpiredSessions(nowIso);
-
   let current = await store.loadSession(sessionKey);
 
   if (current && current.expiresAt <= nowIso) {

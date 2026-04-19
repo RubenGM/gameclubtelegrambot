@@ -134,3 +134,31 @@ test('loadConversationSessionRuntime restores an active persisted session', asyn
   assert.equal(runtime.current?.flowKey, 'admin-review');
   assert.equal(runtime.current?.stepKey, 'decision');
 });
+
+test('loadConversationSessionRuntime does not trigger global expired-session cleanup while loading one session', async () => {
+  let deleteExpiredSessionsCalls = 0;
+
+  const runtime = await loadConversationSessionRuntime({
+    scope: {
+      chatId: 100,
+      userId: 200,
+    },
+    store: {
+      async loadSession() {
+        return null;
+      },
+      async saveSession() {},
+      async deleteSession() {
+        return false;
+      },
+      async deleteExpiredSessions() {
+        deleteExpiredSessionsCalls += 1;
+        return 0;
+      },
+    },
+    now: () => new Date('2026-04-04T10:00:00.000Z'),
+  });
+
+  assert.equal(runtime.current, null);
+  assert.equal(deleteExpiredSessionsCalls, 0);
+});
