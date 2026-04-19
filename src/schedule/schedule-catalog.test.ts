@@ -15,8 +15,14 @@ import {
   type ScheduleRepository,
 } from './schedule-catalog.js';
 
-function createRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRepository {
-  const events = new Map(initialEvents.map((event) => [event.id, event]));
+type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'> &
+  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'>>;
+
+function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleRepository {
+  const events = new Map(initialEvents.map((event) => {
+    const normalized = normalizeScheduleEventFixture(event);
+    return [normalized.id, normalized];
+  }));
   const participants = new Map<string, ScheduleParticipantRecord>();
   let nextEventId = Math.max(0, ...initialEvents.map((event) => event.id)) + 1;
 
@@ -32,6 +38,8 @@ function createRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRe
         createdByTelegramUserId: input.createdByTelegramUserId,
         tableId: input.tableId,
         durationMinutes: input.durationMinutes,
+        attendanceMode: input.attendanceMode,
+        initialOccupiedSeats: input.initialOccupiedSeats,
         capacity: input.capacity,
         lifecycleStatus: 'scheduled',
         createdAt,
@@ -64,6 +72,8 @@ function createRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRe
         organizerTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
         durationMinutes: input.durationMinutes,
+        attendanceMode: input.attendanceMode,
+        initialOccupiedSeats: input.initialOccupiedSeats,
         capacity: input.capacity,
         updatedAt: '2026-04-04T11:00:00.000Z',
       };
@@ -112,6 +122,14 @@ function createRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRe
   };
 }
 
+function normalizeScheduleEventFixture(event: ScheduleEventFixture): ScheduleEventRecord {
+  return {
+    ...event,
+    attendanceMode: event.attendanceMode ?? 'open',
+    initialOccupiedSeats: event.initialOccupiedSeats ?? 0,
+  };
+}
+
 test('createScheduleEvent creates a scheduled activity with organizer ownership and optional table', async () => {
   const repository = createRepository();
 
@@ -125,7 +143,9 @@ test('createScheduleEvent creates a scheduled activity with organizer ownership 
     tableId: 7,
     durationMinutes: 180,
     capacity: 5,
-  });
+    attendanceMode: 'open',
+    initialOccupiedSeats: 2,
+  } as never);
 
   assert.equal(event.id, 1);
   assert.equal(event.title, 'Dungeons & Dragons');
@@ -135,20 +155,87 @@ test('createScheduleEvent creates a scheduled activity with organizer ownership 
   assert.equal(event.tableId, 7);
   assert.equal(event.durationMinutes, 180);
   assert.equal(event.capacity, 5);
+  assert.equal((event as { attendanceMode: string }).attendanceMode, 'open');
+  assert.equal((event as { initialOccupiedSeats: number }).initialOccupiedSeats, 2);
   assert.equal(event.lifecycleStatus, 'scheduled');
 
-  assert.deepEqual(await repository.listParticipants(event.id), [
+  assert.deepEqual(await repository.listParticipants(event.id), []);
+});
+
+test('getScheduleCapacitySnapshot for open activities counts initial occupied seats separately from bot participants', async () => {
+  const repository = createRepository([
     {
-      scheduleEventId: 1,
-      participantTelegramUserId: 42,
-      status: 'active',
-      addedByTelegramUserId: 42,
-      removedByTelegramUserId: null,
-      joinedAt: '2026-04-04T10:30:00.000Z',
-      updatedAt: '2026-04-04T10:30:00.000Z',
-      leftAt: null,
-    },
+      id: 30,
+      title: 'Mesa oberta Root',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 5,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+      attendanceMode: 'open',
+      initialOccupiedSeats: 2,
+    } as ScheduleEventRecord,
   ]);
+
+  await setScheduleEventParticipantStatus({
+    repository,
+    eventId: 30,
+    participantTelegramUserId: 77,
+    actorTelegramUserId: 77,
+    status: 'active',
+  });
+
+  const snapshot = await getScheduleCapacitySnapshot({ repository, eventId: 30 });
+
+  assert.deepEqual(snapshot, {
+    capacity: 5,
+    occupiedSeats: 3,
+    availableSeats: 2,
+    isFull: false,
+  });
+});
+
+test('joinScheduleEvent rejects closed activities', async () => {
+  const repository = createRepository([
+    {
+      id: 31,
+      title: 'Campanya tancada',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+      attendanceMode: 'closed',
+      initialOccupiedSeats: 0,
+    } as ScheduleEventRecord,
+  ]);
+
+  await assert.rejects(
+    () =>
+      joinScheduleEvent({
+        repository,
+        eventId: 31,
+        participantTelegramUserId: 77,
+        actorTelegramUserId: 77,
+      }),
+    /No es pot apuntar gent a una activitat tancada/,
+  );
 });
 
 test('createScheduleEvent rejects non-positive seat capacity', async () => {
@@ -163,6 +250,8 @@ test('createScheduleEvent rejects non-positive seat capacity', async () => {
         organizerTelegramUserId: 42,
         createdByTelegramUserId: 42,
         durationMinutes: 180,
+        attendanceMode: 'open',
+        initialOccupiedSeats: 0,
         capacity: 0,
       }),
     /La capacitat ha de ser un enter positiu/,

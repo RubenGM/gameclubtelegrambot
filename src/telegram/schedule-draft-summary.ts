@@ -30,7 +30,9 @@ export async function formatScheduleDraftSummary({
   const date = String(data.date ?? event?.startsAt.slice(0, 10) ?? '');
   const time = String(data.time ?? event?.startsAt.slice(11, 16) ?? '');
   const durationMinutes = Number(data.durationMinutes ?? event?.durationMinutes ?? 0);
+  const attendanceMode = String(data.attendanceMode ?? event?.attendanceMode ?? 'open');
   const capacity = Number(data.capacity ?? event?.capacity ?? 0);
+  const initialOccupiedSeats = Number(data.initialOccupiedSeats ?? event?.initialOccupiedSeats ?? 0);
   const effectiveTableId = data.tableId === undefined ? event?.tableId ?? null : asNullableNumber(data.tableId);
 
   const table = selectedTable === undefined
@@ -49,7 +51,9 @@ export async function formatScheduleDraftSummary({
     `${texts.detailsDescription}: ${escapeHtml(description ?? texts.noDescription)}`,
     `${texts.detailsStart}: ${formatTimestamp(buildStartsAt(date, time))}`,
     `${texts.detailsDuration}: ${formatDurationMinutes(durationMinutes)}`,
+    `${texts.detailsAttendanceMode}: ${attendanceMode === 'closed' ? texts.closedDetailTag : texts.openDetailTag}`,
     `${texts.detailsSeats}: ${capacity}`,
+    ...(attendanceMode === 'open' ? [`${texts.detailsInitialOccupiedSeats}: ${initialOccupiedSeats}`] : []),
     `${texts.detailsTable}: ${table?.displayName ?? texts.noTable}`,
     ...advisories.map(escapeHtml),
     ...(effectiveOrganizerTelegramUserId

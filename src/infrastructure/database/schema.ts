@@ -204,6 +204,8 @@ export const scheduleEvents = pgTable('schedule_events', {
     .notNull()
     .references(() => users.telegramUserId),
   tableId: bigint('table_id', { mode: 'number' }).references(() => clubTables.id),
+  attendanceMode: varchar('attendance_mode', { length: 16 }).notNull().default('open'),
+  initialOccupiedSeats: integer('initial_occupied_seats').notNull().default(0),
   capacity: integer('capacity').notNull(),
   lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('scheduled'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

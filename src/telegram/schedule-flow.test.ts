@@ -19,6 +19,9 @@ import {
   type TelegramScheduleContext,
 } from './schedule-flow.js';
 
+type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'> &
+  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'>>;
+
 test.beforeEach((t: any) => {
   t.mock.timers.enable({
     apis: ['Date'],
@@ -26,8 +29,11 @@ test.beforeEach((t: any) => {
   });
 });
 
-function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRepository & { __cancelledEventIds: number[] } {
-  const events = new Map(initialEvents.map((event) => [event.id, event]));
+function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleRepository & { __cancelledEventIds: number[] } {
+  const events = new Map(initialEvents.map((event) => {
+    const normalized = normalizeScheduleEventFixture(event);
+    return [normalized.id, normalized];
+  }));
   const participants = new Map<string, ScheduleParticipantRecord>();
   const cancelledEventIds: number[] = [];
   let nextEventId = Math.max(0, ...initialEvents.map((event) => event.id)) + 1;
@@ -44,6 +50,8 @@ function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): Sc
         createdByTelegramUserId: input.createdByTelegramUserId,
         tableId: input.tableId,
         durationMinutes: input.durationMinutes,
+        attendanceMode: input.attendanceMode,
+        initialOccupiedSeats: input.initialOccupiedSeats,
         capacity: input.capacity,
         lifecycleStatus: 'scheduled',
         createdAt,
@@ -79,6 +87,8 @@ function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): Sc
         organizerTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
         durationMinutes: input.durationMinutes,
+        attendanceMode: input.attendanceMode,
+        initialOccupiedSeats: input.initialOccupiedSeats,
         capacity: input.capacity,
         updatedAt: '2026-04-04T11:00:00.000Z',
       };
@@ -124,6 +134,14 @@ function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): Sc
       return next;
     },
     __cancelledEventIds: cancelledEventIds,
+  };
+}
+
+function normalizeScheduleEventFixture(event: ScheduleEventFixture): ScheduleEventRecord {
+  return {
+    ...event,
+    attendanceMode: event.attendanceMode ?? 'open',
+    initialOccupiedSeats: event.initialOccupiedSeats ?? 0,
   };
 }
 
@@ -505,7 +523,7 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
 
   assert.equal(handled, true);
   assert.match(replies.at(-1)?.message ?? '', /<b>05\/04\/2026<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /schedule_event_4"><b>Wingspan<\/b><\/a> \(16:00\) · 0\/3 participants/);
+  assert.match(replies.at(-1)?.message ?? '', /16h-19h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(3 libres\)/);
   assert.match(replies.at(-1)?.message ?? '', /<i>Ocells i engines<\/i>/);
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
@@ -649,9 +667,17 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
 
   context.messageText = '180';
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'attendance-mode');
+
+  context.messageText = scheduleLabels.attendanceOpen;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
 
   context.messageText = '5';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'initial-occupied-seats');
+
+  context.messageText = '0';
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'table');
   assert.deepEqual(replies.at(-1)?.options, {
@@ -671,7 +697,8 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.match(replies.at(-1)?.message ?? '', /<b>Taula:<\/b> Mesa TV/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Inici:<\/b> 05\/04\/2026 16:00/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Durada:<\/b> 3 h/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\)/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Tipus:<\/b> Mesa abierta/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Cap/);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.created');
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
 });
@@ -693,9 +720,15 @@ test('handleTelegramScheduleText creates an activity with no duration using the 
 
   context.messageText = scheduleLabels.durationNone;
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'attendance-mode');
+
+  context.messageText = scheduleLabels.attendanceOpen;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
 
   context.messageText = '4';
+  await handleTelegramScheduleText(context);
+  context.messageText = '0';
   await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.noTable;
   await handleTelegramScheduleText(context);
@@ -727,9 +760,15 @@ test('handleTelegramScheduleText creates an activity from whole hours duration i
 
   context.messageText = '3';
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'attendance-mode');
+
+  context.messageText = scheduleLabels.attendanceOpen;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
 
   context.messageText = '4';
+  await handleTelegramScheduleText(context);
+  context.messageText = '0';
   await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.noTable;
   await handleTelegramScheduleText(context);
@@ -761,9 +800,15 @@ test('handleTelegramScheduleText creates an activity from hours-and-minutes dura
 
   context.messageText = '02:30';
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'attendance-mode');
+
+  context.messageText = scheduleLabels.attendanceOpen;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
 
   context.messageText = '6';
+  await handleTelegramScheduleText(context);
+  context.messageText = '0';
   await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.noTable;
   await handleTelegramScheduleText(context);
@@ -831,7 +876,13 @@ test('handleTelegramScheduleText offers quick minute buttons when creating an ac
   assert.equal(getCurrentSession()?.stepKey, 'duration');
   context.messageText = '120';
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'attendance-mode');
+  context.messageText = scheduleLabels.attendanceOpen;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'capacity');
   context.messageText = '4';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '0';
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = scheduleLabels.noTable;
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -907,7 +958,11 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
   await handleTelegramScheduleText(context);
   context.messageText = '180';
   await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.attendanceOpen;
+  await handleTelegramScheduleText(context);
   context.messageText = '5';
+  await handleTelegramScheduleText(context);
+  context.messageText = '0';
   await handleTelegramScheduleText(context);
   context.messageText = 'Mesa TV';
   await handleTelegramScheduleText(context);
@@ -918,7 +973,8 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
   assert.equal(groupMessages[0]?.chatId, -200);
   assert.equal(groupMessages[0]?.options?.parseMode, 'HTML');
   assert.match(groupMessages[0]?.message ?? '', /Calendari actualitzat:/);
-  assert.match(groupMessages[0]?.message ?? '', /Dune Imperium/);
+  assert.match(groupMessages[0]?.message ?? '', /16h-19h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_1"><b>Dune Imperium<\/b><\/a> · Mesa abierta · 5p \(5 libres\) · Mesa TV/);
+  assert.match(groupMessages[0]?.message ?? '', /ha creado la actividad Dune Imperium del 05\/04\/2026/i);
 });
 
 test('handleTelegramScheduleText accepts dd/MM/yyyy dates and shows upcoming day shortcuts', async () => {
@@ -979,7 +1035,11 @@ test('handleTelegramScheduleText shows created tables as reply keyboard buttons 
   await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.durationNone;
   await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.attendanceOpen;
+  await handleTelegramScheduleText(context);
   context.messageText = '5';
+  await handleTelegramScheduleText(context);
+  context.messageText = '0';
   await handleTelegramScheduleText(context);
 
   assert.deepEqual(replies.at(-1)?.options, {
@@ -1054,7 +1114,11 @@ test('handleTelegramScheduleCallback rejects selecting a deactivated table for a
   await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.durationNone;
   await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.attendanceOpen;
+  await handleTelegramScheduleText(context);
   context.messageText = '5';
+  await handleTelegramScheduleText(context);
+  context.messageText = '0';
   await handleTelegramScheduleText(context);
 
   context.callbackData = `${scheduleCallbackPrefixes.tableSelection}7`;
@@ -1130,7 +1194,11 @@ test('handleTelegramScheduleText shows advisory warning when requested capacity 
   await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.durationNone;
   await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.attendanceOpen;
+  await handleTelegramScheduleText(context);
   context.messageText = '6';
+  await handleTelegramScheduleText(context);
+  context.messageText = '0';
   await handleTelegramScheduleText(context);
   context.callbackData = `${scheduleCallbackPrefixes.tableSelection}7`;
 
@@ -1213,8 +1281,8 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
   assert.equal(handled, true);
   assert.equal(scheduleRepository.__cancelledEventIds.includes(5), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>05\/04\/2026<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /schedule_event_4"><b>Wingspan<\/b><\/a> \(16:00\) · 1\/3 participants/);
-  assert.match(replies.at(-1)?.message ?? '', /schedule_event_6"><b>Ravenloft<\/b><\/a> \(18:30\) · 1\/4 participants/);
+  assert.match(replies.at(-1)?.message ?? '', /16h-19h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(2 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /18:30h-21:30h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_6"><b>Ravenloft<\/b><\/a> · Mesa abierta · 4p \(3 libres\)/);
   assert.deepEqual(replies.at(-1)?.options, { parseMode: 'HTML' });
 });
 
@@ -1278,8 +1346,8 @@ test('handleTelegramScheduleCallback opens a selected day with activity buttons'
   assert.equal(await handleTelegramScheduleCallback(context), true);
 
   assert.match(replies.at(-1)?.message ?? '', /<b>05\/04\/2026<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /schedule_event_4"><b>Wingspan<\/b><\/a> \(16:00\) · 0\/3 participants/);
-  assert.match(replies.at(-1)?.message ?? '', /schedule_event_6"><b>Ravenloft<\/b><\/a> \(18:30\) · 0\/4 participants/);
+  assert.match(replies.at(-1)?.message ?? '', /16h-19h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(3 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /18:30h-21:30h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_6"><b>Ravenloft<\/b><\/a> · Mesa abierta · 4p \(4 libres\)/);
   assert.deepEqual(replies.at(-1)?.options, { parseMode: 'HTML' });
 });
 
@@ -1325,9 +1393,9 @@ test('handleTelegramScheduleText separates different day groups with a blank lin
 
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>05\/04\/2026<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /schedule_event_4"><b>Wingspan<\/b><\/a> \(16:00\) · 0\/3 participants/);
+  assert.match(replies.at(-1)?.message ?? '', /16h-19h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(3 libres\)/);
   assert.match(replies.at(-1)?.message ?? '', /<b>06\/04\/2026<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /schedule_event_8"><b>Blood Bowl<\/b><\/a> \(15:00\) · 0\/2 participants/);
+  assert.match(replies.at(-1)?.message ?? '', /15h-18h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_8"><b>Blood Bowl<\/b><\/a> · Mesa abierta · 2p \(2 libres\)/);
 });
 
 test('handleTelegramScheduleText includes venue impact hints in the activity list when the local is affected', async () => {
@@ -1789,7 +1857,11 @@ test('handleTelegramScheduleText sends private conflict notifications after crea
   await handleTelegramScheduleText(context);
   context.messageText = '120';
   await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.attendanceOpen;
+  await handleTelegramScheduleText(context);
   context.messageText = '4';
+  await handleTelegramScheduleText(context);
+  context.messageText = '0';
   await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.noTable;
   await handleTelegramScheduleText(context);

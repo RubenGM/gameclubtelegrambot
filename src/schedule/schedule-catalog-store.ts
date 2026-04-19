@@ -21,6 +21,8 @@ export function createDatabaseScheduleRepository({
           organizerTelegramUserId: input.organizerTelegramUserId,
           createdByTelegramUserId: input.createdByTelegramUserId,
           tableId: input.tableId,
+          attendanceMode: input.attendanceMode,
+          initialOccupiedSeats: input.initialOccupiedSeats,
           capacity: input.capacity,
         })
         .returning();
@@ -67,6 +69,8 @@ export function createDatabaseScheduleRepository({
           durationMinutes: input.durationMinutes,
           organizerTelegramUserId: input.organizerTelegramUserId,
           tableId: input.tableId,
+          attendanceMode: input.attendanceMode,
+          initialOccupiedSeats: input.initialOccupiedSeats,
           capacity: input.capacity,
           updatedAt: new Date(),
         })
@@ -167,6 +171,8 @@ function mapScheduleEventRow(row: typeof scheduleEvents.$inferSelect): ScheduleE
     organizerTelegramUserId: row.organizerTelegramUserId,
     createdByTelegramUserId: row.createdByTelegramUserId,
     tableId: row.tableId,
+    attendanceMode: row.attendanceMode as ScheduleEventRecord['attendanceMode'],
+    initialOccupiedSeats: row.initialOccupiedSeats,
     capacity: row.capacity,
     lifecycleStatus: row.lifecycleStatus as ScheduleEventRecord['lifecycleStatus'],
     createdAt: row.createdAt.toISOString(),

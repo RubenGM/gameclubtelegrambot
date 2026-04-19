@@ -1,5 +1,6 @@
 export type ScheduleEventLifecycleStatus = 'scheduled' | 'cancelled';
 export type ScheduleParticipantStatus = 'active' | 'removed';
+export type ScheduleAttendanceMode = 'open' | 'closed';
 
 export interface ScheduleEventRecord {
   id: number;
@@ -10,6 +11,8 @@ export interface ScheduleEventRecord {
   organizerTelegramUserId: number;
   createdByTelegramUserId: number;
   tableId: number | null;
+  attendanceMode: ScheduleAttendanceMode;
+  initialOccupiedSeats: number;
   capacity: number;
   lifecycleStatus: ScheduleEventLifecycleStatus;
   createdAt: string;
@@ -39,6 +42,8 @@ export interface ScheduleRepository {
     organizerTelegramUserId: number;
     createdByTelegramUserId: number;
     tableId: number | null;
+    attendanceMode: ScheduleAttendanceMode;
+    initialOccupiedSeats: number;
     capacity: number;
   }): Promise<ScheduleEventRecord>;
   findEventById(eventId: number): Promise<ScheduleEventRecord | null>;
@@ -55,6 +60,8 @@ export interface ScheduleRepository {
     durationMinutes: number;
     organizerTelegramUserId: number;
     tableId: number | null;
+    attendanceMode: ScheduleAttendanceMode;
+    initialOccupiedSeats: number;
     capacity: number;
   }): Promise<ScheduleEventRecord>;
   cancelEvent(input: {
@@ -81,6 +88,8 @@ export async function createScheduleEvent({
   organizerTelegramUserId,
   createdByTelegramUserId,
   tableId,
+  attendanceMode,
+  initialOccupiedSeats,
   capacity,
 }: {
   repository: ScheduleRepository;
@@ -91,9 +100,11 @@ export async function createScheduleEvent({
   organizerTelegramUserId: number;
   createdByTelegramUserId: number;
   tableId?: number | null;
+  attendanceMode: ScheduleAttendanceMode;
+  initialOccupiedSeats: number;
   capacity: number;
 }): Promise<ScheduleEventRecord> {
-  const event = await repository.createEvent({
+  return repository.createEvent({
     title: normalizeTitle(title),
     description: normalizeDescription(description),
     startsAt: normalizeStartsAt(startsAt),
@@ -101,17 +112,14 @@ export async function createScheduleEvent({
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
     createdByTelegramUserId: normalizeTelegramUserId(createdByTelegramUserId, 'creador'),
     tableId: normalizeTableId(tableId),
+    attendanceMode: normalizeAttendanceMode(attendanceMode),
+    initialOccupiedSeats: normalizeInitialOccupiedSeats({
+      attendanceMode,
+      initialOccupiedSeats,
+      capacity,
+    }),
     capacity: normalizeCapacity(capacity),
   });
-
-  await repository.upsertParticipant({
-    eventId: event.id,
-    participantTelegramUserId: event.organizerTelegramUserId,
-    actorTelegramUserId: event.organizerTelegramUserId,
-    status: 'active',
-  });
-
-  return event;
 }
 
 export async function listScheduleEvents({
@@ -168,6 +176,8 @@ export async function updateScheduleEvent({
   durationMinutes,
   organizerTelegramUserId,
   tableId,
+  attendanceMode,
+  initialOccupiedSeats,
   capacity,
 }: {
   repository: ScheduleRepository;
@@ -178,6 +188,8 @@ export async function updateScheduleEvent({
   durationMinutes: number;
   organizerTelegramUserId: number;
   tableId?: number | null;
+  attendanceMode: ScheduleAttendanceMode;
+  initialOccupiedSeats: number;
   capacity: number;
 }): Promise<ScheduleEventRecord> {
   const event = await repository.findEventById(eventId);
@@ -197,6 +209,12 @@ export async function updateScheduleEvent({
     durationMinutes: normalizeDurationMinutes(durationMinutes),
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
     tableId: normalizeTableId(tableId),
+    attendanceMode: normalizeAttendanceMode(attendanceMode),
+    initialOccupiedSeats: normalizeInitialOccupiedSeats({
+      attendanceMode,
+      initialOccupiedSeats,
+      capacity,
+    }),
     capacity: normalizeCapacity(capacity),
   });
 }
@@ -221,6 +239,13 @@ export async function setScheduleEventParticipantStatus({
 
   if (event.lifecycleStatus === 'cancelled') {
     throw new Error('No es poden gestionar participants en una activitat cancel.lada');
+  }
+
+  if (event.attendanceMode === 'closed') {
+    if (status === 'active') {
+      throw new Error('No es pot apuntar gent a una activitat tancada');
+    }
+    throw new Error('No es poden gestionar participants en una activitat tancada');
   }
 
   const existing = await repository.findParticipant(eventId, participantTelegramUserId);
@@ -260,9 +285,19 @@ export async function getScheduleCapacitySnapshot({
     throw new Error(`Schedule event ${eventId} not found`);
   }
 
-  const occupiedSeats = (await repository.listParticipants(eventId)).filter(
+  const activeParticipantCount = (await repository.listParticipants(eventId)).filter(
     (participant) => participant.status === 'active',
   ).length;
+  if (event.attendanceMode === 'closed') {
+    return {
+      capacity: event.capacity,
+      occupiedSeats: event.capacity,
+      availableSeats: 0,
+      isFull: true,
+    };
+  }
+
+  const occupiedSeats = event.initialOccupiedSeats + activeParticipantCount;
   const availableSeats = Math.max(0, event.capacity - occupiedSeats);
 
   return {
@@ -284,6 +319,14 @@ export async function joinScheduleEvent({
   participantTelegramUserId: number;
   actorTelegramUserId: number;
 }): Promise<ScheduleParticipantRecord> {
+  const event = await repository.findEventById(eventId);
+  if (!event) {
+    throw new Error(`Schedule event ${eventId} not found`);
+  }
+  if (event.attendanceMode === 'closed') {
+    throw new Error('No es pot apuntar gent a una activitat tancada');
+  }
+
   const existing = await repository.findParticipant(eventId, participantTelegramUserId);
   if (existing?.status === 'active') {
     throw new Error('Ja estas apuntat a aquesta activitat');
@@ -309,6 +352,14 @@ export async function leaveScheduleEvent({
   participantTelegramUserId: number;
   actorTelegramUserId: number;
 }): Promise<ScheduleParticipantRecord> {
+  const event = await repository.findEventById(eventId);
+  if (!event) {
+    throw new Error(`Schedule event ${eventId} not found`);
+  }
+  if (event.attendanceMode === 'closed') {
+    throw new Error('No es pot sortir d una activitat tancada');
+  }
+
   const existing = await repository.findParticipant(eventId, participantTelegramUserId);
   if (!existing || existing.status !== 'active') {
     throw new Error('No estas apuntat a aquesta activitat');
@@ -466,6 +517,38 @@ function normalizeCapacity(capacity: number): number {
   }
 
   return capacity;
+}
+
+function normalizeAttendanceMode(attendanceMode: ScheduleAttendanceMode): ScheduleAttendanceMode {
+  if (attendanceMode !== 'open' && attendanceMode !== 'closed') {
+    throw new Error('El mode d assistencia ha de ser open o closed');
+  }
+
+  return attendanceMode;
+}
+
+function normalizeInitialOccupiedSeats({
+  attendanceMode,
+  initialOccupiedSeats,
+  capacity,
+}: {
+  attendanceMode: ScheduleAttendanceMode;
+  initialOccupiedSeats: number;
+  capacity: number;
+}): number {
+  const normalizedAttendanceMode = normalizeAttendanceMode(attendanceMode);
+  const normalizedCapacity = normalizeCapacity(capacity);
+  if (!Number.isInteger(initialOccupiedSeats) || initialOccupiedSeats < 0) {
+    throw new Error('Les places ocupades inicials han de ser un enter zero o positiu');
+  }
+  if (normalizedAttendanceMode === 'closed') {
+    return 0;
+  }
+  if (initialOccupiedSeats > normalizedCapacity) {
+    throw new Error('Les places ocupades inicials no poden superar la capacitat');
+  }
+
+  return initialOccupiedSeats;
 }
 
 function normalizeDurationMinutes(durationMinutes: number): number {

@@ -1,5 +1,11 @@
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
-import { getScheduleEventEndsAt, listScheduleEvents, type ScheduleEventRecord, type ScheduleRepository } from '../schedule/schedule-catalog.js';
+import {
+  getScheduleEventAttendance,
+  getScheduleEventEndsAt,
+  listScheduleEvents,
+  type ScheduleAttendanceMode,
+  type ScheduleRepository,
+} from '../schedule/schedule-catalog.js';
 import { createDatabaseVenueEventRepository } from '../venue-events/venue-event-catalog-store.js';
 import { listVenueEvents, type VenueEventRecord, type VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
@@ -16,7 +22,9 @@ export type CalendarEntry =
       title: string;
       description: string | null;
       tableName: string | null;
+      attendanceMode: ScheduleAttendanceMode;
       capacity: number;
+      availableSeats: number;
     }
   | {
       kind: 'venue';
@@ -51,6 +59,7 @@ export async function loadUpcomingCalendarEntries({
   const scheduleEntries = await Promise.all(
     scheduleEvents.map(async (event) => {
       const tableName = event.tableId ? await loadTableName(database, tableRepository, tableNames, event.tableId) : null;
+      const attendance = await getScheduleEventAttendance({ repository: scheduleRepository ?? createDatabaseScheduleRepository({ database: database as never }), eventId: event.id });
       return {
         id: event.id,
         kind: 'schedule' as const,
@@ -59,7 +68,9 @@ export async function loadUpcomingCalendarEntries({
         title: event.title,
         description: event.description,
         tableName,
+        attendanceMode: event.attendanceMode,
         capacity: event.capacity,
+        availableSeats: attendance.snapshot.availableSeats,
       };
     }),
   );
@@ -103,8 +114,12 @@ function formatCalendarEntry(entry: CalendarEntry, language: string): string {
   const descriptionLine = entry.description ? `\n  <i>${escapeHtml(entry.description)}</i>` : '';
 
   if (entry.kind === 'schedule') {
-    const tableSuffix = entry.tableName ? ` · ${texts.calendar.table} ${escapeHtml(entry.tableName)}` : '';
-    return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${entry.id}`))}"><b>${escapeHtml(entry.title)}</b></a> · ${entry.capacity}p${tableSuffix}${descriptionLine}`;
+    const modeSuffix = entry.attendanceMode === 'open' ? ' · Mesa abierta' : '';
+    const seatsSuffix = entry.attendanceMode === 'open'
+      ? ` · ${entry.capacity}p (${entry.availableSeats} libres)`
+      : ` · ${entry.capacity}p`;
+    const tableSuffix = entry.tableName ? ` · ${escapeHtml(entry.tableName)}` : '';
+    return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${entry.id}`))}"><b>${escapeHtml(entry.title)}</b></a>${modeSuffix}${seatsSuffix}${tableSuffix}${descriptionLine}`;
   }
 
   if (entry.allDay) {

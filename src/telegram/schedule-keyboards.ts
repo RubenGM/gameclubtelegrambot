@@ -14,6 +14,7 @@ export const scheduleLabels = {
   editFieldTime: 'Hora inici',
   editFieldDuration: 'Durada',
   editFieldCapacity: 'Places',
+  editFieldInitialOccupiedSeats: 'Places ocupades inicials',
   editFieldTable: 'Taula',
   start: 'Inici',
   help: 'Ajuda',
@@ -27,6 +28,9 @@ export const scheduleLabels = {
   durationHours: 'Hores',
   durationHoursMinutes: 'Hores i minuts',
   durationMinutes: 'Minuts',
+  attendanceOpen: 'Abierta',
+  attendanceClosed: 'Cerrada',
+  initialOccupiedSeatsZero: '0',
   confirmCreate: 'Guardar activitat',
   confirmEdit: 'Guardar canvis',
   confirmCancel: 'Confirmar cancel.lacio',
@@ -137,6 +141,33 @@ export function buildCreateConfirmOptions(language: BotLanguage = 'ca'): Telegra
   };
 }
 
+export function buildAttendanceModeOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
+  return {
+    replyKeyboard: [[texts.attendanceOpen, texts.attendanceClosed], [scheduleLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildInitialOccupiedSeatsOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
+  return {
+    replyKeyboard: [[texts.initialOccupiedSeatsZero], [scheduleLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildEditInitialOccupiedSeatsOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
+  return {
+    replyKeyboard: [[texts.keepCurrent], [texts.initialOccupiedSeatsZero], [scheduleLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
 export function buildEditConfirmOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
@@ -162,6 +193,29 @@ export function buildEditFieldMenuOptions(language: BotLanguage = 'ca'): Telegra
       [texts.editFieldTitle, texts.editFieldDescription],
       [texts.editFieldDate, texts.editFieldTime],
       [texts.editFieldDuration, texts.editFieldCapacity],
+      [texts.editFieldTable],
+      [texts.confirmEdit],
+      [scheduleLabels.cancelFlow],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildEditFieldMenuOptionsForEvent({
+  hasInitialOccupiedSeats,
+  language = 'ca',
+}: {
+  hasInitialOccupiedSeats: boolean;
+  language?: BotLanguage;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
+  return {
+    replyKeyboard: [
+      [texts.editFieldTitle, texts.editFieldDescription],
+      [texts.editFieldDate, texts.editFieldTime],
+      [texts.editFieldDuration, texts.editFieldCapacity],
+      ...(hasInitialOccupiedSeats ? [[texts.editFieldInitialOccupiedSeats]] : []),
       [texts.editFieldTable],
       [texts.confirmEdit],
       [scheduleLabels.cancelFlow],

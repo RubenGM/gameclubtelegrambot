@@ -64,6 +64,7 @@ import {
   parseDurationHoursMinutes,
   parseDayKey,
   parseEntityId,
+  parseInitialOccupiedSeats,
   parseOptionalDurationMinutes,
   parseScheduleStartPayload,
   parseTableSelection,
@@ -75,6 +76,7 @@ import { formatScheduleDraftSummary } from './schedule-draft-summary.js';
 import { formatScheduleListWithVenueImpact } from './schedule-list-impact.js';
 import { notifyScheduleConflicts, publishCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
 import {
+  buildAttendanceModeOptions,
   buildCancelConfirmOptions,
   buildCreateConfirmOptions,
   buildCreateDurationOptions,
@@ -84,9 +86,11 @@ import {
   buildEditDateOptions,
   buildEditDescriptionOptions,
   buildEditDurationOptions,
-  buildEditFieldMenuOptions,
+  buildEditFieldMenuOptionsForEvent,
+  buildEditInitialOccupiedSeatsOptions,
   buildEditTableOptions,
   buildEditTimeMinuteOptions,
+  buildInitialOccupiedSeatsOptions,
   buildKeepCurrentKeyboard,
   buildScheduleMenuOptions,
   buildSingleCancelKeyboard,
@@ -114,6 +118,20 @@ const defaultScheduleDurationMinutes = 180;
 
 function getUtcDayStartIso(date = new Date()): string {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).toISOString();
+}
+
+function parseAttendanceModeSelection(
+  text: string,
+  texts: ReturnType<typeof createTelegramI18n>['schedule'],
+): 'open' | 'closed' | null {
+  if (text === texts.attendanceOpen || text === scheduleLabels.attendanceOpen) {
+    return 'open';
+  }
+  if (text === texts.attendanceClosed || text === scheduleLabels.attendanceClosed) {
+    return 'closed';
+  }
+
+  return null;
 }
 
 export interface TelegramScheduleContext {
@@ -301,7 +319,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     });
     await context.reply(
       `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId), language })}\n\n${texts.selectFieldPrompt}`,
-      { ...buildEditFieldMenuOptions(language), parseMode: 'HTML' },
+      { ...buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', language }), parseMode: 'HTML' },
     );
     return true;
   }
@@ -427,8 +445,8 @@ async function handleCreateSession(
 
   if (stepKey === 'duration-mode') {
     if (text === texts.durationNone || text === scheduleLabels.durationNone) {
-      await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes: 120 } });
-      await context.reply(texts.askCapacity, buildSingleCancelKeyboard());
+      await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes: 120 } });
+      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
       return true;
     }
     if (text === texts.durationHours || text === scheduleLabels.durationHours) {
@@ -456,8 +474,8 @@ async function handleCreateSession(
       await context.reply(texts.invalidDurationHours, buildSingleCancelKeyboard());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
-    await context.reply(texts.askCapacity, buildSingleCancelKeyboard());
+    await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
+    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
     return true;
   }
 
@@ -467,8 +485,8 @@ async function handleCreateSession(
       await context.reply(texts.invalidDurationHoursMinutes, buildSingleCancelKeyboard());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
-    await context.reply(texts.askCapacity, buildSingleCancelKeyboard());
+    await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
+    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
     return true;
   }
 
@@ -483,7 +501,18 @@ async function handleCreateSession(
       await context.reply(texts.invalidDurationMinutes, buildSingleCancelKeyboard());
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, durationMinutes } });
+    await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
+    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    return true;
+  }
+
+  if (stepKey === 'attendance-mode') {
+    const attendanceMode = parseAttendanceModeSelection(text, texts);
+    if (attendanceMode === null) {
+      await context.reply(texts.invalidAttendanceMode, buildAttendanceModeOptions(language));
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, attendanceMode } });
     await context.reply(texts.askCapacity, buildSingleCancelKeyboard());
     return true;
   }
@@ -494,7 +523,40 @@ async function handleCreateSession(
       await context.reply(texts.invalidCapacity, buildSingleCancelKeyboard());
       return true;
     }
+    const attendanceMode = data.attendanceMode;
+    if (attendanceMode !== 'open' && attendanceMode !== 'closed') {
+      await context.runtime.session.advance({ stepKey: 'attendance-mode', data });
+      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+      return true;
+    }
     const nextData = { ...data, capacity };
+    if (attendanceMode === 'open') {
+      await context.runtime.session.advance({ stepKey: 'initial-occupied-seats', data: nextData });
+      await context.reply(texts.askInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'table', data: { ...nextData, initialOccupiedSeats: 0 } });
+    await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+    return true;
+  }
+
+  if (stepKey === 'initial-occupied-seats') {
+    const initialOccupiedSeats = parseInitialOccupiedSeats(text);
+    if (initialOccupiedSeats instanceof Error) {
+      await context.reply(texts.invalidInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
+      return true;
+    }
+    const capacity = typeof data.capacity === 'number' ? data.capacity : Number(data.capacity);
+    if (!Number.isInteger(capacity) || capacity <= 0) {
+      await context.runtime.session.advance({ stepKey: 'capacity', data });
+      await context.reply(texts.askCapacity, buildSingleCancelKeyboard());
+      return true;
+    }
+    if (initialOccupiedSeats > capacity) {
+      await context.reply(texts.invalidInitialOccupiedSeatsRange, buildInitialOccupiedSeatsOptions(language));
+      return true;
+    }
+    const nextData = { ...data, initialOccupiedSeats };
     await context.runtime.session.advance({ stepKey: 'table', data: nextData });
     await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
     return true;
@@ -528,6 +590,8 @@ async function handleCreateSession(
       organizerTelegramUserId: context.runtime.actor.telegramUserId,
       createdByTelegramUserId: context.runtime.actor.telegramUserId,
       tableId: asNullableNumber(data.tableId),
+      attendanceMode: String(data.attendanceMode) === 'closed' ? 'closed' : 'open',
+      initialOccupiedSeats: Number(data.initialOccupiedSeats ?? 0),
       capacity: Number(data.capacity),
     });
     await appendAuditEvent({
@@ -612,12 +676,17 @@ async function handleEditSession(
       await context.reply(texts.askEditCapacity, buildKeepCurrentKeyboard(language));
       return true;
     }
+    if (event.attendanceMode === 'open' && (text === texts.editFieldInitialOccupiedSeats || text === scheduleLabels.editFieldInitialOccupiedSeats)) {
+      await context.runtime.session.advance({ stepKey: 'initial-occupied-seats', data });
+      await context.reply(texts.askEditInitialOccupiedSeats, buildEditInitialOccupiedSeatsOptions(language));
+      return true;
+    }
     if (text === texts.editFieldTable || text === scheduleLabels.editFieldTable) {
       await context.runtime.session.advance({ stepKey: 'table', data });
       await context.reply(texts.askEditTable, buildEditTableOptions({ tableNames: await listSchedulableTableNames(context), language }));
       return true;
     }
-    await context.reply(texts.selectFieldPrompt, buildEditFieldMenuOptions(language));
+    await context.reply(texts.selectFieldPrompt, buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', language }));
     return true;
   }
 
@@ -744,7 +813,34 @@ async function handleEditSession(
       await context.reply(texts.invalidCapacity, buildKeepCurrentKeyboard(language));
       return true;
     }
+    if (event.attendanceMode === 'open') {
+      const initialOccupiedSeats = Number(data.initialOccupiedSeats ?? event.initialOccupiedSeats);
+      const attendance = await getScheduleEventAttendance({ repository: resolveScheduleRepository(context), eventId: event.id });
+      const activeParticipantCount = attendance.activeParticipantTelegramUserIds.length;
+      if (capacity < initialOccupiedSeats + activeParticipantCount) {
+        await context.reply(texts.invalidInitialOccupiedSeatsRange, buildKeepCurrentKeyboard(language));
+        return true;
+      }
+    }
     return returnToEditMenu(context, event, data, { capacity });
+  }
+  if (stepKey === 'initial-occupied-seats') {
+    if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
+      return returnToEditMenu(context, event, data, { initialOccupiedSeats: event.initialOccupiedSeats });
+    }
+    const initialOccupiedSeats = parseInitialOccupiedSeats(text);
+    if (initialOccupiedSeats instanceof Error) {
+      await context.reply(texts.invalidInitialOccupiedSeats, buildEditInitialOccupiedSeatsOptions(language));
+      return true;
+    }
+    const capacity = Number(data.capacity ?? event.capacity);
+    const attendance = await getScheduleEventAttendance({ repository: resolveScheduleRepository(context), eventId: event.id });
+    const activeParticipantCount = attendance.activeParticipantTelegramUserIds.length;
+    if (initialOccupiedSeats > capacity || initialOccupiedSeats > capacity - activeParticipantCount) {
+      await context.reply(texts.invalidInitialOccupiedSeatsRange, buildEditInitialOccupiedSeatsOptions(language));
+      return true;
+    }
+    return returnToEditMenu(context, event, data, { initialOccupiedSeats });
   }
   if (stepKey === 'table') {
     if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
@@ -779,7 +875,7 @@ async function returnToEditMenu(
         tableRepository: resolveTableRepository(context),
         resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
       })}\n\n${texts.selectFieldPrompt}`,
-      { ...buildEditFieldMenuOptions(language), parseMode: 'HTML' },
+      { ...buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', language }), parseMode: 'HTML' },
     );
   return true;
 }
@@ -811,6 +907,8 @@ async function persistEditedScheduleEvent(
     durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
     organizerTelegramUserId: event.organizerTelegramUserId,
     tableId: asNullableNumber(data.tableId),
+    attendanceMode: event.attendanceMode,
+    initialOccupiedSeats: Number(data.initialOccupiedSeats ?? event.initialOccupiedSeats),
     capacity: Number(data.capacity ?? event.capacity),
   });
   await appendAuditEvent({
@@ -1115,13 +1213,20 @@ async function formatScheduleEventView(
 
   const relevantVenueEvents = await listRelevantVenueEventsForScheduleEvent(context, event);
   const participantLabels = await formatParticipantLabels(context, attendance.activeParticipantTelegramUserIds);
-
-  return [
+  const detailLines = [
     formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) }),
     formatHtmlField(texts.detailsEnd, getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')),
-    formatHtmlField(texts.detailsOccupiedSeats, `${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`),
-    formatHtmlField(texts.detailsFreeSeats, String(attendance.snapshot.availableSeats)),
-    formatHtmlField(texts.detailsAttendees, participantLabels.length > 0 ? participantLabels.map(escapeHtml).join(', ') : texts.none),
+    ...(event.attendanceMode === 'open'
+      ? [
+          formatHtmlField(texts.detailsOccupiedSeats, `${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`),
+          formatHtmlField(texts.detailsFreeSeats, String(attendance.snapshot.availableSeats)),
+          formatHtmlField(texts.detailsAttendees, participantLabels.length > 0 ? participantLabels.map(escapeHtml).join(', ') : texts.none),
+        ]
+      : []),
+  ];
+
+  return [
+    ...detailLines,
     ...(relevantVenueEvents.length > 0
       ? [
           '<b>Esdeveniments del local rellevants:</b>',
@@ -1163,6 +1268,7 @@ async function replyWithInspectableEventList(
       });
       return attendance.snapshot;
     },
+    loadTableName: async (event) => loadTableName(context, event.tableId),
     loadRelevantVenueEvents: async (event) => listRelevantVenueEventsForScheduleEvent(context, event),
   });
   if (options.includeMenuKeyboard) {

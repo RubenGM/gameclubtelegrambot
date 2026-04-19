@@ -30,6 +30,8 @@ test('createDatabaseScheduleRepository lists only scheduled events by default', 
                   organizerTelegramUserId: 42,
                   createdByTelegramUserId: 42,
                   tableId: null,
+                  attendanceMode: 'open',
+                  initialOccupiedSeats: 0,
                   capacity: 5,
                   lifecycleStatus: 'scheduled',
                   createdAt: new Date('2026-04-04T10:00:00.000Z'),
@@ -53,6 +55,67 @@ test('createDatabaseScheduleRepository lists only scheduled events by default', 
 
   assert.deepEqual(events, ['list:scheduled']);
   assert.deepEqual(result.map((event) => event.id), [1]);
+  assert.equal(result[0]?.attendanceMode, 'open');
+  assert.equal(result[0]?.initialOccupiedSeats, 0);
+});
+
+test('createDatabaseScheduleRepository persists attendance mode and initial occupied seats', async () => {
+  const repository = createDatabaseScheduleRepository({
+    database: {
+      insert: (table: { [key: string]: unknown }) => {
+        if ((table as unknown) !== scheduleEventsTable) {
+          throw new Error('unexpected table');
+        }
+
+        return {
+          values: (values: Record<string, unknown>) => {
+            assert.equal(values.attendanceMode, 'open');
+            assert.equal(values.initialOccupiedSeats, 2);
+
+            return {
+              returning: async () => [
+                {
+                  id: 9,
+                  title: 'Open table',
+                  description: null,
+                  startsAt: new Date('2026-04-05T16:00:00.000Z'),
+                  durationMinutes: 180,
+                  organizerTelegramUserId: 42,
+                  createdByTelegramUserId: 42,
+                  tableId: null,
+                  attendanceMode: 'open',
+                  initialOccupiedSeats: 2,
+                  capacity: 5,
+                  lifecycleStatus: 'scheduled',
+                  createdAt: new Date('2026-04-04T10:00:00.000Z'),
+                  updatedAt: new Date('2026-04-04T10:00:00.000Z'),
+                  cancelledAt: null,
+                  cancelledByTelegramUserId: null,
+                  cancellationReason: null,
+                },
+              ],
+            };
+          },
+        };
+      },
+    } as never,
+  });
+
+  const event = await repository.createEvent({
+    title: 'Open table',
+    description: null,
+    startsAt: '2026-04-05T16:00:00.000Z',
+    durationMinutes: 180,
+    organizerTelegramUserId: 42,
+    createdByTelegramUserId: 42,
+    tableId: null,
+    attendanceMode: 'open',
+    initialOccupiedSeats: 2,
+    capacity: 5,
+  });
+
+  assert.equal(event.attendanceMode, 'open');
+  assert.equal(event.initialOccupiedSeats, 2);
 });
 
 test('createDatabaseScheduleRepository can upsert participants preserving join and leave metadata', async () => {

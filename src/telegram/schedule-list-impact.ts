@@ -4,8 +4,7 @@ import type { VenueEventRecord } from '../venue-events/venue-event-catalog.js';
 import {
   escapeHtml,
   formatDayHeading,
-  formatEventTime,
-  formatParticipantCount,
+  formatEventTimeRange,
   groupScheduleEventsByDay,
   sortScheduleEvents,
 } from './schedule-presentation.js';
@@ -13,10 +12,12 @@ import {
 export async function formatScheduleListWithVenueImpact({
   events,
   loadAttendance,
+  loadTableName,
   loadRelevantVenueEvents,
 }: {
   events: ScheduleEventRecord[];
-  loadAttendance: (eventId: number) => Promise<{ occupiedSeats: number; capacity: number }>;
+  loadAttendance: (eventId: number) => Promise<{ occupiedSeats: number; capacity: number; availableSeats: number }>;
+  loadTableName: (event: ScheduleEventRecord) => Promise<string | null>;
   loadRelevantVenueEvents: (event: ScheduleEventRecord) => Promise<VenueEventRecord[]>;
 }): Promise<string> {
   const lines: string[] = [];
@@ -29,7 +30,13 @@ export async function formatScheduleListWithVenueImpact({
     lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
     for (const event of dayEvents) {
       const attendance = await loadAttendance(event.id);
-      lines.push(`- <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${event.id}`))}"><b>${escapeHtml(event.title)}</b></a> (${formatEventTime(event.startsAt)}) · ${formatParticipantCount(attendance.occupiedSeats, attendance.capacity)}`);
+      const attendanceSummary = event.attendanceMode === 'open'
+        ? `${event.capacity}p (${attendance.availableSeats} libres)`
+        : `${event.capacity}p`;
+      const modeSummary = event.attendanceMode === 'open' ? ' · Mesa abierta' : '';
+      const tableName = await loadTableName(event);
+      const tableSummary = tableName ? ` · ${escapeHtml(tableName)}` : '';
+      lines.push(`- ${formatEventTimeRange(event.startsAt, event.durationMinutes)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${event.id}`))}"><b>${escapeHtml(event.title)}</b></a>${modeSummary} · ${attendanceSummary}${tableSummary}`);
       if (event.description) {
         lines.push(`  <i>${escapeHtml(event.description)}</i>`);
       }

@@ -64,6 +64,10 @@ export function parseCapacity(value: string): number | Error {
   return parsePositiveInteger(value, 'invalid-capacity');
 }
 
+export function parseInitialOccupiedSeats(value: string): number | Error {
+  return parseNonNegativeInteger(value, 'invalid-initial-occupied-seats');
+}
+
 export function parseOptionalDurationMinutes({
   value,
   language = 'ca',
@@ -148,4 +152,12 @@ function parsePositiveInteger(value: string, code = 'invalid-positive-integer'):
   }
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : new Error(code);
+}
+
+function parseNonNegativeInteger(value: string, code = 'invalid-non-negative-integer'): number | Error {
+  if (!/^\d+$/.test(value)) {
+    return new Error(code);
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : new Error(code);
 }

@@ -24,6 +24,11 @@ export function formatEventTime(startsAt: string): string {
   return startsAt.slice(11, 16);
 }
 
+export function formatEventTimeRange(startsAt: string, durationMinutes: number): string {
+  const endsAt = new Date(new Date(startsAt).getTime() + durationMinutes * 60000).toISOString();
+  return `${formatHourLabel(startsAt)}-${formatHourLabel(endsAt)}`;
+}
+
 export function sortScheduleEvents(events: ScheduleEventRecord[]): ScheduleEventRecord[] {
   return events.slice().sort((left, right) => left.startsAt.localeCompare(right.startsAt));
 }
@@ -83,11 +88,16 @@ export function formatScheduleEventDetails({
   language?: BotLanguage;
 }): string {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule;
+  const attendanceLabel = event.attendanceMode === 'open' ? texts.openDetailTag : texts.closedDetailTag;
   return [
     `<b>${escapeHtml(event.title)}</b>`,
     formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
     formatHtmlField(texts.detailsDuration, formatDurationMinutes(event.durationMinutes)),
+    formatHtmlField(texts.detailsAttendanceMode, escapeHtml(attendanceLabel)),
     formatHtmlField(texts.detailsSeats, String(event.capacity)),
+    ...(event.attendanceMode === 'open'
+      ? [formatHtmlField(texts.detailsInitialOccupiedSeats, String(event.initialOccupiedSeats))]
+      : []),
     formatHtmlField(texts.detailsTable, escapeHtml(tableName ?? texts.noTable)),
     formatHtmlField(texts.detailsDescription, escapeHtml(event.description ?? texts.noDescription)),
   ].join('\n');
@@ -124,9 +134,13 @@ export function buildScheduleDetailActionOptions({
   };
 }): TelegramReplyOptions {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule;
-  const rows: TelegramReplyOptions['inlineKeyboard'] = [
-    [{ text: isAttending ? texts.leaveButton : texts.joinButton, callbackData: `${isAttending ? callbackPrefixes.leave : callbackPrefixes.join}${event.id}` }],
-  ];
+  const rows: TelegramReplyOptions['inlineKeyboard'] = [];
+
+  if (event.attendanceMode === 'open') {
+    rows.push([
+      { text: isAttending ? texts.leaveButton : texts.joinButton, callbackData: `${isAttending ? callbackPrefixes.leave : callbackPrefixes.join}${event.id}` },
+    ]);
+  }
 
   if (actor.isAdmin || event.createdByTelegramUserId === actor.telegramUserId) {
     rows.push([
@@ -135,7 +149,7 @@ export function buildScheduleDetailActionOptions({
     ]);
   }
 
-  return { inlineKeyboard: rows };
+  return rows.length > 0 ? { inlineKeyboard: rows } : {};
 }
 
 export function formatTimestamp(value: string): string {
@@ -192,4 +206,13 @@ function formatScheduleDayButtonLabel(dayKey: string, language: string): string 
   const date = new Date(`${dayKey}T00:00:00.000Z`);
   const weekday = new Intl.DateTimeFormat(resolveLanguageLocale(language), { weekday: 'long', timeZone: 'UTC' }).format(date);
   return `Veure ${capitalizeFirstLetter(weekday)} ${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatHourLabel(isoTimestamp: string): string {
+  const time = formatEventTime(isoTimestamp);
+  if (time.endsWith(':00')) {
+    return `${time.slice(0, 2)}h`;
+  }
+
+  return `${time}h`;
 }
