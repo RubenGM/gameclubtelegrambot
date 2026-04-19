@@ -46,6 +46,23 @@ export function buildSingleCancelKeyboard(): TelegramReplyOptions {
   };
 }
 
+export function buildTimeMinuteOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], [scheduleLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildEditTimeMinuteOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
+  return {
+    replyKeyboard: [[texts.keepCurrent], [':00', ':15'], [':30', ':45'], [scheduleLabels.cancelFlow]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
 export function buildDescriptionOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {

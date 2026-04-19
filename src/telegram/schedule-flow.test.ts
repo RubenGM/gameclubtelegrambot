@@ -672,6 +672,73 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
 });
 
+test('handleTelegramScheduleText offers quick minute buttons when creating an activity with hour-only input', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = 'Ark Nova';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.skipOptional;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = 'Diumenge, 05/04';
+  assert.equal(await handleTelegramScheduleText(context), true);
+
+  context.messageText = '17';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(getCurrentSession(), {
+    flowKey: 'schedule-create',
+    stepKey: 'time-minute',
+    data: { title: 'Ark Nova', description: null, date: '2026-04-05', timeHour: '17' },
+  });
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = ':15';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'duration');
+
+  context.messageText = scheduleLabels.skipOptional;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '4';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.noTable;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+
+  assert.equal((await scheduleRepository.findEventById(1))?.startsAt, '2026-04-05T17:15:00.000Z');
+});
+
+test('handleTelegramScheduleText rejects invalid quick minute selections while creating an activity', async () => {
+  const { context, replies, getCurrentSession } = createContext({ actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Ark Nova';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.skipOptional;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '17';
+  await handleTelegramScheduleText(context);
+
+  context.messageText = ':20';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'time-minute');
+  assert.match(replies.at(-1)?.message ?? '', /HH o HH:MM/);
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+});
+
 test('handleTelegramScheduleText publishes the updated calendar to enabled news groups', async () => {
   const tableRepository = createTableRepository([
     {
@@ -1360,6 +1427,94 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
   assert.equal((await scheduleRepository.findEventById(3))?.capacity, 5);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.updated');
   assert.equal(auditRepository.__events.at(-1)?.targetId, '3');
+});
+
+test('handleTelegramScheduleCallback offers quick minute buttons when editing with hour-only input', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 3,
+      title: 'Root',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.callbackData = `${scheduleCallbackPrefixes.selectEdit}3`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  context.messageText = scheduleLabels.editFieldTime;
+  assert.equal(await handleTelegramScheduleText(context), true);
+
+  context.messageText = '19';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(getCurrentSession(), {
+    flowKey: 'schedule-edit',
+    stepKey: 'time-minute',
+    data: { eventId: 3, timeHour: '19' },
+  });
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [[scheduleLabels.keepCurrent], [':00', ':15'], [':30', ':45'], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  context.messageText = ':45';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  assert.match(replies.at(-1)?.message ?? '', /19:45/);
+
+  context.messageText = scheduleLabels.confirmEdit;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal((await scheduleRepository.findEventById(3))?.startsAt, '2026-04-05T19:45:00.000Z');
+});
+
+test('handleTelegramScheduleCallback keeps the current time from the quick minute step when editing', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 3,
+      title: 'Root',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.callbackData = `${scheduleCallbackPrefixes.selectEdit}3`;
+  await handleTelegramScheduleCallback(context);
+  context.messageText = scheduleLabels.editFieldTime;
+  await handleTelegramScheduleText(context);
+  context.messageText = '19';
+  await handleTelegramScheduleText(context);
+
+  context.messageText = scheduleLabels.keepCurrent;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+
+  context.messageText = scheduleLabels.confirmEdit;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal((await scheduleRepository.findEventById(3))?.startsAt, '2026-04-05T16:00:00.000Z');
 });
 
 test('handleTelegramScheduleCallback denies editing foreign activities to non-admins', async () => {

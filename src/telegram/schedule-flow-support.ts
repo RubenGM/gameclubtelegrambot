@@ -56,6 +56,7 @@ import {
 import {
   asNullableNumber,
   asNullableString,
+  buildTimeFromHourAndMinute,
   buildStartsAt,
   parseCapacity,
   parseDate,
@@ -65,6 +66,8 @@ import {
   parseScheduleStartPayload,
   parseTableSelection,
   parseTime,
+  parseTimeHour,
+  parseTimeMinuteSelection,
 } from './schedule-parsing.js';
 import { formatScheduleDraftSummary } from './schedule-draft-summary.js';
 import { formatScheduleListWithVenueImpact } from './schedule-list-impact.js';
@@ -80,10 +83,12 @@ import {
   buildEditDescriptionOptions,
   buildEditFieldMenuOptions,
   buildEditTableOptions,
+  buildEditTimeMinuteOptions,
   buildKeepCurrentKeyboard,
   buildScheduleMenuOptions,
   buildSingleCancelKeyboard,
   buildTableSelectionOptions,
+  buildTimeMinuteOptions,
   scheduleLabels,
 } from './schedule-keyboards.js';
 
@@ -384,10 +389,34 @@ async function handleCreateSession(
 
   if (stepKey === 'time') {
     const time = parseTime(text);
-    if (time instanceof Error) {
+    if (!(time instanceof Error)) {
+      await context.runtime.session.advance({ stepKey: 'duration', data: { ...data, time } });
+      await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+      return true;
+    }
+    const timeHour = parseTimeHour(text);
+    if (timeHour instanceof Error) {
       await context.reply(texts.invalidTime, buildSingleCancelKeyboard());
       return true;
     }
+    await context.runtime.session.advance({ stepKey: 'time-minute', data: { ...data, timeHour } });
+    await context.reply(texts.askTime, buildTimeMinuteOptions());
+    return true;
+  }
+
+  if (stepKey === 'time-minute') {
+    const timeHour = typeof data.timeHour === 'string' ? data.timeHour : null;
+    if (timeHour === null) {
+      await context.runtime.session.advance({ stepKey: 'time', data });
+      await context.reply(texts.askTime, buildSingleCancelKeyboard());
+      return true;
+    }
+    const minuteSelection = parseTimeMinuteSelection(text);
+    if (minuteSelection instanceof Error) {
+      await context.reply(texts.invalidTime, buildTimeMinuteOptions());
+      return true;
+    }
+    const time = buildTimeFromHourAndMinute(timeHour, minuteSelection);
     await context.runtime.session.advance({ stepKey: 'duration', data: { ...data, time } });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
@@ -561,11 +590,39 @@ async function handleEditSession(
   }
   if (stepKey === 'time') {
     const currentTime = event.startsAt.slice(11, 16);
-    const time = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? currentTime : parseTime(text);
-    if (time instanceof Error) {
+    if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
+      return returnToEditMenu(context, event, data, { time: currentTime });
+    }
+    const time = parseTime(text);
+    if (!(time instanceof Error)) {
+      return returnToEditMenu(context, event, data, { time });
+    }
+    const timeHour = parseTimeHour(text);
+    if (timeHour instanceof Error) {
       await context.reply(texts.invalidTime, buildKeepCurrentKeyboard(language));
       return true;
     }
+    await context.runtime.session.advance({ stepKey: 'time-minute', data: { ...data, timeHour } });
+    await context.reply(texts.askEditTime, buildEditTimeMinuteOptions(language));
+    return true;
+  }
+  if (stepKey === 'time-minute') {
+    const currentTime = event.startsAt.slice(11, 16);
+    if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
+      return returnToEditMenu(context, event, data, { time: currentTime });
+    }
+    const timeHour = typeof data.timeHour === 'string' ? data.timeHour : null;
+    if (timeHour === null) {
+      await context.runtime.session.advance({ stepKey: 'time', data });
+      await context.reply(texts.askEditTime, buildKeepCurrentKeyboard(language));
+      return true;
+    }
+    const minuteSelection = parseTimeMinuteSelection(text);
+    if (minuteSelection instanceof Error) {
+      await context.reply(texts.invalidTime, buildEditTimeMinuteOptions(language));
+      return true;
+    }
+    const time = buildTimeFromHourAndMinute(timeHour, minuteSelection);
     return returnToEditMenu(context, event, data, { time });
   }
   if (stepKey === 'duration') {

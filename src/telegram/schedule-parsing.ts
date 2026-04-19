@@ -48,6 +48,18 @@ export function parseTime(value: string): string | Error {
   return /^\d{2}:\d{2}$/.test(value) ? value : new Error('invalid-time');
 }
 
+export function parseTimeHour(value: string): string | Error {
+  return /^\d{2}$/.test(value) ? value : new Error('invalid-time-hour');
+}
+
+export function parseTimeMinuteSelection(value: string): string | Error {
+  return value === ':00' || value === ':15' || value === ':30' || value === ':45' ? value : new Error('invalid-time-minute');
+}
+
+export function buildTimeFromHourAndMinute(hour: string, minuteSelection: string): string {
+  return `${hour}${minuteSelection}`;
+}
+
 export function parseCapacity(value: string): number | Error {
   return parsePositiveInteger(value, 'invalid-capacity');
 }
