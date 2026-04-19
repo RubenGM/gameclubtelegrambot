@@ -270,8 +270,10 @@ function createGrammyTelegramBot({
         }
 
         context.callbackData = context.callbackQuery.data;
-        await handler(createTelegramCommandContext(context));
-        await context.answerCallbackQuery();
+        await runTelegramCallbackHandler({
+          handle: () => handler(createTelegramCommandContext(context)),
+          acknowledge: () => context.answerCallbackQuery(),
+        });
       });
     },
     onText(handler) {
@@ -318,6 +320,20 @@ function createGrammyTelegramBot({
       await pollingPromise;
     },
   };
+}
+
+export async function runTelegramCallbackHandler({
+  handle,
+  acknowledge,
+}: {
+  handle: () => unknown;
+  acknowledge: () => unknown;
+}): Promise<void> {
+  try {
+    await handle();
+  } finally {
+    await acknowledge();
+  }
 }
 
 function escapeRegExp(value: string): string {

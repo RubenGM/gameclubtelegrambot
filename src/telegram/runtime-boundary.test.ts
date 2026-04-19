@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   createTelegramBoundary,
   formatStartMessage,
+  runTelegramCallbackHandler,
   TelegramStartupError,
   type TelegramContextLike,
   type TelegramReplyOptions,
@@ -549,6 +550,27 @@ test('createTelegramBoundary replies with a safe message and clears session on u
   assert.equal(telegram.status.bot, 'connected');
   assert.equal(cancelCalls, 1);
   assert.deepEqual(replies, ['S ha produit un error inesperat. Torna-ho a provar en uns moments.']);
+});
+
+test('runTelegramCallbackHandler still acknowledges the callback when the handler throws', async () => {
+  const calls: string[] = [];
+  const handlerError = new Error('handler failed');
+
+  await assert.rejects(
+    () =>
+      runTelegramCallbackHandler({
+        handle: async () => {
+          calls.push('handle');
+          throw handlerError;
+        },
+        acknowledge: async () => {
+          calls.push('ack');
+        },
+      }),
+    handlerError,
+  );
+
+  assert.deepEqual(calls, ['handle', 'ack']);
 });
 
 test('createTelegramBoundary throws a predictable error when Telegram startup fails', async () => {
