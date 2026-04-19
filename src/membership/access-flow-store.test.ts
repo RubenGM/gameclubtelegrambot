@@ -18,6 +18,7 @@ type MembershipStoreTestState = {
     isAdmin: boolean;
     isApproved: boolean;
   };
+  userUpdateCalls?: number;
   statusAuditRows: Array<Record<string, unknown>>;
   auditRows: Array<Record<string, unknown>>;
 };
@@ -150,6 +151,39 @@ test('createDatabaseMembershipAccessRepository revokes approved membership atomi
   assert.equal(state.auditRows.length, 1);
 });
 
+test('createDatabaseMembershipAccessRepository skips user profile writes when the normalized profile is unchanged', async () => {
+  const state: MembershipStoreTestState = {
+    user: {
+      telegramUserId: 10,
+      username: 'approved_a',
+      displayName: 'Approved A',
+      status: 'approved',
+      isAdmin: false,
+      isApproved: true,
+    },
+    userUpdateCalls: 0,
+    statusAuditRows: [],
+    auditRows: [],
+  };
+
+  const repository = createDatabaseMembershipAccessRepository({
+    database: createMembershipDatabaseDouble(state),
+  });
+
+  const updated = await repository.syncUserProfile({
+    telegramUserId: 10,
+    username: ' approved_a ',
+    displayName: ' Approved A ',
+  });
+
+  assert.equal(updated?.telegramUserId, 10);
+  assert.equal(updated?.username, 'approved_a');
+  assert.equal(updated?.displayName, 'Approved A');
+  assert.equal(state.user.username, 'approved_a');
+  assert.equal(state.user.displayName, 'Approved A');
+  assert.equal(state.userUpdateCalls, 0);
+});
+
 function createMembershipDatabaseDouble(
   state: MembershipStoreTestState,
   options: {
@@ -158,9 +192,59 @@ function createMembershipDatabaseDouble(
   } = {},
 ) {
   return {
+    select: () => ({
+      from: (table: { [key: string]: unknown }) => {
+        if ((table as unknown) !== usersTable) {
+          throw new Error('unexpected table');
+        }
+
+        return {
+          where: async () => [
+            {
+              telegramUserId: state.user.telegramUserId,
+              username: state.user.username,
+              displayName: state.user.displayName,
+              status: state.user.status,
+              isAdmin: state.user.isAdmin,
+            },
+          ],
+        };
+      },
+    }),
+    update: (table: { [key: string]: unknown }) => {
+      if ((table as unknown) !== usersTable) {
+        throw new Error('unexpected table');
+      }
+
+      return {
+        set: (values: Record<string, unknown>) => ({
+          where: () => ({
+            returning: async () => {
+              state.userUpdateCalls = (state.userUpdateCalls ?? 0) + 1;
+              state.user = {
+                ...state.user,
+                username: (values.username as string | undefined) ?? state.user.username,
+                displayName: (values.displayName as string | undefined) ?? state.user.displayName,
+              };
+
+              return [
+                {
+                  telegramUserId: state.user.telegramUserId,
+                  username: state.user.username,
+                  displayName: state.user.displayName,
+                  status: state.user.status,
+                  isAdmin: state.user.isAdmin,
+                },
+              ];
+            },
+          }),
+        }),
+      };
+    },
     transaction: async (handler: (tx: Record<string, unknown>) => Promise<unknown>) => {
       const draft = {
         user: { ...state.user },
+        userUpdateCalls: state.userUpdateCalls ?? 0,
         statusAuditRows: [...state.statusAuditRows],
         auditRows: [...state.auditRows],
       };
@@ -176,12 +260,16 @@ function createMembershipDatabaseDouble(
               set: (values: Record<string, unknown>) => ({
                 where: () => ({
                   returning: async () => {
+                    draft.userUpdateCalls += 1;
+
                     if (options.missingUpdatedRow) {
                       return [];
                     }
 
                     draft.user = {
                       ...draft.user,
+                      username: (values.username as string | undefined) ?? draft.user.username,
+                      displayName: (values.displayName as string | undefined) ?? draft.user.displayName,
                       status: values.status as 'pending' | 'approved' | 'blocked' | 'revoked',
                       isApproved: (values.isApproved as boolean | undefined) ?? draft.user.isApproved,
                     };
@@ -221,6 +309,7 @@ function createMembershipDatabaseDouble(
         } as never);
 
         state.user = draft.user;
+        state.userUpdateCalls = draft.userUpdateCalls;
         state.statusAuditRows = draft.statusAuditRows;
         state.auditRows = draft.auditRows;
         return result;

@@ -49,6 +49,10 @@ export function createDatabaseMembershipAccessRepository({
       const nextDisplayName = normalizeDisplayName(input.displayName) ?? formatMembershipDisplayName(existing);
       const nextUsername = input.username !== undefined ? normalizeDisplayName(input.username) : normalizeDisplayName(existing.username);
 
+      if (nextDisplayName === existing.displayName && nextUsername === normalizeDisplayName(existing.username)) {
+        return existing;
+      }
+
       const updated = await database
         .update(users)
         .set({
