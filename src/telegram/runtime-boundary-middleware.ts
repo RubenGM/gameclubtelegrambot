@@ -18,6 +18,7 @@ import {
 } from './command-registry.js';
 import type {
   TelegramBotLike,
+  TelegramContextLike,
   TelegramLogger,
   TelegramMiddleware,
 } from './runtime-boundary.js';
@@ -49,10 +50,14 @@ export function createMiddlewarePipeline({
     loadLanguage(telegramUserId: number): Promise<'ca' | 'es' | 'en' | null>;
   };
 }): TelegramMiddleware[] {
+  const wikipediaBoardGameImportService = createWikipediaBoardGameImportService(
+    config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {},
+  );
+
   return [
     createErrorHandlingMiddleware({ logger }),
     createLoggingMiddleware({ logger }),
-    createRuntimeContextMiddleware({ config, services, bot }),
+    createRuntimeContextMiddleware({ config, services, bot, wikipediaBoardGameImportService }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
     createActorMiddleware({ services, loadActor }),
     createLanguageMiddleware({ config, languagePreferenceStore }),
@@ -82,6 +87,7 @@ function createErrorHandlingMiddleware({
 
       logger.error(
         {
+          ...buildTelegramUpdateLogBindings(context),
           error: error instanceof Error ? error.message : String(error),
           hasRuntimeContext: Boolean(context.runtime),
         },
@@ -96,8 +102,8 @@ function createLoggingMiddleware({
 }: {
   logger: TelegramLogger;
 }): TelegramMiddleware {
-  return async (_context, next) => {
-    logger.info({}, 'Telegram update received');
+  return async (context, next) => {
+    logger.info(buildTelegramUpdateLogBindings(context), 'Telegram update received');
     await next();
   };
 }
@@ -172,10 +178,12 @@ function createRuntimeContextMiddleware({
   config,
   services,
   bot,
+  wikipediaBoardGameImportService,
 }: {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
   bot: TelegramBotLike;
+  wikipediaBoardGameImportService: ReturnType<typeof createWikipediaBoardGameImportService>;
 }): TelegramMiddleware {
   return async (context, next) => {
     context.runtime = {
@@ -187,9 +195,7 @@ function createRuntimeContextMiddleware({
         ...(bot.sendGroupMessage ? { sendGroupMessage: bot.sendGroupMessage.bind(bot) } : {}),
       },
       services,
-      wikipediaBoardGameImportService: createWikipediaBoardGameImportService(
-        config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {},
-      ),
+      wikipediaBoardGameImportService,
     };
 
     await next();
@@ -252,4 +258,34 @@ function createConversationSessionMiddleware({
 
     await next();
   };
+}
+
+function buildTelegramUpdateLogBindings(context: TelegramContextLike): {
+  chatId?: number;
+  chatType?: string;
+  telegramUserId?: number;
+  updateKind: 'callback' | 'message' | 'unknown';
+} {
+  return {
+    ...(context.chat ? { chatId: context.chat.id, chatType: context.chat.type } : {}),
+    ...(context.from ? { telegramUserId: context.from.id } : {}),
+    updateKind: resolveTelegramUpdateKind(context),
+  };
+}
+
+function resolveTelegramUpdateKind(context: TelegramContextLike): 'callback' | 'message' | 'unknown' {
+  if (context.callbackData) {
+    return 'callback';
+  }
+
+  const maybeMessage = context as TelegramContextLike & { message?: { text?: string } };
+  if (maybeMessage.message?.text) {
+    return 'message';
+  }
+
+  if (context.messageText) {
+    return 'message';
+  }
+
+  return 'unknown';
 }
