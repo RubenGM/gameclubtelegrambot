@@ -93,6 +93,7 @@ import {
   buildInitialOccupiedSeatsOptions,
   buildKeepCurrentKeyboard,
   buildScheduleMenuOptions,
+  buildSingleBackCancelKeyboard,
   buildSingleCancelKeyboard,
   buildTableSelectionOptions,
   buildTimeMinuteOptions,
@@ -184,7 +185,7 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
 
   if (text === texts.create || text === scheduleLabels.create || text === '/schedule_create') {
     await context.runtime.session.start({ flowKey: createFlowKey, stepKey: 'title', data: {} });
-    await context.reply(texts.askTitle, buildSingleCancelKeyboard());
+    await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
     return true;
   }
 
@@ -382,6 +383,10 @@ async function handleCreateSession(
 ): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
+  if (text === texts.back) {
+    return handleCreateSessionBack(context, stepKey, data, language);
+  }
+
   if (stepKey === 'title') {
     await context.runtime.session.advance({ stepKey: 'description', data: { title: text } });
     await context.reply(texts.askDescription, buildDescriptionOptions(language));
@@ -404,7 +409,7 @@ async function handleCreateSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time', data: { ...data, date } });
-    await context.reply(texts.askTime, buildSingleCancelKeyboard());
+    await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
     return true;
   }
 
@@ -417,11 +422,11 @@ async function handleCreateSession(
     }
     const timeHour = parseTimeHour(text);
     if (timeHour instanceof Error) {
-      await context.reply(texts.invalidTime, buildSingleCancelKeyboard());
+      await context.reply(texts.invalidTime, buildSingleBackCancelKeyboard(language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time-minute', data: { ...data, timeHour } });
-    await context.reply(texts.askTime, buildTimeMinuteOptions());
+    await context.reply(texts.askTime, buildTimeMinuteOptions(language));
     return true;
   }
 
@@ -429,12 +434,12 @@ async function handleCreateSession(
     const timeHour = typeof data.timeHour === 'string' ? data.timeHour : null;
     if (timeHour === null) {
       await context.runtime.session.advance({ stepKey: 'time', data });
-      await context.reply(texts.askTime, buildSingleCancelKeyboard());
+      await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
       return true;
     }
     const minuteSelection = parseTimeMinuteSelection(text);
     if (minuteSelection instanceof Error) {
-      await context.reply(texts.invalidTime, buildTimeMinuteOptions());
+      await context.reply(texts.invalidTime, buildTimeMinuteOptions(language));
       return true;
     }
     const time = buildTimeFromHourAndMinute(timeHour, minuteSelection);
@@ -451,17 +456,17 @@ async function handleCreateSession(
     }
     if (text === texts.durationHours || text === scheduleLabels.durationHours) {
       await context.runtime.session.advance({ stepKey: 'duration-hours', data });
-      await context.reply(texts.askDurationHours, buildSingleCancelKeyboard());
+      await context.reply(texts.askDurationHours, buildSingleBackCancelKeyboard(language));
       return true;
     }
     if (text === texts.durationHoursMinutes || text === scheduleLabels.durationHoursMinutes) {
       await context.runtime.session.advance({ stepKey: 'duration-hours-minutes', data });
-      await context.reply(texts.askDurationHoursMinutes, buildSingleCancelKeyboard());
+      await context.reply(texts.askDurationHoursMinutes, buildSingleBackCancelKeyboard(language));
       return true;
     }
     if (text === texts.durationMinutes || text === scheduleLabels.durationMinutes) {
       await context.runtime.session.advance({ stepKey: 'duration', data });
-      await context.reply(texts.askDurationMinutes, buildSingleCancelKeyboard());
+      await context.reply(texts.askDurationMinutes, buildSingleBackCancelKeyboard(language));
       return true;
     }
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
@@ -471,7 +476,7 @@ async function handleCreateSession(
   if (stepKey === 'duration-hours') {
     const durationMinutes = parseDurationHours(text);
     if (durationMinutes instanceof Error) {
-      await context.reply(texts.invalidDurationHours, buildSingleCancelKeyboard());
+      await context.reply(texts.invalidDurationHours, buildSingleBackCancelKeyboard(language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
@@ -482,7 +487,7 @@ async function handleCreateSession(
   if (stepKey === 'duration-hours-minutes') {
     const durationMinutes = parseDurationHoursMinutes(text);
     if (durationMinutes instanceof Error) {
-      await context.reply(texts.invalidDurationHoursMinutes, buildSingleCancelKeyboard());
+      await context.reply(texts.invalidDurationHoursMinutes, buildSingleBackCancelKeyboard(language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
@@ -498,7 +503,7 @@ async function handleCreateSession(
       defaultDurationMinutes: defaultScheduleDurationMinutes,
     });
     if (durationMinutes instanceof Error) {
-      await context.reply(texts.invalidDurationMinutes, buildSingleCancelKeyboard());
+      await context.reply(texts.invalidDurationMinutes, buildSingleBackCancelKeyboard(language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
@@ -513,14 +518,14 @@ async function handleCreateSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, attendanceMode } });
-    await context.reply(texts.askCapacity, buildSingleCancelKeyboard());
+    await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
     return true;
   }
 
   if (stepKey === 'capacity') {
     const capacity = parseCapacity(text);
     if (capacity instanceof Error) {
-      await context.reply(texts.invalidCapacity, buildSingleCancelKeyboard());
+      await context.reply(texts.invalidCapacity, buildSingleBackCancelKeyboard(language));
       return true;
     }
     const attendanceMode = data.attendanceMode;
@@ -549,7 +554,7 @@ async function handleCreateSession(
     const capacity = typeof data.capacity === 'number' ? data.capacity : Number(data.capacity);
     if (!Number.isInteger(capacity) || capacity <= 0) {
       await context.runtime.session.advance({ stepKey: 'capacity', data });
-      await context.reply(texts.askCapacity, buildSingleCancelKeyboard());
+      await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
       return true;
     }
     if (initialOccupiedSeats > capacity) {
@@ -630,6 +635,159 @@ async function handleCreateSession(
   }
 
   return false;
+}
+
+async function handleCreateSessionBack(
+  context: TelegramScheduleContext,
+  stepKey: string,
+  data: Record<string, unknown>,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).schedule;
+
+  if (stepKey === 'title') {
+    await context.runtime.session.cancel();
+    await context.reply(texts.selectMenu, buildScheduleMenuOptions(language));
+    return true;
+  }
+
+  if (stepKey === 'description') {
+    await context.runtime.session.advance({ stepKey: 'title', data: {} });
+    await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
+    return true;
+  }
+
+  if (stepKey === 'date') {
+    await context.runtime.session.advance({ stepKey: 'description', data: { title: data.title } });
+    await context.reply(texts.askDescription, buildDescriptionOptions(language));
+    return true;
+  }
+
+  if (stepKey === 'time') {
+    await context.runtime.session.advance({ stepKey: 'date', data: { ...data, time: undefined } });
+    await context.reply(texts.askDate, buildDateOptions(resolveBotLanguage(context)));
+    return true;
+  }
+
+  if (stepKey === 'time-minute') {
+    await context.runtime.session.advance({
+      stepKey: 'time',
+      data: { title: data.title, description: data.description, date: data.date },
+    });
+    await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
+    return true;
+  }
+
+  if (stepKey === 'duration-mode') {
+    await context.runtime.session.advance({
+      stepKey: 'time',
+      data: { title: data.title, description: data.description, date: data.date },
+    });
+    await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
+    return true;
+  }
+
+  if (stepKey === 'duration-hours' || stepKey === 'duration-hours-minutes' || stepKey === 'duration') {
+    await context.runtime.session.advance({
+      stepKey: 'duration-mode',
+      data: { title: data.title, description: data.description, date: data.date, time: data.time },
+    });
+    await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+    return true;
+  }
+
+  if (stepKey === 'attendance-mode') {
+    await context.runtime.session.advance({
+      stepKey: 'duration-mode',
+      data: { title: data.title, description: data.description, date: data.date, time: data.time },
+    });
+    await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+    return true;
+  }
+
+  if (stepKey === 'capacity') {
+    await context.runtime.session.advance({
+      stepKey: 'attendance-mode',
+      data: {
+        title: data.title,
+        description: data.description,
+        date: data.date,
+        time: data.time,
+        durationMinutes: data.durationMinutes,
+      },
+    });
+    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    return true;
+  }
+
+  if (stepKey === 'initial-occupied-seats') {
+    await context.runtime.session.advance({
+      stepKey: 'capacity',
+      data: {
+        title: data.title,
+        description: data.description,
+        date: data.date,
+        time: data.time,
+        durationMinutes: data.durationMinutes,
+        attendanceMode: data.attendanceMode,
+      },
+    });
+    await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+    return true;
+  }
+
+  if (stepKey === 'table') {
+    if (data.attendanceMode === 'open') {
+      await context.runtime.session.advance({
+        stepKey: 'initial-occupied-seats',
+        data: {
+          title: data.title,
+          description: data.description,
+          date: data.date,
+          time: data.time,
+          durationMinutes: data.durationMinutes,
+          attendanceMode: data.attendanceMode,
+          capacity: data.capacity,
+        },
+      });
+      await context.reply(texts.askInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
+      return true;
+    }
+
+    await context.runtime.session.advance({
+      stepKey: 'capacity',
+      data: {
+        title: data.title,
+        description: data.description,
+        date: data.date,
+        time: data.time,
+        durationMinutes: data.durationMinutes,
+        attendanceMode: data.attendanceMode,
+      },
+    });
+    await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+    return true;
+  }
+
+  if (stepKey === 'confirm') {
+    await context.runtime.session.advance({
+      stepKey: 'table',
+      data: {
+        title: data.title,
+        description: data.description,
+        date: data.date,
+        time: data.time,
+        durationMinutes: data.durationMinutes,
+        attendanceMode: data.attendanceMode,
+        capacity: data.capacity,
+        initialOccupiedSeats: data.initialOccupiedSeats,
+      },
+    });
+    await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+    return true;
+  }
+
+  return true;
 }
 
 async function handleEditSession(
