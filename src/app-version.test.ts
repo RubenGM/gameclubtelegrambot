@@ -13,7 +13,7 @@ test('readAppVersion prefers the generated build version when it exists', () => 
   const packageJsonPath = join(tempDir, 'package.json');
 
   writeFileSync(buildVersionPath, JSON.stringify({ version: '0.3.20260420112233' }));
-  writeFileSync(packageJsonPath, JSON.stringify({ version: '0.3.0' }));
+  writeFileSync(packageJsonPath, JSON.stringify({ version: '0.4.0' }));
 
   assert.equal(
     readAppVersion({
@@ -29,13 +29,13 @@ test('readAppVersion falls back to package.json when there is no generated build
   const buildVersionPath = join(tempDir, 'missing-app-version.json');
   const packageJsonPath = join(tempDir, 'package.json');
 
-  writeFileSync(packageJsonPath, JSON.stringify({ version: '0.3.0' }));
+  writeFileSync(packageJsonPath, JSON.stringify({ version: '0.4.0' }));
 
   assert.equal(
     readAppVersion({
       buildVersionFileUrl: pathToFileURL(buildVersionPath),
       packageJsonFileUrl: pathToFileURL(packageJsonPath),
     }),
-    '0.3.0',
+    '0.4.0',
   );
 });

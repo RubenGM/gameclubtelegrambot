@@ -8,5 +8,5 @@ test('formatBuildTimestamp renders build time as yyyyMMddHHmmss', () => {
 });
 
 test('buildTimestampVersion replaces the patch segment with the build timestamp', () => {
-  assert.equal(buildTimestampVersion('0.3.0', new Date('2026-04-20T11:22:33Z')), '0.3.20260420112233');
+  assert.equal(buildTimestampVersion('0.4.0', new Date('2026-04-20T11:22:33Z')), '0.4.20260420112233');
 });
