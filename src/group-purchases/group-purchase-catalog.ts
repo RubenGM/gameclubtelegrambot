@@ -36,6 +36,8 @@ export interface GroupPurchaseFieldRecord {
 export interface GroupPurchaseParticipantRecord {
   purchaseId: number;
   participantTelegramUserId: number;
+  participantDisplayName: string | null;
+  participantUsername: string | null;
   status: GroupPurchaseParticipantStatus;
   joinedAt: string;
   updatedAt: string;
@@ -158,7 +160,7 @@ export async function createGroupPurchase({
   fields: GroupPurchaseFieldInput[];
 }): Promise<GroupPurchaseDetailRecord> {
   const normalizedMode = normalizePurchaseMode(purchaseMode);
-  const normalizedFields = normalizeFields(fields);
+  const normalizedFields = normalizeFields(fields, { allowEmpty: normalizedMode === 'shared_cost' });
   const quantityField = resolveQuantityField(normalizedFields);
 
   if (normalizedMode === 'per_item' && (!quantityField || quantityField.fieldType !== 'integer')) {
@@ -389,9 +391,13 @@ function normalizeOptionalMoney(value: number | null | undefined): number | null
   return value;
 }
 
-function normalizeFields(fields: GroupPurchaseFieldInput[]): GroupPurchaseFieldInput[] {
-  if (fields.length === 0) {
+function normalizeFields(fields: GroupPurchaseFieldInput[], { allowEmpty = false }: { allowEmpty?: boolean } = {}): GroupPurchaseFieldInput[] {
+  if (fields.length === 0 && !allowEmpty) {
     throw new Error('Group purchases require at least one configurable field');
+  }
+
+  if (fields.length === 0) {
+    return [];
   }
 
   const normalized = fields.map((field) => {

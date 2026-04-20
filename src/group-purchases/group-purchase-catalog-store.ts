@@ -7,6 +7,7 @@ import {
   groupPurchaseParticipantFieldValues,
   groupPurchaseParticipants,
   groupPurchases,
+  users,
 } from '../infrastructure/database/schema.js';
 import type {
   GroupPurchaseDetailRecord,
@@ -23,6 +24,38 @@ export function createDatabaseGroupPurchaseRepository({
 }: {
   database: DatabaseConnection['db'];
 }): GroupPurchaseRepository {
+  const selectParticipants = async (purchaseId: number, participantTelegramUserId?: number) => {
+    const selection = database
+      .select({
+        purchaseId: groupPurchaseParticipants.purchaseId,
+        participantTelegramUserId: groupPurchaseParticipants.participantTelegramUserId,
+        participantDisplayName: users.displayName,
+        participantUsername: users.username,
+        status: groupPurchaseParticipants.status,
+        joinedAt: groupPurchaseParticipants.joinedAt,
+        updatedAt: groupPurchaseParticipants.updatedAt,
+        removedAt: groupPurchaseParticipants.removedAt,
+        confirmedAt: groupPurchaseParticipants.confirmedAt,
+        paidAt: groupPurchaseParticipants.paidAt,
+        deliveredAt: groupPurchaseParticipants.deliveredAt,
+      })
+      .from(groupPurchaseParticipants)
+      .leftJoin(users, eq(users.telegramUserId, groupPurchaseParticipants.participantTelegramUserId));
+
+    if (participantTelegramUserId !== undefined) {
+      return selection.where(
+        and(
+          eq(groupPurchaseParticipants.purchaseId, purchaseId),
+          eq(groupPurchaseParticipants.participantTelegramUserId, participantTelegramUserId),
+        ),
+      );
+    }
+
+    return selection
+      .where(eq(groupPurchaseParticipants.purchaseId, purchaseId))
+      .orderBy(asc(groupPurchaseParticipants.joinedAt), asc(groupPurchaseParticipants.participantTelegramUserId));
+  };
+
   return {
     async createPurchase(input) {
       return database.transaction(async (tx) => {
@@ -136,11 +169,7 @@ export function createDatabaseGroupPurchaseRepository({
           .from(groupPurchaseFields)
           .where(eq(groupPurchaseFields.purchaseId, purchaseId))
           .orderBy(asc(groupPurchaseFields.sortOrder), asc(groupPurchaseFields.id)),
-        database
-          .select()
-          .from(groupPurchaseParticipants)
-          .where(eq(groupPurchaseParticipants.purchaseId, purchaseId))
-          .orderBy(asc(groupPurchaseParticipants.joinedAt), asc(groupPurchaseParticipants.participantTelegramUserId)),
+        selectParticipants(purchaseId),
       ]);
 
       return {
@@ -150,24 +179,12 @@ export function createDatabaseGroupPurchaseRepository({
       } satisfies GroupPurchaseDetailRecord;
     },
     async findParticipant(purchaseId, participantTelegramUserId) {
-      const result = await database
-        .select()
-        .from(groupPurchaseParticipants)
-        .where(
-          and(
-            eq(groupPurchaseParticipants.purchaseId, purchaseId),
-            eq(groupPurchaseParticipants.participantTelegramUserId, participantTelegramUserId),
-          ),
-        );
+      const result = await selectParticipants(purchaseId, participantTelegramUserId);
       const row = result[0];
       return row ? mapGroupPurchaseParticipantRow(row) : null;
     },
     async listParticipants(purchaseId) {
-      const result = await database
-        .select()
-        .from(groupPurchaseParticipants)
-        .where(eq(groupPurchaseParticipants.purchaseId, purchaseId))
-        .orderBy(asc(groupPurchaseParticipants.joinedAt), asc(groupPurchaseParticipants.participantTelegramUserId));
+      const result = await selectParticipants(purchaseId);
       return result.map(mapGroupPurchaseParticipantRow);
     },
     async upsertParticipant(input) {
@@ -203,7 +220,13 @@ export function createDatabaseGroupPurchaseRepository({
         throw new Error(`Group purchase participant ${input.participantTelegramUserId} for purchase ${input.purchaseId} not found`);
       }
 
-      return mapGroupPurchaseParticipantRow(row);
+      const selected = await selectParticipants(input.purchaseId, input.participantTelegramUserId);
+      const participantRow = selected[0];
+      if (!participantRow) {
+        throw new Error(`Group purchase participant ${input.participantTelegramUserId} for purchase ${input.purchaseId} not found`);
+      }
+
+      return mapGroupPurchaseParticipantRow(participantRow);
     },
     async listParticipantFieldValues(purchaseId, participantTelegramUserId) {
       const result = await database
@@ -309,11 +332,25 @@ function mapGroupPurchaseFieldRow(row: typeof groupPurchaseFields.$inferSelect):
 }
 
 function mapGroupPurchaseParticipantRow(
-  row: typeof groupPurchaseParticipants.$inferSelect,
+  row: {
+    purchaseId: number;
+    participantTelegramUserId: number;
+    participantDisplayName: string | null;
+    participantUsername: string | null;
+    status: string;
+    joinedAt: Date;
+    updatedAt: Date;
+    removedAt: Date | null;
+    confirmedAt: Date | null;
+    paidAt: Date | null;
+    deliveredAt: Date | null;
+  },
 ): GroupPurchaseParticipantRecord {
   return {
     purchaseId: row.purchaseId,
     participantTelegramUserId: row.participantTelegramUserId,
+    participantDisplayName: row.participantDisplayName,
+    participantUsername: row.participantUsername,
     status: row.status as GroupPurchaseParticipantRecord['status'],
     joinedAt: row.joinedAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

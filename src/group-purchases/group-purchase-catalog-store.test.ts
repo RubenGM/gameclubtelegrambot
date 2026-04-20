@@ -176,20 +176,24 @@ test('createDatabaseGroupPurchaseRepository loads purchase detail with fields an
 
           if ((table as unknown) === groupPurchaseParticipantsTable) {
             return {
-              where: () => ({
-                orderBy: async () => [
-                  {
-                    purchaseId: 7,
-                    participantTelegramUserId: 77,
-                    status: 'interested',
-                    joinedAt: new Date('2026-04-20T12:00:00.000Z'),
-                    updatedAt: new Date('2026-04-20T12:00:00.000Z'),
-                    removedAt: null,
-                    confirmedAt: null,
-                    paidAt: null,
-                    deliveredAt: null,
-                  },
-                ],
+              leftJoin: () => ({
+                where: () => ({
+                  orderBy: async () => [
+                    {
+                      purchaseId: 7,
+                      participantTelegramUserId: 77,
+                      participantDisplayName: 'Participant 77',
+                      participantUsername: 'participant77',
+                      status: 'interested',
+                      joinedAt: new Date('2026-04-20T12:00:00.000Z'),
+                      updatedAt: new Date('2026-04-20T12:00:00.000Z'),
+                      removedAt: null,
+                      confirmedAt: null,
+                      paidAt: null,
+                      deliveredAt: null,
+                    },
+                  ],
+                }),
               }),
             };
           }
@@ -211,6 +215,33 @@ test('createDatabaseGroupPurchaseRepository loads purchase detail with fields an
 test('createDatabaseGroupPurchaseRepository upserts participant status and timestamps', async () => {
   const repository = createDatabaseGroupPurchaseRepository({
     database: {
+      select: () => ({
+        from: (table: { [key: string]: unknown }) => {
+          if ((table as unknown) !== groupPurchaseParticipantsTable) {
+            throw new Error('unexpected table');
+          }
+
+          return {
+            leftJoin: () => ({
+              where: async () => [
+                {
+                  purchaseId: 7,
+                  participantTelegramUserId: 77,
+                  participantDisplayName: 'Participant 77',
+                  participantUsername: 'participant77',
+                  status: 'confirmed',
+                  joinedAt: new Date('2026-04-20T12:00:00.000Z'),
+                  updatedAt: new Date('2026-04-20T13:00:00.000Z'),
+                  removedAt: null,
+                  confirmedAt: new Date('2026-04-20T13:00:00.000Z'),
+                  paidAt: null,
+                  deliveredAt: null,
+                },
+              ],
+            }),
+          };
+        },
+      }),
       insert: (table: { [key: string]: unknown }) => {
         if ((table as unknown) !== groupPurchaseParticipantsTable) {
           throw new Error('unexpected table');

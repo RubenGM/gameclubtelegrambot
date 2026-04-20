@@ -19,6 +19,10 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
   const fields = new Map<number, GroupPurchaseDetailRecord['fields']>();
   const participants = new Map<string, GroupPurchaseParticipantRecord>();
   const fieldValues = new Map<string, GroupPurchaseParticipantFieldValueRecord[]>();
+  const userProfiles = new Map<number, { displayName: string; username: string | null }>([
+    [42, { displayName: 'Creador', username: 'creator' }],
+    [77, { displayName: 'Participant 77', username: 'participant77' }],
+  ]);
   let nextPurchaseId = Math.max(0, ...initialPurchases.map((purchase) => purchase.id)) + 1;
 
   return {
@@ -129,6 +133,8 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
       const next: GroupPurchaseParticipantRecord = {
         purchaseId: input.purchaseId,
         participantTelegramUserId: input.participantTelegramUserId,
+        participantDisplayName: userProfiles.get(input.participantTelegramUserId)?.displayName ?? `Participant ${input.participantTelegramUserId}`,
+        participantUsername: userProfiles.get(input.participantTelegramUserId)?.username ?? null,
         status: input.status,
         joinedAt: existing?.joinedAt ?? '2026-04-20T12:00:00.000Z',
         updatedAt: '2026-04-20T12:30:00.000Z',
@@ -243,6 +249,22 @@ test('createGroupPurchase rejects a per-item purchase without a quantity field',
       }),
     /Per-item purchases require exactly one integer quantity field/,
   );
+});
+
+test('createGroupPurchase allows shared-cost purchases with no configurable fields', async () => {
+  const repository = createRepository();
+
+  const detail = await createGroupPurchase({
+    repository,
+    title: 'Juego conjunto',
+    purchaseMode: 'shared_cost',
+    createdByTelegramUserId: 42,
+    totalPriceCents: 5000,
+    fields: [],
+  });
+
+  assert.equal(detail.purchase.purchaseMode, 'shared_cost');
+  assert.equal(detail.fields.length, 0);
 });
 
 test('createGroupPurchase rejects multiple quantity-affecting fields', async () => {
