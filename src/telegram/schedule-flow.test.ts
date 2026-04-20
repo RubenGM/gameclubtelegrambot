@@ -642,11 +642,7 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
 
   context.messageText = '  Dungeons & Dragons  ';
   assert.equal(await handleTelegramScheduleText(context), true);
-  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create', stepKey: 'description', data: { title: 'Dungeons & Dragons' } });
-
-  context.messageText = scheduleLabels.skipOptional;
-  assert.equal(await handleTelegramScheduleText(context), true);
-  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create', stepKey: 'date', data: { title: 'Dungeons & Dragons', description: null } });
+  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create', stepKey: 'date', data: { title: 'Dungeons & Dragons' } });
   assert.deepEqual(replies.at(-1)?.options, {
     replyKeyboard: [['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], ['Tornar'], ['/cancel']],
     resizeKeyboard: true,
@@ -655,7 +651,7 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
 
   context.messageText = 'Diumenge, 05/04';
   assert.equal(await handleTelegramScheduleText(context), true);
-  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create', stepKey: 'time', data: { title: 'Dungeons & Dragons', description: null, date: '2026-04-05' } });
+  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create', stepKey: 'time', data: { title: 'Dungeons & Dragons', date: '2026-04-05' } });
 
   context.messageText = '16:00';
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -689,6 +685,12 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   context.messageText = 'Mesa TV';
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'confirm');
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [[scheduleLabels.editFieldDescription], [scheduleLabels.confirmCreate], ['Tornar'], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+    parseMode: 'HTML',
+  });
 
   context.messageText = scheduleLabels.confirmCreate;
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -703,14 +705,61 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
 });
 
+test('handleTelegramScheduleText adds an optional description only from the final create step', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = 'Mansions of Madness';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '05/04';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '16:00';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.durationNone;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.attendanceClosed;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = '5';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.noTable;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'confirm');
+
+  context.messageText = scheduleLabels.editFieldDescription;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(getCurrentSession(), {
+    flowKey: 'schedule-create',
+    stepKey: 'description',
+    data: {
+      title: 'Mansions of Madness',
+      date: '2026-04-05',
+      time: '16:00',
+      durationMinutes: 120,
+      attendanceMode: 'closed',
+      capacity: 5,
+      initialOccupiedSeats: 0,
+      tableId: null,
+    },
+  });
+
+  context.messageText = 'Campanya narrativa';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'confirm');
+  assert.match(replies.at(-1)?.message ?? '', /Descripcio: Campanya narrativa/);
+
+  context.messageText = scheduleLabels.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal((await scheduleRepository.findEventById(1))?.description, 'Campanya narrativa');
+});
+
 test('handleTelegramScheduleText goes back to the previous create step without losing entered data', async () => {
   const { context, replies, getCurrentSession } = createContext({ actorTelegramUserId: 42 });
 
   context.messageText = scheduleLabels.create;
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = 'Terraforming Mars';
-  assert.equal(await handleTelegramScheduleText(context), true);
-  context.messageText = scheduleLabels.skipOptional;
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = 'Diumenge, 05/04';
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -719,7 +768,7 @@ test('handleTelegramScheduleText goes back to the previous create step without l
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create',
     stepKey: 'time-minute',
-    data: { title: 'Terraforming Mars', description: null, date: '2026-04-05', timeHour: '17' },
+    data: { title: 'Terraforming Mars', date: '2026-04-05', timeHour: '17' },
   });
 
   context.messageText = 'Tornar';
@@ -727,7 +776,7 @@ test('handleTelegramScheduleText goes back to the previous create step without l
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create',
     stepKey: 'time',
-    data: { title: 'Terraforming Mars', description: null, date: '2026-04-05' },
+    data: { title: 'Terraforming Mars', date: '2026-04-05' },
   });
   assert.match(replies.at(-1)?.message ?? '', /HH o HH:MM/);
 
@@ -736,7 +785,6 @@ test('handleTelegramScheduleText goes back to the previous create step without l
   assert.equal(getCurrentSession()?.stepKey, 'duration-mode');
   assert.deepEqual(getCurrentSession()?.data, {
     title: 'Terraforming Mars',
-    description: null,
     date: '2026-04-05',
     time: '18:30',
   });
@@ -767,8 +815,6 @@ test('handleTelegramScheduleText localizes the back button for spanish create fl
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = 'Ark Nova';
   assert.equal(await handleTelegramScheduleText(context), true);
-  context.messageText = 'Omitir';
-  assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = 'Domingo, 05/04';
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = '17';
@@ -792,8 +838,6 @@ test('handleTelegramScheduleText creates an activity with no duration using the 
   context.messageText = scheduleLabels.create;
   await handleTelegramScheduleText(context);
   context.messageText = 'Catan';
-  await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
   await handleTelegramScheduleText(context);
   context.messageText = 'Diumenge, 05/04';
   await handleTelegramScheduleText(context);
@@ -828,8 +872,6 @@ test('handleTelegramScheduleText creates an activity from whole hours duration i
   context.messageText = scheduleLabels.create;
   await handleTelegramScheduleText(context);
   context.messageText = 'Brass';
-  await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
   await handleTelegramScheduleText(context);
   context.messageText = 'Diumenge, 05/04';
   await handleTelegramScheduleText(context);
@@ -869,8 +911,6 @@ test('handleTelegramScheduleText creates an activity from hours-and-minutes dura
   await handleTelegramScheduleText(context);
   context.messageText = 'Eclipse';
   await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
-  await handleTelegramScheduleText(context);
   context.messageText = 'Diumenge, 05/04';
   await handleTelegramScheduleText(context);
   context.messageText = '16:00';
@@ -908,8 +948,6 @@ test('handleTelegramScheduleText rejects invalid hours-and-minutes duration inpu
   await handleTelegramScheduleText(context);
   context.messageText = 'Eclipse';
   await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
-  await handleTelegramScheduleText(context);
   context.messageText = 'Diumenge, 05/04';
   await handleTelegramScheduleText(context);
   context.messageText = '16:00';
@@ -931,8 +969,6 @@ test('handleTelegramScheduleText offers quick minute buttons when creating an ac
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = 'Ark Nova';
   assert.equal(await handleTelegramScheduleText(context), true);
-  context.messageText = scheduleLabels.skipOptional;
-  assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = 'Diumenge, 05/04';
   assert.equal(await handleTelegramScheduleText(context), true);
 
@@ -941,7 +977,7 @@ test('handleTelegramScheduleText offers quick minute buttons when creating an ac
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create',
     stepKey: 'time-minute',
-    data: { title: 'Ark Nova', description: null, date: '2026-04-05', timeHour: '17' },
+    data: { title: 'Ark Nova', date: '2026-04-05', timeHour: '17' },
   });
   assert.deepEqual(replies.at(-1)?.options, {
     replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar'], ['/cancel']],
@@ -982,8 +1018,6 @@ test('handleTelegramScheduleText accepts one-digit hours when creating an activi
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = 'Ark Nova';
   assert.equal(await handleTelegramScheduleText(context), true);
-  context.messageText = scheduleLabels.skipOptional;
-  assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = 'Diumenge, 05/04';
   assert.equal(await handleTelegramScheduleText(context), true);
 
@@ -992,7 +1026,7 @@ test('handleTelegramScheduleText accepts one-digit hours when creating an activi
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create',
     stepKey: 'time-minute',
-    data: { title: 'Ark Nova', description: null, date: '2026-04-05', timeHour: '02' },
+    data: { title: 'Ark Nova', date: '2026-04-05', timeHour: '02' },
   });
   assert.deepEqual(replies.at(-1)?.options, {
     replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar'], ['/cancel']],
@@ -1030,8 +1064,6 @@ test('handleTelegramScheduleText shows people instead of seats in the closed-tab
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = 'Nemesis';
   assert.equal(await handleTelegramScheduleText(context), true);
-  context.messageText = scheduleLabels.skipOptional;
-  assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = '05/04';
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = '16:00';
@@ -1060,8 +1092,6 @@ test('handleTelegramScheduleText rejects invalid quick minute selections while c
   context.messageText = scheduleLabels.create;
   await handleTelegramScheduleText(context);
   context.messageText = 'Ark Nova';
-  await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
   await handleTelegramScheduleText(context);
   context.messageText = 'Diumenge, 05/04';
   await handleTelegramScheduleText(context);
@@ -1110,8 +1140,6 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
   await handleTelegramScheduleText(context);
   context.messageText = 'Dune Imperium';
   await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
-  await handleTelegramScheduleText(context);
   context.messageText = 'Diumenge, 05/04';
   await handleTelegramScheduleText(context);
   context.messageText = '16:00';
@@ -1145,8 +1173,6 @@ test('handleTelegramScheduleText accepts dd/MM/yyyy dates and shows upcoming day
   context.messageText = scheduleLabels.create;
   await handleTelegramScheduleText(context);
   context.messageText = 'Ark Nova';
-  await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
   await handleTelegramScheduleText(context);
 
   assert.deepEqual(replies.at(-1)?.options, {
@@ -1188,8 +1214,6 @@ test('handleTelegramScheduleText shows created tables as reply keyboard buttons 
   context.messageText = scheduleLabels.create;
   await handleTelegramScheduleText(context);
   context.messageText = 'Ark Nova';
-  await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
   await handleTelegramScheduleText(context);
   context.messageText = '05/04';
   await handleTelegramScheduleText(context);
@@ -1268,8 +1292,6 @@ test('handleTelegramScheduleCallback rejects selecting a deactivated table for a
   await handleTelegramScheduleText(context);
   context.messageText = 'Root';
   await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
-  await handleTelegramScheduleText(context);
   context.messageText = '05/04';
   await handleTelegramScheduleText(context);
   context.messageText = '16:00';
@@ -1347,8 +1369,6 @@ test('handleTelegramScheduleText shows advisory warning when requested capacity 
   context.messageText = scheduleLabels.create;
   await handleTelegramScheduleText(context);
   context.messageText = 'Root';
-  await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
   await handleTelegramScheduleText(context);
   context.messageText = '05/04';
   await handleTelegramScheduleText(context);
@@ -1757,6 +1777,21 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
 
   assert.equal(handled, true);
   assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-edit', stepKey: 'select-field', data: { eventId: 3 } });
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [
+      [scheduleLabels.editFieldTitle, scheduleLabels.editFieldDate],
+      [scheduleLabels.editFieldTime, scheduleLabels.editFieldDuration],
+      [scheduleLabels.editFieldCapacity],
+      [scheduleLabels.editFieldInitialOccupiedSeats],
+      [scheduleLabels.editFieldTable],
+      [scheduleLabels.editFieldDescription],
+      [scheduleLabels.confirmEdit],
+      ['/cancel'],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+    parseMode: 'HTML',
+  });
 
   context.messageText = scheduleLabels.editFieldTitle;
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -1786,6 +1821,39 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
   assert.equal((await scheduleRepository.findEventById(3))?.capacity, 5);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.updated');
   assert.equal(auditRepository.__events.at(-1)?.targetId, '3');
+});
+
+test('handleTelegramScheduleCallback keeps the existing description when saving an edited activity without changing it', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 3,
+      title: 'Root',
+      description: 'Actividad original',
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, getCurrentSession, replies } = createContext({ scheduleRepository, actorTelegramUserId: 42, language: 'es' });
+
+  context.callbackData = `${scheduleCallbackPrefixes.selectEdit}3`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-edit', stepKey: 'select-field', data: { eventId: 3 } });
+
+  context.messageText = 'Guardar cambios';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /Actividad actualizada correctamente: <b>Root<\/b>/);
+  assert.equal((await scheduleRepository.findEventById(3))?.description, 'Actividad original');
 });
 
 test('handleTelegramScheduleCallback offers quick minute buttons when editing with hour-only input', async () => {
@@ -2008,8 +2076,6 @@ test('handleTelegramScheduleText sends private conflict notifications after crea
   context.messageText = scheduleLabels.create;
   await handleTelegramScheduleText(context);
   context.messageText = 'Ark Nova';
-  await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.skipOptional;
   await handleTelegramScheduleText(context);
   context.messageText = '05/04';
   await handleTelegramScheduleText(context);

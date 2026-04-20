@@ -38,7 +38,7 @@ import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createBoardGameGeekCollectionImportService, createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { buildLoanItemButton, formatLoanAvailabilityLines, resolveLoanBorrowerDisplayName, type TelegramCatalogLoanContext } from './catalog-loan-flow.js';
-import { buildDescriptionOptions } from './schedule-keyboards.js';
+import { buildDateOptions } from './schedule-keyboards.js';
 import {
   buildCatalogAdminMenuOptions,
   buildCreateConfirmOptions,
@@ -417,10 +417,10 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
     await context.runtime.session.start({
       flowKey: 'schedule-create',
-      stepKey: 'description',
+      stepKey: 'date',
       data: { title: item.displayName },
     });
-    await context.reply(createTelegramI18n(language).schedule.askDescription, buildDescriptionOptions(language));
+    await context.reply(createTelegramI18n(language).schedule.askDate, buildDateOptions(context.runtime.bot.language ?? language));
     return true;
   }
   if (route.kind === 'deactivate-item') {

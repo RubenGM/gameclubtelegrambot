@@ -146,7 +146,7 @@ export function buildCreateDurationOptions(language: BotLanguage = 'ca'): Telegr
 export function buildCreateConfirmOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.confirmCreate], [texts.back], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.editFieldDescription], [texts.confirmCreate], [texts.back], [scheduleLabels.cancelFlow]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -201,10 +201,10 @@ export function buildEditFieldMenuOptions(language: BotLanguage = 'ca'): Telegra
   const texts = createTelegramI18n(language).schedule;
   return {
     replyKeyboard: [
-      [texts.editFieldTitle, texts.editFieldDescription],
-      [texts.editFieldDate, texts.editFieldTime],
-      [texts.editFieldDuration, texts.editFieldCapacity],
-      [texts.editFieldTable],
+      [texts.editFieldTitle, texts.editFieldDate],
+      [texts.editFieldTime, texts.editFieldDuration],
+      [texts.editFieldCapacity, texts.editFieldTable],
+      [texts.editFieldDescription],
       [texts.confirmEdit],
       [scheduleLabels.cancelFlow],
     ],
@@ -223,11 +223,12 @@ export function buildEditFieldMenuOptionsForEvent({
   const texts = createTelegramI18n(language).schedule;
   return {
     replyKeyboard: [
-      [texts.editFieldTitle, texts.editFieldDescription],
-      [texts.editFieldDate, texts.editFieldTime],
-      [texts.editFieldDuration, texts.editFieldCapacity],
+      [texts.editFieldTitle, texts.editFieldDate],
+      [texts.editFieldTime, texts.editFieldDuration],
+      [texts.editFieldCapacity],
       ...(hasInitialOccupiedSeats ? [[texts.editFieldInitialOccupiedSeats]] : []),
       [texts.editFieldTable],
+      [texts.editFieldDescription],
       [texts.confirmEdit],
       [scheduleLabels.cancelFlow],
     ],

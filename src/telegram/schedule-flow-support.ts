@@ -388,17 +388,16 @@ async function handleCreateSession(
   }
 
   if (stepKey === 'title') {
-    await context.runtime.session.advance({ stepKey: 'description', data: { title: text } });
-    await context.reply(texts.askDescription, buildDescriptionOptions(language));
+    await context.runtime.session.advance({ stepKey: 'date', data: { title: text } });
+    await context.reply(texts.askDate, buildDateOptions(resolveBotLanguage(context)));
     return true;
   }
 
   if (stepKey === 'description') {
-    await context.runtime.session.advance({
-      stepKey: 'date',
-      data: { ...data, description: text === texts.skipOptional || text === scheduleLabels.skipOptional ? null : text },
+    await replyCreateConfirm(context, {
+      ...data,
+      description: text === texts.skipOptional || text === scheduleLabels.skipOptional ? null : text,
     });
-    await context.reply(texts.askDate, buildDateOptions(resolveBotLanguage(context)));
     return true;
   }
 
@@ -572,6 +571,11 @@ async function handleCreateSession(
   }
 
   if (stepKey === 'confirm') {
+    if (text === texts.editFieldDescription || text === scheduleLabels.editFieldDescription) {
+      await context.runtime.session.advance({ stepKey: 'description', data });
+      await context.reply(texts.askDescription, buildDescriptionOptions(language));
+      return true;
+    }
     if (text !== texts.confirmCreate && text !== scheduleLabels.confirmCreate) {
       await context.reply(texts.confirmCreatePrompt, buildCreateConfirmOptions(language));
       return true;
@@ -644,6 +648,7 @@ async function handleCreateSessionBack(
   language: 'ca' | 'es' | 'en',
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).schedule;
+  const descriptionPatch = data.description === undefined ? {} : { description: data.description };
 
   if (stepKey === 'title') {
     await context.runtime.session.cancel();
@@ -652,14 +657,13 @@ async function handleCreateSessionBack(
   }
 
   if (stepKey === 'description') {
-    await context.runtime.session.advance({ stepKey: 'title', data: {} });
-    await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
+    await replyCreateConfirm(context, data);
     return true;
   }
 
   if (stepKey === 'date') {
-    await context.runtime.session.advance({ stepKey: 'description', data: { title: data.title } });
-    await context.reply(texts.askDescription, buildDescriptionOptions(language));
+    await context.runtime.session.advance({ stepKey: 'title', data: {} });
+    await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
     return true;
   }
 
@@ -672,7 +676,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'time-minute') {
     await context.runtime.session.advance({
       stepKey: 'time',
-      data: { title: data.title, description: data.description, date: data.date },
+      data: { title: data.title, ...descriptionPatch, date: data.date },
     });
     await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
     return true;
@@ -681,7 +685,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'duration-mode') {
     await context.runtime.session.advance({
       stepKey: 'time',
-      data: { title: data.title, description: data.description, date: data.date },
+      data: { title: data.title, ...descriptionPatch, date: data.date },
     });
     await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
     return true;
@@ -690,7 +694,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'duration-hours' || stepKey === 'duration-hours-minutes' || stepKey === 'duration') {
     await context.runtime.session.advance({
       stepKey: 'duration-mode',
-      data: { title: data.title, description: data.description, date: data.date, time: data.time },
+      data: { title: data.title, ...descriptionPatch, date: data.date, time: data.time },
     });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
@@ -699,7 +703,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'attendance-mode') {
     await context.runtime.session.advance({
       stepKey: 'duration-mode',
-      data: { title: data.title, description: data.description, date: data.date, time: data.time },
+      data: { title: data.title, ...descriptionPatch, date: data.date, time: data.time },
     });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
@@ -710,7 +714,7 @@ async function handleCreateSessionBack(
       stepKey: 'attendance-mode',
       data: {
         title: data.title,
-        description: data.description,
+        ...descriptionPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -725,7 +729,7 @@ async function handleCreateSessionBack(
       stepKey: 'capacity',
       data: {
         title: data.title,
-        description: data.description,
+        ...descriptionPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -742,7 +746,7 @@ async function handleCreateSessionBack(
         stepKey: 'initial-occupied-seats',
         data: {
           title: data.title,
-          description: data.description,
+          ...descriptionPatch,
           date: data.date,
           time: data.time,
           durationMinutes: data.durationMinutes,
@@ -758,7 +762,7 @@ async function handleCreateSessionBack(
       stepKey: 'capacity',
       data: {
         title: data.title,
-        description: data.description,
+        ...descriptionPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -774,7 +778,7 @@ async function handleCreateSessionBack(
       stepKey: 'table',
       data: {
         title: data.title,
-        description: data.description,
+        ...descriptionPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -1060,7 +1064,9 @@ async function persistEditedScheduleEvent(
     repository: resolveScheduleRepository(context),
     eventId: Number(data.eventId),
     title: String(data.title ?? event.title),
-    description: asNullableString(data.description),
+    description: Object.prototype.hasOwnProperty.call(data, 'description')
+      ? asNullableString(data.description)
+      : event.description,
     startsAt: buildStartsAt(String(data.date ?? event.startsAt.slice(0, 10)), String(data.time ?? event.startsAt.slice(11, 16))),
     durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
     organizerTelegramUserId: event.organizerTelegramUserId,
@@ -1192,14 +1198,7 @@ async function advanceCreateTableSelection(
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
   if (text === texts.noTable || text === scheduleLabels.noTable) {
-    const nextData = { ...data, tableId: null };
-    await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(`${await formatScheduleDraftSummary({
-      botLanguage: resolveBotLanguage(context),
-      data: nextData,
-      tableRepository: resolveTableRepository(context),
-      resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
-    })}\n\n${texts.confirmPrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
+    await replyCreateConfirm(context, { ...data, tableId: null });
     return true;
   }
 
@@ -1210,15 +1209,28 @@ async function advanceCreateTableSelection(
   }
 
   const nextData = { ...data, tableId: selectedTable.id };
-  await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-  await context.reply(`${await formatScheduleDraftSummary({
-    botLanguage: resolveBotLanguage(context),
-    data: nextData,
-    selectedTable,
-    tableRepository: resolveTableRepository(context),
-    resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
-  })}\n\n${texts.confirmPrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
+  await replyCreateConfirm(context, nextData, selectedTable);
   return true;
+}
+
+async function replyCreateConfirm(
+  context: TelegramScheduleContext,
+  data: Record<string, unknown>,
+  selectedTable?: ClubTableRecord | null,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  await context.runtime.session.advance({ stepKey: 'confirm', data });
+  await context.reply(
+    `${await formatScheduleDraftSummary({
+      botLanguage: resolveBotLanguage(context),
+      data,
+      tableRepository: resolveTableRepository(context),
+      resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
+      ...(selectedTable === undefined ? {} : { selectedTable }),
+    })}\n\n${texts.confirmPrompt}`,
+    { ...buildCreateConfirmOptions(language), parseMode: 'HTML' },
+  );
 }
 
 async function advanceEditTableSelection(

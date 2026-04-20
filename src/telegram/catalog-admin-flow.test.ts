@@ -1896,15 +1896,15 @@ test('handleTelegramCatalogAdminCallback starts activity creation from a board g
 
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create',
-    stepKey: 'description',
+    stepKey: 'date',
     data: { title: 'Root' },
   });
-  assert.match(replies.at(-1)?.message ?? '', /Escribe una descripcion opcional/i);
-  assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Omitir'], ['Volver'], ['/cancel']],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  });
+  assert.match(replies.at(-1)?.message ?? '', /Escribe la fecha de inicio/i);
+  assert.equal(replies.at(-1)?.options?.resizeKeyboard, true);
+  assert.equal(replies.at(-1)?.options?.persistentKeyboard, true);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-2), ['Volver']);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-1), ['/cancel']);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.slice(0, 3).every((row) => row.length === 2), true);
 });
 
 test('handleTelegramCatalogAdminCallback hides admin-only item actions for approved non-admin members', async () => {

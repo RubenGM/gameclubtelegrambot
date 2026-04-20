@@ -114,7 +114,7 @@ export const scheduleTexts = {
     closedJoinBlocked: 'No et pots apuntar des del bot a una activitat tancada.',
     noEditOthers: 'No pots modificar una activitat creada per una altra persona.',
     noCancelOthers: 'No pots cancel.lar una activitat creada per una altra persona.',
-    confirmCreatePrompt: 'Per guardar l activitat, tria el boto de confirmacio o cancel.la el proces.',
+    confirmCreatePrompt: 'Per acabar, tria una opcio del teclat per afegir una descripcio opcional, guardar l activitat o cancel.lar el proces.',
     confirmCancelPrompt: 'Per cancel.lar l activitat, tria el boto de confirmacio o cancel.la el proces.',
   },
   es: {
@@ -232,7 +232,7 @@ export const scheduleTexts = {
     closedJoinBlocked: 'No puedes apuntarte desde el bot a una actividad cerrada.',
     noEditOthers: 'No puedes modificar una actividad creada por otra persona.',
     noCancelOthers: 'No puedes cancelar una actividad creada por otra persona.',
-    confirmCreatePrompt: 'Para guardar la actividad, elige el boton de confirmacion o cancela el proceso.',
+    confirmCreatePrompt: 'Para terminar, elige una opcion del teclado para anadir una descripcion opcional, guardar la actividad o cancelar el proceso.',
     confirmCancelPrompt: 'Para cancelar la actividad, elige el boton de confirmacion o cancela el proceso.',
   },
   en: {
@@ -350,7 +350,7 @@ export const scheduleTexts = {
     closedJoinBlocked: 'You cannot join a closed activity from the bot.',
     noEditOthers: 'You cannot modify an activity created by someone else.',
     noCancelOthers: 'You cannot cancel an activity created by someone else.',
-    confirmCreatePrompt: 'To save the activity, choose the confirmation button or cancel the flow.',
+    confirmCreatePrompt: 'To finish, choose a keyboard option to add an optional description, save the activity, or cancel the flow.',
     confirmCancelPrompt: 'To cancel the activity, choose the confirmation button or cancel the flow.',
   },
 } as const;
