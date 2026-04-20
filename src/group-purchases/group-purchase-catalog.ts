@@ -102,6 +102,10 @@ export interface GroupPurchaseRepository {
     unitLabel: string | null;
     allocationFieldKey: string | null;
   }): Promise<GroupPurchaseRecord>;
+  updatePurchaseLifecycleStatus(input: {
+    purchaseId: number;
+    lifecycleStatus: GroupPurchaseLifecycleStatus;
+  }): Promise<GroupPurchaseRecord>;
   findPurchaseById(purchaseId: number): Promise<GroupPurchaseRecord | null>;
   listPurchases(): Promise<GroupPurchaseRecord[]>;
   getPurchaseDetail(purchaseId: number): Promise<GroupPurchaseDetailRecord | null>;
@@ -256,6 +260,29 @@ export async function changeGroupPurchaseParticipantStatus({
     purchaseId,
     participantTelegramUserId: normalizeTelegramUserId(participantTelegramUserId, 'participant'),
     status: nextStatus,
+  });
+}
+
+export async function setGroupPurchaseLifecycleStatus({
+  repository,
+  purchaseId,
+  nextStatus,
+}: {
+  repository: GroupPurchaseRepository;
+  purchaseId: number;
+  nextStatus: GroupPurchaseLifecycleStatus;
+}): Promise<GroupPurchaseRecord> {
+  const purchase = await loadPurchaseOrThrow(repository, purchaseId);
+  if (purchase.lifecycleStatus === nextStatus) {
+    return purchase;
+  }
+  if ((purchase.lifecycleStatus === 'archived' || purchase.lifecycleStatus === 'cancelled') && nextStatus === 'open') {
+    throw new Error(`Group purchase ${purchaseId} cannot be reopened from ${purchase.lifecycleStatus}`);
+  }
+
+  return repository.updatePurchaseLifecycleStatus({
+    purchaseId,
+    lifecycleStatus: nextStatus,
   });
 }
 

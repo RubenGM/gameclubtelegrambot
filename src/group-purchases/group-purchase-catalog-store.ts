@@ -96,6 +96,25 @@ export function createDatabaseGroupPurchaseRepository({
 
       return mapGroupPurchaseRow(row);
     },
+    async updatePurchaseLifecycleStatus(input) {
+      const now = new Date();
+      const updated = await database
+        .update(groupPurchases)
+        .set({
+          lifecycleStatus: input.lifecycleStatus,
+          updatedAt: now,
+          ...(input.lifecycleStatus === 'cancelled' ? { cancelledAt: now } : {}),
+        })
+        .where(eq(groupPurchases.id, input.purchaseId))
+        .returning();
+
+      const row = updated[0];
+      if (!row) {
+        throw new Error(`Group purchase ${input.purchaseId} not found`);
+      }
+
+      return mapGroupPurchaseRow(row);
+    },
     async findPurchaseById(purchaseId) {
       const result = await database.select().from(groupPurchases).where(eq(groupPurchases.id, purchaseId));
       const row = result[0];

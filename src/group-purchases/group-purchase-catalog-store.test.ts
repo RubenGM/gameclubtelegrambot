@@ -357,3 +357,54 @@ test('createDatabaseGroupPurchaseRepository stores published purchase messages',
   assert.equal(message.body, 'Ya he hecho el pedido');
   assert.equal(message.createdAt, '2026-04-20T14:00:00.000Z');
 });
+
+test('createDatabaseGroupPurchaseRepository updates lifecycle status and cancellation timestamp', async () => {
+  const repository = createDatabaseGroupPurchaseRepository({
+    database: {
+      update: (table: { [key: string]: unknown }) => {
+        if ((table as unknown) !== groupPurchasesTable) {
+          throw new Error('unexpected table');
+        }
+
+        return {
+          set: (values: Record<string, unknown>) => {
+            assert.equal(values.lifecycleStatus, 'cancelled');
+            assert.ok(values.updatedAt instanceof Date);
+            assert.ok(values.cancelledAt instanceof Date);
+            return {
+              where: () => ({
+                returning: async () => [
+                  {
+                    id: 7,
+                    title: 'Pedido de dados',
+                    description: 'Compra conjunta',
+                    purchaseMode: 'per_item',
+                    lifecycleStatus: 'cancelled',
+                    createdByTelegramUserId: 42,
+                    joinDeadlineAt: null,
+                    confirmDeadlineAt: null,
+                    totalPriceCents: null,
+                    unitPriceCents: 125,
+                    unitLabel: 'dado',
+                    allocationFieldKey: 'quantity',
+                    createdAt: new Date('2026-04-20T10:00:00.000Z'),
+                    updatedAt: new Date('2026-04-20T15:00:00.000Z'),
+                    cancelledAt: new Date('2026-04-20T15:00:00.000Z'),
+                  },
+                ],
+              }),
+            };
+          },
+        };
+      },
+    } as never,
+  });
+
+  const purchase = await repository.updatePurchaseLifecycleStatus({
+    purchaseId: 7,
+    lifecycleStatus: 'cancelled',
+  });
+
+  assert.equal(purchase.lifecycleStatus, 'cancelled');
+  assert.equal(purchase.cancelledAt, '2026-04-20T15:00:00.000Z');
+});

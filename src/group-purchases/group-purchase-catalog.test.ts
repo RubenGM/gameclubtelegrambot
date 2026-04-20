@@ -5,6 +5,7 @@ import {
   changeGroupPurchaseParticipantStatus,
   createGroupPurchase,
   joinGroupPurchase,
+  setGroupPurchaseLifecycleStatus,
   updateGroupPurchaseParticipantFieldValues,
   type GroupPurchaseDetailRecord,
   type GroupPurchaseParticipantFieldValueRecord,
@@ -82,6 +83,20 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
         updatedAt: '2026-04-20T11:00:00.000Z',
       };
 
+      purchases.set(next.id, next);
+      return next;
+    },
+    async updatePurchaseLifecycleStatus(input) {
+      const existing = purchases.get(input.purchaseId);
+      if (!existing) {
+        throw new Error(`Group purchase ${input.purchaseId} not found`);
+      }
+      const next: GroupPurchaseRecord = {
+        ...existing,
+        lifecycleStatus: input.lifecycleStatus,
+        updatedAt: '2026-04-20T15:00:00.000Z',
+        cancelledAt: input.lifecycleStatus === 'cancelled' ? '2026-04-20T15:00:00.000Z' : existing.cancelledAt,
+      };
       purchases.set(next.id, next);
       return next;
     },
@@ -383,4 +398,25 @@ test('updateGroupPurchaseParticipantFieldValues validates and stores participant
   });
 
   assert.deepEqual(values.map((value) => value.value), [3, 'blue']);
+});
+
+test('setGroupPurchaseLifecycleStatus closes a purchase and blocks new joins afterwards', async () => {
+  const repository = createRepository([createOpenPurchase({ id: 15 })]);
+
+  const closed = await setGroupPurchaseLifecycleStatus({
+    repository,
+    purchaseId: 15,
+    nextStatus: 'closed',
+  });
+
+  assert.equal(closed.lifecycleStatus, 'closed');
+  await assert.rejects(
+    () =>
+      joinGroupPurchase({
+        repository,
+        purchaseId: 15,
+        participantTelegramUserId: 77,
+      }),
+    /Group purchase 15 is no longer accepting new participants/,
+  );
 });

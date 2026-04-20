@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log.js';
 import type {
   GroupPurchaseDetailRecord,
   GroupPurchaseFieldRecord,
@@ -72,8 +73,39 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
         participants: [],
       };
     },
-    async updatePurchase() {
-      throw new Error('not implemented');
+    async updatePurchase(input) {
+      const existing = purchases.get(input.purchaseId);
+      if (!existing) {
+        throw new Error(`Group purchase ${input.purchaseId} not found`);
+      }
+      const next: GroupPurchaseRecord = {
+        ...existing,
+        title: input.title,
+        description: input.description,
+        joinDeadlineAt: input.joinDeadlineAt,
+        confirmDeadlineAt: input.confirmDeadlineAt,
+        totalPriceCents: input.totalPriceCents,
+        unitPriceCents: input.unitPriceCents,
+        unitLabel: input.unitLabel,
+        allocationFieldKey: input.allocationFieldKey,
+        updatedAt: '2026-04-20T15:30:00.000Z',
+      };
+      purchases.set(next.id, next);
+      return next;
+    },
+    async updatePurchaseLifecycleStatus(input) {
+      const existing = purchases.get(input.purchaseId);
+      if (!existing) {
+        throw new Error(`Group purchase ${input.purchaseId} not found`);
+      }
+      const next: GroupPurchaseRecord = {
+        ...existing,
+        lifecycleStatus: input.lifecycleStatus,
+        updatedAt: '2026-04-20T15:00:00.000Z',
+        cancelledAt: input.lifecycleStatus === 'cancelled' ? '2026-04-20T15:00:00.000Z' : existing.cancelledAt,
+      };
+      purchases.set(next.id, next);
+      return next;
     },
     async findPurchaseById(purchaseId) {
       return purchases.get(purchaseId) ?? null;
@@ -144,7 +176,36 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
   };
 }
 
-function createContext(repository: GroupPurchaseRepository): {
+function createAuditRepository(): AuditLogRepository & { __events: AuditLogEventRecord[] } {
+  const events: AuditLogEventRecord[] = [];
+  return {
+    __events: events,
+    async appendEvent(input) {
+      events.push({
+        actorTelegramUserId: input.actorTelegramUserId,
+        actionKey: input.actionKey,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        summary: input.summary,
+        details: input.details ?? null,
+        createdAt: '2026-04-20T14:30:00.000Z',
+      });
+    },
+  };
+}
+
+function createContext(
+  repository: GroupPurchaseRepository,
+  {
+    auditRepository = createAuditRepository(),
+    actorTelegramUserId = 7,
+    isAdmin = false,
+  }: {
+    auditRepository?: AuditLogRepository;
+    actorTelegramUserId?: number;
+    isAdmin?: boolean;
+  } = {},
+): {
   context: TelegramCommandHandlerContext;
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
   privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }>;
@@ -179,16 +240,16 @@ function createContext(repository: GroupPurchaseRepository): {
           chatId: 1,
         },
         actor: {
-          telegramUserId: 7,
+          telegramUserId: actorTelegramUserId,
           status: 'approved',
           isApproved: true,
           isBlocked: false,
-          isAdmin: false,
+          isAdmin,
           permissions: [],
         },
         authorization: {
-          authorize: () => ({ allowed: false, permissionKey: 'group_purchase.manage', reason: 'no-match' }),
-          can: () => false,
+          authorize: () => ({ allowed: isAdmin, permissionKey: 'group_purchase.manage', reason: isAdmin ? 'admin-override' : 'no-match' }),
+          can: () => isAdmin,
         },
         session: {
           get current() {
@@ -225,6 +286,7 @@ function createContext(repository: GroupPurchaseRepository): {
         },
       },
       groupPurchaseRepository: repository,
+      auditRepository,
     } as unknown as TelegramCommandHandlerContext,
     replies,
     privateMessages,
@@ -551,9 +613,34 @@ test('creator detail view exposes participant management actions', async () => {
   await handleTelegramGroupPurchaseStartText(context);
 
   assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
+    [{ text: 'Editar compra', callbackData: 'group_purchase:edit_purchase:7' }],
     [{ text: 'Gestionar participants', callbackData: 'group_purchase:manage_participants:7' }],
     [{ text: 'Publicar missatge', callbackData: 'group_purchase:publish_message:7' }],
+    [{ text: 'Cerrar compra', callbackData: 'group_purchase:lifecycle:7:closed' }, { text: 'Cancelar compra', callbackData: 'group_purchase:lifecycle:7:cancelled' }, { text: 'Archivar', callbackData: 'group_purchase:lifecycle:7:archived' }],
   ]);
+});
+
+test('creator can edit purchase title and description', async () => {
+  const repository = createRepository([buildPurchase({ id: 51, createdByTelegramUserId: 7, description: 'Compra conjunta' })]);
+  const auditRepository = createAuditRepository();
+  const { context, getCurrentSession } = createContext(repository, { auditRepository });
+
+  context.callbackData = 'group_purchase:edit_purchase:51';
+  await handleTelegramGroupPurchaseCallback(context);
+
+  assert.equal(getCurrentSession()?.flowKey, 'group-purchase-edit');
+  assert.equal(getCurrentSession()?.stepKey, 'title');
+
+  delete context.callbackData;
+  context.messageText = 'Pedido de dados premium';
+  await handleTelegramGroupPurchaseText(context);
+  context.messageText = 'Nueva descripcion';
+  await handleTelegramGroupPurchaseText(context);
+
+  const purchase = await repository.findPurchaseById(51);
+  assert.equal(purchase?.title, 'Pedido de dados premium');
+  assert.equal(purchase?.description, 'Nueva descripcion');
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'group_purchase.updated');
 });
 
 test('creator can mark a participant as paid from the management callbacks', async () => {
@@ -589,4 +676,31 @@ test('creator can publish a private update to active participants', async () => 
   assert.equal(privateMessages[0]?.telegramUserId, 77);
   assert.match(privateMessages[0]?.message ?? '', /Este es un mensaje sobre la compra conjunta/);
   assert.match(privateMessages[0]?.message ?? '', /Ya he hecho el pedido/);
+});
+
+test('creator can close a purchase and leaves an audit trail', async () => {
+  const repository = createRepository([buildPurchase({ id: 41, createdByTelegramUserId: 7 })]);
+  const auditRepository = createAuditRepository();
+  const { context } = createContext(repository, { auditRepository });
+
+  context.callbackData = 'group_purchase:lifecycle:41:closed';
+  await handleTelegramGroupPurchaseCallback(context);
+
+  const purchase = await repository.findPurchaseById(41);
+  assert.equal(purchase?.lifecycleStatus, 'closed');
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'group_purchase.closed');
+});
+
+test('manager status change notifies the affected participant privately', async () => {
+  const repository = createRepository([buildPurchase({ id: 42, createdByTelegramUserId: 7 })]);
+  await repository.upsertParticipant({ purchaseId: 42, participantTelegramUserId: 77, status: 'confirmed' });
+  const auditRepository = createAuditRepository();
+  const { context, privateMessages } = createContext(repository, { auditRepository });
+
+  context.callbackData = 'group_purchase:participant_status:42:77:paid';
+  await handleTelegramGroupPurchaseCallback(context);
+
+  assert.equal(privateMessages.at(-1)?.telegramUserId, 77);
+  assert.match(privateMessages.at(-1)?.message ?? '', /paid/i);
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'group_purchase.participant_status_changed');
 });
