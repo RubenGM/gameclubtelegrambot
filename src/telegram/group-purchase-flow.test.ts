@@ -22,6 +22,14 @@ import {
   handleTelegramGroupPurchaseText,
 } from './group-purchase-flow.js';
 
+function successButton(text: string) {
+  return { text, semanticRole: 'success' as const };
+}
+
+function dangerButton(text: string) {
+  return { text, semanticRole: 'danger' as const };
+}
+
 function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPurchaseRepository {
   const purchases = new Map<number, GroupPurchaseRecord>(initialPurchases.map((purchase) => [purchase.id, purchase]));
   const fields = new Map<number, GroupPurchaseFieldRecord[]>();
@@ -462,7 +470,7 @@ test('handleTelegramGroupPurchaseText starts the create flow from the submenu ac
   assert.deepEqual(replies.at(-1), {
     message: 'Escriu el titol visible de la compra conjunta.',
     options: {
-      replyKeyboard: [['/cancel']],
+      replyKeyboard: [[dangerButton('/cancel')]],
       resizeKeyboard: true,
       persistentKeyboard: true,
     },
@@ -480,7 +488,7 @@ test('per-item create flow explains the visible unit with examples', async () =>
   assert.deepEqual(replies.at(-1), {
     message: 'Escriu la unitat visible o tria Ometre. Exemples: dado, camiseta, sudadera.',
     options: {
-      replyKeyboard: [['Ometre'], ['/cancel']],
+      replyKeyboard: [[successButton('Ometre')], [dangerButton('/cancel')]],
       resizeKeyboard: true,
       persistentKeyboard: true,
     },
@@ -496,7 +504,7 @@ test('create flow shows upcoming date shortcuts for join and confirm deadlines',
   }
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 20/04', 'Dimarts, 21/04'], ['Dimecres, 22/04', 'Dijous, 23/04'], ['Divendres, 24/04', 'Dissabte, 25/04'], ['Ometre'], ['/cancel']],
+    replyKeyboard: [['Dilluns, 20/04', 'Dimarts, 21/04'], ['Dimecres, 22/04', 'Dijous, 23/04'], ['Divendres, 24/04', 'Dissabte, 25/04'], [successButton('Ometre')], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -505,7 +513,7 @@ test('create flow shows upcoming date shortcuts for join and confirm deadlines',
   await handleTelegramGroupPurchaseText(context);
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 20/04', 'Dimarts, 21/04'], ['Dimecres, 22/04', 'Dijous, 23/04'], ['Divendres, 24/04', 'Dissabte, 25/04'], ['Ometre'], ['/cancel']],
+    replyKeyboard: [['Dilluns, 20/04', 'Dimarts, 21/04'], ['Dimecres, 22/04', 'Dijous, 23/04'], ['Divendres, 24/04', 'Dissabte, 25/04'], [successButton('Ometre')], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -520,7 +528,7 @@ test('shared-cost create flow also shows upcoming date shortcuts for the join de
   }
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 20/04', 'Dimarts, 21/04'], ['Dimecres, 22/04', 'Dijous, 23/04'], ['Divendres, 24/04', 'Dissabte, 25/04'], ['Ometre'], ['/cancel']],
+    replyKeyboard: [['Dilluns, 20/04', 'Dimarts, 21/04'], ['Dimecres, 22/04', 'Dijous, 23/04'], ['Divendres, 24/04', 'Dissabte, 25/04'], [successButton('Ometre')], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -552,7 +560,7 @@ test('create flow shows a summary before saving the purchase', async () => {
     message:
       'Revisa el resum abans de guardar:\n\nTitol: Pedido de dados\nDescripcio: Compra conjunta\nMode: Per unitats\nPreu unitari: 1.25 EUR\nUnitat visible: dado\nData limit per apuntar-se: Sense data limit\nData limit per confirmar-se: Sense data limit\nCamps:\n- Cantidad (numero, quantitat)',
     options: {
-      replyKeyboard: [['Guardar compra'], ['/cancel']],
+      replyKeyboard: [[successButton('Guardar compra')], [dangerButton('/cancel')]],
       resizeKeyboard: true,
       persistentKeyboard: true,
     },

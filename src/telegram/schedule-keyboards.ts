@@ -1,6 +1,6 @@
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import { buildUpcomingDateRows } from './schedule-presentation.js';
-import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramReplyButton, TelegramReplyKeyboardButton, TelegramReplyOptions } from './runtime-boundary.js';
 
 export const scheduleLabels = {
   openMenu: 'Activitats',
@@ -48,7 +48,7 @@ export function buildScheduleMenuOptions(language: BotLanguage = 'ca'): Telegram
 
 export function buildSingleCancelKeyboard(): TelegramReplyOptions {
   return {
-    replyKeyboard: [[scheduleLabels.cancelFlow]],
+    replyKeyboard: [[dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -57,7 +57,7 @@ export function buildSingleCancelKeyboard(): TelegramReplyOptions {
 export function buildSingleBackCancelKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.back], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -66,7 +66,7 @@ export function buildSingleBackCancelKeyboard(language: BotLanguage = 'ca'): Tel
 export function buildTimeMinuteOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[':00', ':15'], [':30', ':45'], [texts.back], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], [texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -75,7 +75,7 @@ export function buildTimeMinuteOptions(language: BotLanguage = 'ca'): TelegramRe
 export function buildEditTimeMinuteOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.keepCurrent], [':00', ':15'], [':30', ':45'], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], [':00', ':15'], [':30', ':45'], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -84,7 +84,7 @@ export function buildEditTimeMinuteOptions(language: BotLanguage = 'ca'): Telegr
 export function buildDescriptionOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.skipOptional], [texts.back], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[successButton(texts.skipOptional)], [texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -93,7 +93,7 @@ export function buildDescriptionOptions(language: BotLanguage = 'ca'): TelegramR
 export function buildDateOptions(botLanguage: string): TelegramReplyOptions {
   const texts = createTelegramI18n((botLanguage as BotLanguage) ?? 'ca').schedule;
   return {
-    replyKeyboard: [...buildUpcomingDateRows(botLanguage), [texts.back], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [...buildUpcomingDateRows(botLanguage), [texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -102,7 +102,7 @@ export function buildDateOptions(botLanguage: string): TelegramReplyOptions {
 export function buildEditDateOptions(botLanguage: string, language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.keepCurrent], ...buildUpcomingDateRows(botLanguage), [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], ...buildUpcomingDateRows(botLanguage), [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -111,7 +111,7 @@ export function buildEditDateOptions(botLanguage: string, language: BotLanguage 
 export function buildEditDescriptionOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.keepCurrent], [texts.skipOptional], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], [texts.skipOptional], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -119,7 +119,7 @@ export function buildEditDescriptionOptions(language: BotLanguage = 'ca'): Teleg
 
 export function buildEditTitleOptions(): TelegramReplyOptions {
   return {
-    replyKeyboard: [[scheduleLabels.keepCurrent], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[scheduleLabels.keepCurrent], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -128,7 +128,7 @@ export function buildEditTitleOptions(): TelegramReplyOptions {
 export function buildEditDurationOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.keepCurrent], [texts.durationNone, texts.durationHours], [texts.durationHoursMinutes, texts.durationMinutes], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], [texts.durationNone, texts.durationHours], [texts.durationHoursMinutes, texts.durationMinutes], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -137,7 +137,7 @@ export function buildEditDurationOptions(language: BotLanguage = 'ca'): Telegram
 export function buildCreateDurationOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.durationNone, texts.durationHours], [texts.durationHoursMinutes, texts.durationMinutes], [texts.back], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.durationNone, texts.durationHours], [texts.durationHoursMinutes, texts.durationMinutes], [texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -146,7 +146,7 @@ export function buildCreateDurationOptions(language: BotLanguage = 'ca'): Telegr
 export function buildCreateConfirmOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.editFieldDescription], [texts.confirmCreate], [texts.back], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.editFieldDescription], [successButton(texts.confirmCreate)], [texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -155,7 +155,7 @@ export function buildCreateConfirmOptions(language: BotLanguage = 'ca'): Telegra
 export function buildAttendanceModeOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.attendanceOpen, texts.attendanceClosed], [texts.back], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.attendanceOpen, texts.attendanceClosed], [texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -164,7 +164,7 @@ export function buildAttendanceModeOptions(language: BotLanguage = 'ca'): Telegr
 export function buildInitialOccupiedSeatsOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.initialOccupiedSeatsZero], [texts.back], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.initialOccupiedSeatsZero], [texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -173,7 +173,7 @@ export function buildInitialOccupiedSeatsOptions(language: BotLanguage = 'ca'): 
 export function buildEditInitialOccupiedSeatsOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.keepCurrent], [texts.initialOccupiedSeatsZero], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], [texts.initialOccupiedSeatsZero], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -182,7 +182,7 @@ export function buildEditInitialOccupiedSeatsOptions(language: BotLanguage = 'ca
 export function buildEditConfirmOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.confirmEdit], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.confirmEdit], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -191,7 +191,7 @@ export function buildEditConfirmOptions(language: BotLanguage = 'ca'): TelegramR
 export function buildKeepCurrentKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.keepCurrent], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -206,7 +206,7 @@ export function buildEditFieldMenuOptions(language: BotLanguage = 'ca'): Telegra
       [texts.editFieldCapacity, texts.editFieldTable],
       [texts.editFieldDescription],
       [texts.confirmEdit],
-      [scheduleLabels.cancelFlow],
+      [dangerButton(scheduleLabels.cancelFlow)],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
@@ -230,7 +230,7 @@ export function buildEditFieldMenuOptionsForEvent({
       [texts.editFieldTable],
       [texts.editFieldDescription],
       [texts.confirmEdit],
-      [scheduleLabels.cancelFlow],
+      [dangerButton(scheduleLabels.cancelFlow)],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
@@ -240,7 +240,7 @@ export function buildEditFieldMenuOptionsForEvent({
 export function buildCancelConfirmOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.confirmCancel], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.confirmCancel], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -255,7 +255,7 @@ export function buildTableSelectionOptions({
 }): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [...chunkTableButtons(tableNames), [texts.noTable], [texts.back], [scheduleLabels.cancelFlow]],
+    replyKeyboard: [...chunkTableButtons(tableNames), [successButton(texts.noTable)], [texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -272,8 +272,25 @@ export function buildEditTableOptions({
   const options = buildTableSelectionOptions({ tableNames, language });
   return {
     ...options,
-    replyKeyboard: [[texts.keepCurrent], ...(options.replyKeyboard ?? []).filter((row) => row[0] !== scheduleLabels.cancelFlow), [scheduleLabels.cancelFlow]],
+    replyKeyboard: [[texts.keepCurrent], ...(options.replyKeyboard ?? []).filter((row) => firstButtonText(row) !== scheduleLabels.cancelFlow), [dangerButton(scheduleLabels.cancelFlow)]],
   };
+}
+
+function successButton(text: string): TelegramReplyButton {
+  return { text, semanticRole: 'success' };
+}
+
+function dangerButton(text: string): TelegramReplyButton {
+  return { text, semanticRole: 'danger' };
+}
+
+function firstButtonText(row: TelegramReplyKeyboardButton[]): string | undefined {
+  const firstButton = row[0];
+  if (typeof firstButton === 'string') {
+    return firstButton;
+  }
+
+  return firstButton?.text;
 }
 
 function chunkTableButtons(tableNames: string[]): string[][] {

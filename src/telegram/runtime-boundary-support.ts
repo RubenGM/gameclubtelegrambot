@@ -64,11 +64,28 @@ export interface TelegramInlineButton {
   text: string;
   callbackData?: string;
   url?: string;
+  semanticRole?: TelegramButtonSemanticRole;
 }
+
+export type TelegramButtonSemanticRole = 'primary' | 'secondary' | 'success' | 'danger' | 'navigation' | 'help';
+
+export interface TelegramButtonAppearance {
+  style?: 'primary' | 'success' | 'danger';
+  iconCustomEmojiId?: string;
+}
+
+export type TelegramButtonAppearanceConfig = RuntimeConfig['telegram']['buttonAppearance'];
+
+export interface TelegramReplyButton {
+  text: string;
+  semanticRole?: TelegramButtonSemanticRole;
+}
+
+export type TelegramReplyKeyboardButton = string | TelegramReplyButton;
 
 export interface TelegramReplyOptions {
   inlineKeyboard?: TelegramInlineButton[][];
-  replyKeyboard?: string[][];
+  replyKeyboard?: TelegramReplyKeyboardButton[][];
   resizeKeyboard?: boolean;
   persistentKeyboard?: boolean;
   parseMode?: 'HTML';
@@ -135,6 +152,7 @@ export interface CreateTelegramBotOptions {
   token: string;
   logger: TelegramLogger;
   publicName: string;
+  buttonAppearance?: TelegramButtonAppearanceConfig;
   onFatalRuntimeError?: TelegramFatalRuntimeErrorHandler;
 }
 
@@ -189,6 +207,7 @@ export async function createTelegramBoundary({
       token: config.telegram.token,
       logger,
       publicName: config.bot.publicName,
+      buttonAppearance: config.telegram.buttonAppearance,
       onFatalRuntimeError: reportFatalRuntimeError,
     });
 
@@ -247,6 +266,7 @@ export async function createTelegramBoundary({
 function createGrammyTelegramBot({
   token,
   logger,
+  buttonAppearance,
   onFatalRuntimeError,
 }: CreateTelegramBotOptions): TelegramBotLike {
   const bot = new Bot<Context & TelegramContextLike>(token);
@@ -269,7 +289,7 @@ function createGrammyTelegramBot({
 
         context.messageText = context.msg?.text ?? context.message?.text;
 
-        await handler(createTelegramCommandContext(context));
+        await handler(createTelegramCommandContext(context, buttonAppearance));
       });
     },
     onCallback(callbackPrefix, handler) {
@@ -280,7 +300,7 @@ function createGrammyTelegramBot({
 
         context.callbackData = context.callbackQuery.data;
         await runTelegramCallbackHandler({
-          handle: () => handler(createTelegramCommandContext(context)),
+          handle: () => handler(createTelegramCommandContext(context, buttonAppearance)),
           acknowledge: () => context.answerCallbackQuery(),
         });
       });
@@ -296,14 +316,14 @@ function createGrammyTelegramBot({
           return;
         }
 
-        await handler(createTelegramCommandContext(context));
+        await handler(createTelegramCommandContext(context, buttonAppearance));
       });
     },
     async sendPrivateMessage(telegramUserId, message, options) {
-      await bot.api.sendMessage(telegramUserId, message, options ? toGrammyReplyOptions(options) : undefined);
+      await bot.api.sendMessage(telegramUserId, message, options ? toGrammyReplyOptions(options, buttonAppearance) : undefined);
     },
     async sendGroupMessage(chatId, message, options) {
-      await bot.api.sendMessage(chatId, message, options ? toGrammyReplyOptions(options) : undefined);
+      await bot.api.sendMessage(chatId, message, options ? toGrammyReplyOptions(options, buttonAppearance) : undefined);
     },
     async startPolling() {
       await bot.init();
@@ -354,11 +374,12 @@ function createTelegramCommandContext(
   context: TelegramContextLike & {
     reply(message: string, options?: Record<string, unknown>): Promise<unknown>;
   },
+  buttonAppearance?: TelegramButtonAppearanceConfig,
 ): TelegramCommandHandlerContext {
   return {
     ...context,
     reply(message: string, options?: TelegramReplyOptions) {
-      return context.reply(message, toGrammyReplyOptions(options));
+      return context.reply(message, toGrammyReplyOptions(options, buttonAppearance));
     },
   } as unknown as TelegramCommandHandlerContext;
 }

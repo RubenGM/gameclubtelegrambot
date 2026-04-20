@@ -149,3 +149,64 @@ test('splitRuntimeConfigForPersistence preserves unrelated existing JSON keys', 
   assert.equal(botConfig.legacyLabel, 'keep');
   assert.equal(payload.jsonConfig.telegram, undefined);
 });
+
+test('splitRuntimeConfigForPersistence keeps Telegram button appearance in JSON while moving the token to env', () => {
+  const payload = splitRuntimeConfigForPersistence({
+    schemaVersion: 1,
+    bot: {
+      publicName: 'Game Club Bot',
+      clubName: 'Game Club',
+      language: 'ca',
+    },
+    telegram: {
+      token: 'telegram-token',
+      buttonAppearance: {
+        primary: {
+          style: 'primary',
+          iconCustomEmojiId: '5393123412341234123',
+        },
+        help: {
+          iconCustomEmojiId: '5393123412341234888',
+        },
+      },
+    },
+    database: {
+      host: 'localhost',
+      port: 5432,
+      name: 'gameclub',
+      user: 'gameclub_user',
+      password: 'db-password',
+      ssl: false,
+    },
+    adminElevation: {
+      passwordHash: 'hash',
+    },
+    bootstrap: {
+      firstAdmin: {
+        telegramUserId: 123456789,
+        displayName: 'Club Administrator',
+      },
+    },
+    notifications: {
+      defaults: {
+        groupAnnouncementsEnabled: true,
+        eventRemindersEnabled: true,
+        eventReminderLeadHours: 24,
+      },
+    },
+    featureFlags: {},
+  });
+
+  assert.deepEqual(payload.jsonConfig.telegram, {
+    buttonAppearance: {
+      primary: {
+        style: 'primary',
+        iconCustomEmojiId: '5393123412341234123',
+      },
+      help: {
+        iconCustomEmojiId: '5393123412341234888',
+      },
+    },
+  });
+  assert.equal(payload.envValues.GAMECLUB_TELEGRAM_TOKEN, 'telegram-token');
+});

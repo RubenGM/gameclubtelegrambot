@@ -27,6 +27,18 @@ import {
   type TelegramCatalogAdminContext,
 } from './catalog-admin-flow.js';
 
+function successButton(text: string) {
+  return { text, semanticRole: 'success' as const };
+}
+
+function dangerButton(text: string) {
+  return { text, semanticRole: 'danger' as const };
+}
+
+function buttonText(button: string | { text: string }): string {
+  return typeof button === 'string' ? button : button.text;
+}
+
 function createRepository({
   families = [],
   groups = [],
@@ -629,7 +641,7 @@ test('handleTelegramCatalogAdminText accepts Spanish item type buttons when crea
     ['Juego de mesa'],
     ['Libro', 'Libro RPG'],
     ['Accesorio'],
-    ['/cancel'],
+    [dangerButton('/cancel')],
   ]);
   context.messageText = 'Juego de mesa';
 
@@ -640,7 +652,7 @@ test('handleTelegramCatalogAdminText accepts Spanish item type buttons when crea
     ['Juego de mesa'],
     ['Libro', 'Libro RPG'],
     ['Accesorio'],
-    ['/cancel'],
+    [dangerButton('/cancel')],
   ]);
 });
 
@@ -785,7 +797,7 @@ test('handleTelegramCatalogAdminText localizes the wikipedia import handoff', as
   assert.match(replies.at(-1)?.message ?? '', /He importado datos externos para A &amp; B\./);
   assert.match(replies.at(-1)?.message ?? '', /Elige un campo del teclado o guarda los cambios cuando hayas terminado\./);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Nombre visible');
-  assert.equal(replies.at(-1)?.options?.replyKeyboard?.at(-2)?.[0], 'Guardar cambios');
+  assert.equal(buttonText(replies.at(-1)?.options?.replyKeyboard?.at(-2)?.[0] as string | { text: string }), 'Guardar cambios');
 });
 
 test('handleTelegramCatalogAdminText shows a URL fallback when Wikipedia import fails', async () => {
@@ -809,7 +821,7 @@ test('handleTelegramCatalogAdminText shows a URL fallback when Wikipedia import 
 
   assert.match(replies.at(-2)?.message ?? '', /Buscant.*API/);
   assert.match(replies.at(-1)?.message ?? '', /Enganxa una referencia manual valida/);
-  assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], catalogAdminLabels.skipLookupImport);
+  assert.equal(buttonText(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0] as string | { text: string }), catalogAdminLabels.skipLookupImport);
   assert.equal(getCurrentSession()?.stepKey, 'wikipedia-url');
 
   context.messageText = catalogAdminLabels.skipLookupImport;
@@ -932,8 +944,8 @@ test('handleTelegramCatalogAdminText lets the user choose among ambiguous Wikipe
   assert.match(replies.at(-1)?.message ?? '', /He trobat diverses pàgines candidates a Wikipedia/);
   assert.match(replies.at(-1)?.message ?? '', /Azul \(board game\)/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.includes('Azul'), true);
-  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes('Azul (board game)'), true);
-  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.skipLookupImport), true);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => buttonText(button as string | { text: string })).includes('Azul (board game)'), true);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => buttonText(button as string | { text: string })).includes(catalogAdminLabels.skipLookupImport), true);
 
   context.messageText = 'Azul (board game)';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
@@ -1445,7 +1457,7 @@ test('handleTelegramCatalogAdminText lets rpg books pick a popular family or cre
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /Escriu o tria una familia/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], ['Dungeons and Dragons 5', 'Call of Cthulhu']);
-  assert.equal(replies.at(-1)?.options?.replyKeyboard?.at(-2)?.[0], catalogAdminLabels.noFamily);
+  assert.equal(buttonText(replies.at(-1)?.options?.replyKeyboard?.at(-2)?.[0] as string | { text: string }), catalogAdminLabels.noFamily);
 
   context.messageText = 'Dungeons and Dragons 5';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
@@ -1903,7 +1915,7 @@ test('handleTelegramCatalogAdminCallback starts activity creation from a board g
   assert.equal(replies.at(-1)?.options?.resizeKeyboard, true);
   assert.equal(replies.at(-1)?.options?.persistentKeyboard, true);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-2), ['Volver']);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-1), ['/cancel']);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-1), [dangerButton('/cancel')]);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.slice(0, 3).every((row) => row.length === 2), true);
 });
 

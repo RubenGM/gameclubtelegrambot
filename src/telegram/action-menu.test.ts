@@ -54,7 +54,7 @@ test('resolveTelegramActionMenu returns pending private user actions by default'
 
   assert.deepEqual(menu, {
     menuId: 'private-pending-default',
-    replyKeyboard: [['Acces al club'], ['Idioma', 'Ajuda']],
+    replyKeyboard: [[{ text: 'Acces al club', semanticRole: 'primary' }], [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }]],
     actionRows: [['access'], ['language', 'help']],
     actions: [
       { id: 'access', label: 'Acces al club', telemetryActionKey: 'menu.access', uxSection: 'access' },
@@ -86,7 +86,12 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
 
   assert.deepEqual(menu, {
     menuId: 'private-admin-default',
-    replyKeyboard: [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']],
+    replyKeyboard: [
+      [{ text: 'Revisar sollicituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
+      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
+      [{ text: 'Cataleg', semanticRole: 'primary' }, { text: 'Compres conjuntes', semanticRole: 'primary' }],
+      [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
+    ],
     actionRows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'group_purchases'], ['language', 'help']],
     actions: [
       { id: 'review_access', label: 'Revisar sollicituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
@@ -123,7 +128,11 @@ test('resolveTelegramActionMenu shows a compact member menu for approved non-adm
 
   assert.deepEqual(menu, {
     menuId: 'private-approved-default',
-    replyKeyboard: [['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']],
+    replyKeyboard: [
+      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
+      [{ text: 'Cataleg', semanticRole: 'primary' }, { text: 'Compres conjuntes', semanticRole: 'primary' }],
+      [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
+    ],
     actionRows: [['schedule', 'tables_read'], ['catalog', 'group_purchases'], ['language', 'help']],
     actions: [
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
@@ -186,7 +195,12 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
 
   assert.deepEqual(menu, {
     menuId: 'private-admin-default',
-    replyKeyboard: [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']],
+    replyKeyboard: [
+      [{ text: 'Revisar sollicituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
+      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
+      [{ text: 'Cataleg', semanticRole: 'primary' }, { text: 'Compres conjuntes', semanticRole: 'primary' }],
+      [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
+    ],
     actionRows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'group_purchases'], ['language', 'help']],
     actions: [
       { id: 'review_access', label: 'Revisar sollicituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
@@ -223,7 +237,7 @@ test('resolveTelegramActionMenu treats revoked users like pending users for acce
 
   assert.deepEqual(menu, {
     menuId: 'private-pending-default',
-    replyKeyboard: [['Acces al club'], ['Idioma', 'Ajuda']],
+    replyKeyboard: [[{ text: 'Acces al club', semanticRole: 'primary' }], [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }]],
     actionRows: [['access'], ['language', 'help']],
     actions: [
       { id: 'access', label: 'Acces al club', telemetryActionKey: 'menu.access', uxSection: 'access' },
@@ -264,7 +278,7 @@ test('resolveTelegramActionMenu replaces the default menu when a flow is active'
 
   assert.deepEqual(menu, {
     menuId: 'active-flow',
-    replyKeyboard: [['/cancel']],
+    replyKeyboard: [[{ text: '/cancel', semanticRole: 'danger' }]],
     actionRows: [['cancel']],
     actions: [
       { id: 'cancel', label: '/cancel', telemetryActionKey: 'menu.cancel', uxSection: 'flow' },

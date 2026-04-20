@@ -3,6 +3,7 @@ import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
+import type { TelegramButtonSemanticRole, TelegramReplyButton } from './runtime-boundary.js';
 
 export interface TelegramActionMenuContext {
   actor: TelegramActor;
@@ -14,7 +15,7 @@ export interface TelegramActionMenuContext {
 
 export interface TelegramResolvedActionMenu {
   menuId: string;
-  replyKeyboard: string[][];
+  replyKeyboard: TelegramReplyButton[][];
   actionRows: string[][];
   actions: TelegramResolvedActionMenuAction[];
   resizeKeyboard: true;
@@ -43,6 +44,7 @@ interface TelegramActionDefinition {
   label(language: BotLanguage): string;
   telemetryActionKey: string;
   uxSection: TelegramActionUxSection;
+  buttonRole: TelegramButtonSemanticRole;
   contexts: TelegramChatContextKind[];
   isVisible(context: TelegramActionMenuContext): boolean;
 }
@@ -59,6 +61,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.access,
     telemetryActionKey: 'menu.access',
     uxSection: 'access',
+    buttonRole: 'primary',
     contexts: ['private'],
     isVisible: (context) => !context.actor.isApproved && !context.actor.isBlocked,
   },
@@ -67,6 +70,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.schedule,
     telemetryActionKey: 'menu.schedule',
     uxSection: 'primary',
+    buttonRole: 'primary',
     contexts: ['private'],
     isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
@@ -75,6 +79,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.calendar,
     telemetryActionKey: 'menu.calendar',
     uxSection: 'primary',
+    buttonRole: 'primary',
     contexts: ['private'],
     isVisible: () => false,
   },
@@ -83,6 +88,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.tablesRead,
     telemetryActionKey: 'menu.tables',
     uxSection: 'primary',
+    buttonRole: 'primary',
     contexts: ['private'],
     isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
@@ -91,6 +97,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.elevateAdmin,
     telemetryActionKey: 'menu.elevate_admin',
     uxSection: 'utility',
+    buttonRole: 'secondary',
     contexts: ['private'],
     isVisible: (context) => context.actor.isApproved && !context.actor.isAdmin,
   },
@@ -99,6 +106,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.catalog,
     telemetryActionKey: 'menu.catalog',
     uxSection: 'primary',
+    buttonRole: 'primary',
     contexts: ['private'],
     isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
@@ -107,6 +115,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.groupPurchases,
     telemetryActionKey: 'menu.group_purchases',
     uxSection: 'primary',
+    buttonRole: 'primary',
     contexts: ['private'],
     isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
@@ -115,6 +124,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.memberDebug,
     telemetryActionKey: 'menu.member_debug',
     uxSection: 'utility',
+    buttonRole: 'secondary',
     contexts: ['private'],
     isVisible: (context) => context.actor.isAdmin,
   },
@@ -123,6 +133,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.tables,
     telemetryActionKey: 'menu.tables_admin',
     uxSection: 'admin',
+    buttonRole: 'primary',
     contexts: ['private'],
     isVisible: (context) => context.actor.isAdmin,
   },
@@ -131,6 +142,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.reviewAccess,
     telemetryActionKey: 'menu.review_access',
     uxSection: 'admin',
+    buttonRole: 'secondary',
     contexts: ['private'],
     isVisible: (context) => context.actor.isAdmin,
   },
@@ -139,6 +151,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.manageUsers,
     telemetryActionKey: 'menu.manage_users',
     uxSection: 'admin',
+    buttonRole: 'secondary',
     contexts: ['private'],
     isVisible: (context) => context.actor.isAdmin,
   },
@@ -147,6 +160,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.venueEvents,
     telemetryActionKey: 'menu.venue_events',
     uxSection: 'admin',
+    buttonRole: 'secondary',
     contexts: ['private'],
     isVisible: () => false,
   },
@@ -155,6 +169,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.language,
     telemetryActionKey: 'menu.language',
     uxSection: 'utility',
+    buttonRole: 'secondary',
     contexts: ['private', 'group', 'group-news'],
     isVisible: () => true,
   },
@@ -163,6 +178,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.start,
     telemetryActionKey: 'menu.start',
     uxSection: 'utility',
+    buttonRole: 'navigation',
     contexts: ['private', 'group', 'group-news'],
     isVisible: () => true,
   },
@@ -171,6 +187,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.help,
     telemetryActionKey: 'menu.help',
     uxSection: 'utility',
+    buttonRole: 'help',
     contexts: ['private', 'group', 'group-news'],
     isVisible: () => true,
   },
@@ -179,6 +196,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     label: (language) => createTelegramI18n(language).actionMenu.cancel,
     telemetryActionKey: 'menu.cancel',
     uxSection: 'flow',
+    buttonRole: 'danger',
     contexts: ['private', 'group', 'group-news'],
     isVisible: (context) => context.session !== null,
   },
@@ -241,7 +259,12 @@ export function resolveTelegramActionMenu({
     )
     .filter((row) => row.length > 0);
 
-  const replyKeyboard = visibleRows.map((row) => row.map((action) => action.label(context.language)));
+  const replyKeyboard = visibleRows.map((row) =>
+    row.map((action) => ({
+      text: action.label(context.language),
+      semanticRole: action.buttonRole,
+    })),
+  );
 
   if (replyKeyboard.length === 0) {
     return undefined;

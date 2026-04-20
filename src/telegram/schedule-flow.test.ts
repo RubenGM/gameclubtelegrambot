@@ -19,6 +19,14 @@ import {
   type TelegramScheduleContext,
 } from './schedule-flow.js';
 
+function successButton(text: string) {
+  return { text, semanticRole: 'success' as const };
+}
+
+function dangerButton(text: string) {
+  return { text, semanticRole: 'danger' as const };
+}
+
 type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'> &
   Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'>>;
 
@@ -644,7 +652,13 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create', stepKey: 'date', data: { title: 'Dungeons & Dragons' } });
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], ['Tornar'], ['/cancel']],
+    replyKeyboard: [
+      ['Diumenge, 05/04', 'Dilluns, 06/04'],
+      ['Dimarts, 07/04', 'Dimecres, 08/04'],
+      ['Dijous, 09/04', 'Divendres, 10/04'],
+      ['Tornar'],
+      [{ text: '/cancel', semanticRole: 'danger' }],
+    ],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -677,7 +691,7 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'table');
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Mesa TV'], ['Sense taula'], ['Tornar'], ['/cancel']],
+    replyKeyboard: [['Mesa TV'], [{ text: 'Sense taula', semanticRole: 'success' }], ['Tornar'], [{ text: '/cancel', semanticRole: 'danger' }]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -686,7 +700,12 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'confirm');
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[scheduleLabels.editFieldDescription], [scheduleLabels.confirmCreate], ['Tornar'], ['/cancel']],
+    replyKeyboard: [
+      [scheduleLabels.editFieldDescription],
+      [{ text: scheduleLabels.confirmCreate, semanticRole: 'success' }],
+      ['Tornar'],
+      [{ text: '/cancel', semanticRole: 'danger' }],
+    ],
     resizeKeyboard: true,
     persistentKeyboard: true,
     parseMode: 'HTML',
@@ -742,6 +761,15 @@ test('handleTelegramScheduleText adds an optional description only from the fina
       initialOccupiedSeats: 0,
       tableId: null,
     },
+  });
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [
+      [{ text: scheduleLabels.skipOptional, semanticRole: 'success' }],
+      ['Tornar'],
+      [{ text: '/cancel', semanticRole: 'danger' }],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
   });
 
   context.messageText = 'Campanya narrativa';
@@ -821,7 +849,7 @@ test('handleTelegramScheduleText localizes the back button for spanish create fl
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'time-minute');
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Volver'], ['/cancel']],
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Volver'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -980,7 +1008,7 @@ test('handleTelegramScheduleText offers quick minute buttons when creating an ac
     data: { title: 'Ark Nova', date: '2026-04-05', timeHour: '17' },
   });
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar'], ['/cancel']],
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -1029,7 +1057,7 @@ test('handleTelegramScheduleText accepts one-digit hours when creating an activi
     data: { title: 'Ark Nova', date: '2026-04-05', timeHour: '02' },
   });
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar'], ['/cancel']],
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -1103,7 +1131,7 @@ test('handleTelegramScheduleText rejects invalid quick minute selections while c
   assert.equal(getCurrentSession()?.stepKey, 'time-minute');
   assert.match(replies.at(-1)?.message ?? '', /HH o HH:MM/);
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar'], ['/cancel']],
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -1176,7 +1204,7 @@ test('handleTelegramScheduleText accepts dd/MM/yyyy dates and shows upcoming day
   await handleTelegramScheduleText(context);
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], ['Tornar'], ['/cancel']],
+    replyKeyboard: [['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], ['Tornar'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -1229,7 +1257,7 @@ test('handleTelegramScheduleText shows created tables as reply keyboard buttons 
   await handleTelegramScheduleText(context);
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Mesa TV', 'Mesa gran'], ['Sense taula'], ['Tornar'], ['/cancel']],
+    replyKeyboard: [['Mesa TV', 'Mesa gran'], [successButton('Sense taula')], ['Tornar'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -1786,7 +1814,7 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
       [scheduleLabels.editFieldTable],
       [scheduleLabels.editFieldDescription],
       [scheduleLabels.confirmEdit],
-      ['/cancel'],
+      [dangerButton('/cancel')],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
@@ -1891,7 +1919,7 @@ test('handleTelegramScheduleCallback offers quick minute buttons when editing wi
     data: { eventId: 3, timeHour: '19' },
   });
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[scheduleLabels.keepCurrent], [':00', ':15'], [':30', ':45'], ['/cancel']],
+    replyKeyboard: [[scheduleLabels.keepCurrent], [':00', ':15'], [':30', ':45'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });

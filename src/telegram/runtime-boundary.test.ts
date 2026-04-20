@@ -53,6 +53,12 @@ const runtimeConfig = {
   featureFlags: {},
 } as const;
 
+function replyKeyboardLabels(replyKeyboard: TelegramReplyOptions['replyKeyboard']): string[][] | undefined {
+  return replyKeyboard?.map((row) =>
+    row.map((button) => typeof button === 'string' ? button : button.text),
+  );
+}
+
 test('createTelegramBoundary reports a connected bot when long polling starts', async () => {
   const events: string[] = [];
   const sessionRecords = new Map<string, ConversationSessionRecord>();
@@ -133,7 +139,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
                 events.push(`buttons:${options.inlineKeyboard.flat().map((button) => button.text).join('|')}`);
               }
               if (options?.replyKeyboard) {
-                events.push(`reply-keyboard:${options.replyKeyboard.flat().join('|')}`);
+                events.push(`reply-keyboard:${options.replyKeyboard.flat().map((button) => typeof button === 'string' ? button : button.text).join('|')}`);
               }
             },
           };
@@ -742,6 +748,37 @@ test('toGrammyReplyOptions converts reply keyboard to grammY reply markup', asyn
   );
 });
 
+test('toGrammyReplyOptions applies configured style and custom emoji to reply keyboard buttons', async () => {
+  assert.deepEqual(
+    toGrammyReplyOptions(
+      {
+        replyKeyboard: [[{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Ajuda', semanticRole: 'help' }]],
+        resizeKeyboard: true,
+        persistentKeyboard: true,
+      },
+      {
+        primary: {
+          style: 'primary',
+          iconCustomEmojiId: '5393123412341234123',
+        },
+        help: {
+          iconCustomEmojiId: '5393123412341234888',
+        },
+      },
+    ),
+    {
+      reply_markup: {
+        keyboard: [[
+          { text: 'Activitats', style: 'primary', icon_custom_emoji_id: '5393123412341234123' },
+          { text: 'Ajuda', icon_custom_emoji_id: '5393123412341234888' },
+        ]],
+        resize_keyboard: true,
+        is_persistent: true,
+      },
+    },
+  );
+});
+
 test('translated quick-action buttons still trigger the same handlers', async () => {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const membershipUsers = new Map([
@@ -864,7 +901,7 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']]);
   assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
   assert.match(replies[0]?.message ?? '', /sollicituds/i);
   assert.match(replies[1]?.message ?? '', /Que pots fer ara/);
@@ -989,7 +1026,11 @@ test('cancel restores the default action menu after an active flow', async () =>
       message: 'Proces cancel.lat correctament.',
       options: {
         menuId: 'private-approved-default',
-        replyKeyboard: [['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']],
+        replyKeyboard: [
+          [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
+          [{ text: 'Cataleg', semanticRole: 'primary' }, { text: 'Compres conjuntes', semanticRole: 'primary' }],
+          [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
+        ],
         actionRows: [['schedule', 'tables_read'], ['catalog', 'group_purchases'], ['language', 'help']],
         actions: [
           { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
@@ -1531,7 +1572,7 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
 
   assert.equal(telegram.status.bot, 'connected');
   assert.match(replies[0]?.message ?? '', /Des del menu pots obrir activitats, taules i cataleg/);
-  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']]);
   assert.deepEqual(auditEvents, [
     {
       actionKey: 'telegram.menu.shown',

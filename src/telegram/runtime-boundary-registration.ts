@@ -88,8 +88,10 @@ import {
 } from './venue-event-admin-flow.js';
 import type {
   TelegramBotLike,
+  TelegramButtonAppearanceConfig,
   TelegramInlineButton,
   TelegramReplyOptions,
+  TelegramReplyKeyboardButton,
 } from './runtime-boundary.js';
 
 const membershipRevokeFlowKey = 'membership-revoke';
@@ -577,7 +579,10 @@ function parseCallbackTarget(
   return telegramUserId;
 }
 
-export function toGrammyReplyOptions(options?: TelegramReplyOptions): Record<string, unknown> | undefined {
+export function toGrammyReplyOptions(
+  options?: TelegramReplyOptions,
+  buttonAppearance?: TelegramButtonAppearanceConfig,
+): Record<string, unknown> | undefined {
   if (!options) {
     return undefined;
   }
@@ -589,7 +594,7 @@ export function toGrammyReplyOptions(options?: TelegramReplyOptions): Record<str
   if (options.replyKeyboard) {
     return {
       reply_markup: {
-        keyboard: options.replyKeyboard.map((row) => row.map((buttonText) => ({ text: buttonText }))),
+        keyboard: options.replyKeyboard.map((row) => row.map((button) => toRawReplyKeyboardButton(button, buttonAppearance))),
         resize_keyboard: options.resizeKeyboard ?? true,
         is_persistent: options.persistentKeyboard ?? true,
       },
@@ -606,13 +611,38 @@ export function toGrammyReplyOptions(options?: TelegramReplyOptions): Record<str
   return {
     reply_markup: {
       inline_keyboard: inlineKeyboard.map((row) =>
-        row.map((button) => ({
-          text: button.text,
-          ...(button.url ? { url: button.url } : { callback_data: button.callbackData }),
-        })),
+        row.map((button) => toRawInlineKeyboardButton(button, buttonAppearance)),
       ),
     },
     ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
+  };
+}
+
+function toRawReplyKeyboardButton(
+  button: TelegramReplyKeyboardButton,
+  buttonAppearance?: TelegramButtonAppearanceConfig,
+): Record<string, unknown> {
+  const normalizedButton = typeof button === 'string' ? { text: button } : button;
+  const appearance = normalizedButton.semanticRole ? buttonAppearance?.[normalizedButton.semanticRole] : undefined;
+
+  return {
+    text: normalizedButton.text,
+    ...(appearance?.style ? { style: appearance.style } : {}),
+    ...(appearance?.iconCustomEmojiId ? { icon_custom_emoji_id: appearance.iconCustomEmojiId } : {}),
+  };
+}
+
+function toRawInlineKeyboardButton(
+  button: TelegramInlineButton,
+  buttonAppearance?: TelegramButtonAppearanceConfig,
+): Record<string, unknown> {
+  const appearance = button.semanticRole ? buttonAppearance?.[button.semanticRole] : undefined;
+
+  return {
+    text: button.text,
+    ...(button.url ? { url: button.url } : { callback_data: button.callbackData }),
+    ...(appearance?.style ? { style: appearance.style } : {}),
+    ...(appearance?.iconCustomEmojiId ? { icon_custom_emoji_id: appearance.iconCustomEmojiId } : {}),
   };
 }
 

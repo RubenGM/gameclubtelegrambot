@@ -1,6 +1,6 @@
 import type { CatalogItemType } from '../catalog/catalog-model.js';
 import { createTelegramI18n } from './i18n.js';
-import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramReplyButton, TelegramReplyKeyboardButton, TelegramReplyOptions } from './runtime-boundary.js';
 
 export function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
   const i18n = createTelegramI18n(language);
@@ -20,7 +20,7 @@ export function buildTypeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOpt
     [texts.typeBoardGame],
     [texts.typeBook, texts.typeRpgBook],
     [texts.typeAccessory],
-    [texts.cancel],
+    [dangerButton(texts.cancel)],
   ]);
 }
 
@@ -31,7 +31,7 @@ export function buildEditTypeOptions(language: 'ca' | 'es' | 'en'): TelegramRepl
     [texts.typeBoardGame],
     [texts.typeBook, texts.typeRpgBook],
     [texts.typeAccessory],
-    [texts.cancel],
+    [dangerButton(texts.cancel)],
   ]);
 }
 
@@ -46,32 +46,32 @@ export function buildFamilyOptions({
 }): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
   if (!allowNoFamily) {
-    return buildReplyKeyboard([[texts.noFamily], [texts.cancel]]);
+    return buildReplyKeyboard([[successButton(texts.noFamily)], [dangerButton(texts.cancel)]]);
   }
 
-  const replyKeyboard = chunkKeyboard(popularFamilyNames, 3);
-  replyKeyboard.push([texts.noFamily], [texts.cancel]);
+  const replyKeyboard: TelegramReplyKeyboardButton[][] = chunkKeyboard(popularFamilyNames, 3);
+  replyKeyboard.push([successButton(texts.noFamily)], [dangerButton(texts.cancel)]);
   return buildReplyKeyboard(replyKeyboard);
 }
 
 export function buildEditFamilyOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.keepCurrent, texts.noFamily], [texts.cancel]]);
+  return buildReplyKeyboard([[texts.keepCurrent, successButton(texts.noFamily)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildGroupOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.noGroup], [texts.cancel]]);
+  return buildReplyKeyboard([[successButton(texts.noGroup)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildEditGroupOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.keepCurrent, texts.noGroup], [texts.cancel]]);
+  return buildReplyKeyboard([[texts.keepCurrent, successButton(texts.noGroup)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildSkipOptionalKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.skipOptional], [texts.cancel]]);
+  return buildReplyKeyboard([[successButton(texts.skipOptional)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildCreateOptionalKeyboard(currentValue: unknown, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
@@ -82,7 +82,7 @@ export function buildCreateOptionalKeyboard(currentValue: unknown, language: 'ca
 
 export function buildEditOptionalKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.keepCurrent, texts.skipOptional], [texts.cancel]]);
+  return buildReplyKeyboard([[texts.keepCurrent, successButton(texts.skipOptional)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildEditFieldMenuOptions({
@@ -95,7 +95,7 @@ export function buildEditFieldMenuOptions({
   language?: 'ca' | 'es' | 'en';
 }): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  const replyKeyboard: string[][] = [
+  const replyKeyboard: TelegramReplyKeyboardButton[][] = [
     [texts.editFieldDisplayName, texts.editFieldItemType],
     [texts.editFieldFamily, texts.editFieldGroup],
     [texts.editFieldOriginalName, texts.editFieldDescription],
@@ -107,7 +107,7 @@ export function buildEditFieldMenuOptions({
   if (itemTypeSupportsPlayers(itemType)) {
     replyKeyboard.splice(5, 0, [texts.editFieldPlayerMin, texts.editFieldPlayerMax]);
   }
-  replyKeyboard.push([texts.confirmEdit], [texts.cancel]);
+  replyKeyboard.push([successButton(texts.confirmEdit)], [dangerButton(texts.cancel)]);
   return buildReplyKeyboard(replyKeyboard);
 }
 
@@ -121,7 +121,7 @@ export function buildCreateFieldMenuOptions({
   language?: 'ca' | 'es' | 'en';
 }): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  const replyKeyboard: string[][] = [
+  const replyKeyboard: TelegramReplyKeyboardButton[][] = [
     [texts.editFieldDisplayName, texts.editFieldItemType],
     [texts.editFieldFamily, texts.editFieldGroup],
     [texts.editFieldOriginalName, texts.editFieldDescription],
@@ -133,24 +133,24 @@ export function buildCreateFieldMenuOptions({
   if (itemTypeSupportsPlayers(itemType)) {
     replyKeyboard.splice(5, 0, [texts.editFieldPlayerMin, texts.editFieldPlayerMax]);
   }
-  replyKeyboard.push([texts.searchOnlineServices]);
-  replyKeyboard.push([texts.confirmCreate], [texts.cancel]);
+  replyKeyboard.push([successButton(texts.searchOnlineServices)]);
+  replyKeyboard.push([successButton(texts.confirmCreate)], [dangerButton(texts.cancel)]);
   return buildReplyKeyboard(replyKeyboard);
 }
 
 export function buildCreateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.confirmCreate], [texts.cancel]]);
+  return buildReplyKeyboard([[successButton(texts.confirmCreate)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildEditConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.confirmEdit], [texts.cancel]]);
+  return buildReplyKeyboard([[successButton(texts.confirmEdit)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildDeactivateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.confirmDeactivate], [texts.cancel]]);
+  return buildReplyKeyboard([[dangerButton(texts.confirmDeactivate)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildMediaTypeOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
@@ -158,7 +158,7 @@ export function buildMediaTypeOptions(language: 'ca' | 'es' | 'en' = 'ca'): Tele
   return buildReplyKeyboard([
     [texts.mediaTypeImage, texts.mediaTypeLink],
     [texts.mediaTypeDocument],
-    [texts.cancel],
+    [dangerButton(texts.cancel)],
   ]);
 }
 
@@ -168,33 +168,33 @@ export function buildEditMediaTypeOptions(language: 'ca' | 'es' | 'en' = 'ca'): 
     [texts.keepCurrent],
     [texts.mediaTypeImage, texts.mediaTypeLink],
     [texts.mediaTypeDocument],
-    [texts.cancel],
+    [dangerButton(texts.cancel)],
   ]);
 }
 
 export function buildMediaConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.confirmMediaCreate], [texts.cancel]]);
+  return buildReplyKeyboard([[successButton(texts.confirmMediaCreate)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildMediaEditConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.confirmMediaEdit], [texts.cancel]]);
+  return buildReplyKeyboard([[successButton(texts.confirmMediaEdit)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildMediaDeleteConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.confirmMediaDelete], [texts.cancel]]);
+  return buildReplyKeyboard([[dangerButton(texts.confirmMediaDelete)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildKeepCurrentKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.keepCurrent], [texts.cancel]]);
+  return buildReplyKeyboard([[texts.keepCurrent], [dangerButton(texts.cancel)]]);
 }
 
 export function buildSingleCancelKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.cancel]]);
+  return buildReplyKeyboard([[dangerButton(texts.cancel)]]);
 }
 
 export function buildBggCollectionChoiceOptions({
@@ -207,32 +207,40 @@ export function buildBggCollectionChoiceOptions({
   language?: 'ca' | 'es' | 'en';
 }): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  const replyKeyboard = chunkKeyboard(collectionLabels, 2);
+  const replyKeyboard: TelegramReplyKeyboardButton[][] = chunkKeyboard(collectionLabels, 2);
   if (allowManualEntry) {
     replyKeyboard.push([texts.bggCollectionWriteManual]);
   }
-  replyKeyboard.push([texts.cancel]);
+  replyKeyboard.push([dangerButton(texts.cancel)]);
   return buildReplyKeyboard(replyKeyboard);
 }
 
 export function buildWikipediaUrlOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  return buildReplyKeyboard([[texts.skipLookupImport], [texts.cancel]]);
+  return buildReplyKeyboard([[successButton(texts.skipLookupImport)], [dangerButton(texts.cancel)]]);
 }
 
 export function buildWikipediaCandidateOptions(candidateTitles: string[], language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
-  const replyKeyboard = chunkKeyboard(candidateTitles, 2);
-  replyKeyboard.push([texts.manualWikipediaUrl], [texts.skipLookupImport], [texts.cancel]);
+  const replyKeyboard: TelegramReplyKeyboardButton[][] = chunkKeyboard(candidateTitles, 2);
+  replyKeyboard.push([texts.manualWikipediaUrl], [successButton(texts.skipLookupImport)], [dangerButton(texts.cancel)]);
   return buildReplyKeyboard(replyKeyboard);
 }
 
-function buildReplyKeyboard(replyKeyboard: string[][]): TelegramReplyOptions {
+function buildReplyKeyboard(replyKeyboard: TelegramReplyKeyboardButton[][]): TelegramReplyOptions {
   return {
     replyKeyboard,
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
+}
+
+function successButton(text: string): TelegramReplyButton {
+  return { text, semanticRole: 'success' };
+}
+
+function dangerButton(text: string): TelegramReplyButton {
+  return { text, semanticRole: 'danger' };
 }
 
 function chunkKeyboard(values: string[], size: number): string[][] {
