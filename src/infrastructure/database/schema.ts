@@ -295,3 +295,125 @@ export const newsGroupSubscriptions = pgTable(
     categoryLookup: index('news_group_subscriptions_category_key_idx').on(table.categoryKey),
   }),
 );
+
+export const groupPurchases = pgTable(
+  'group_purchases',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    title: varchar('title', { length: 255 }).notNull(),
+    description: text('description'),
+    purchaseMode: varchar('purchase_mode', { length: 16 }).notNull(),
+    lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('open'),
+    createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    joinDeadlineAt: timestamp('join_deadline_at', { withTimezone: true }),
+    confirmDeadlineAt: timestamp('confirm_deadline_at', { withTimezone: true }),
+    totalPriceCents: integer('total_price_cents'),
+    unitPriceCents: integer('unit_price_cents'),
+    unitLabel: varchar('unit_label', { length: 64 }),
+    allocationFieldKey: varchar('allocation_field_key', { length: 128 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  },
+  (table) => ({
+    lifecycleLookup: index('group_purchases_lifecycle_status_idx').on(table.lifecycleStatus),
+    creatorLookup: index('group_purchases_created_by_telegram_user_id_idx').on(table.createdByTelegramUserId),
+    joinDeadlineLookup: index('group_purchases_join_deadline_at_idx').on(table.joinDeadlineAt),
+    confirmDeadlineLookup: index('group_purchases_confirm_deadline_at_idx').on(table.confirmDeadlineAt),
+  }),
+);
+
+export const groupPurchaseFields = pgTable(
+  'group_purchase_fields',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    purchaseId: bigint('purchase_id', { mode: 'number' })
+      .notNull()
+      .references(() => groupPurchases.id),
+    fieldKey: varchar('field_key', { length: 128 }).notNull(),
+    label: varchar('label', { length: 255 }).notNull(),
+    fieldType: varchar('field_type', { length: 32 }).notNull(),
+    isRequired: boolean('is_required').notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    config: jsonb('config'),
+    affectsQuantity: boolean('affects_quantity').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    purchaseLookup: index('group_purchase_fields_purchase_id_idx').on(table.purchaseId),
+    uniqueFieldKey: uniqueIndex('group_purchase_fields_purchase_field_key_unique').on(table.purchaseId, table.fieldKey),
+  }),
+);
+
+export const groupPurchaseParticipants = pgTable(
+  'group_purchase_participants',
+  {
+    purchaseId: bigint('purchase_id', { mode: 'number' })
+      .notNull()
+      .references(() => groupPurchases.id),
+    participantTelegramUserId: bigint('participant_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    status: varchar('status', { length: 16 }).notNull().default('interested'),
+    joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    removedAt: timestamp('removed_at', { withTimezone: true }),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+  },
+  (table) => ({
+    uniqueParticipant: uniqueIndex('group_purchase_participants_purchase_user_unique').on(
+      table.purchaseId,
+      table.participantTelegramUserId,
+    ),
+    purchaseLookup: index('group_purchase_participants_purchase_id_idx').on(table.purchaseId),
+    statusLookup: index('group_purchase_participants_status_idx').on(table.status),
+  }),
+);
+
+export const groupPurchaseParticipantFieldValues = pgTable(
+  'group_purchase_participant_field_values',
+  {
+    purchaseId: bigint('purchase_id', { mode: 'number' })
+      .notNull()
+      .references(() => groupPurchases.id),
+    participantTelegramUserId: bigint('participant_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    fieldId: bigint('field_id', { mode: 'number' })
+      .notNull()
+      .references(() => groupPurchaseFields.id),
+    value: jsonb('value'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueValue: uniqueIndex('group_purchase_participant_field_values_unique').on(
+      table.purchaseId,
+      table.participantTelegramUserId,
+      table.fieldId,
+    ),
+    purchaseLookup: index('group_purchase_participant_field_values_purchase_id_idx').on(table.purchaseId),
+  }),
+);
+
+export const groupPurchaseMessages = pgTable(
+  'group_purchase_messages',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    purchaseId: bigint('purchase_id', { mode: 'number' })
+      .notNull()
+      .references(() => groupPurchases.id),
+    authorTelegramUserId: bigint('author_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    purchaseLookup: index('group_purchase_messages_purchase_id_idx').on(table.purchaseId),
+  }),
+);
