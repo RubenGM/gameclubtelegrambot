@@ -3,12 +3,14 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import {
   groupPurchaseFields,
+  groupPurchaseParticipantFieldValues,
   groupPurchaseParticipants,
   groupPurchases,
 } from '../infrastructure/database/schema.js';
 import type {
   GroupPurchaseDetailRecord,
   GroupPurchaseFieldRecord,
+  GroupPurchaseParticipantFieldValueRecord,
   GroupPurchaseParticipantRecord,
   GroupPurchaseRecord,
   GroupPurchaseRepository,
@@ -182,6 +184,51 @@ export function createDatabaseGroupPurchaseRepository({
 
       return mapGroupPurchaseParticipantRow(row);
     },
+    async listParticipantFieldValues(purchaseId, participantTelegramUserId) {
+      const result = await database
+        .select()
+        .from(groupPurchaseParticipantFieldValues)
+        .where(
+          and(
+            eq(groupPurchaseParticipantFieldValues.purchaseId, purchaseId),
+            eq(groupPurchaseParticipantFieldValues.participantTelegramUserId, participantTelegramUserId),
+          ),
+        )
+        .orderBy(asc(groupPurchaseParticipantFieldValues.fieldId));
+
+      return result.map(mapGroupPurchaseParticipantFieldValueRow);
+    },
+    async replaceParticipantFieldValues(input) {
+      return database.transaction(async (tx) => {
+        await tx
+          .delete(groupPurchaseParticipantFieldValues)
+          .where(
+            and(
+              eq(groupPurchaseParticipantFieldValues.purchaseId, input.purchaseId),
+              eq(groupPurchaseParticipantFieldValues.participantTelegramUserId, input.participantTelegramUserId),
+            ),
+          );
+
+        if (input.values.length === 0) {
+          return [];
+        }
+
+        const inserted = await tx
+          .insert(groupPurchaseParticipantFieldValues)
+          .values(
+            input.values.map((value) => ({
+              purchaseId: input.purchaseId,
+              participantTelegramUserId: input.participantTelegramUserId,
+              fieldId: value.fieldId,
+              value: value.value,
+              updatedAt: new Date(),
+            })),
+          )
+          .returning();
+
+        return inserted.map(mapGroupPurchaseParticipantFieldValueRow);
+      });
+    },
   };
 }
 
@@ -236,5 +283,17 @@ function mapGroupPurchaseParticipantRow(
     confirmedAt: row.confirmedAt?.toISOString() ?? null,
     paidAt: row.paidAt?.toISOString() ?? null,
     deliveredAt: row.deliveredAt?.toISOString() ?? null,
+  };
+}
+
+function mapGroupPurchaseParticipantFieldValueRow(
+  row: typeof groupPurchaseParticipantFieldValues.$inferSelect,
+): GroupPurchaseParticipantFieldValueRecord {
+  return {
+    purchaseId: row.purchaseId,
+    participantTelegramUserId: row.participantTelegramUserId,
+    fieldId: row.fieldId,
+    value: row.value,
+    updatedAt: row.updatedAt.toISOString(),
   };
 }

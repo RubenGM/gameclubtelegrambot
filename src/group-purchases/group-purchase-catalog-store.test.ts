@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   groupPurchaseFields,
+  groupPurchaseParticipantFieldValues,
   groupPurchaseParticipants,
   groupPurchases,
 } from '../infrastructure/database/schema.js';
@@ -10,6 +11,7 @@ import { createDatabaseGroupPurchaseRepository } from './group-purchase-catalog-
 
 const groupPurchasesTable = groupPurchases as unknown;
 const groupPurchaseFieldsTable = groupPurchaseFields as unknown;
+const groupPurchaseParticipantFieldValuesTable = groupPurchaseParticipantFieldValues as unknown;
 const groupPurchaseParticipantsTable = groupPurchaseParticipants as unknown;
 
 test('createDatabaseGroupPurchaseRepository creates a purchase and its fields in one transaction', async () => {
@@ -251,4 +253,66 @@ test('createDatabaseGroupPurchaseRepository upserts participant status and times
 
   assert.equal(participant.status, 'confirmed');
   assert.equal(participant.confirmedAt, '2026-04-20T13:00:00.000Z');
+});
+
+test('createDatabaseGroupPurchaseRepository replaces participant field values atomically', async () => {
+  const steps: string[] = [];
+  const repository = createDatabaseGroupPurchaseRepository({
+    database: {
+      transaction: async (handler: (tx: Record<string, unknown>) => Promise<unknown>) =>
+        handler({
+          delete: (table: { [key: string]: unknown }) => {
+            if ((table as unknown) !== groupPurchaseParticipantFieldValuesTable) {
+              throw new Error('unexpected delete table');
+            }
+            steps.push('delete:values');
+            return {
+              where: async () => undefined,
+            };
+          },
+          insert: (table: { [key: string]: unknown }) => {
+            if ((table as unknown) !== groupPurchaseParticipantFieldValuesTable) {
+              throw new Error('unexpected insert table');
+            }
+            steps.push('insert:values');
+            return {
+              values: (values: Array<Record<string, unknown>>) => {
+                assert.deepEqual(values.map((value) => value.fieldId), [10, 11]);
+                assert.deepEqual(values.map((value) => value.value), [3, 'blue']);
+                return {
+                  returning: async () => [
+                    {
+                      purchaseId: 7,
+                      participantTelegramUserId: 77,
+                      fieldId: 10,
+                      value: 3,
+                      updatedAt: new Date('2026-04-20T13:00:00.000Z'),
+                    },
+                    {
+                      purchaseId: 7,
+                      participantTelegramUserId: 77,
+                      fieldId: 11,
+                      value: 'blue',
+                      updatedAt: new Date('2026-04-20T13:00:00.000Z'),
+                    },
+                  ],
+                };
+              },
+            };
+          },
+        } as never),
+    } as never,
+  });
+
+  const values = await repository.replaceParticipantFieldValues({
+    purchaseId: 7,
+    participantTelegramUserId: 77,
+    values: [
+      { fieldId: 10, value: 3 },
+      { fieldId: 11, value: 'blue' },
+    ],
+  });
+
+  assert.deepEqual(steps, ['delete:values', 'insert:values']);
+  assert.deepEqual(values.map((value) => value.value), [3, 'blue']);
 });

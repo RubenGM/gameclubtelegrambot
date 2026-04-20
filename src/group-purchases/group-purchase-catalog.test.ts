@@ -5,7 +5,9 @@ import {
   changeGroupPurchaseParticipantStatus,
   createGroupPurchase,
   joinGroupPurchase,
+  updateGroupPurchaseParticipantFieldValues,
   type GroupPurchaseDetailRecord,
+  type GroupPurchaseParticipantFieldValueRecord,
   type GroupPurchaseParticipantRecord,
   type GroupPurchaseRecord,
   type GroupPurchaseRepository,
@@ -15,6 +17,7 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
   const purchases = new Map<number, GroupPurchaseRecord>(initialPurchases.map((purchase) => [purchase.id, purchase]));
   const fields = new Map<number, GroupPurchaseDetailRecord['fields']>();
   const participants = new Map<string, GroupPurchaseParticipantRecord>();
+  const fieldValues = new Map<string, GroupPurchaseParticipantFieldValueRecord[]>();
   let nextPurchaseId = Math.max(0, ...initialPurchases.map((purchase) => purchase.id)) + 1;
 
   return {
@@ -122,6 +125,20 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
 
       participants.set(`${input.purchaseId}:${input.participantTelegramUserId}`, next);
       return next;
+    },
+    async listParticipantFieldValues(purchaseId, participantTelegramUserId) {
+      return fieldValues.get(`${purchaseId}:${participantTelegramUserId}`) ?? [];
+    },
+    async replaceParticipantFieldValues(input) {
+      const nextValues = input.values.map((value) => ({
+        purchaseId: input.purchaseId,
+        participantTelegramUserId: input.participantTelegramUserId,
+        fieldId: value.fieldId,
+        value: value.value,
+        updatedAt: '2026-04-20T12:45:00.000Z',
+      } satisfies GroupPurchaseParticipantFieldValueRecord));
+      fieldValues.set(`${input.purchaseId}:${input.participantTelegramUserId}`, nextValues);
+      return nextValues;
     },
   };
 }
@@ -308,4 +325,53 @@ test('changeGroupPurchaseParticipantStatus rejects self-service promotion to pai
       }),
     /Only managers can set status paid/,
   );
+});
+
+test('updateGroupPurchaseParticipantFieldValues validates and stores participant answers by field key', async () => {
+  const repository = createRepository();
+
+  const created = await createGroupPurchase({
+    repository,
+    title: 'Pedido de dados',
+    purchaseMode: 'per_item',
+    createdByTelegramUserId: 42,
+    fields: [
+      {
+        fieldKey: 'quantity',
+        label: 'Cantidad',
+        fieldType: 'integer',
+        isRequired: true,
+        sortOrder: 0,
+        config: { min: 1 },
+        affectsQuantity: true,
+      },
+      {
+        fieldKey: 'color',
+        label: 'Color',
+        fieldType: 'single_choice',
+        isRequired: true,
+        sortOrder: 1,
+        config: { options: [{ value: 'blue', label: 'Azul' }, { value: 'red', label: 'Rojo' }] },
+        affectsQuantity: false,
+      },
+    ],
+  });
+
+  await joinGroupPurchase({
+    repository,
+    purchaseId: created.purchase.id,
+    participantTelegramUserId: 77,
+  });
+
+  const values = await updateGroupPurchaseParticipantFieldValues({
+    repository,
+    purchaseId: created.purchase.id,
+    participantTelegramUserId: 77,
+    valuesByFieldKey: {
+      quantity: '3',
+      color: 'Azul',
+    },
+  });
+
+  assert.deepEqual(values.map((value) => value.value), [3, 'blue']);
 });

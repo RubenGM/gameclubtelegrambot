@@ -17,3 +17,56 @@ export function buildGroupPurchaseMenuOptions(language: BotLanguage = 'ca'): Tel
     persistentKeyboard: true,
   };
 }
+
+export function buildGroupPurchaseSingleCancelKeyboard(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildGroupPurchaseSkipCancelKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).groupPurchases;
+  return {
+    replyKeyboard: [[texts.skipOptional], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildGroupPurchaseModeOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).groupPurchases;
+  return {
+    replyKeyboard: [[texts.modePerItem, texts.modeSharedCost], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildGroupPurchaseFieldMenuOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).groupPurchases;
+  return {
+    replyKeyboard: [[texts.addIntegerField, texts.addChoiceField], [texts.addTextField, texts.continueFields], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildGroupPurchaseYesNoOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).groupPurchases;
+  return {
+    replyKeyboard: [[texts.yes, texts.no], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildGroupPurchaseSaveOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).groupPurchases;
+  return {
+    replyKeyboard: [[texts.savePurchase], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}

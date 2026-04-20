@@ -45,6 +45,14 @@ export interface GroupPurchaseParticipantRecord {
   deliveredAt: string | null;
 }
 
+export interface GroupPurchaseParticipantFieldValueRecord {
+  purchaseId: number;
+  participantTelegramUserId: number;
+  fieldId: number;
+  value: unknown;
+  updatedAt: string;
+}
+
 export interface GroupPurchaseDetailRecord {
   purchase: GroupPurchaseRecord;
   fields: GroupPurchaseFieldRecord[];
@@ -96,6 +104,15 @@ export interface GroupPurchaseRepository {
     participantTelegramUserId: number;
     status: GroupPurchaseParticipantStatus;
   }): Promise<GroupPurchaseParticipantRecord>;
+  listParticipantFieldValues(
+    purchaseId: number,
+    participantTelegramUserId: number,
+  ): Promise<GroupPurchaseParticipantFieldValueRecord[]>;
+  replaceParticipantFieldValues(input: {
+    purchaseId: number;
+    participantTelegramUserId: number;
+    values: Array<{ fieldId: number; value: unknown }>;
+  }): Promise<GroupPurchaseParticipantFieldValueRecord[]>;
 }
 
 export async function createGroupPurchase({
@@ -226,6 +243,46 @@ export async function changeGroupPurchaseParticipantStatus({
     purchaseId,
     participantTelegramUserId: normalizeTelegramUserId(participantTelegramUserId, 'participant'),
     status: nextStatus,
+  });
+}
+
+export async function updateGroupPurchaseParticipantFieldValues({
+  repository,
+  purchaseId,
+  participantTelegramUserId,
+  valuesByFieldKey,
+}: {
+  repository: GroupPurchaseRepository;
+  purchaseId: number;
+  participantTelegramUserId: number;
+  valuesByFieldKey: Record<string, unknown>;
+}): Promise<GroupPurchaseParticipantFieldValueRecord[]> {
+  const detail = await repository.getPurchaseDetail(purchaseId);
+  if (!detail) {
+    throw new Error(`Group purchase ${purchaseId} not found`);
+  }
+
+  const participant = await repository.findParticipant(purchaseId, participantTelegramUserId);
+  if (!participant || participant.status === 'removed') {
+    throw new Error(`Group purchase participant ${participantTelegramUserId} for purchase ${purchaseId} not found`);
+  }
+
+  const normalizedValues = detail.fields.map((field) => {
+    const rawValue = valuesByFieldKey[field.fieldKey];
+    if ((rawValue === undefined || rawValue === null || rawValue === '') && field.isRequired) {
+      throw new Error(`Field ${field.fieldKey} is required`);
+    }
+
+    return {
+      fieldId: field.id,
+      value: normalizeParticipantFieldValue(field, rawValue),
+    };
+  });
+
+  return repository.replaceParticipantFieldValues({
+    purchaseId,
+    participantTelegramUserId,
+    values: normalizedValues,
   });
 }
 
@@ -361,6 +418,54 @@ function normalizeFieldConfig(
 
 function resolveQuantityField(fields: GroupPurchaseFieldInput[]): GroupPurchaseFieldInput | null {
   return fields.find((field) => field.affectsQuantity) ?? null;
+}
+
+function normalizeParticipantFieldValue(field: GroupPurchaseFieldRecord, rawValue: unknown): unknown {
+  if (field.fieldType === 'integer') {
+    if (typeof rawValue !== 'string' && typeof rawValue !== 'number') {
+      throw new Error(`Field ${field.fieldKey} expects an integer value`);
+    }
+    const parsed = typeof rawValue === 'number' ? rawValue : Number(String(rawValue).trim());
+    if (!Number.isInteger(parsed)) {
+      throw new Error(`Field ${field.fieldKey} expects an integer value`);
+    }
+    const min = typeof field.config?.min === 'number' ? field.config.min : undefined;
+    const max = typeof field.config?.max === 'number' ? field.config.max : undefined;
+    if (min !== undefined && parsed < min) {
+      throw new Error(`Field ${field.fieldKey} must be at least ${min}`);
+    }
+    if (max !== undefined && parsed > max) {
+      throw new Error(`Field ${field.fieldKey} must be at most ${max}`);
+    }
+    return parsed;
+  }
+
+  if (field.fieldType === 'single_choice') {
+    const normalized = String(rawValue ?? '').trim();
+    const options = Array.isArray(field.config?.options) ? field.config.options : [];
+    const match = options.find((option) => {
+      if (!option || typeof option !== 'object') {
+        return false;
+      }
+      const value = 'value' in option ? String(option.value) : '';
+      const label = 'label' in option ? String(option.label) : '';
+      return normalized === value || normalized === label;
+    });
+    if (!match || typeof match !== 'object' || !('value' in match)) {
+      throw new Error(`Field ${field.fieldKey} expects one of the configured options`);
+    }
+    return match.value;
+  }
+
+  const normalized = String(rawValue ?? '').trim();
+  if (field.isRequired && normalized.length === 0) {
+    throw new Error(`Field ${field.fieldKey} is required`);
+  }
+  const maxLength = typeof field.config?.maxLength === 'number' ? field.config.maxLength : undefined;
+  if (maxLength !== undefined && normalized.length > maxLength) {
+    throw new Error(`Field ${field.fieldKey} must not exceed ${maxLength} characters`);
+  }
+  return normalized;
 }
 
 async function loadPurchaseOrThrow(

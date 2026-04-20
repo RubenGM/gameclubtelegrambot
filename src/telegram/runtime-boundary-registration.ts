@@ -56,6 +56,8 @@ import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { handleTelegramLanguageCommand, handleTelegramLanguageText } from './language-flow.js';
 import { handleTelegramNewsGroupText } from './news-group-flow.js';
 import {
+  groupPurchaseCallbackPrefixes,
+  handleTelegramGroupPurchaseCallback,
   handleTelegramGroupPurchaseCommand,
   handleTelegramGroupPurchaseStartText,
   handleTelegramGroupPurchaseText,
@@ -114,6 +116,7 @@ export function registerHandlers({
 
   registerMembershipCallbacks({ bot, publicName, adminElevationPasswordHash });
   registerScheduleCallbacks({ bot });
+  registerGroupPurchaseCallbacks({ bot });
   registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
   registerCatalogReadCallbacks({ bot });
@@ -182,6 +185,18 @@ function registerTextHandlers({
       return;
     }
   });
+}
+
+function registerGroupPurchaseCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(groupPurchaseCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramGroupPurchaseCallback(context);
+    });
+  }
 }
 
 function createDefaultCommands({
