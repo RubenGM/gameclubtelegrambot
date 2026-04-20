@@ -8,6 +8,7 @@ import {
 } from '../group-purchases/group-purchase-catalog.js';
 import { createDatabaseGroupPurchaseRepository } from '../group-purchases/group-purchase-catalog-store.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import {
   buildGroupPurchaseFieldMenuOptions,
@@ -20,15 +21,20 @@ import {
   groupPurchaseLabels,
 } from './group-purchase-keyboards.js';
 import { formatGroupPurchaseDetailMessage, formatGroupPurchaseListMessage } from './group-purchase-presentation.js';
+import { escapeHtml } from './schedule-presentation.js';
 
 const createFlowKey = 'group-purchase-create';
 const participantFieldFlowKey = 'group-purchase-participant-fields';
+const publishMessageFlowKey = 'group-purchase-publish-message';
 
 export const groupPurchaseCallbackPrefixes = {
   join: 'group_purchase:join:',
   editValues: 'group_purchase:edit_values:',
   leave: 'group_purchase:leave:',
   confirm: 'group_purchase:confirm:',
+  manageParticipants: 'group_purchase:manage_participants:',
+  participantStatus: 'group_purchase:participant_status:',
+  publishMessage: 'group_purchase:publish_message:',
 } as const;
 
 interface GroupPurchaseCreateDraft {
@@ -49,6 +55,10 @@ interface GroupPurchaseParticipantFieldDraft {
   purchaseId: number;
   fieldIndex: number;
   valuesByFieldKey: Record<string, unknown>;
+}
+
+interface GroupPurchasePublishMessageDraft {
+  purchaseId: number;
 }
 
 export type TelegramGroupPurchaseContext = TelegramCommandHandlerContext & {
@@ -80,6 +90,9 @@ export async function handleTelegramGroupPurchaseText(context: TelegramGroupPurc
   }
   if (context.runtime.session.current?.flowKey === participantFieldFlowKey) {
     return handleActiveParticipantFieldFlow(context, text, language);
+  }
+  if (context.runtime.session.current?.flowKey === publishMessageFlowKey) {
+    return handleActivePublishMessageFlow(context, text, language);
   }
 
   if (text === i18n.actionMenu.groupPurchases || text === groupPurchaseLabels.openMenu || text === '/group_purchases') {
@@ -173,6 +186,46 @@ export async function handleTelegramGroupPurchaseCallback(context: TelegramGroup
     return true;
   }
 
+  if (callbackData.startsWith(groupPurchaseCallbackPrefixes.manageParticipants)) {
+    const purchaseId = parseEntityId(callbackData, groupPurchaseCallbackPrefixes.manageParticipants, 'group purchase');
+    const detail = await loadPurchaseDetailOrThrow(context, purchaseId);
+    await context.reply(buildParticipantManagementMessage(detail, language), {
+      parseMode: 'HTML',
+    });
+    return true;
+  }
+
+  if (callbackData.startsWith(groupPurchaseCallbackPrefixes.participantStatus)) {
+    const payload = callbackData.slice(groupPurchaseCallbackPrefixes.participantStatus.length).split(':');
+    const purchaseId = Number(payload[0]);
+    const participantTelegramUserId = Number(payload[1]);
+    const nextStatus = payload[2];
+    if (!Number.isInteger(purchaseId) || !Number.isInteger(participantTelegramUserId) || !nextStatus) {
+      throw new Error('Could not identify group purchase participant status change');
+    }
+    await changeGroupPurchaseParticipantStatus({
+      repository: resolveRepository(context),
+      purchaseId,
+      participantTelegramUserId,
+      actorRole: 'manager',
+      nextStatus: nextStatus as 'interested' | 'confirmed' | 'paid' | 'delivered' | 'removed',
+    });
+    const detail = await loadPurchaseDetailOrThrow(context, purchaseId);
+    await context.reply(formatGroupPurchaseDetailMessage({ detail, language }), buildGroupPurchaseDetailOptions(context, detail, language));
+    return true;
+  }
+
+  if (callbackData.startsWith(groupPurchaseCallbackPrefixes.publishMessage)) {
+    const purchaseId = parseEntityId(callbackData, groupPurchaseCallbackPrefixes.publishMessage, 'group purchase');
+    await context.runtime.session.start({
+      flowKey: publishMessageFlowKey,
+      stepKey: 'body',
+      data: { purchaseId },
+    });
+    await context.reply(createTelegramI18n(language).groupPurchases.askPublishMessage, buildGroupPurchaseSingleCancelKeyboard());
+    return true;
+  }
+
   if (callbackData.startsWith(groupPurchaseCallbackPrefixes.confirm)) {
     const purchaseId = parseEntityId(callbackData, groupPurchaseCallbackPrefixes.confirm, 'group purchase');
     await changeGroupPurchaseParticipantStatus({
@@ -240,6 +293,41 @@ async function handleActiveParticipantFieldFlow(
     participantTelegramUserId: context.runtime.actor.telegramUserId,
     valuesByFieldKey: nextValuesByFieldKey,
   });
+  await context.runtime.session.cancel();
+  const nextDetail = await loadPurchaseDetailOrThrow(context, draft.purchaseId);
+  await context.reply(formatGroupPurchaseDetailMessage({ detail: nextDetail, language }), buildGroupPurchaseDetailOptions(context, nextDetail, language));
+  return true;
+}
+
+async function handleActivePublishMessageFlow(
+  context: TelegramGroupPurchaseContext,
+  text: string,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== publishMessageFlowKey) {
+    return false;
+  }
+
+  const draft = session.data as unknown as GroupPurchasePublishMessageDraft;
+  const detail = await loadPurchaseDetailOrThrow(context, draft.purchaseId);
+  await resolveRepository(context).createMessage({
+    purchaseId: draft.purchaseId,
+    authorTelegramUserId: context.runtime.actor.telegramUserId,
+    body: text,
+  });
+
+  const senderLabel = context.from?.first_name?.trim() || context.from?.username?.trim() || `Usuari ${context.runtime.actor.telegramUserId}`;
+  const message = `Este es un mensaje sobre la compra conjunta <a href="${buildGroupPurchaseLink(draft.purchaseId)}">${escapeHtml(detail.purchase.title)}</a>, enviado por ${escapeHtml(senderLabel)}:\n\n${escapeHtml(text)}`;
+
+  await Promise.all(
+    detail.participants
+      .filter((participant) => participant.status !== 'removed')
+      .map(async (participant) => {
+        await context.runtime.bot.sendPrivateMessage(participant.participantTelegramUserId, message, { parseMode: 'HTML' });
+      }),
+  );
+
   await context.runtime.session.cancel();
   const nextDetail = await loadPurchaseDetailOrThrow(context, draft.purchaseId);
   await context.reply(formatGroupPurchaseDetailMessage({ detail: nextDetail, language }), buildGroupPurchaseDetailOptions(context, nextDetail, language));
@@ -624,7 +712,14 @@ function buildGroupPurchaseDetailOptions(
       entry.participantTelegramUserId === context.runtime.actor.telegramUserId &&
       entry.status !== 'removed',
   );
+  const isManager = context.runtime.actor.isAdmin || detail.purchase.createdByTelegramUserId === context.runtime.actor.telegramUserId;
   const inlineKeyboard: Array<Array<{ text: string; callbackData: string }>> = [];
+
+  if (isManager) {
+    inlineKeyboard.push([{ text: texts.manageParticipantsAction, callbackData: `${groupPurchaseCallbackPrefixes.manageParticipants}${detail.purchase.id}` }]);
+    inlineKeyboard.push([{ text: texts.publishMessageAction, callbackData: `${groupPurchaseCallbackPrefixes.publishMessage}${detail.purchase.id}` }]);
+    return { parseMode: 'HTML' as const, inlineKeyboard };
+  }
 
   if (!participant && detail.purchase.lifecycleStatus === 'open') {
     inlineKeyboard.push([{ text: texts.joinAction, callbackData: `${groupPurchaseCallbackPrefixes.join}${detail.purchase.id}` }]);
@@ -645,10 +740,25 @@ function buildGroupPurchaseDetailOptions(
     : { parseMode: 'HTML' as const };
 }
 
+function buildGroupPurchaseLink(purchaseId: number): string {
+  return buildTelegramStartUrl(`group_purchase_${purchaseId}`);
+}
+
 function parseEntityId(callbackData: string, prefix: string, label: string): number {
   const value = Number(callbackData.slice(prefix.length));
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`Could not identify ${label}`);
   }
   return value;
+}
+
+function buildParticipantManagementMessage(
+  detail: Awaited<ReturnType<typeof loadPurchaseDetailOrThrow>>,
+  language: 'ca' | 'es' | 'en',
+): string {
+  const texts = createTelegramI18n(language).groupPurchases;
+  return [
+    texts.participantsHeader,
+    ...detail.participants.map((participant) => `- ${participant.participantTelegramUserId} · ${participant.status}`),
+  ].join('\n');
 }

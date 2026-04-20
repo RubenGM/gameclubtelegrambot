@@ -3,6 +3,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import {
   groupPurchaseFields,
+  groupPurchaseMessages,
   groupPurchaseParticipantFieldValues,
   groupPurchaseParticipants,
   groupPurchases,
@@ -10,6 +11,7 @@ import {
 import type {
   GroupPurchaseDetailRecord,
   GroupPurchaseFieldRecord,
+  GroupPurchaseMessageRecord,
   GroupPurchaseParticipantFieldValueRecord,
   GroupPurchaseParticipantRecord,
   GroupPurchaseRecord,
@@ -229,6 +231,23 @@ export function createDatabaseGroupPurchaseRepository({
         return inserted.map(mapGroupPurchaseParticipantFieldValueRow);
       });
     },
+    async createMessage(input) {
+      const inserted = await database
+        .insert(groupPurchaseMessages)
+        .values({
+          purchaseId: input.purchaseId,
+          authorTelegramUserId: input.authorTelegramUserId,
+          body: input.body,
+        })
+        .returning();
+
+      const row = inserted[0];
+      if (!row) {
+        throw new Error(`Group purchase message for purchase ${input.purchaseId} was not created`);
+      }
+
+      return mapGroupPurchaseMessageRow(row);
+    },
   };
 }
 
@@ -295,5 +314,15 @@ function mapGroupPurchaseParticipantFieldValueRow(
     fieldId: row.fieldId,
     value: row.value,
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function mapGroupPurchaseMessageRow(row: typeof groupPurchaseMessages.$inferSelect): GroupPurchaseMessageRecord {
+  return {
+    id: row.id,
+    purchaseId: row.purchaseId,
+    authorTelegramUserId: row.authorTelegramUserId,
+    body: row.body,
+    createdAt: row.createdAt.toISOString(),
   };
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   groupPurchaseFields,
+  groupPurchaseMessages,
   groupPurchaseParticipantFieldValues,
   groupPurchaseParticipants,
   groupPurchases,
@@ -11,6 +12,7 @@ import { createDatabaseGroupPurchaseRepository } from './group-purchase-catalog-
 
 const groupPurchasesTable = groupPurchases as unknown;
 const groupPurchaseFieldsTable = groupPurchaseFields as unknown;
+const groupPurchaseMessagesTable = groupPurchaseMessages as unknown;
 const groupPurchaseParticipantFieldValuesTable = groupPurchaseParticipantFieldValues as unknown;
 const groupPurchaseParticipantsTable = groupPurchaseParticipants as unknown;
 
@@ -315,4 +317,43 @@ test('createDatabaseGroupPurchaseRepository replaces participant field values at
 
   assert.deepEqual(steps, ['delete:values', 'insert:values']);
   assert.deepEqual(values.map((value) => value.value), [3, 'blue']);
+});
+
+test('createDatabaseGroupPurchaseRepository stores published purchase messages', async () => {
+  const repository = createDatabaseGroupPurchaseRepository({
+    database: {
+      insert: (table: { [key: string]: unknown }) => {
+        if ((table as unknown) !== groupPurchaseMessagesTable) {
+          throw new Error('unexpected table');
+        }
+        return {
+          values: (values: Record<string, unknown>) => {
+            assert.equal(values.purchaseId, 7);
+            assert.equal(values.authorTelegramUserId, 42);
+            assert.equal(values.body, 'Ya he hecho el pedido');
+            return {
+              returning: async () => [
+                {
+                  id: 5,
+                  purchaseId: 7,
+                  authorTelegramUserId: 42,
+                  body: 'Ya he hecho el pedido',
+                  createdAt: new Date('2026-04-20T14:00:00.000Z'),
+                },
+              ],
+            };
+          },
+        };
+      },
+    } as never,
+  });
+
+  const message = await repository.createMessage({
+    purchaseId: 7,
+    authorTelegramUserId: 42,
+    body: 'Ya he hecho el pedido',
+  });
+
+  assert.equal(message.body, 'Ya he hecho el pedido');
+  assert.equal(message.createdAt, '2026-04-20T14:00:00.000Z');
 });

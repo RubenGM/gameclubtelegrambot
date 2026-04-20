@@ -53,6 +53,14 @@ export interface GroupPurchaseParticipantFieldValueRecord {
   updatedAt: string;
 }
 
+export interface GroupPurchaseMessageRecord {
+  id: number;
+  purchaseId: number;
+  authorTelegramUserId: number;
+  body: string;
+  createdAt: string;
+}
+
 export interface GroupPurchaseDetailRecord {
   purchase: GroupPurchaseRecord;
   fields: GroupPurchaseFieldRecord[];
@@ -113,6 +121,11 @@ export interface GroupPurchaseRepository {
     participantTelegramUserId: number;
     values: Array<{ fieldId: number; value: unknown }>;
   }): Promise<GroupPurchaseParticipantFieldValueRecord[]>;
+  createMessage(input: {
+    purchaseId: number;
+    authorTelegramUserId: number;
+    body: string;
+  }): Promise<GroupPurchaseMessageRecord>;
 }
 
 export async function createGroupPurchase({

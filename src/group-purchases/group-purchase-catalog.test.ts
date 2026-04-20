@@ -140,6 +140,15 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
       fieldValues.set(`${input.purchaseId}:${input.participantTelegramUserId}`, nextValues);
       return nextValues;
     },
+    async createMessage(input) {
+      return {
+        id: 1,
+        purchaseId: input.purchaseId,
+        authorTelegramUserId: input.authorTelegramUserId,
+        body: input.body,
+        createdAt: '2026-04-20T14:00:00.000Z',
+      };
+    },
   };
 }
 

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import type {
   GroupPurchaseDetailRecord,
   GroupPurchaseFieldRecord,
+  GroupPurchaseMessageRecord,
   GroupPurchaseParticipantFieldValueRecord,
   GroupPurchaseParticipantRecord,
   GroupPurchaseRecord,
@@ -24,7 +25,9 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
   const fields = new Map<number, GroupPurchaseFieldRecord[]>();
   const participants = new Map<string, GroupPurchaseParticipantRecord>();
   const fieldValues = new Map<string, GroupPurchaseParticipantFieldValueRecord[]>();
+  const messages = new Map<number, GroupPurchaseMessageRecord[]>();
   let nextPurchaseId = Math.max(0, ...initialPurchases.map((purchase) => purchase.id)) + 1;
+  let nextMessageId = 1;
 
   return {
     async createPurchase(input) {
@@ -126,15 +129,29 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
       fieldValues.set(`${input.purchaseId}:${input.participantTelegramUserId}`, values);
       return values;
     },
+    async createMessage(input) {
+      const message: GroupPurchaseMessageRecord = {
+        id: nextMessageId,
+        purchaseId: input.purchaseId,
+        authorTelegramUserId: input.authorTelegramUserId,
+        body: input.body,
+        createdAt: '2026-04-20T14:00:00.000Z',
+      };
+      nextMessageId += 1;
+      messages.set(input.purchaseId, [...(messages.get(input.purchaseId) ?? []), message]);
+      return message;
+    },
   };
 }
 
 function createContext(repository: GroupPurchaseRepository): {
   context: TelegramCommandHandlerContext;
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
+  privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }>;
   getCurrentSession(): ConversationSessionRecord | null;
 } {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }> = [];
   let currentSession: ConversationSessionRecord | null = null;
 
   return {
@@ -148,7 +165,9 @@ function createContext(repository: GroupPurchaseRepository): {
           publicName: 'Game Club Bot',
           clubName: 'Game Club',
           language: 'ca',
-          sendPrivateMessage: async () => {},
+          sendPrivateMessage: async (telegramUserId: number, message: string, options?: TelegramReplyOptions) => {
+            privateMessages.push({ telegramUserId, message, ...(options ? { options } : {}) });
+          },
         },
         services: {
           database: {
@@ -208,6 +227,7 @@ function createContext(repository: GroupPurchaseRepository): {
       groupPurchaseRepository: repository,
     } as unknown as TelegramCommandHandlerContext,
     replies,
+    privateMessages,
     getCurrentSession() {
       return currentSession;
     },
@@ -521,4 +541,52 @@ test('participant can leave an active group purchase', async () => {
 
   const participant = await repository.findParticipant(created.purchase.id, 7);
   assert.equal(participant?.status, 'removed');
+});
+
+test('creator detail view exposes participant management actions', async () => {
+  const repository = createRepository([buildPurchase({ createdByTelegramUserId: 7 })]);
+  const { context, replies } = createContext(repository);
+  context.messageText = '/start group_purchase_7';
+
+  await handleTelegramGroupPurchaseStartText(context);
+
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
+    [{ text: 'Gestionar participants', callbackData: 'group_purchase:manage_participants:7' }],
+    [{ text: 'Publicar missatge', callbackData: 'group_purchase:publish_message:7' }],
+  ]);
+});
+
+test('creator can mark a participant as paid from the management callbacks', async () => {
+  const repository = createRepository([buildPurchase({ id: 21, createdByTelegramUserId: 7 })]);
+  await repository.upsertParticipant({ purchaseId: 21, participantTelegramUserId: 77, status: 'confirmed' });
+  const { context } = createContext(repository);
+
+  context.callbackData = 'group_purchase:participant_status:21:77:paid';
+  await handleTelegramGroupPurchaseCallback(context);
+
+  const participant = await repository.findParticipant(21, 77);
+  assert.equal(participant?.status, 'paid');
+});
+
+test('creator can publish a private update to active participants', async () => {
+  const repository = createRepository([buildPurchase({ id: 31, createdByTelegramUserId: 7 })]);
+  await repository.upsertParticipant({ purchaseId: 31, participantTelegramUserId: 77, status: 'confirmed' });
+  await repository.upsertParticipant({ purchaseId: 31, participantTelegramUserId: 88, status: 'removed' });
+  const { context, replies, privateMessages, getCurrentSession } = createContext(repository);
+
+  context.callbackData = 'group_purchase:publish_message:31';
+  await handleTelegramGroupPurchaseCallback(context);
+
+  assert.equal(getCurrentSession()?.flowKey, 'group-purchase-publish-message');
+  assert.equal(replies.at(-1)?.message, 'Escriu el missatge que vols enviar a les persones apuntades.');
+
+  delete context.callbackData;
+  context.messageText = 'Ya he hecho el pedido';
+  await handleTelegramGroupPurchaseText(context);
+
+  assert.equal(getCurrentSession(), null);
+  assert.equal(privateMessages.length, 1);
+  assert.equal(privateMessages[0]?.telegramUserId, 77);
+  assert.match(privateMessages[0]?.message ?? '', /Este es un mensaje sobre la compra conjunta/);
+  assert.match(privateMessages[0]?.message ?? '', /Ya he hecho el pedido/);
 });
