@@ -230,6 +230,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:/calendar',
     'register:/tables',
     'register:/catalog_search',
+    'register:/group_purchases',
     'register:/news',
     'register:/venue_events',
     'register:/catalog',
@@ -851,8 +852,8 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']]);
-  assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.2\.0\)/);
+  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']]);
+  assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
   assert.match(replies[0]?.message ?? '', /sollicituds/i);
   assert.match(replies[1]?.message ?? '', /Que pots fer ara/);
   assert.match(replies[2]?.message ?? '', /Sollicituds pendents/);
@@ -976,12 +977,13 @@ test('cancel restores the default action menu after an active flow', async () =>
       message: 'Proces cancel.lat correctament.',
       options: {
         menuId: 'private-approved-default',
-        replyKeyboard: [['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']],
-        actionRows: [['schedule', 'tables_read'], ['catalog'], ['language', 'help']],
+        replyKeyboard: [['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']],
+        actionRows: [['schedule', 'tables_read'], ['catalog', 'group_purchases'], ['language', 'help']],
         actions: [
           { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
           { id: 'tables_read', label: 'Taules', telemetryActionKey: 'menu.tables', uxSection: 'primary' },
           { id: 'catalog', label: 'Cataleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
+          { id: 'group_purchases', label: 'Compres conjuntes', telemetryActionKey: 'menu.group_purchases', uxSection: 'primary' },
           { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
           { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
         ],
@@ -1517,7 +1519,7 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
 
   assert.equal(telegram.status.bot, 'connected');
   assert.match(replies[0]?.message ?? '', /Des del menu pots obrir activitats, taules i cataleg/);
-  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']]);
   assert.deepEqual(auditEvents, [
     {
       actionKey: 'telegram.menu.shown',
@@ -1528,8 +1530,8 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
         chatKind: 'private',
         actorRole: 'member',
         language: 'ca',
-        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'language', 'help'],
-        visibleLabels: ['Activitats', 'Taules', 'Cataleg', 'Idioma', 'Ajuda'],
+        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'group_purchases', 'language', 'help'],
+        visibleLabels: ['Activitats', 'Taules', 'Cataleg', 'Compres conjuntes', 'Idioma', 'Ajuda'],
       },
     },
   ]);

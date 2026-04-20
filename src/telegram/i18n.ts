@@ -1,6 +1,7 @@
 import { catalogAdminTexts } from './i18n-catalog-admin.js';
 import { actionMenuTexts, commonTexts, languageTexts } from './i18n-common.js';
 import { membershipTexts } from './i18n-membership.js';
+import { groupPurchaseTexts } from './i18n-group-purchases.js';
 import { scheduleTexts } from './i18n-schedule.js';
 
 export const supportedBotLanguages = ['ca', 'es', 'en'] as const;
@@ -44,6 +45,7 @@ export function createTelegramI18n(language: BotLanguage) {
     calendar: calendarTexts[language],
     catalogRead: catalogReadTexts[language],
     newsGroup: newsGroupTexts[language],
+    groupPurchases: groupPurchaseTexts[language],
   };
 }
 

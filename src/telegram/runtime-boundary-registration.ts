@@ -56,6 +56,11 @@ import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { handleTelegramLanguageCommand, handleTelegramLanguageText } from './language-flow.js';
 import { handleTelegramNewsGroupText } from './news-group-flow.js';
 import {
+  handleTelegramGroupPurchaseCommand,
+  handleTelegramGroupPurchaseStartText,
+  handleTelegramGroupPurchaseText,
+} from './group-purchase-flow.js';
+import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleStartText,
   handleTelegramScheduleText,
@@ -146,6 +151,10 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramCatalogLoanText(context)) {
+      return;
+    }
+
+    if (await handleTelegramGroupPurchaseText(context)) {
       return;
     }
 
@@ -341,6 +350,15 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'group_purchases',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Consulta les compres conjuntes del club',
+      handle: async (context) => {
+        await handleTelegramGroupPurchaseCommand(context);
+      },
+    },
+    {
       command: 'news',
       contexts: ['group', 'group-news'],
       access: 'admin',
@@ -462,6 +480,9 @@ function createDefaultCommands({
           return;
         }
         if (await handleTelegramCatalogAdminStartText({ ...context })) {
+          return;
+        }
+        if (await handleTelegramGroupPurchaseStartText({ ...context })) {
           return;
         }
         if (await handleTelegramVenueEventAdminStartText({ ...context })) {

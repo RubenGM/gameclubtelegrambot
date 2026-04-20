@@ -103,6 +103,14 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
   {
+    id: 'group_purchases',
+    label: (language) => createTelegramI18n(language).actionMenu.groupPurchases,
+    telemetryActionKey: 'menu.group_purchases',
+    uxSection: 'primary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
+  },
+  {
     id: 'member_debug',
     label: (language) => createTelegramI18n(language).actionMenu.memberDebug,
     telemetryActionKey: 'menu.member_debug',
@@ -185,7 +193,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog'], ['language', 'help']],
+    rows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'group_purchases'], ['language', 'help']],
   },
   {
     id: 'private-approved-default',
@@ -194,7 +202,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['schedule', 'tables_read'], ['catalog'], ['language', 'help']],
+    rows: [['schedule', 'tables_read'], ['catalog', 'group_purchases'], ['language', 'help']],
   },
   {
     id: 'private-pending-default',

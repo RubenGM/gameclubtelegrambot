@@ -86,14 +86,15 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
 
   assert.deepEqual(menu, {
     menuId: 'private-admin-default',
-    replyKeyboard: [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']],
-    actionRows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog'], ['language', 'help']],
+    replyKeyboard: [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']],
+    actionRows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'group_purchases'], ['language', 'help']],
     actions: [
       { id: 'review_access', label: 'Revisar sollicituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
       { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
       { id: 'tables', label: 'Taules', telemetryActionKey: 'menu.tables_admin', uxSection: 'admin' },
       { id: 'catalog', label: 'Cataleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
+      { id: 'group_purchases', label: 'Compres conjuntes', telemetryActionKey: 'menu.group_purchases', uxSection: 'primary' },
       { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
       { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
     ],
@@ -122,12 +123,13 @@ test('resolveTelegramActionMenu shows a compact member menu for approved non-adm
 
   assert.deepEqual(menu, {
     menuId: 'private-approved-default',
-    replyKeyboard: [['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']],
-    actionRows: [['schedule', 'tables_read'], ['catalog'], ['language', 'help']],
+    replyKeyboard: [['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']],
+    actionRows: [['schedule', 'tables_read'], ['catalog', 'group_purchases'], ['language', 'help']],
     actions: [
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
       { id: 'tables_read', label: 'Taules', telemetryActionKey: 'menu.tables', uxSection: 'primary' },
       { id: 'catalog', label: 'Cataleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
+      { id: 'group_purchases', label: 'Compres conjuntes', telemetryActionKey: 'menu.group_purchases', uxSection: 'primary' },
       { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
       { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
     ],
@@ -184,14 +186,15 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
 
   assert.deepEqual(menu, {
     menuId: 'private-admin-default',
-    replyKeyboard: [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']],
-    actionRows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog'], ['language', 'help']],
+    replyKeyboard: [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg', 'Compres conjuntes'], ['Idioma', 'Ajuda']],
+    actionRows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'group_purchases'], ['language', 'help']],
     actions: [
       { id: 'review_access', label: 'Revisar sollicituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
       { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
       { id: 'tables', label: 'Taules', telemetryActionKey: 'menu.tables_admin', uxSection: 'admin' },
       { id: 'catalog', label: 'Cataleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
+      { id: 'group_purchases', label: 'Compres conjuntes', telemetryActionKey: 'menu.group_purchases', uxSection: 'primary' },
       { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
       { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
     ],
