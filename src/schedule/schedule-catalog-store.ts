@@ -127,8 +127,18 @@ export function createDatabaseScheduleRepository({
 
       return result.map(mapScheduleParticipantRow);
     },
-    async upsertParticipant({ eventId, participantTelegramUserId, actorTelegramUserId, status }) {
+    async upsertParticipant({
+      eventId,
+      participantTelegramUserId,
+      actorTelegramUserId,
+      status,
+      reminderLeadHours,
+      reminderPreferenceConfigured,
+    }) {
       const now = new Date();
+      const reminderFields = reminderPreferenceConfigured === undefined
+        ? {}
+        : { reminderLeadHours: reminderLeadHours ?? null, reminderPreferenceConfigured };
       const updated = await database
         .insert(scheduleEventParticipants)
         .values({
@@ -137,6 +147,7 @@ export function createDatabaseScheduleRepository({
           status,
           addedByTelegramUserId: actorTelegramUserId,
           removedByTelegramUserId: status === 'removed' ? actorTelegramUserId : null,
+          ...reminderFields,
           ...(status === 'removed' ? { leftAt: now } : {}),
           updatedAt: now,
         })
@@ -146,6 +157,7 @@ export function createDatabaseScheduleRepository({
             status,
             removedByTelegramUserId: status === 'removed' ? actorTelegramUserId : null,
             leftAt: status === 'removed' ? now : null,
+            ...reminderFields,
             updatedAt: now,
           },
         })
@@ -192,6 +204,8 @@ function mapScheduleParticipantRow(
     status: row.status as ScheduleParticipantRecord['status'],
     addedByTelegramUserId: row.addedByTelegramUserId,
     removedByTelegramUserId: row.removedByTelegramUserId,
+    reminderLeadHours: row.reminderLeadHours,
+    reminderPreferenceConfigured: row.reminderPreferenceConfigured,
     joinedAt: row.joinedAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     leftAt: row.leftAt?.toISOString() ?? null,

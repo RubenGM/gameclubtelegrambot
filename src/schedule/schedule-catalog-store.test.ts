@@ -169,3 +169,58 @@ test('createDatabaseScheduleRepository can upsert participants preserving join a
   assert.equal(participant.status, 'removed');
   assert.equal(participant.leftAt, '2026-04-04T11:00:00.000Z');
 });
+
+test('createDatabaseScheduleRepository persists participant reminder preference', async () => {
+  const repository = createDatabaseScheduleRepository({
+    database: {
+      insert: (table: { [key: string]: unknown }) => {
+        if ((table as unknown) !== scheduleEventParticipantsTable) {
+          throw new Error('unexpected table');
+        }
+
+        return {
+          values: (values: Record<string, unknown>) => {
+            assert.equal(values.reminderLeadHours, 2);
+            assert.equal(values.reminderPreferenceConfigured, true);
+
+            return {
+              onConflictDoUpdate: ({ set }: { set: Record<string, unknown> }) => {
+                assert.equal(set.reminderLeadHours, 2);
+                assert.equal(set.reminderPreferenceConfigured, true);
+
+                return {
+                  returning: async () => [
+                    {
+                      scheduleEventId: 7,
+                      participantTelegramUserId: 42,
+                      status: 'active',
+                      addedByTelegramUserId: 99,
+                      removedByTelegramUserId: null,
+                      reminderLeadHours: 2,
+                      reminderPreferenceConfigured: true,
+                      joinedAt: new Date('2026-04-04T10:00:00.000Z'),
+                      updatedAt: new Date('2026-04-04T11:00:00.000Z'),
+                      leftAt: null,
+                    },
+                  ],
+                };
+              },
+            };
+          },
+        };
+      },
+    } as never,
+  });
+
+  const participant = await repository.upsertParticipant({
+    eventId: 7,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 99,
+    status: 'active',
+    reminderLeadHours: 2,
+    reminderPreferenceConfigured: true,
+  } as never);
+
+  assert.equal(participant.reminderLeadHours, 2);
+  assert.equal(participant.reminderPreferenceConfigured, true);
+});

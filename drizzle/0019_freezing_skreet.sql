@@ -1,0 +1,2 @@
+ALTER TABLE "schedule_event_participants" ADD COLUMN "reminder_lead_hours" integer;--> statement-breakpoint
+ALTER TABLE "schedule_event_participants" ADD COLUMN "reminder_preference_configured" boolean DEFAULT false NOT NULL;

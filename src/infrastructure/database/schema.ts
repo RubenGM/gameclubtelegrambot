@@ -234,6 +234,8 @@ export const scheduleEventParticipants = pgTable(
     removedByTelegramUserId: bigint('removed_by_telegram_user_id', { mode: 'number' }).references(
       () => users.telegramUserId,
     ),
+    reminderLeadHours: integer('reminder_lead_hours'),
+    reminderPreferenceConfigured: boolean('reminder_preference_configured').notNull().default(false),
     joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     leftAt: timestamp('left_at', { withTimezone: true }),

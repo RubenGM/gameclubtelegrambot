@@ -134,6 +134,13 @@
       "when": 1777309234848,
       "tag": "0018_bumpy_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777310414426,
+      "tag": "0019_freezing_skreet",
+      "breakpoints": true
     }
   ]
 }

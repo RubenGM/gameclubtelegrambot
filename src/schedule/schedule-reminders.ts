@@ -26,6 +26,7 @@ export async function sendDueScheduleEventReminders({
   reminderRepository,
   now = new Date(),
   leadHours,
+  maxLeadHours = leadHours,
   language,
   sendPrivateMessage,
 }: {
@@ -33,11 +34,12 @@ export async function sendDueScheduleEventReminders({
   reminderRepository: ScheduleEventReminderRepository;
   now?: Date;
   leadHours: number;
+  maxLeadHours?: number;
   language: string;
   sendPrivateMessage: (telegramUserId: number, message: string) => Promise<void>;
 }): Promise<ScheduleReminderRunResult> {
   const startsAtFrom = now.toISOString();
-  const startsAtTo = new Date(now.getTime() + leadHours * 60 * 60 * 1000).toISOString();
+  const startsAtTo = new Date(now.getTime() + maxLeadHours * 60 * 60 * 1000).toISOString();
   const events = await listScheduleEvents({
     repository: scheduleRepository,
     includeCancelled: false,
@@ -56,10 +58,16 @@ export async function sendDueScheduleEventReminders({
       .filter((participant) => participant.status === 'active');
 
     for (const participant of participants) {
+      const effectiveLeadHours = resolveParticipantReminderLeadHours(participant, leadHours);
+      if (effectiveLeadHours === null || new Date(event.startsAt).getTime() > now.getTime() + effectiveLeadHours * 60 * 60 * 1000) {
+        result.skippedReminders += 1;
+        continue;
+      }
+
       const alreadySent = await reminderRepository.hasReminderBeenSent({
         scheduleEventId: event.id,
         participantTelegramUserId: participant.participantTelegramUserId,
-        leadHours,
+        leadHours: effectiveLeadHours,
       });
       if (alreadySent) {
         result.skippedReminders += 1;
@@ -74,7 +82,7 @@ export async function sendDueScheduleEventReminders({
         await reminderRepository.recordReminderSent({
           scheduleEventId: event.id,
           participantTelegramUserId: participant.participantTelegramUserId,
-          leadHours,
+          leadHours: effectiveLeadHours,
           sentAt: now.toISOString(),
         });
         result.sentReminders += 1;
@@ -85,6 +93,18 @@ export async function sendDueScheduleEventReminders({
   }
 
   return result;
+}
+
+function resolveParticipantReminderLeadHours(
+  participant: Awaited<ReturnType<ScheduleRepository['listParticipants']>>[number],
+  defaultLeadHours: number,
+): number | null {
+  const hasExplicitPreference = participant.reminderPreferenceConfigured ?? Object.hasOwn(participant, 'reminderLeadHours');
+  if (!hasExplicitPreference) {
+    return defaultLeadHours;
+  }
+
+  return participant.reminderLeadHours ?? null;
 }
 
 function formatScheduleReminderMessage({

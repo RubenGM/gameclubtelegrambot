@@ -81,6 +81,44 @@ test('sendDueScheduleEventReminders does not record failed sends', async () => {
   assert.deepEqual(result, { consideredEvents: 1, sentReminders: 0, skippedReminders: 0, failedReminders: 1 });
 });
 
+test('sendDueScheduleEventReminders uses participant reminder preferences when configured', async () => {
+  const sent: Array<{ telegramUserId: number; message: string }> = [];
+  const reminderRepository = createReminderRepository();
+
+  const result = await sendDueScheduleEventReminders({
+    scheduleRepository: createScheduleRepository({
+      events: [
+        createEvent({ id: 1, title: 'Now 2h', startsAt: '2026-04-27T17:00:00.000Z' }),
+        createEvent({ id: 2, title: 'Too early 2h', startsAt: '2026-04-27T18:00:00.000Z' }),
+      ],
+      participants: [
+        createParticipant({ scheduleEventId: 1, participantTelegramUserId: 77, status: 'active', reminderLeadHours: 2 }),
+        createParticipant({ scheduleEventId: 1, participantTelegramUserId: 88, status: 'active', reminderLeadHours: null }),
+        createParticipant({ scheduleEventId: 1, participantTelegramUserId: 99, status: 'active' }),
+        createParticipant({ scheduleEventId: 2, participantTelegramUserId: 111, status: 'active', reminderLeadHours: 2 }),
+      ],
+    }),
+    reminderRepository,
+    now: new Date('2026-04-27T15:00:00.000Z'),
+    leadHours: 24,
+    maxLeadHours: 24,
+    language: 'ca',
+    sendPrivateMessage: async (telegramUserId, message) => {
+      sent.push({ telegramUserId, message });
+    },
+  });
+
+  assert.deepEqual(sent, [
+    { telegramUserId: 77, message: 'Recordatori: Now 2h comença el 27/04 a les 17:00.' },
+    { telegramUserId: 99, message: 'Recordatori: Now 2h comença el 27/04 a les 17:00.' },
+  ]);
+  assert.deepEqual(reminderRepository.records, [
+    { scheduleEventId: 1, participantTelegramUserId: 77, leadHours: 2 },
+    { scheduleEventId: 1, participantTelegramUserId: 99, leadHours: 24 },
+  ]);
+  assert.deepEqual(result, { consideredEvents: 2, sentReminders: 2, skippedReminders: 2, failedReminders: 0 });
+});
+
 function createReminderRepository(
   initialRecords: Array<{ scheduleEventId: number; participantTelegramUserId: number; leadHours: number }> = [],
 ): ScheduleEventReminderRepository & { records: Array<{ scheduleEventId: number; participantTelegramUserId: number; leadHours: number }> } {
@@ -157,6 +195,7 @@ function createParticipant(input: {
   scheduleEventId: number;
   participantTelegramUserId: number;
   status: 'active' | 'removed';
+  reminderLeadHours?: number | null;
 }): ScheduleParticipantRecord {
   return {
     scheduleEventId: input.scheduleEventId,
@@ -167,5 +206,6 @@ function createParticipant(input: {
     joinedAt: '2026-04-20T10:00:00.000Z',
     updatedAt: '2026-04-20T10:00:00.000Z',
     leftAt: input.status === 'removed' ? '2026-04-21T10:00:00.000Z' : null,
+    ...('reminderLeadHours' in input ? { reminderLeadHours: input.reminderLeadHours } : {}),
   };
 }

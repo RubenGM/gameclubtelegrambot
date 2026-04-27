@@ -129,11 +129,18 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
     async upsertParticipant(input) {
       const key = `${input.eventId}:${input.participantTelegramUserId}`;
       const next: ScheduleParticipantRecord = {
+        ...participants.get(key),
         scheduleEventId: input.eventId,
         participantTelegramUserId: input.participantTelegramUserId,
         status: input.status,
         addedByTelegramUserId: input.actorTelegramUserId,
         removedByTelegramUserId: input.status === 'removed' ? input.actorTelegramUserId : null,
+        ...(input.reminderPreferenceConfigured === undefined
+          ? {}
+          : {
+              reminderLeadHours: input.reminderLeadHours ?? null,
+              reminderPreferenceConfigured: input.reminderPreferenceConfigured,
+            }),
         joinedAt: '2026-04-04T10:30:00.000Z',
         updatedAt: '2026-04-04T10:30:00.000Z',
         leftAt: input.status === 'removed' ? '2026-04-04T10:40:00.000Z' : null,
@@ -1766,6 +1773,49 @@ test('handleTelegramScheduleCallback joins and leaves an activity updating atten
   assert.equal(await handleTelegramScheduleCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /Has sortit correctament de <b>Root<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\)/);
+});
+
+test('handleTelegramScheduleCallback asks and stores a reminder preference after joining', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 12,
+      title: 'Root',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, getCurrentSession, replies } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+
+  context.callbackData = `${scheduleCallbackPrefixes.join}12`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Quin recordatori vols per a aquesta activitat\?/);
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [['2h abans', '24h abans'], ['Personalitzat', 'Sense recordatori']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+    parseMode: 'HTML',
+  });
+  assert.equal(getCurrentSession()?.flowKey, 'schedule-join-reminder');
+
+  context.messageText = '2h abans';
+  assert.equal(await handleTelegramScheduleText(context), true);
+
+  const participant = await scheduleRepository.findParticipant(12, 77);
+  assert.equal(participant?.reminderLeadHours, 2);
+  assert.equal(participant?.reminderPreferenceConfigured, true);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /Recordatori configurat: 2h abans\./);
 });
 
 test('handleTelegramScheduleCallback lets an organizer edit their own activity', async () => {

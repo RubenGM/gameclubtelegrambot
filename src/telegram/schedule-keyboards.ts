@@ -34,6 +34,10 @@ export const scheduleLabels = {
   confirmCreate: 'Guardar activitat',
   confirmEdit: 'Guardar canvis',
   confirmCancel: 'Confirmar cancel.lacio',
+  reminder2h: '2h abans',
+  reminder24h: '24h abans',
+  reminderCustom: 'Personalitzat',
+  reminderNone: 'Sense recordatori',
 } as const;
 
 export function buildScheduleMenuOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
@@ -41,6 +45,15 @@ export function buildScheduleMenuOptions(language: BotLanguage = 'ca'): Telegram
   const texts = i18n.schedule;
   return {
     replyKeyboard: [[texts.list, texts.create], [texts.edit, texts.cancel], [i18n.actionMenu.start, i18n.actionMenu.help]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildReminderPreferenceOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
+  return {
+    replyKeyboard: [[texts.reminder2h, texts.reminder24h], [texts.reminderCustom, texts.reminderNone]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };

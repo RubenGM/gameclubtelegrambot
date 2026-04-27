@@ -92,6 +92,7 @@ import {
   buildEditTimeMinuteOptions,
   buildInitialOccupiedSeatsOptions,
   buildKeepCurrentKeyboard,
+  buildReminderPreferenceOptions,
   buildScheduleMenuOptions,
   buildSingleBackCancelKeyboard,
   buildSingleCancelKeyboard,
@@ -103,6 +104,7 @@ import {
 const createFlowKey = 'schedule-create';
 const editFlowKey = 'schedule-edit';
 const cancelFlowKey = 'schedule-cancel';
+const joinReminderFlowKey = 'schedule-join-reminder';
 const scheduleStartPayloadPrefix = 'schedule_event_';
 
 export const scheduleCallbackPrefixes = {
@@ -258,16 +260,15 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
       participantTelegramUserId: context.runtime.actor.telegramUserId,
       actorTelegramUserId: context.runtime.actor.telegramUserId,
     });
+    await context.runtime.session.start({
+      flowKey: joinReminderFlowKey,
+      stepKey: 'select',
+      data: { eventId },
+    });
     await context.reply(
-      `T'has apuntat correctament a <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
+      `T'has apuntat correctament a <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}\n\n${texts.askReminderPreference}`,
       {
-        ...buildScheduleDetailActionOptions({
-          actor: context.runtime.actor,
-          event,
-          isAttending: true,
-          language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
-          callbackPrefixes: scheduleCallbackPrefixes,
-        }),
+        ...buildReminderPreferenceOptions(language),
         parseMode: 'HTML',
       },
     );
@@ -353,7 +354,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
 }
 
 function isScheduleSession(flowKey: string | undefined): boolean {
-  return flowKey === createFlowKey || flowKey === editFlowKey || flowKey === cancelFlowKey;
+  return flowKey === createFlowKey || flowKey === editFlowKey || flowKey === cancelFlowKey || flowKey === joinReminderFlowKey;
 }
 
 async function handleActiveScheduleSession(context: TelegramScheduleContext, text: string): Promise<boolean> {
@@ -370,6 +371,9 @@ async function handleActiveScheduleSession(context: TelegramScheduleContext, tex
   }
   if (session.flowKey === cancelFlowKey) {
     return handleCancelSession(context, text, session.data);
+  }
+  if (session.flowKey === joinReminderFlowKey) {
+    return handleJoinReminderSession(context, text, session.stepKey, session.data);
   }
 
   return false;
@@ -639,6 +643,69 @@ async function handleCreateSession(
   }
 
   return false;
+}
+
+async function handleJoinReminderSession(
+  context: TelegramScheduleContext,
+  text: string,
+  stepKey: string,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  const eventId = Number(data.eventId);
+  if (!Number.isInteger(eventId)) {
+    await context.runtime.session.cancel();
+    return false;
+  }
+
+  if (stepKey === 'custom') {
+    const reminderLeadHours = Number(text);
+    if (!Number.isInteger(reminderLeadHours) || reminderLeadHours < 1 || reminderLeadHours > 168) {
+      await context.reply(texts.invalidCustomReminderHours, buildSingleCancelKeyboard());
+      return true;
+    }
+    return saveJoinReminderPreference(context, eventId, reminderLeadHours, `${reminderLeadHours}h abans`);
+  }
+
+  if (text === texts.reminder2h || text === scheduleLabels.reminder2h) {
+    return saveJoinReminderPreference(context, eventId, 2, texts.reminder2h);
+  }
+  if (text === texts.reminder24h || text === scheduleLabels.reminder24h) {
+    return saveJoinReminderPreference(context, eventId, 24, texts.reminder24h);
+  }
+  if (text === texts.reminderNone || text === scheduleLabels.reminderNone) {
+    return saveJoinReminderPreference(context, eventId, null, texts.reminderNone);
+  }
+  if (text === texts.reminderCustom || text === scheduleLabels.reminderCustom) {
+    await context.runtime.session.advance({ stepKey: 'custom', data });
+    await context.reply(texts.askCustomReminderHours, buildSingleCancelKeyboard());
+    return true;
+  }
+
+  await context.reply(texts.askReminderPreference, buildReminderPreferenceOptions(language));
+  return true;
+}
+
+async function saveJoinReminderPreference(
+  context: TelegramScheduleContext,
+  eventId: number,
+  reminderLeadHours: number | null,
+  label: string,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  await resolveScheduleRepository(context).upsertParticipant({
+    eventId,
+    participantTelegramUserId: context.runtime.actor.telegramUserId,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    status: 'active',
+    reminderLeadHours,
+    reminderPreferenceConfigured: true,
+  });
+  await context.runtime.session.cancel();
+  await context.reply(texts.reminderConfigured.replace('{label}', label), buildScheduleMenuOptions(language));
+  return true;
 }
 
 async function handleCreateSessionBack(

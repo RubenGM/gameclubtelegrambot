@@ -73,6 +73,7 @@ export function createApp({
           scheduleRepository: createDatabaseScheduleRepository({ database: services.database.db }),
           reminderRepository: createDatabaseScheduleEventReminderRepository({ database: services.database.db }),
           leadHours: config.notifications.defaults.eventReminderLeadHours,
+          maxLeadHours: 168,
           language: config.bot.language,
           sendPrivateMessage: telegram.sendPrivateMessage,
         });
