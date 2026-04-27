@@ -199,6 +199,7 @@ test('renderTelegramHelpMessage lists all current member menu options', async ()
   });
 
   assert.match(message, /Activitats: consulta i gestiona les activitats del club/i);
+  assert.match(message, /Calendari: consulta activitats i esdeveniments propers/i);
   assert.match(message, /Taules: consulta les taules actives del local/i);
   assert.match(message, /Catàleg: explora jocs, llibres i préstecs/i);
   assert.match(message, /Emmagatzematge: consulta material guardat del club/i);

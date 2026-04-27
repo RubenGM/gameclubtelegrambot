@@ -88,16 +88,17 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
     menuId: 'private-admin-default',
     replyKeyboard: [
       [{ text: 'Revisar sol·licituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
-      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
-      [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
-      [{ text: 'Compres conjuntes', semanticRole: 'primary' }],
+      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Calendari', semanticRole: 'primary' }],
+      [{ text: 'Taules', semanticRole: 'primary' }, { text: 'Catàleg', semanticRole: 'primary' }],
+      [{ text: 'Emmagatzematge', semanticRole: 'primary' }, { text: 'Compres conjuntes', semanticRole: 'primary' }],
       [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'storage'], ['group_purchases'], ['language', 'help']],
+    actionRows: [['review_access', 'manage_users'], ['schedule', 'calendar'], ['tables', 'catalog'], ['storage', 'group_purchases'], ['language', 'help']],
     actions: [
       { id: 'review_access', label: 'Revisar sol·licituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
       { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
+      { id: 'calendar', label: 'Calendari', telemetryActionKey: 'menu.calendar', uxSection: 'primary' },
       { id: 'tables', label: 'Taules', telemetryActionKey: 'menu.tables_admin', uxSection: 'admin' },
       { id: 'catalog', label: 'Catàleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
       { id: 'storage', label: 'Emmagatzematge', telemetryActionKey: 'menu.storage', uxSection: 'primary' },
@@ -131,14 +132,15 @@ test('resolveTelegramActionMenu shows a compact member menu for approved non-adm
   assert.deepEqual(menu, {
     menuId: 'private-approved-default',
     replyKeyboard: [
-      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
-      [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
-      [{ text: 'Compres conjuntes', semanticRole: 'primary' }],
+      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Calendari', semanticRole: 'primary' }],
+      [{ text: 'Taules', semanticRole: 'primary' }, { text: 'Catàleg', semanticRole: 'primary' }],
+      [{ text: 'Emmagatzematge', semanticRole: 'primary' }, { text: 'Compres conjuntes', semanticRole: 'primary' }],
       [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases'], ['language', 'help']],
+    actionRows: [['schedule', 'calendar'], ['tables_read', 'catalog'], ['storage', 'group_purchases'], ['language', 'help']],
     actions: [
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
+      { id: 'calendar', label: 'Calendari', telemetryActionKey: 'menu.calendar', uxSection: 'primary' },
       { id: 'tables_read', label: 'Taules', telemetryActionKey: 'menu.tables', uxSection: 'primary' },
       { id: 'catalog', label: 'Catàleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
       { id: 'storage', label: 'Emmagatzematge', telemetryActionKey: 'menu.storage', uxSection: 'primary' },
@@ -148,6 +150,34 @@ test('resolveTelegramActionMenu shows a compact member menu for approved non-adm
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
+  });
+});
+
+test('resolveTelegramMenuSelection maps calendar button text to the calendar action', async () => {
+  const selection = resolveTelegramMenuSelection({
+    context: createContext({
+      actor: {
+        telegramUserId: 77,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: false,
+        permissions: [],
+      },
+      chat: {
+        kind: 'private',
+        chatId: 1,
+      },
+    }),
+    text: 'Calendari',
+  });
+
+  assert.deepEqual(selection, {
+    menuId: 'private-approved-default',
+    actionId: 'calendar',
+    label: 'Calendari',
+    telemetryActionKey: 'menu.calendar',
+    uxSection: 'primary',
   });
 });
 
@@ -201,16 +231,17 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
     menuId: 'private-admin-default',
     replyKeyboard: [
       [{ text: 'Revisar sol·licituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
-      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
-      [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
-      [{ text: 'Compres conjuntes', semanticRole: 'primary' }],
+      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Calendari', semanticRole: 'primary' }],
+      [{ text: 'Taules', semanticRole: 'primary' }, { text: 'Catàleg', semanticRole: 'primary' }],
+      [{ text: 'Emmagatzematge', semanticRole: 'primary' }, { text: 'Compres conjuntes', semanticRole: 'primary' }],
       [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'storage'], ['group_purchases'], ['language', 'help']],
+    actionRows: [['review_access', 'manage_users'], ['schedule', 'calendar'], ['tables', 'catalog'], ['storage', 'group_purchases'], ['language', 'help']],
     actions: [
       { id: 'review_access', label: 'Revisar sol·licituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
       { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
+      { id: 'calendar', label: 'Calendari', telemetryActionKey: 'menu.calendar', uxSection: 'primary' },
       { id: 'tables', label: 'Taules', telemetryActionKey: 'menu.tables_admin', uxSection: 'admin' },
       { id: 'catalog', label: 'Catàleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
       { id: 'storage', label: 'Emmagatzematge', telemetryActionKey: 'menu.storage', uxSection: 'primary' },
