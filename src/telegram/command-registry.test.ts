@@ -206,6 +206,18 @@ test('renderTelegramHelpMessage lists all current member menu options', async ()
   assert.match(message, /Idioma: canvia l'idioma del bot/i);
 });
 
+test('renderTelegramHelpMessage adds contextual storage help when a section is active', async () => {
+  const message = renderTelegramHelpMessage({
+    commands: [],
+    context: createContext({ kind: 'private', isApproved: true, isAdmin: false }),
+    section: 'storage',
+  });
+
+  assert.match(message, /Emmagatzematge ara:/);
+  assert.match(message, /pots veure categories, cercar arxius, obrir entrades per ID i pujar adjunts/i);
+  assert.match(message, /Què pots fer ara/);
+});
+
 test('registerTelegramCommands blocks non-admin users consistently', async () => {
   const handlers = new Map<string, (context: TelegramCommandHandlerContext) => Promise<unknown> | unknown>();
 

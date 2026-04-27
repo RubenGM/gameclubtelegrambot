@@ -1627,6 +1627,107 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
   ]);
 });
 
+test('createTelegramBoundary shows contextual help after opening a submenu', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  let textHandler: TelegramCommandHandler | undefined;
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub({ membershipUsers: new Map(), statusAuditLog: [], auditEvents: [] }) as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: (handler) => {
+          textHandler = handler;
+        },
+        username: 'gameclub_test_bot',
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 77,
+              username: 'member77',
+              first_name: 'Member',
+            },
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push({ message, ...(options ? { options } : {}) });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              if (!textHandler) {
+                throw new Error('text handler not registered');
+              }
+
+              context.messageText = 'Emmagatzematge';
+              await textHandler(context as unknown as TelegramCommandHandlerContext);
+              context.messageText = 'Ajuda';
+              await textHandler(context as unknown as TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.match(replies.at(-1)?.message ?? '', /Emmagatzematge ara:/);
+  assert.match(replies.at(-1)?.message ?? '', /pots veure categories, cercar arxius, obrir entrades per ID/i);
+});
+
 test('createTelegramBoundary routes plain text keyboard actions for schedule management', async () => {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
 

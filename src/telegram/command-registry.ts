@@ -17,6 +17,7 @@ export class TelegramInteractionError extends Error {
 }
 
 export type TelegramCommandAccess = 'public' | 'approved' | 'admin';
+export type TelegramHelpSection = 'schedule' | 'catalog' | 'group_purchases' | 'storage';
 
 export interface TelegramCommandRuntime {
   bot: {
@@ -130,9 +131,11 @@ export function registerTelegramCommands({
 export function renderTelegramHelpMessage({
   commands,
   context,
+  section,
 }: {
   commands: TelegramCommandDefinition[];
   context: TelegramCommandHandlerContext;
+  section?: TelegramHelpSection | undefined;
 }): string {
   void commands;
   const language = context.runtime.bot.language ?? 'ca';
@@ -152,6 +155,12 @@ export function renderTelegramHelpMessage({
     lines.push('');
     lines.push(i18n.common.helpPendingApproval);
     return lines.join('\n');
+  }
+
+  const contextualHelp = section ? helpTextForSection(section, i18n.common) : undefined;
+  if (contextualHelp) {
+    lines.push(contextualHelp);
+    lines.push('');
   }
 
   if (context.runtime.actor.isAdmin) {
@@ -178,6 +187,25 @@ export function renderTelegramHelpMessage({
   lines.push(i18n.common.helpMenuHint);
 
   return lines.join('\n');
+}
+
+function helpTextForSection(
+  section: TelegramHelpSection,
+  common: ReturnType<typeof createTelegramI18n>['common'],
+): string {
+  if (section === 'schedule') {
+    return common.helpContextSchedule;
+  }
+
+  if (section === 'catalog') {
+    return common.helpContextCatalog;
+  }
+
+  if (section === 'group_purchases') {
+    return common.helpContextGroupPurchases;
+  }
+
+  return common.helpContextStorage;
 }
 
 function hasRequiredAccess(

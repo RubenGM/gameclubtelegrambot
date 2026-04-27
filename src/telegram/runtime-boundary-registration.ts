@@ -49,6 +49,7 @@ import {
   renderTelegramHelpMessage,
   type TelegramCommandDefinition,
   type TelegramCommandHandlerContext,
+  type TelegramHelpSection,
 } from './command-registry.js';
 import { createAppMetadataTelegramLanguagePreferenceStore } from './language-preference-store.js';
 import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
@@ -103,6 +104,7 @@ const membershipRevokeFlowKey = 'membership-revoke';
 const membershipRevokeSelectPrefix = 'membership_revoke:select:';
 const membershipRevokeConfirmCallback = 'membership_revoke:confirm';
 const membershipRevokeCancelCallback = 'membership_revoke:cancel';
+const activeHelpSections = new Map<string, TelegramHelpSection>();
 
 export function registerHandlers({
   bot,
@@ -144,6 +146,13 @@ function registerTextHandlers({
 }): void {
   bot.onText(async (context) => {
     await recordCurrentMenuActionSelection(context);
+    const text = context.messageText?.trim();
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    const i18n = createTelegramI18n(language);
+
+    if (text === i18n.actionMenu.start) {
+      clearActiveHelpSection(context);
+    }
 
     if (await handleTelegramLanguageText(context)) {
       return;
@@ -166,10 +175,12 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramStorageText(context)) {
+      setActiveHelpSection(context, 'storage');
       return;
     }
 
     if (await handleTelegramGroupPurchaseText(context)) {
+      setActiveHelpSection(context, 'group_purchases');
       return;
     }
 
@@ -182,6 +193,7 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramScheduleText(context)) {
+      setActiveHelpSection(context, 'schedule');
       return;
     }
 
@@ -190,10 +202,12 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramCatalogAdminText(context)) {
+      setActiveHelpSection(context, 'catalog');
       return;
     }
 
     if (await handleTelegramCatalogReadText(context)) {
+      setActiveHelpSection(context, 'catalog');
       return;
     }
   });
@@ -553,6 +567,7 @@ function createDefaultCommands({
           renderTelegramHelpMessage({
             commands: createDefaultCommands({ publicName, adminElevationPasswordHash }),
             context,
+            section: getActiveHelpSection(context),
           }),
         );
       },
@@ -770,6 +785,7 @@ function registerMembershipCallbacks({
       renderTelegramHelpMessage({
         commands: createDefaultCommands({ publicName, adminElevationPasswordHash }),
         context,
+        section: getActiveHelpSection(context),
       }),
     );
   });
@@ -1153,6 +1169,7 @@ async function handleTelegramTranslatedActionMenuText(
       renderTelegramHelpMessage({
         commands: createDefaultCommands(commandConfig),
         context,
+        section: getActiveHelpSection(context),
       }),
     );
     return true;
@@ -1205,6 +1222,34 @@ async function handlePrivateAutoMembershipRequest(
 
   await context.reply(result.message, await buildReplyOptionsForCurrentActionMenu(context));
   return true;
+}
+
+function setActiveHelpSection(context: TelegramCommandHandlerContext, section: TelegramHelpSection): void {
+  const key = activeHelpSectionKey(context);
+  if (key) {
+    activeHelpSections.set(key, section);
+  }
+}
+
+function getActiveHelpSection(context: TelegramCommandHandlerContext): TelegramHelpSection | undefined {
+  const key = activeHelpSectionKey(context);
+  return key ? activeHelpSections.get(key) : undefined;
+}
+
+function clearActiveHelpSection(context: TelegramCommandHandlerContext): void {
+  const key = activeHelpSectionKey(context);
+  if (key) {
+    activeHelpSections.delete(key);
+  }
+}
+
+function activeHelpSectionKey(context: TelegramCommandHandlerContext): string | undefined {
+  const telegramUserId = context.runtime.actor.telegramUserId;
+  if (!telegramUserId) {
+    return undefined;
+  }
+
+  return `${context.runtime.chat.chatId}:${telegramUserId}`;
 }
 
 async function buildReplyOptionsForCurrentActionMenu(
