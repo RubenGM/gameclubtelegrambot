@@ -17,7 +17,7 @@ Aquest document recull millores funcionals detectades durant la revisio del bot.
 | F-002 | Afegir sortida clara als fluxos interns | fet | alta | UX navegacio | Els fluxos actius d'emmagatzematge mostren `/cancel`; activitats, compres conjuntes, taules i cataleg ja tenien sortides visibles en els teclats interns revisats. |
 | F-003 | Ajuda contextual per seccio | fet | alta | Ajuda | `Ajuda` explica la seccio activa quan l'usuari ve d'Activitats, Cataleg, Compres conjuntes o Emmagatzematge, i conserva l'ajuda general. |
 | F-004 | Exposar `Calendari` o crear `Avui al club` | descartat | alta | Activitats | No es fara: exposar `Calendari` com a boto separat duplica `Activitats`. Es conserva la millora de dates llegibles al llistat d'activitats. |
-| F-005 | Pantalla `Avui al club` | pendent | alta | Resum usuari | Resum amb activitats d'avui, taules, esdeveniments del local, compres amb deadline proper i prestecs propis. Bon candidat per al missatge d'`Inici`. |
+| F-005 | Pantalla `Avui al club` | fet | alta | Resum usuari | Primera versio al missatge d'`Inici`: activitats d'avui i esdeveniments del local d'avui per a usuaris aprovats en privat. Taules, compres i prestecs queden fora d'aquest abast inicial. |
 | F-006 | Integrar disponibilitat de prestecs amb activitats | pendent | alta | Cataleg/Activitats | En crear una partida des d'un item del cataleg, avisar si el material esta prestat. |
 | F-007 | Cerca guiada al cataleg | pendent | mitjana | Cataleg | Afegir boto `Cercar/Buscar` dins del cataleg per iniciar un flux de cerca sense recordar `/catalog_search`. |
 | F-008 | Recordatoris d'activitats | pendent | mitjana | Notificacions | Enviar recordatori abans d'una activitat, configurable per defecte. |

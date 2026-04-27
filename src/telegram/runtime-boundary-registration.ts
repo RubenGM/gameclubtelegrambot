@@ -1,6 +1,8 @@
 import { APP_VERSION } from '../app-version.js';
 import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
+import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
+import { createDatabaseVenueEventRepository } from '../venue-events/venue-event-catalog-store.js';
 import { elevateApprovedUserToAdmin } from '../membership/admin-elevation.js';
 import { createDatabaseAdminElevationRepository } from '../membership/admin-elevation-store.js';
 import {
@@ -56,6 +58,7 @@ import { createDatabaseAppMetadataSessionStorage } from './conversation-session-
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { handleTelegramLanguageCommand, handleTelegramLanguageText } from './language-flow.js';
 import { handleTelegramNewsGroupText } from './news-group-flow.js';
+import { buildTodayAtClubSummary } from './today-at-club-summary.js';
 import {
   groupPurchaseCallbackPrefixes,
   handleTelegramGroupPurchaseCallback,
@@ -744,15 +747,19 @@ async function buildStartReply({
 }): Promise<{ message: string; options: TelegramReplyOptions | undefined }> {
   const language = context.runtime.bot.language ?? 'ca';
   if (context.runtime.chat.kind === 'private') {
+    const message = formatStartMessage({
+      publicName,
+      version,
+      isAdmin: context.runtime.actor.isAdmin,
+      isApproved: context.runtime.actor.isApproved,
+      language,
+    });
+    const todaySummary = await buildTodayAtClubSummaryForStart(context, language);
+    const options = await buildReplyOptionsForCurrentActionMenu(context);
+
     return {
-      message: formatStartMessage({
-        publicName,
-        version,
-        isAdmin: context.runtime.actor.isAdmin,
-        isApproved: context.runtime.actor.isApproved,
-        language,
-      }),
-      options: await buildReplyOptionsForCurrentActionMenu(context),
+      message: todaySummary ? `${message}\n\n${todaySummary}` : message,
+      options: todaySummary ? { ...options, parseMode: 'HTML' } : options,
     };
   }
 
@@ -765,6 +772,25 @@ async function buildStartReply({
         }
       : undefined,
   };
+}
+
+async function buildTodayAtClubSummaryForStart(
+  context: TelegramCommandHandlerContext,
+  language: 'ca' | 'es' | 'en',
+): Promise<string | undefined> {
+  if (!context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
+    return undefined;
+  }
+
+  try {
+    return await buildTodayAtClubSummary({
+      language,
+      scheduleRepository: createDatabaseScheduleRepository({ database: context.runtime.services.database.db as never }),
+      venueEventRepository: createDatabaseVenueEventRepository({ database: context.runtime.services.database.db as never }),
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 function registerMembershipCallbacks({

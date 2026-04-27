@@ -1627,6 +1627,124 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
   ]);
 });
 
+test('createTelegramBoundary appends today at club summary to approved member start', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }> = [];
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createTodayAtClubDatabaseStub({ auditEvents }) as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+      const commandHandlers = new Map<string, TelegramCommandHandler>();
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: (command, handler) => {
+          commandHandlers.set(command, handler);
+        },
+        onCallback: () => {},
+        onText: () => {},
+        username: 'gameclub_test_bot',
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const realDate = Date;
+          const fixedNow = new Date('2026-04-27T09:30:00.000Z');
+          globalThis.Date = class extends realDate {
+            constructor(value?: string | number | Date) {
+              super(value ?? fixedNow);
+            }
+            static now() {
+              return fixedNow.getTime();
+            }
+          } as DateConstructor;
+
+          try {
+            const context: TelegramContextLike = {
+              chat: {
+                id: 100,
+                type: 'private',
+              },
+              from: {
+                id: 77,
+                username: 'member77',
+                first_name: 'Member',
+              },
+              messageText: '/start',
+              reply: async (message: string, options?: TelegramReplyOptions) => {
+                replies.push({ message, ...(options ? { options } : {}) });
+              },
+            };
+
+            let index = -1;
+            const dispatch = async (middlewareIndex: number): Promise<void> => {
+              if (middlewareIndex <= index) {
+                throw new Error('next called multiple times');
+              }
+
+              index = middlewareIndex;
+
+              if (middlewareIndex === middlewares.length) {
+                const startHandler = commandHandlers.get('start');
+                if (!startHandler) {
+                  throw new Error('start handler not registered');
+                }
+
+                await startHandler(context as unknown as TelegramCommandHandlerContext);
+                return;
+              }
+
+              const middleware = middlewares[middlewareIndex];
+              if (!middleware) {
+                throw new Error(`middleware ${middlewareIndex} not registered`);
+              }
+
+              await middleware(context, () => dispatch(middlewareIndex + 1));
+            };
+
+            await dispatch(0);
+          } finally {
+            globalThis.Date = realDate;
+          }
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.match(replies[0]?.message ?? '', /<b>Avui al club<\/b>/);
+  assert.match(replies[0]?.message ?? '', /- 16:00 Wingspan/);
+  assert.match(replies[0]?.message ?? '', /- 18:00-21:00 Torneig intern/);
+  assert.equal(replies[0]?.options?.parseMode, 'HTML');
+});
+
 test('createTelegramBoundary shows contextual help after opening a submenu', async () => {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   let textHandler: TelegramCommandHandler | undefined;
@@ -1975,7 +2093,7 @@ function createMembershipDatabaseStub({
 
   let stub!: MembershipDatabaseStub;
   stub = {
-    select(selection: Record<string, unknown>) {
+    select(selection: Record<string, unknown> = {}) {
       return {
         from() {
           const rows = async () => {
@@ -2148,6 +2266,83 @@ function createNewsGroupDatabaseStub() {
               return Promise.resolve([]);
             },
           };
+        },
+      };
+    },
+  };
+}
+
+function createTodayAtClubDatabaseStub({
+  auditEvents,
+}: {
+  auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }>;
+}) {
+  const scheduleRows = [
+    {
+      id: 1,
+      title: 'Wingspan',
+      description: null,
+      startsAt: new Date('2026-04-27T16:00:00.000Z'),
+      durationMinutes: 180,
+      organizerTelegramUserId: 77,
+      createdByTelegramUserId: 77,
+      tableId: null,
+      attendanceMode: 'open',
+      initialOccupiedSeats: 0,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: new Date('2026-04-20T10:00:00.000Z'),
+      updatedAt: new Date('2026-04-20T10:00:00.000Z'),
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ];
+  const venueRows = [
+    {
+      id: 1,
+      name: 'Torneig intern',
+      description: null,
+      startsAt: new Date('2026-04-27T18:00:00.000Z'),
+      endsAt: new Date('2026-04-27T21:00:00.000Z'),
+      occupancyScope: 'partial',
+      impactLevel: 'medium',
+      lifecycleStatus: 'scheduled',
+      createdAt: new Date('2026-04-20T10:00:00.000Z'),
+      updatedAt: new Date('2026-04-20T10:00:00.000Z'),
+      cancelledAt: null,
+      cancellationReason: null,
+    },
+  ];
+
+  return {
+    select() {
+      return {
+        from(table: Record<string, unknown>) {
+          const rows = 'durationMinutes' in table ? scheduleRows : 'occupancyScope' in table ? venueRows : [];
+          const orderedRows = async () => rows;
+          const whereRows = rows as unknown as Promise<unknown[]> & { orderBy(): Promise<unknown[]> };
+          whereRows.orderBy = orderedRows;
+          return {
+            where: () => whereRows,
+            orderBy: orderedRows,
+          };
+        },
+      };
+    },
+    insert() {
+      return {
+        values(value: Record<string, unknown>) {
+          if ('actionKey' in value && 'targetType' in value && 'targetId' in value) {
+            auditEvents.push({
+              actionKey: String(value.actionKey),
+              targetType: String(value.targetType),
+              targetId: String(value.targetId),
+              summary: String(value.summary),
+              details: (value.details as Record<string, unknown> | null | undefined) ?? null,
+            });
+          }
+          return Promise.resolve();
         },
       };
     },
