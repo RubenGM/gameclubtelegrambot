@@ -415,12 +415,14 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
       return false;
     }
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    const loanWarning = await buildCreateActivityLoanWarning(context, item.id, language);
+    const datePrompt = createTelegramI18n(language).schedule.askDate;
     await context.runtime.session.start({
       flowKey: 'schedule-create',
       stepKey: 'date',
       data: { title: item.displayName },
     });
-    await context.reply(createTelegramI18n(language).schedule.askDate, buildDateOptions(context.runtime.bot.language ?? language));
+    await context.reply(loanWarning ? `${loanWarning}\n\n${datePrompt}` : datePrompt, buildDateOptions(context.runtime.bot.language ?? language));
     return true;
   }
   if (route.kind === 'deactivate-item') {
@@ -1183,6 +1185,36 @@ async function loadActiveLoanByItemIdAdmin(context: TelegramCatalogAdminContext,
   const repository = resolveCatalogLoanRepository(context);
   const loans = await repository.listLoansByItem(itemId);
   return loans.find((loan) => loan.returnedAt === null) ?? repository.findActiveLoanByItemId(itemId);
+}
+
+async function buildCreateActivityLoanWarning(
+  context: TelegramCatalogAdminContext,
+  itemId: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<string | null> {
+  let loan: CatalogLoanRecord | null = null;
+  try {
+    loan = await loadActiveLoanByItemIdAdmin(context, itemId);
+  } catch {
+    return null;
+  }
+
+  if (!loan) {
+    return null;
+  }
+
+  const borrower = await resolveLoanBorrowerDisplayName(context, loan);
+  const dueDate = loan.dueAt ? formatLoanWarningDate(loan.dueAt) : null;
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const dueDateText = dueDate ? texts.createActivityLoanWarningDueDate.replace('{date}', dueDate) : '';
+  return texts.createActivityLoanWarning
+    .replace('{borrower}', borrower)
+    .replace('{dueDate}', dueDateText);
+}
+
+function formatLoanWarningDate(value: string): string {
+  const date = new Date(value);
+  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function isEditableLoan(context: TelegramCatalogAdminContext, loan: CatalogLoanRecord): boolean {

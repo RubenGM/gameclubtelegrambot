@@ -1919,6 +1919,115 @@ test('handleTelegramCatalogAdminCallback starts activity creation from a board g
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.slice(0, 3).every((row) => row.length === 2), true);
 });
 
+test('handleTelegramCatalogAdminCallback warns when creating activity from a loaned board game', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const loanRepository = createLoanRepository([
+    {
+      id: 1,
+      itemId: 3,
+      borrowerTelegramUserId: 77,
+      borrowerDisplayName: 'Marta',
+      loanedByTelegramUserId: 99,
+      dueAt: '2026-05-10T00:00:00.000Z',
+      notes: null,
+      returnedAt: null,
+      returnedByTelegramUserId: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  const { context, replies, getCurrentSession } = createContext({ repository, catalogLoanRepository: loanRepository, language: 'ca' });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.createActivity}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.deepEqual(getCurrentSession(), {
+    flowKey: 'schedule-create',
+    stepKey: 'date',
+    data: { title: 'Root' },
+  });
+  assert.match(replies.at(-1)?.message ?? '', /Atenció: aquest joc està prestat a Marta fins 10\/05/i);
+  assert.match(replies.at(-1)?.message ?? '', /Pots continuar creant l'activitat igualment/i);
+  assert.match(replies.at(-1)?.message ?? '', /Escriu la data d'inici/i);
+});
+
+test('handleTelegramCatalogAdminCallback warns without due date when loan has no due date', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const loanRepository = createLoanRepository([
+    {
+      id: 1,
+      itemId: 3,
+      borrowerTelegramUserId: 77,
+      borrowerDisplayName: 'Marta',
+      loanedByTelegramUserId: 99,
+      dueAt: null,
+      notes: null,
+      returnedAt: null,
+      returnedByTelegramUserId: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  const { context, replies } = createContext({ repository, catalogLoanRepository: loanRepository, language: 'ca' });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.createActivity}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.match(replies.at(-1)?.message ?? '', /Atenció: aquest joc està prestat a Marta\./i);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /fins/);
+  assert.match(replies.at(-1)?.message ?? '', /Escriu la data d'inici/i);
+});
+
 test('handleTelegramCatalogAdminCallback hides admin-only item actions for approved non-admin members', async () => {
   const repository = createRepository({
     items: [
