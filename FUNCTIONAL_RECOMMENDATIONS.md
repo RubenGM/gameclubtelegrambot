@@ -14,7 +14,7 @@ Aquest document recull millores funcionals detectades durant la revisio del bot.
 | ID | Recomanacio | Estat | Prioritat | Area | Notes |
 | --- | --- | --- | --- | --- | --- |
 | F-001 | Normalitzar navegacio global en tots els submenus principals | fet | alta | UX navegacio | Submenus principals revisats amb `Inici/Inicio/Start` i `Ajuda/Help`: Activitats, Taules admin, Cataleg admin, Compres conjuntes, Esdeveniments local i Emmagatzematge. |
-| F-002 | Afegir sortida clara als fluxos interns | pendent | alta | UX navegacio | Els fluxos actius haurien de mostrar sempre `/cancel` o `Tornar` quan pertoqui. Evitar que l'usuari quedi atrapat en passos interns. |
+| F-002 | Afegir sortida clara als fluxos interns | fet | alta | UX navegacio | Els fluxos actius d'emmagatzematge mostren `/cancel`; activitats, compres conjuntes, taules i cataleg ja tenien sortides visibles en els teclats interns revisats. |
 | F-003 | Ajuda contextual per seccio | pendent | alta | Ajuda | `Ajuda` hauria d'explicar la seccio actual si l'usuari ve d'Activitats, Cataleg, Compres conjuntes o Emmagatzematge. |
 | F-004 | Exposar `Calendari` o crear `Avui al club` | pendent | alta | Activitats | Hi ha flux de calendari, pero no es visible al menu principal. Es pot exposar directament o substituir per un resum mes util. |
 | F-005 | Pantalla `Avui al club` | pendent | alta | Resum usuari | Resum amb activitats d'avui, taules, esdeveniments del local, compres amb deadline proper i prestecs propis. Bon candidat per al missatge d'`Inici`. |

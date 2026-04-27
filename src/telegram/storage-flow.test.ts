@@ -20,6 +20,10 @@ import {
   handleTelegramStorageText,
 } from './storage-flow.js';
 
+function dangerButton(text: string) {
+  return { text, semanticRole: 'danger' as const };
+}
+
 function createCategory(overrides: Partial<StorageCategoryRecord> = {}): StorageCategoryRecord {
   return {
     id: 7,
@@ -360,6 +364,18 @@ test('handleTelegramStorageText lists recent entries for a chosen category', asy
   assert.equal(replies.at(-1)?.message, 'Manuales:\n- #1 Manual de campana · rol, pdf · 1 adjunto(s)');
 });
 
+test('handleTelegramStorageText shows cancel while choosing a storage category', async () => {
+  const { context, replies } = createContext(createRepository(), { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+
+  context.messageText = 'Ver archivos';
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-1), [dangerButton('/cancel')]);
+});
+
 test('handleTelegramStorageText searches entries inside readable categories', async () => {
   const repository = createRepository([createCategory()]);
   await repository.createEntry({
@@ -437,6 +453,38 @@ test('handleTelegramStorageText lets admins create a storage category', async ()
   assert.equal(categories[0]?.storageThreadId, 10);
   assert.equal(replies.at(-1)?.message, 'Categoría creada: Manuales (`manuales`).');
   assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageText uses cancel-only keyboards for storage category creation prompts', async () => {
+  const repository = createRepository([]);
+  const { context, replies, getCurrentSession } = createContext(repository, { isAdmin: true, canReadCategoryIds: [], canUploadCategoryIds: [] });
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+
+  context.messageText = 'Crear categoría';
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.equal(getCurrentSession()?.stepKey, 'create-category-slug');
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [[dangerButton('/cancel')]]);
+});
+
+test('handleTelegramStorageText shows cancel while uploading attachments and optional metadata', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, replies, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Subir archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Manuales';
+
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-media');
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-1), [dangerButton('/cancel')]);
 });
 
 test('handleTelegramStorageText lets admins archive a storage category', async () => {

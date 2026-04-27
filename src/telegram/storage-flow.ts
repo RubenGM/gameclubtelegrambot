@@ -173,7 +173,7 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
       stepKey: 'search-query',
       data: {},
     });
-    await context.reply(texts.askSearchQuery, buildStorageMenuOptions(language, context));
+    await context.reply(texts.askSearchQuery, buildSingleCancelOptions());
     return true;
   }
 
@@ -183,7 +183,7 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
       stepKey: 'open-entry-id',
       data: {},
     });
-    await context.reply(texts.askOpenEntryId, buildStorageMenuOptions(language, context));
+    await context.reply(texts.askOpenEntryId, buildSingleCancelOptions());
     return true;
   }
 
@@ -227,7 +227,7 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
       stepKey: 'create-category-slug',
       data: {},
     });
-    await context.reply(texts.askCategorySlug, buildStorageMenuOptions(language, context));
+    await context.reply(texts.askCategorySlug, buildSingleCancelOptions());
     return true;
   }
 
@@ -271,7 +271,7 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
       stepKey: 'delete-entry-id',
       data: {},
     });
-    await context.reply(texts.askDeleteEntryId, buildStorageMenuOptions(language, context));
+    await context.reply(texts.askDeleteEntryId, buildSingleCancelOptions());
     return true;
   }
 
@@ -307,7 +307,7 @@ async function handleActiveCreateCategoryFlow(context: StorageFlowContext, text:
       stepKey: 'create-category-name',
       data: { slug: text },
     });
-    await context.reply(texts.askCategoryName, buildStorageMenuOptions(language, context));
+    await context.reply(texts.askCategoryName, buildSingleCancelOptions());
     return true;
   }
 
@@ -325,28 +325,28 @@ async function handleActiveCreateCategoryFlow(context: StorageFlowContext, text:
       stepKey: 'create-category-chat-id',
       data: { ...session.data, description: text === texts.skipOptional ? null : text },
     });
-    await context.reply(texts.askCategoryChatId, buildStorageMenuOptions(language, context));
+    await context.reply(texts.askCategoryChatId, buildSingleCancelOptions());
     return true;
   }
 
   if (session.stepKey === 'create-category-chat-id') {
     const chatId = parseSignedInteger(text);
     if (chatId === null) {
-      await context.reply(texts.invalidNumber, buildStorageMenuOptions(language, context));
+      await context.reply(texts.invalidNumber, buildSingleCancelOptions());
       return true;
     }
     await context.runtime.session.advance({
       stepKey: 'create-category-thread-id',
       data: { ...session.data, storageChatId: chatId },
     });
-    await context.reply(texts.askCategoryThreadId, buildStorageMenuOptions(language, context));
+    await context.reply(texts.askCategoryThreadId, buildSingleCancelOptions());
     return true;
   }
 
   if (session.stepKey === 'create-category-thread-id') {
     const threadId = parsePositiveInteger(text);
     if (threadId === null) {
-      await context.reply(texts.invalidNumber, buildStorageMenuOptions(language, context));
+      await context.reply(texts.invalidNumber, buildSingleCancelOptions());
       return true;
     }
     const created = await createStorageCategory({
@@ -459,7 +459,7 @@ async function handleActiveDeleteEntryFlow(context: StorageFlowContext, text: st
 
   const detail = await resolveRepository(context).getEntryDetail(entryId);
   if (!detail || !canManageStorageEntries(context)) {
-    await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
+    await context.reply(texts.invalidEntryId, buildSingleCancelOptions());
     return true;
   }
 
@@ -1180,6 +1180,7 @@ function buildCategoryChoiceOptions(categories: StorageCategoryRecord[], languag
     replyKeyboard: [
       ...categories.map((category) => [category.displayName]),
       [successButton(texts.skipOptional)],
+      [dangerButton('/cancel')],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
@@ -1189,7 +1190,7 @@ function buildCategoryChoiceOptions(categories: StorageCategoryRecord[], languag
 function buildUploadMediaOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).storage;
   return {
-    replyKeyboard: [[successButton(texts.finishAttachments)]],
+    replyKeyboard: [[successButton(texts.finishAttachments)], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -1198,7 +1199,15 @@ function buildUploadMediaOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOpt
 function buildSkipOptionalOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).storage;
   return {
-    replyKeyboard: [[successButton(texts.skipOptional)]],
+    replyKeyboard: [[successButton(texts.skipOptional)], [dangerButton('/cancel')]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildSingleCancelOptions(): TelegramReplyOptions {
+  return {
+    replyKeyboard: [[dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
