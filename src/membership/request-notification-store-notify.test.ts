@@ -104,7 +104,7 @@ test('notifySubscribedAdminsOfMembershipRequest sends localized private messages
   assert.deepEqual(messages, [
     {
       telegramUserId: 10,
-      message: 'Nova sollicitud d accés de New Member (@new_member).',
+      message: "Nova sol·licitud d'accés de New Member (@new_member).",
       options: {
         inlineKeyboard: [[{ text: 'Aprovar', callbackData: 'approve_access:42' }]],
       },

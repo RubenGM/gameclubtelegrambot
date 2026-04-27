@@ -381,7 +381,7 @@ test('handleTelegramGroupPurchaseText opens the group purchase submenu from the 
   assert.equal(handled, true);
   assert.deepEqual(replies, [
     {
-      message: 'Compres conjuntes: tria una accio.',
+      message: 'Compres conjuntes: tria una acció.',
       options: {
         replyKeyboard: [['Veure compres', 'Crear compra'], ['Inici', 'Ajuda']],
         resizeKeyboard: true,
@@ -433,7 +433,7 @@ test('handleTelegramGroupPurchaseCommand opens the submenu from the command entr
 
   await handleTelegramGroupPurchaseCommand(context);
 
-  assert.equal(replies[0]?.message, 'Compres conjuntes: tria una accio.');
+  assert.equal(replies[0]?.message, 'Compres conjuntes: tria una acció.');
 });
 
 test('handleTelegramGroupPurchaseStartText opens purchase detail from /start payload', async () => {
@@ -446,7 +446,7 @@ test('handleTelegramGroupPurchaseStartText opens purchase detail from /start pay
   assert.deepEqual(replies, [
     {
       message:
-        '<a href="https://t.me/cawatest_bot?start=group_purchase_7"><b>Pedido de dados</b></a>\nMode: Per unitats\nEstat: Oberta\nDescripcio: Compra conjunta\nPreu unitari: 1.25 EUR\nUnitat: dado\nApuntar-se fins: 30/04',
+        '<a href="https://t.me/cawatest_bot?start=group_purchase_7"><b>Pedido de dados</b></a>\nMode: Per unitats\nEstat: Oberta\nDescripció: Compra conjunta\nPreu unitari: 1.25 EUR\nUnitat: dado\nApuntar-se fins: 30/04',
       options: {
         parseMode: 'HTML',
         inlineKeyboard: [
@@ -468,7 +468,7 @@ test('handleTelegramGroupPurchaseText starts the create flow from the submenu ac
   assert.equal(getCurrentSession()?.flowKey, 'group-purchase-create');
   assert.equal(getCurrentSession()?.stepKey, 'title');
   assert.deepEqual(replies.at(-1), {
-    message: 'Escriu el titol visible de la compra conjunta.',
+    message: 'Escriu el títol visible de la compra conjunta.',
     options: {
       replyKeyboard: [[dangerButton('/cancel')]],
       resizeKeyboard: true,
@@ -504,16 +504,16 @@ test('create flow shows upcoming date shortcuts for join and confirm deadlines',
   }
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 20/04', 'Dimarts, 21/04'], ['Dimecres, 22/04', 'Dijous, 23/04'], ['Divendres, 24/04', 'Dissabte, 25/04'], [successButton('Ometre')], [dangerButton('/cancel')]],
+    replyKeyboard: [['Dilluns, 27/04', 'Dimarts, 28/04'], ['Dimecres, 29/04', 'Dijous, 30/04'], ['Divendres, 01/05', 'Dissabte, 02/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
 
-  context.messageText = 'Dilluns, 21/04/2026';
+  context.messageText = 'Dimarts, 28/04/2026';
   await handleTelegramGroupPurchaseText(context);
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 20/04', 'Dimarts, 21/04'], ['Dimecres, 22/04', 'Dijous, 23/04'], ['Divendres, 24/04', 'Dissabte, 25/04'], [successButton('Ometre')], [dangerButton('/cancel')]],
+    replyKeyboard: [['Dilluns, 27/04', 'Dimarts, 28/04'], ['Dimecres, 29/04', 'Dijous, 30/04'], ['Divendres, 01/05', 'Dissabte, 02/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -528,7 +528,7 @@ test('shared-cost create flow also shows upcoming date shortcuts for the join de
   }
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 20/04', 'Dimarts, 21/04'], ['Dimecres, 22/04', 'Dijous, 23/04'], ['Divendres, 24/04', 'Dissabte, 25/04'], [successButton('Ometre')], [dangerButton('/cancel')]],
+    replyKeyboard: [['Dilluns, 27/04', 'Dimarts, 28/04'], ['Dimecres, 29/04', 'Dijous, 30/04'], ['Divendres, 01/05', 'Dissabte, 02/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -547,9 +547,9 @@ test('create flow shows a summary before saving the purchase', async () => {
     'dado',
     'Ometre',
     'Ometre',
-    'Afegir numero',
+    'Afegir número',
     'Cantidad',
-    'Si',
+    'Sí',
     'Seguir',
   ]) {
     context.messageText = messageText;
@@ -579,7 +579,7 @@ test('create flow does not let per-item purchases continue without a quantity fi
     'dado',
     'Ometre',
     'Ometre',
-    'Afegir numero',
+    'Afegir número',
     'Color',
     'No',
     'Seguir',
@@ -589,7 +589,7 @@ test('create flow does not let per-item purchases continue without a quantity fi
   }
 
   assert.equal(getCurrentSession()?.stepKey, 'field-menu');
-  assert.equal(replies.at(-1)?.message, 'En les compres per unitats cal un camp numeric que indiqui quantes unitats vol cada persona.');
+  assert.equal(replies.at(-1)?.message, 'En les compres per unitats cal un camp numèric que indiqui quantes unitats vol cada persona.');
 });
 
 test('shared-cost create flow can skip configurable fields and save directly', async () => {
@@ -620,9 +620,9 @@ test('handleTelegramGroupPurchaseText completes a per-item create flow and saves
     'dado',
     'Ometre',
     'Ometre',
-    'Afegir numero',
+    'Afegir número',
     'Cantidad',
-    'Si',
+    'Sí',
     'Seguir',
     'Guardar compra',
   ]) {
@@ -1098,7 +1098,7 @@ test('creator archiving a purchase returns to the group purchase submenu instead
   await handleTelegramGroupPurchaseCallback(context);
 
   assert.deepEqual(replies.at(-1), {
-    message: 'Compres conjuntes: tria una accio.',
+    message: 'Compres conjuntes: tria una acció.',
     options: {
       replyKeyboard: [['Veure compres', 'Crear compra'], ['Inici', 'Ajuda']],
       resizeKeyboard: true,

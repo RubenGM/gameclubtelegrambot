@@ -418,7 +418,7 @@ test('handleTelegramCatalogReadText opens the catalog from the member keyboard a
     families: [buildFamily(1, 'Alpha')],
   });
   const { context, replies } = createContext(repository);
-  context.messageText = 'Cataleg';
+  context.messageText = 'Catàleg';
 
   const handled = await handleTelegramCatalogReadText(context);
 

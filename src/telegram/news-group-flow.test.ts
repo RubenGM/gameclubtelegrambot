@@ -215,5 +215,5 @@ test('handleTelegramNewsGroupText shows help for unknown actions', async () => {
 
   context.messageText = '/news inexplicable';
   assert.equal(await handleTelegramNewsGroupText(context), true);
-  assert.match(replies.at(-1) ?? '', /Usa \/news per veure l estat actual del grup\./);
+  assert.match(replies.at(-1) ?? '', /Usa \/news per veure l'estat actual del grup\./);
 });

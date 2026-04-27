@@ -255,7 +255,7 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
   });
 
   assert.equal(availableRows[0]?.[0]?.text, 'Prendre prestat');
-  assert.equal(availableRows[1]?.[0]?.text, 'Eliminar item');
+  assert.equal(availableRows[1]?.[0]?.text, 'Eliminar ítem');
   assert.equal(availableRows[2]?.[0]?.text, 'Veure préstecs');
 
   const borrowedRows = buildLoanDetailButtons({
@@ -277,8 +277,8 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
   });
 
   assert.equal(spanishRows[0]?.[0]?.text, 'Tomar prestado');
-  assert.equal(spanishRows[1]?.[0]?.text, 'Eliminar item');
-  assert.equal(spanishRows[2]?.[0]?.text, 'Ver prestamos');
+  assert.equal(spanishRows[1]?.[0]?.text, 'Eliminar ítem');
+  assert.equal(spanishRows[2]?.[0]?.text, 'Ver préstamos');
 });
 
 test('catalog loan edit flow updates notes and due date', async () => {
@@ -338,5 +338,5 @@ test('catalog loan edit flow updates notes and due date', async () => {
   context.messageText = '2026-04-11';
   await handleTelegramCatalogLoanText(context);
 
-  assert.match(replies[0]?.message ?? '', /Prestec actualitzat\./);
+  assert.match(replies[0]?.message ?? '', /Préstec actualitzat\./);
 });

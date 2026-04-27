@@ -535,7 +535,7 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
   assert.match(replies.at(-1)?.message ?? '', /<i>Ocells i engines<\/i>/);
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
-    replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['Inici', 'Ajuda']],
+    replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -701,7 +701,7 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(getCurrentSession()?.stepKey, 'confirm');
   assert.deepEqual(replies.at(-1)?.options, {
     replyKeyboard: [
-      [scheduleLabels.editFieldDescription],
+      ['Descripció'],
       [{ text: scheduleLabels.confirmCreate, semanticRole: 'success' }],
       ['Tornar'],
       [{ text: '/cancel', semanticRole: 'danger' }],
@@ -718,7 +718,7 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.match(replies.at(-1)?.message ?? '', /<b>Taula:<\/b> Mesa TV/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Inici:<\/b> 05\/04\/2026 16:00/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Durada:<\/b> 3 h/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Tipus:<\/b> Mesa abierta/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Tipus:<\/b> Taula oberta/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Cap/);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.created');
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
@@ -775,7 +775,7 @@ test('handleTelegramScheduleText adds an optional description only from the fina
   context.messageText = 'Campanya narrativa';
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'confirm');
-  assert.match(replies.at(-1)?.message ?? '', /Descripcio: Campanya narrativa/);
+  assert.match(replies.at(-1)?.message ?? '', /Descripció: Campanya narrativa/);
 
   context.messageText = scheduleLabels.confirmCreate;
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -828,9 +828,9 @@ test('handleTelegramScheduleText goes back from the first create step to the act
   context.messageText = 'Tornar';
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
-  assert.match(replies.at(-1)?.message ?? '', /Activitats: tria una accio\./);
+  assert.match(replies.at(-1)?.message ?? '', /Activitats: tria una acció\./);
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['Inici', 'Ajuda']],
+    replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -1336,7 +1336,7 @@ test('handleTelegramScheduleCallback rejects selecting a deactivated table for a
   context.callbackData = `${scheduleCallbackPrefixes.tableSelection}7`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'table');
-  assert.equal(replies.at(-1)?.message, 'La taula seleccionada ja no esta activa. Torna a triar una taula activa o continua sense taula.');
+  assert.equal(replies.at(-1)?.message, 'La taula seleccionada ja no està activa. Torna a triar una taula activa o continua sense taula.');
 });
 
 test('handleTelegramScheduleCallback keeps showing deactivated table names for historical activity views', async () => {
@@ -1807,12 +1807,12 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
   assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-edit', stepKey: 'select-field', data: { eventId: 3 } });
   assert.deepEqual(replies.at(-1)?.options, {
     replyKeyboard: [
-      [scheduleLabels.editFieldTitle, scheduleLabels.editFieldDate],
+      ['Títol', scheduleLabels.editFieldDate],
       [scheduleLabels.editFieldTime, scheduleLabels.editFieldDuration],
       [scheduleLabels.editFieldCapacity],
       [scheduleLabels.editFieldInitialOccupiedSeats],
       [scheduleLabels.editFieldTable],
-      [scheduleLabels.editFieldDescription],
+      ['Descripció'],
       [scheduleLabels.confirmEdit],
       [dangerButton('/cancel')],
     ],
@@ -2074,7 +2074,7 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
   context.messageText = scheduleLabels.confirmCancel;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
-  assert.match(replies.at(-1)?.message ?? '', /Activitat cancellada correctament\.: <b>Ark Nova<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /Activitat cancel·lada correctament: <b>Ark Nova<\/b>/);
 });
 
 test('handleTelegramScheduleText sends private conflict notifications after creating an overlapping activity', async () => {

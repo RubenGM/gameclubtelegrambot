@@ -132,7 +132,7 @@ test('registerTelegramCommands enforces chat restrictions centrally', async () =
   const context = createContext({ kind: 'group' });
   await handlers.get('help')?.(context);
 
-  assert.deepEqual(context.__replies, ['Aquest comandament nomes esta disponible en xat privat.']);
+  assert.deepEqual(context.__replies, ['Aquest comandament només està disponible en xat privat.']);
 });
 
 test('registerTelegramCommands blocks unapproved users consistently', async () => {
@@ -159,7 +159,7 @@ test('registerTelegramCommands blocks unapproved users consistently', async () =
   const context = createContext({ kind: 'private', isApproved: false });
   await handlers.get('reserve')?.(context);
 
-  assert.match(context.__replies?.[0] ?? '', /Encara no tens l acces aprovat/);
+  assert.match(context.__replies?.[0] ?? '', /Encara no tens l'accés aprovat/);
   assert.match(context.__replies?.[0] ?? '', /avisa un administrador/i);
 });
 
@@ -184,12 +184,26 @@ test('renderTelegramHelpMessage reminds pending private users to ask an admin fo
     context: createContext({ kind: 'private', isApproved: false, isAdmin: false }),
   });
 
-  assert.match(message, /Que pots fer ara/);
-  assert.match(message, /Acces al club/);
+  assert.match(message, /Què pots fer ara/);
+  assert.match(message, /Accés al club/);
   assert.match(message, /Idioma/);
   assert.match(message, /avisa un administrador/i);
   assert.doesNotMatch(message, /\/start/);
   assert.doesNotMatch(message, /\/reserve/);
+});
+
+test('renderTelegramHelpMessage lists all current member menu options', async () => {
+  const message = renderTelegramHelpMessage({
+    commands: [],
+    context: createContext({ kind: 'private', isApproved: true, isAdmin: false }),
+  });
+
+  assert.match(message, /Activitats: consulta i gestiona les activitats del club/i);
+  assert.match(message, /Taules: consulta les taules actives del local/i);
+  assert.match(message, /Catàleg: explora jocs, llibres i préstecs/i);
+  assert.match(message, /Emmagatzematge: consulta material guardat del club/i);
+  assert.match(message, /Compres conjuntes: segueix i participa en comandes compartides/i);
+  assert.match(message, /Idioma: canvia l'idioma del bot/i);
 });
 
 test('registerTelegramCommands blocks non-admin users consistently', async () => {
@@ -216,7 +230,7 @@ test('registerTelegramCommands blocks non-admin users consistently', async () =>
   const context = createContext({ kind: 'private', isApproved: true, isAdmin: false });
   await handlers.get('admin')?.(context);
 
-  assert.deepEqual(context.__replies, ['Aquesta accio nomes esta disponible per a administradors del club.']);
+  assert.deepEqual(context.__replies, ['Aquesta acció només està disponible per a administradors del club.']);
 });
 
 test('registerTelegramCommands turns interaction errors into safe replies and clears session', async () => {
@@ -282,7 +296,7 @@ test('renderTelegramHelpMessage adapts shared help to chat context and access', 
     context: createContext({ kind: 'group', isApproved: true, isAdmin: false }),
   });
 
-  assert.match(message, /Que pots fer ara/);
+  assert.match(message, /Què pots fer ara/);
   assert.match(message, /escriu-me en privat/i);
   assert.doesNotMatch(message, /\/reserve/);
   assert.doesNotMatch(message, /\/admin/);

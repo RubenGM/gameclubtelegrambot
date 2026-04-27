@@ -223,7 +223,7 @@ test('handleTelegramTableAdminText opens the admin table menu from the keyboard 
   const handled = await handleTelegramTableAdminText(context);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message, 'Gestio de taules: tria una accio.');
+  assert.equal(replies.at(-1)?.message, 'Gestió de taules: tria una acció.');
   assert.deepEqual(replies.at(-1)?.options, {
     replyKeyboard: [
       [tableAdminLabels.create, tableAdminLabels.list],
@@ -240,7 +240,7 @@ test('handleTelegramTableAdminText accepts Spanish table action buttons', async 
 
   context.messageText = 'Mesas';
   assert.equal(await handleTelegramTableAdminText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Gestion de mesas: elige una accion\./);
+  assert.match(replies.at(-1)?.message ?? '', /Gestión de mesas: elige una acción\./);
 
   context.messageText = 'Listar mesas';
   assert.equal(await handleTelegramTableAdminText(context), true);
@@ -332,7 +332,7 @@ test('handleTelegramTableAdminText keeps the capacity step active when the numer
   });
   assert.equal(
     replies.at(-1)?.message,
-    'La capacitat recomanada ha de ser un enter positiu. Escriu un numero valid o tria una opcio del teclat.',
+    'La capacitat recomanada ha de ser un enter positiu. Escriu un número vàlid o tria una opció del teclat.',
   );
 });
 

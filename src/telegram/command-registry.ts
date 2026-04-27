@@ -160,6 +160,9 @@ export function renderTelegramHelpMessage({
     lines.push(`${i18n.actionMenu.schedule}: ${i18n.common.helpScheduleAction}`);
     lines.push(`${i18n.actionMenu.tables}: ${i18n.common.helpTablesAction}`);
     lines.push(`${i18n.actionMenu.catalog}: ${i18n.common.helpCatalogAction}`);
+    lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
+    lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
+    lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
     lines.push('');
     lines.push(i18n.common.helpMenuHint);
     return lines.join('\n');
@@ -168,6 +171,8 @@ export function renderTelegramHelpMessage({
   lines.push(`${i18n.actionMenu.schedule}: ${i18n.common.helpScheduleAction}`);
   lines.push(`${i18n.actionMenu.tablesRead}: ${i18n.common.helpTablesAction}`);
   lines.push(`${i18n.actionMenu.catalog}: ${i18n.common.helpCatalogAction}`);
+  lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
+  lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
   lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
   lines.push('');
   lines.push(i18n.common.helpMenuHint);

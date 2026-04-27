@@ -304,12 +304,12 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'runtime:database:1',
     'reply:He registrat la teva sollicitud d acces. Ara queda pendent de revisio per part d un administrador del club. Quan te l aprovin, ja podras fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
     'reply:La teva sollicitud d acces ja esta pendent. Un administrador del club l ha de revisar abans que puguis fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
-    'reply-keyboard:Acces al club|Idioma|Ajuda',
-    'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
+    'reply-keyboard:Accés al club|Idioma|Ajuda',
+    'reply:Sol·licituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
     'reply:No hi ha cap usuari aprovat disponible per expulsar.',
     'reply:Usuari aprovat correctament.',
-    'reply:Que pots fer ara:\nRevisar sollicituds: revisa i resol les sollicituds pendents.\nAdministrar usuaris: administra usuaris aprovats i expulsions.\nActivitats: consulta, crea o edita activitats del club.\nTaules: consulta les taules actives del local.\nCataleg: explora el cataleg i revisa prestecs.\n\nToca un boto del menu per continuar.',
+    "reply:Què pots fer ara:\nRevisar sol·licituds: revisa i resol les sol·licituds pendents.\nAdministrar usuaris: administra usuaris aprovats i expulsions.\nActivitats: consulta i gestiona les activitats del club.\nTaules: consulta les taules actives del local.\nCatàleg: explora jocs, llibres i préstecs.\nEmmagatzematge: consulta material guardat del club.\nCompres conjuntes: segueix i participa en comandes compartides.\nIdioma: canvia l'idioma del bot.\n\nToca un botó del menú per continuar.",
     'start-polling',
     'stop-polling',
   ]);
@@ -329,7 +329,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
         actorRole: 'pending',
         language: 'ca',
         visibleActionIds: ['access', 'language', 'help'],
-        visibleLabels: ['Acces al club', 'Idioma', 'Ajuda'],
+        visibleLabels: ['Accés al club', 'Idioma', 'Ajuda'],
       },
     },
     {
@@ -596,7 +596,7 @@ test('createTelegramBoundary replies with a safe message and clears session on u
 
   assert.equal(telegram.status.bot, 'connected');
   assert.equal(cancelCalls, 1);
-  assert.deepEqual(replies, ['S ha produit un error inesperat. Torna-ho a provar en uns moments.']);
+  assert.deepEqual(replies, ["S'ha produït un error inesperat. Torna-ho a provar en uns moments."]);
 });
 
 test('runTelegramCallbackHandler still acknowledges the callback when the handler throws', async () => {
@@ -936,11 +936,11 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg', 'Emmagatzematge'], ['Compres conjuntes'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Revisar sol·licituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes'], ['Idioma', 'Ajuda']]);
   assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
-  assert.match(replies[0]?.message ?? '', /sollicituds/i);
-  assert.match(replies[1]?.message ?? '', /Que pots fer ara/);
-  assert.match(replies[2]?.message ?? '', /Sollicituds pendents/);
+  assert.match(replies[0]?.message ?? '', /sol·licituds/i);
+  assert.match(replies[1]?.message ?? '', /Què pots fer ara/);
+  assert.match(replies[2]?.message ?? '', /Sol·licituds pendents/);
   assert.deepEqual(
     replies[2]?.options?.inlineKeyboard?.flat().map((button) => button.text),
     ['Aprovar', 'Rebutjar'],
@@ -1058,12 +1058,12 @@ test('cancel restores the default action menu after an active flow', async () =>
   assert.equal(telegram.status.bot, 'connected');
   assert.deepEqual(replies, [
     {
-      message: 'Proces cancel.lat correctament.',
+      message: 'Procés cancel·lat correctament.',
         options: {
           menuId: 'private-approved-default',
           replyKeyboard: [
             [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
-            [{ text: 'Cataleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
+            [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
             [{ text: 'Compres conjuntes', semanticRole: 'primary' }],
             [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
           ],
@@ -1071,7 +1071,7 @@ test('cancel restores the default action menu after an active flow', async () =>
           actions: [
             { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
             { id: 'tables_read', label: 'Taules', telemetryActionKey: 'menu.tables', uxSection: 'primary' },
-            { id: 'catalog', label: 'Cataleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
+            { id: 'catalog', label: 'Catàleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
             { id: 'storage', label: 'Emmagatzematge', telemetryActionKey: 'menu.storage', uxSection: 'primary' },
             { id: 'group_purchases', label: 'Compres conjuntes', telemetryActionKey: 'menu.group_purchases', uxSection: 'primary' },
             { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
@@ -1368,7 +1368,7 @@ test('createTelegramBoundary routes plain text keyboard actions for admin table 
   assert.equal(telegram.status.bot, 'connected');
   assert.deepEqual(replies, [
     {
-      message: 'Gestio de taules: tria una accio.',
+      message: 'Gestió de taules: tria una acció.',
       options: {
         replyKeyboard: [['Crear taula', 'Llistar taules'], ['Editar taula', 'Desactivar taula'], ['Inici']],
         resizeKeyboard: true,
@@ -1608,8 +1608,8 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
   });
 
   assert.equal(telegram.status.bot, 'connected');
-  assert.match(replies[0]?.message ?? '', /Des del menu pots obrir activitats, taules i cataleg/);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Cataleg', 'Emmagatzematge'], ['Compres conjuntes'], ['Idioma', 'Ajuda']]);
+  assert.match(replies[0]?.message ?? '', /Des del menú pots obrir activitats, taules i catàleg/);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes'], ['Idioma', 'Ajuda']]);
   assert.deepEqual(auditEvents, [
     {
       actionKey: 'telegram.menu.shown',
@@ -1621,7 +1621,7 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
         actorRole: 'member',
         language: 'ca',
         visibleActionIds: ['schedule', 'tables_read', 'catalog', 'storage', 'group_purchases', 'language', 'help'],
-        visibleLabels: ['Activitats', 'Taules', 'Cataleg', 'Emmagatzematge', 'Compres conjuntes', 'Idioma', 'Ajuda'],
+        visibleLabels: ['Activitats', 'Taules', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'Idioma', 'Ajuda'],
       },
     },
   ]);
@@ -1724,7 +1724,7 @@ test('createTelegramBoundary routes plain text keyboard actions for schedule man
     {
       message: 'No hi ha activitats programades ara mateix.',
       options: {
-        replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['Inici', 'Ajuda']],
+        replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },
@@ -1739,11 +1739,11 @@ test('formatStartMessage shows version only to admins', async () => {
   );
   assert.equal(
     formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false, isApproved: true, language: 'ca' }),
-    'Benvingut a Game Club Bot. Des del menu pots obrir activitats, taules i cataleg.',
+    'Benvingut a Game Club Bot. Des del menú pots obrir activitats, taules i catàleg.',
   );
   assert.equal(
     formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false, isApproved: false, language: 'ca' }),
-    'Benvingut a Game Club Bot. Per començar, toca Acces al club o escriu /start. Si la teva sollicitud ja esta pendent, espera l aprovacio d un administrador.',
+    "Benvingut a Game Club Bot. Per començar, toca Accés al club o escriu /start. Si la teva sol·licitud ja està pendent, espera l'aprovació d'un administrador.",
   );
 });
 

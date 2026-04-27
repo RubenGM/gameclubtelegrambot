@@ -300,7 +300,7 @@ test('handleTelegramStorageText opens the storage submenu from the command entry
 
   await handleTelegramStorageCommand(context as never);
 
-  assert.equal(replies[0]?.message, 'Almacenamiento: elige una accion.');
+  assert.equal(replies[0]?.message, 'Almacenamiento: elige una acción.');
   assert.equal((replies[0]?.options?.replyKeyboard?.[0]?.[0] as { semanticRole?: string })?.semanticRole, 'primary');
 });
 
@@ -313,11 +313,11 @@ test('handleTelegramStorageText lists only categories the user can read', async 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
-  context.messageText = 'Listar categorias';
+  context.messageText = 'Listar categorías';
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message, 'Categorias disponibles:\n- Manuales (`manuales`)');
+  assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- Manuales (`manuales`)');
 });
 
 test('handleTelegramStorageText lists recent entries for a chosen category', async () => {
@@ -405,7 +405,7 @@ test('handleTelegramStorageText lets admins create a storage category', async ()
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
-  context.messageText = 'Crear categoria';
+  context.messageText = 'Crear categoría';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'create-category-slug');
 
@@ -434,7 +434,7 @@ test('handleTelegramStorageText lets admins create a storage category', async ()
   assert.equal(categories[0]?.slug, 'manuales');
   assert.equal(categories[0]?.storageChatId, -100123);
   assert.equal(categories[0]?.storageThreadId, 10);
-  assert.equal(replies.at(-1)?.message, 'Categoria creada: Manuales (`manuales`).');
+  assert.equal(replies.at(-1)?.message, 'Categoría creada: Manuales (`manuales`).');
   assert.equal(getCurrentSession(), null);
 });
 
@@ -445,7 +445,7 @@ test('handleTelegramStorageText lets admins archive a storage category', async (
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
-  context.messageText = 'Archivar categoria';
+  context.messageText = 'Archivar categoría';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'archive-category-select');
 
@@ -455,7 +455,7 @@ test('handleTelegramStorageText lets admins archive a storage category', async (
   assert.equal(handled, true);
   const category = await repository.findCategoryById(7);
   assert.equal(category?.lifecycleStatus, 'archived');
-  assert.equal(replies.at(-1)?.message, 'Categoria archivada: Manuales.');
+  assert.equal(replies.at(-1)?.message, 'Categoría archivada: Manuales.');
   assert.equal(getCurrentSession(), null);
 });
 
@@ -544,7 +544,7 @@ test('handleTelegramStorageText lets admins logically delete an entry by id', as
   const detail = await repository.getEntryDetail(1);
   assert.equal(detail?.entry.lifecycleStatus, 'deleted');
   assert.equal(detail?.entry.deletedByTelegramUserId, 42);
-  assert.equal(replies.at(-1)?.message, 'Entrada #1 borrada logicamente.');
+  assert.equal(replies.at(-1)?.message, 'Entrada #1 borrada lógicamente.');
   assert.equal(getCurrentSession(), null);
 });
 
@@ -585,7 +585,7 @@ test('handleTelegramStorageText hides logically deleted entries from normal list
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message, 'No hay ninguna entrada indexada en esta categoria.');
+  assert.equal(replies.at(-1)?.message, 'No hay ninguna entrada indexada en esta categoría.');
 });
 
 test('handleTelegramStorageText hides archived categories from normal category listings', async () => {
@@ -594,12 +594,12 @@ test('handleTelegramStorageText hides archived categories from normal category l
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Listar categorias';
+  context.messageText = 'Listar categorías';
 
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message, 'No tienes ninguna categoria disponible para consultar.');
+  assert.equal(replies.at(-1)?.message, 'No tienes ninguna categoría disponible para consultar.');
 });
 
 test('handleTelegramStorageText hides archived categories from DM upload choices', async () => {
@@ -613,7 +613,7 @@ test('handleTelegramStorageText hides archived categories from DM upload choices
 
   assert.equal(handled, true);
   assert.equal(getCurrentSession(), null);
-  assert.equal(replies.at(-1)?.message, 'No hay categorias disponibles para esta accion.');
+  assert.equal(replies.at(-1)?.message, 'No hay categorías disponibles para esta acción.');
 });
 
 test('handleTelegramStorageText shows archived categories to admins in category listing', async () => {
@@ -625,12 +625,12 @@ test('handleTelegramStorageText shows archived categories to admins in category 
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Listar categorias';
+  context.messageText = 'Listar categorías';
 
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message, 'Categorias disponibles:\n- Manuales (`manuales`)\n- Historico (`historico`) [archived]');
+  assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- Manuales (`manuales`)\n- Historico (`historico`) [archived]');
 });
 
 test('handleTelegramStorageText lets admins reactivate an archived category', async () => {
@@ -640,7 +640,7 @@ test('handleTelegramStorageText lets admins reactivate an archived category', as
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
-  context.messageText = 'Reactivar categoria';
+  context.messageText = 'Reactivar categoría';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'reactivate-category-select');
 
@@ -650,7 +650,7 @@ test('handleTelegramStorageText lets admins reactivate an archived category', as
   assert.equal(handled, true);
   const category = await repository.findCategoryById(7);
   assert.equal(category?.lifecycleStatus, 'active');
-  assert.equal(replies.at(-1)?.message, 'Categoria reactivada: Manuales.');
+  assert.equal(replies.at(-1)?.message, 'Categoría reactivada: Manuales.');
   assert.equal(getCurrentSession(), null);
 });
 
