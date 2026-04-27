@@ -63,6 +63,11 @@ import {
   handleTelegramGroupPurchaseText,
 } from './group-purchase-flow.js';
 import {
+  handleTelegramStorageCommand,
+  handleTelegramStorageMessage,
+  handleTelegramStorageText,
+} from './storage-flow.js';
+import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleStartText,
   handleTelegramScheduleText,
@@ -125,6 +130,7 @@ export function registerHandlers({
   registerCatalogAdminCallbacks({ bot });
   registerVenueEventAdminCallbacks({ bot });
   registerTextHandlers({ bot, publicName, adminElevationPasswordHash });
+  registerMessageHandlers({ bot });
 }
 
 function registerTextHandlers({
@@ -159,6 +165,10 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramStorageText(context)) {
+      return;
+    }
+
     if (await handleTelegramGroupPurchaseText(context)) {
       return;
     }
@@ -186,6 +196,16 @@ function registerTextHandlers({
     if (await handleTelegramCatalogReadText(context)) {
       return;
     }
+  });
+}
+
+function registerMessageHandlers({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  bot.onMessage?.(async (context) => {
+    await handleTelegramStorageMessage(context);
   });
 }
 
@@ -373,6 +393,15 @@ function createDefaultCommands({
       description: 'Consulta les compres conjuntes del club',
       handle: async (context) => {
         await handleTelegramGroupPurchaseCommand(context);
+      },
+    },
+    {
+      command: 'storage',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Consulta categories i pujades d emmagatzematge',
+      handle: async (context) => {
+        await handleTelegramStorageCommand(context);
       },
     },
     {
@@ -627,6 +656,14 @@ function toRawReplyKeyboardButton(
 
   return {
     text: normalizedButton.text,
+    ...(normalizedButton.requestChat ? {
+      request_chat: {
+        request_id: normalizedButton.requestChat.requestId,
+        chat_is_channel: normalizedButton.requestChat.chatIsChannel,
+        ...(normalizedButton.requestChat.chatIsForum !== undefined ? { chat_is_forum: normalizedButton.requestChat.chatIsForum } : {}),
+        ...(normalizedButton.requestChat.botIsMember !== undefined ? { bot_is_member: normalizedButton.requestChat.botIsMember } : {}),
+      },
+    } : {}),
     ...(appearance?.style ? { style: appearance.style } : {}),
     ...(appearance?.iconCustomEmojiId ? { icon_custom_emoji_id: appearance.iconCustomEmojiId } : {}),
   };

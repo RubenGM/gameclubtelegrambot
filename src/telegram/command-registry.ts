@@ -24,8 +24,14 @@ export interface TelegramCommandRuntime {
     clubName: string;
     language?: BotLanguage;
     username?: string | undefined;
+    getMe?(): Promise<{ id: number; username?: string }>;
+    getChat?(chatId: number): Promise<{ id: number; type: string; title?: string; isForum?: boolean }>;
+    getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean }>;
+    createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
     sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+    copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+    deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
   chat: TelegramChatContext;
@@ -43,6 +49,23 @@ export interface TelegramCommandHandlerContext {
   };
   messageText?: string;
   callbackData?: string;
+  messageThreadId?: number;
+  messageMedia?: {
+    attachmentKind: string;
+    fileId?: string | null;
+    fileUniqueId?: string | null;
+    caption?: string | null;
+    originalFileName?: string | null;
+    mimeType?: string | null;
+    fileSizeBytes?: number | null;
+    mediaGroupId?: string | null;
+    messageId: number;
+  };
+  sharedChat?: {
+    requestId: number;
+    chatId: number;
+    title?: string | null;
+  };
   reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: TelegramCommandRuntime;
   __replies?: string[];

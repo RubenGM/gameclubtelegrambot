@@ -120,6 +120,13 @@
       "when": 1776666000000,
       "tag": "0016_curious_talos",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1776781481286,
+      "tag": "0017_flaky_satana",
+      "breakpoints": true
     }
   ]
 }

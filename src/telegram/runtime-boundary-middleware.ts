@@ -198,8 +198,14 @@ function createRuntimeContextMiddleware({
         language: config.bot.language,
         publicName: config.bot.publicName,
         username: bot.username,
+        ...(bot.getMe ? { getMe: bot.getMe.bind(bot) } : {}),
+        ...(bot.getChat ? { getChat: bot.getChat.bind(bot) } : {}),
+        ...(bot.getChatMember ? { getChatMember: bot.getChatMember.bind(bot) } : {}),
+        ...(bot.createForumTopic ? { createForumTopic: bot.createForumTopic.bind(bot) } : {}),
         sendPrivateMessage: bot.sendPrivateMessage.bind(bot),
         ...(bot.sendGroupMessage ? { sendGroupMessage: bot.sendGroupMessage.bind(bot) } : {}),
+        ...(bot.copyMessage ? { copyMessage: bot.copyMessage.bind(bot) } : {}),
+        ...(bot.deleteMessage ? { deleteMessage: bot.deleteMessage.bind(bot) } : {}),
       },
       services,
       wikipediaBoardGameImportService,
@@ -292,6 +298,14 @@ function resolveTelegramUpdateKind(context: TelegramContextLike): 'callback' | '
   }
 
   if (context.messageText) {
+    return 'message';
+  }
+
+  if (context.messageMedia) {
+    return 'message';
+  }
+
+  if (context.sharedChat) {
     return 'message';
   }
 

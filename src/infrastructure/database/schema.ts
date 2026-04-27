@@ -417,3 +417,78 @@ export const groupPurchaseMessages = pgTable(
     purchaseLookup: index('group_purchase_messages_purchase_id_idx').on(table.purchaseId),
   }),
 );
+
+export const storageCategories = pgTable(
+  'storage_categories',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    slug: varchar('slug', { length: 128 }).notNull(),
+    displayName: varchar('display_name', { length: 255 }).notNull(),
+    description: text('description'),
+    storageChatId: bigint('storage_chat_id', { mode: 'number' }).notNull(),
+    storageThreadId: integer('storage_thread_id').notNull(),
+    lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('active'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+  },
+  (table) => ({
+    uniqueSlug: uniqueIndex('storage_categories_slug_unique').on(table.slug),
+    uniqueTopic: uniqueIndex('storage_categories_storage_topic_unique').on(table.storageChatId, table.storageThreadId),
+    lifecycleLookup: index('storage_categories_lifecycle_status_idx').on(table.lifecycleStatus),
+  }),
+);
+
+export const storageEntries = pgTable(
+  'storage_entries',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    categoryId: bigint('category_id', { mode: 'number' })
+      .notNull()
+      .references(() => storageCategories.id),
+    createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    sourceKind: varchar('source_kind', { length: 16 }).notNull(),
+    description: text('description'),
+    tags: jsonb('tags').notNull().default(sql`'[]'::jsonb`),
+    lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('active'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedByTelegramUserId: bigint('deleted_by_telegram_user_id', { mode: 'number' }).references(() => users.telegramUserId),
+  },
+  (table) => ({
+    categoryLookup: index('storage_entries_category_id_idx').on(table.categoryId),
+    lifecycleLookup: index('storage_entries_lifecycle_status_idx').on(table.lifecycleStatus),
+    creatorLookup: index('storage_entries_created_by_telegram_user_id_idx').on(table.createdByTelegramUserId),
+  }),
+);
+
+export const storageEntryMessages = pgTable(
+  'storage_entry_messages',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    entryId: bigint('entry_id', { mode: 'number' })
+      .notNull()
+      .references(() => storageEntries.id),
+    storageChatId: bigint('storage_chat_id', { mode: 'number' }).notNull(),
+    storageMessageId: integer('storage_message_id').notNull(),
+    storageThreadId: integer('storage_thread_id').notNull(),
+    telegramFileId: text('telegram_file_id'),
+    telegramFileUniqueId: text('telegram_file_unique_id'),
+    attachmentKind: varchar('attachment_kind', { length: 16 }).notNull(),
+    caption: text('caption'),
+    originalFileName: text('original_file_name'),
+    mimeType: text('mime_type'),
+    fileSizeBytes: integer('file_size_bytes'),
+    mediaGroupId: varchar('media_group_id', { length: 128 }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    entryLookup: index('storage_entry_messages_entry_id_idx').on(table.entryId),
+    uniqueMessage: uniqueIndex('storage_entry_messages_storage_message_unique').on(table.storageChatId, table.storageMessageId),
+    fileLookup: index('storage_entry_messages_telegram_file_unique_id_idx').on(table.telegramFileUniqueId),
+  }),
+);
