@@ -17,15 +17,16 @@ export function formatHtmlField(label: string, value: string): string {
 }
 
 export function formatDayHeading(dayKey: string, language: string = 'ca'): string {
-  const date = new Date(`${dayKey}T00:00:00.000Z`);
+  const date = buildLocalDateFromDayKey(dayKey);
   const locale = resolveLanguageLocale(language);
-  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(date);
-  const month = new Intl.DateTimeFormat(locale, { month: 'long', timeZone: 'UTC' }).format(date);
-  return `${capitalizeFirstLetter(weekday)} ${date.getUTCDate()} ${month}`;
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(date);
+  const month = new Intl.DateTimeFormat(locale, { month: 'long' }).format(date);
+  return `${capitalizeFirstLetter(weekday)} ${date.getDate()} ${month}`;
 }
 
 export function formatEventTime(startsAt: string): string {
-  return startsAt.slice(11, 16);
+  const date = new Date(startsAt);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 export function formatEventTimeRange(startsAt: string, durationMinutes: number): string {
@@ -40,7 +41,7 @@ export function sortScheduleEvents(events: ScheduleEventRecord[]): ScheduleEvent
 export function groupScheduleEventsByDay(events: ScheduleEventRecord[]): Map<string, ScheduleEventRecord[]> {
   const groups = new Map<string, ScheduleEventRecord[]>();
   for (const event of events) {
-    const dayKey = event.startsAt.slice(0, 10);
+    const dayKey = formatLocalDayKey(event.startsAt);
     const bucket = groups.get(dayKey) ?? [];
     bucket.push(event);
     groups.set(dayKey, bucket);
@@ -78,7 +79,7 @@ export function buildScheduleDayButtons({
   language: string;
   dayCallbackPrefix: string;
 }): NonNullable<TelegramReplyOptions['inlineKeyboard']> {
-  const dayKeys = Array.from(new Set(events.map((event) => event.startsAt.slice(0, 10))));
+  const dayKeys = Array.from(new Set(events.map((event) => formatLocalDayKey(event.startsAt))));
   return dayKeys.map((dayKey) => [{ text: formatScheduleDayButtonLabel(dayKey, language), callbackData: `${dayCallbackPrefix}${dayKey}` }]);
 }
 
@@ -158,7 +159,7 @@ export function buildScheduleDetailActionOptions({
 
 export function formatTimestamp(value: string): string {
   const date = new Date(value);
-  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCFullYear())} ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getFullYear())} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 export function buildUpcomingDateRows(language: string, now = new Date()): string[][] {
@@ -166,7 +167,7 @@ export function buildUpcomingDateRows(language: string, now = new Date()): strin
   const values: string[] = [];
 
   for (let index = 0; index < 6; index += 1) {
-    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + index));
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + index);
     values.push(formatUpcomingDateLabel(date, language));
   }
 
@@ -184,9 +185,8 @@ export function formatParticipantCount(occupiedSeats: number, capacity: number):
 function formatUpcomingDateLabel(date: Date, language: string): string {
   const weekday = new Intl.DateTimeFormat(resolveLanguageLocale(language), {
     weekday: 'long',
-    timeZone: 'UTC',
   }).format(date);
-  return `${capitalizeFirstLetter(weekday)}, ${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+  return `${capitalizeFirstLetter(weekday)}, ${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function resolveLanguageLocale(language: string): string {
@@ -207,9 +207,19 @@ function capitalizeFirstLetter(value: string): string {
 }
 
 function formatScheduleDayButtonLabel(dayKey: string, language: string): string {
-  const date = new Date(`${dayKey}T00:00:00.000Z`);
-  const weekday = new Intl.DateTimeFormat(resolveLanguageLocale(language), { weekday: 'long', timeZone: 'UTC' }).format(date);
-  return `Veure ${capitalizeFirstLetter(weekday)} ${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+  const date = buildLocalDateFromDayKey(dayKey);
+  const weekday = new Intl.DateTimeFormat(resolveLanguageLocale(language), { weekday: 'long' }).format(date);
+  return `Veure ${capitalizeFirstLetter(weekday)} ${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatLocalDayKey(isoTimestamp: string): string {
+  const date = new Date(isoTimestamp);
+  return `${String(date.getFullYear()).padStart(4, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function buildLocalDateFromDayKey(dayKey: string): Date {
+  const [yearText, monthText, dayText] = dayKey.split('-');
+  return new Date(Number(yearText), Number(monthText) - 1, Number(dayText));
 }
 
 function formatHourLabel(isoTimestamp: string): string {

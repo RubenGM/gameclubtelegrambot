@@ -107,7 +107,27 @@ export function parseDurationHoursMinutes(value: string): number | Error {
 }
 
 export function buildStartsAt(date: string, time: string): string {
-  return `${date}T${time}:00.000Z`;
+  const [yearText, monthText, dayText] = date.split('-');
+  const [hourText, minuteText] = time.split(':');
+  return new Date(
+    Number(yearText),
+    Number(monthText) - 1,
+    Number(dayText),
+    Number(hourText),
+    Number(minuteText),
+    0,
+    0,
+  ).toISOString();
+}
+
+export function formatLocalDateInput(isoTimestamp: string): string {
+  const date = new Date(isoTimestamp);
+  return `${String(date.getFullYear()).padStart(4, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+export function formatLocalTimeInput(isoTimestamp: string): string {
+  const date = new Date(isoTimestamp);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 export function parseEntityId(callbackData: string, prefix: string, kind: string): number {

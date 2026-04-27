@@ -58,6 +58,8 @@ import {
   asNullableString,
   buildTimeFromHourAndMinute,
   buildStartsAt,
+  formatLocalDateInput,
+  formatLocalTimeInput,
   parseCapacity,
   parseDate,
   parseDurationHours,
@@ -928,7 +930,7 @@ async function handleEditSession(
     return returnToEditMenu(context, event, data, { description, title: data.title ?? event.title });
   }
   if (stepKey === 'date') {
-    const currentDate = event.startsAt.slice(0, 10);
+    const currentDate = formatLocalDateInput(event.startsAt);
     const date = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? currentDate : parseDate(text);
     if (date instanceof Error) {
       await context.reply(texts.invalidDate, buildEditDateOptions(resolveBotLanguage(context), language));
@@ -937,7 +939,7 @@ async function handleEditSession(
     return returnToEditMenu(context, event, data, { date });
   }
   if (stepKey === 'time') {
-    const currentTime = event.startsAt.slice(11, 16);
+    const currentTime = formatLocalTimeInput(event.startsAt);
     if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
       return returnToEditMenu(context, event, data, { time: currentTime });
     }
@@ -955,7 +957,7 @@ async function handleEditSession(
     return true;
   }
   if (stepKey === 'time-minute') {
-    const currentTime = event.startsAt.slice(11, 16);
+    const currentTime = formatLocalTimeInput(event.startsAt);
     if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
       return returnToEditMenu(context, event, data, { time: currentTime });
     }
@@ -1134,7 +1136,7 @@ async function persistEditedScheduleEvent(
     description: Object.prototype.hasOwnProperty.call(data, 'description')
       ? asNullableString(data.description)
       : event.description,
-    startsAt: buildStartsAt(String(data.date ?? event.startsAt.slice(0, 10)), String(data.time ?? event.startsAt.slice(11, 16))),
+    startsAt: buildStartsAt(String(data.date ?? formatLocalDateInput(event.startsAt)), String(data.time ?? formatLocalTimeInput(event.startsAt))),
     durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
     organizerTelegramUserId: event.organizerTelegramUserId,
     tableId: asNullableNumber(data.tableId),

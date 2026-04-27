@@ -30,7 +30,7 @@ test('sendDueScheduleEventReminders sends reminders to active participants insid
     },
   });
 
-  assert.deepEqual(sent, [{ telegramUserId: 77, message: 'Recordatori: Wingspan comença el 28/04 a les 15:00.' }]);
+  assert.deepEqual(sent, [{ telegramUserId: 77, message: 'Recordatori: Wingspan comença el 28/04 a les 17:00.' }]);
   assert.deepEqual(reminderRepository.records, [{ scheduleEventId: 1, participantTelegramUserId: 77, leadHours: 24 }]);
   assert.deepEqual(result, { consideredEvents: 1, sentReminders: 1, skippedReminders: 0, failedReminders: 0 });
 });
@@ -109,8 +109,8 @@ test('sendDueScheduleEventReminders uses participant reminder preferences when c
   });
 
   assert.deepEqual(sent, [
-    { telegramUserId: 77, message: 'Recordatori: Now 2h comença el 27/04 a les 17:00.' },
-    { telegramUserId: 99, message: 'Recordatori: Now 2h comença el 27/04 a les 17:00.' },
+    { telegramUserId: 77, message: 'Recordatori: Now 2h comença el 27/04 a les 19:00.' },
+    { telegramUserId: 99, message: 'Recordatori: Now 2h comença el 27/04 a les 19:00.' },
   ]);
   assert.deepEqual(reminderRepository.records, [
     { scheduleEventId: 1, participantTelegramUserId: 77, leadHours: 2 },
