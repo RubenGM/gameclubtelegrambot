@@ -1153,7 +1153,8 @@ function resolveAuditRepository(context: StorageFlowContext) {
 }
 
 function buildStorageMenuOptions(language: 'ca' | 'es' | 'en', context?: StorageFlowContext): TelegramReplyOptions {
-  const texts = createTelegramI18n(language).storage;
+  const i18n = createTelegramI18n(language);
+  const texts = i18n.storage;
   const rows: Array<Array<string | TelegramReplyButton>> = [
     [primaryButton(texts.listCategories), primaryButton(texts.listFiles)],
     [secondaryButton(texts.searchFiles), primaryButton(texts.openEntry)],
@@ -1165,6 +1166,7 @@ function buildStorageMenuOptions(language: 'ca' | 'es' | 'en', context?: Storage
   if (context && canManageStorageEntries(context)) {
     rows.push([dangerButton(texts.deleteEntry)]);
   }
+  rows.push([i18n.actionMenu.start, i18n.actionMenu.help]);
   return {
     replyKeyboard: rows,
     resizeKeyboard: true,

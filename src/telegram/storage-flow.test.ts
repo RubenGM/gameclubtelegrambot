@@ -302,6 +302,7 @@ test('handleTelegramStorageText opens the storage submenu from the command entry
 
   assert.equal(replies[0]?.message, 'Almacenamiento: elige una acción.');
   assert.equal((replies[0]?.options?.replyKeyboard?.[0]?.[0] as { semanticRole?: string })?.semanticRole, 'primary');
+  assert.deepEqual(replies[0]?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
 });
 
 test('handleTelegramStorageText lists only categories the user can read', async () => {
