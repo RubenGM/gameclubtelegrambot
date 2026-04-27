@@ -95,6 +95,7 @@ export async function publishCalendarSnapshotToNewsGroups({
     : 'Calendari actualitzat: no hi ha activitats ni esdeveniments propers ara mateix.';
   const footer = await formatCalendarBroadcastFooter({
     change,
+    language: botLanguage ?? 'ca',
     resolveActorDisplayName,
   });
 
@@ -111,9 +112,11 @@ export async function publishCalendarSnapshotToNewsGroups({
 
 async function formatCalendarBroadcastFooter({
   change,
+  language,
   resolveActorDisplayName,
 }: {
   change: ScheduleCalendarChange;
+  language: string;
   resolveActorDisplayName: () => Promise<string>;
 }): Promise<string> {
   const userName = await resolveActorDisplayName();
@@ -124,5 +127,5 @@ async function formatCalendarBroadcastFooter({
         ? 'actualizado'
         : 'eliminado';
 
-  return `<i>${escapeHtml(userName)} ha ${actionLabel} la actividad ${escapeHtml(change.event.title)} del ${escapeHtml(formatDayHeading(change.event.startsAt.slice(0, 10)))}</i>`;
+  return `<i>${escapeHtml(userName)} ha ${actionLabel} la actividad ${escapeHtml(change.event.title)} del ${escapeHtml(formatDayHeading(change.event.startsAt.slice(0, 10), language))}</i>`;
 }

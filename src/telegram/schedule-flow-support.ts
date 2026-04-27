@@ -1277,7 +1277,7 @@ async function replyWithManageableEventList(
     return true;
   }
 
-  await context.reply(formatScheduleListMessage(events), {
+  await context.reply(formatScheduleListMessage(events, language), {
     parseMode: 'HTML',
     inlineKeyboard: events.map((event) => [
       {
@@ -1431,6 +1431,7 @@ async function replyWithInspectableEventList(
 
   const listMessage = await formatScheduleListWithVenueImpact({
     events: filteredEvents,
+    language,
     loadAttendance: async (eventId) => {
       const attendance = await getScheduleEventAttendance({
         repository: resolveScheduleRepository(context),

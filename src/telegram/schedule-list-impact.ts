@@ -11,11 +11,13 @@ import {
 
 export async function formatScheduleListWithVenueImpact({
   events,
+  language = 'ca',
   loadAttendance,
   loadTableName,
   loadRelevantVenueEvents,
 }: {
   events: ScheduleEventRecord[];
+  language?: string;
   loadAttendance: (eventId: number) => Promise<{ occupiedSeats: number; capacity: number; availableSeats: number }>;
   loadTableName: (event: ScheduleEventRecord) => Promise<string | null>;
   loadRelevantVenueEvents: (event: ScheduleEventRecord) => Promise<VenueEventRecord[]>;
@@ -27,7 +29,7 @@ export async function formatScheduleListWithVenueImpact({
     if (lines.length > 0) {
       lines.push('');
     }
-    lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
+    lines.push(`<b>${formatDayHeading(dayKey, language)}</b>`);
     for (const event of dayEvents) {
       const attendance = await loadAttendance(event.id);
       const attendanceSummary = event.attendanceMode === 'open'

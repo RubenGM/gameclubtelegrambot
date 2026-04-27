@@ -167,7 +167,6 @@ export function renderTelegramHelpMessage({
     lines.push(`${i18n.actionMenu.reviewAccess}: ${i18n.common.helpReviewAccessAction}`);
     lines.push(`${i18n.actionMenu.manageUsers}: ${i18n.common.helpManageUsersAction}`);
     lines.push(`${i18n.actionMenu.schedule}: ${i18n.common.helpScheduleAction}`);
-    lines.push(`${i18n.actionMenu.calendar}: ${i18n.common.helpCalendarAction}`);
     lines.push(`${i18n.actionMenu.tables}: ${i18n.common.helpTablesAction}`);
     lines.push(`${i18n.actionMenu.catalog}: ${i18n.common.helpCatalogAction}`);
     lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
@@ -179,7 +178,6 @@ export function renderTelegramHelpMessage({
   }
 
   lines.push(`${i18n.actionMenu.schedule}: ${i18n.common.helpScheduleAction}`);
-  lines.push(`${i18n.actionMenu.calendar}: ${i18n.common.helpCalendarAction}`);
   lines.push(`${i18n.actionMenu.tablesRead}: ${i18n.common.helpTablesAction}`);
   lines.push(`${i18n.actionMenu.catalog}: ${i18n.common.helpCatalogAction}`);
   lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);

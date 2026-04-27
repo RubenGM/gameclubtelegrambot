@@ -309,7 +309,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'buttons:Aprovar|Rebutjar',
     'reply:No hi ha cap usuari aprovat disponible per expulsar.',
     'reply:Usuari aprovat correctament.',
-    "reply:Què pots fer ara:\nRevisar sol·licituds: revisa i resol les sol·licituds pendents.\nAdministrar usuaris: administra usuaris aprovats i expulsions.\nActivitats: consulta i gestiona les activitats del club.\nCalendari: consulta activitats i esdeveniments propers.\nTaules: consulta les taules actives del local.\nCatàleg: explora jocs, llibres i préstecs.\nEmmagatzematge: consulta material guardat del club.\nCompres conjuntes: segueix i participa en comandes compartides.\nIdioma: canvia l'idioma del bot.\n\nToca un botó del menú per continuar.",
+    "reply:Què pots fer ara:\nRevisar sol·licituds: revisa i resol les sol·licituds pendents.\nAdministrar usuaris: administra usuaris aprovats i expulsions.\nActivitats: consulta i gestiona les activitats del club.\nTaules: consulta les taules actives del local.\nCatàleg: explora jocs, llibres i préstecs.\nEmmagatzematge: consulta material guardat del club.\nCompres conjuntes: segueix i participa en comandes compartides.\nIdioma: canvia l'idioma del bot.\n\nToca un botó del menú per continuar.",
     'start-polling',
     'stop-polling',
   ]);
@@ -936,7 +936,7 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Revisar sol·licituds', 'Administrar usuaris'], ['Activitats', 'Calendari'], ['Taules', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Revisar sol·licituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes'], ['Idioma', 'Ajuda']]);
   assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
   assert.match(replies[0]?.message ?? '', /sol·licituds/i);
   assert.match(replies[1]?.message ?? '', /Què pots fer ara/);
@@ -1062,15 +1062,14 @@ test('cancel restores the default action menu after an active flow', async () =>
         options: {
           menuId: 'private-approved-default',
           replyKeyboard: [
-            [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Calendari', semanticRole: 'primary' }],
-            [{ text: 'Taules', semanticRole: 'primary' }, { text: 'Catàleg', semanticRole: 'primary' }],
-            [{ text: 'Emmagatzematge', semanticRole: 'primary' }, { text: 'Compres conjuntes', semanticRole: 'primary' }],
+            [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
+            [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
+            [{ text: 'Compres conjuntes', semanticRole: 'primary' }],
             [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
           ],
-          actionRows: [['schedule', 'calendar'], ['tables_read', 'catalog'], ['storage', 'group_purchases'], ['language', 'help']],
+          actionRows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases'], ['language', 'help']],
           actions: [
             { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
-            { id: 'calendar', label: 'Calendari', telemetryActionKey: 'menu.calendar', uxSection: 'primary' },
             { id: 'tables_read', label: 'Taules', telemetryActionKey: 'menu.tables', uxSection: 'primary' },
             { id: 'catalog', label: 'Catàleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
             { id: 'storage', label: 'Emmagatzematge', telemetryActionKey: 'menu.storage', uxSection: 'primary' },
@@ -1610,7 +1609,7 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
 
   assert.equal(telegram.status.bot, 'connected');
   assert.match(replies[0]?.message ?? '', /Des del menú pots obrir activitats, taules i catàleg/);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Calendari'], ['Taules', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes'], ['Idioma', 'Ajuda']]);
   assert.deepEqual(auditEvents, [
     {
       actionKey: 'telegram.menu.shown',
@@ -1621,8 +1620,8 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
         chatKind: 'private',
         actorRole: 'member',
         language: 'ca',
-        visibleActionIds: ['schedule', 'calendar', 'tables_read', 'catalog', 'storage', 'group_purchases', 'language', 'help'],
-        visibleLabels: ['Activitats', 'Calendari', 'Taules', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'Idioma', 'Ajuda'],
+        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'storage', 'group_purchases', 'language', 'help'],
+        visibleLabels: ['Activitats', 'Taules', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'Idioma', 'Ajuda'],
       },
     },
   ]);

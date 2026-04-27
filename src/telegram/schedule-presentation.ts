@@ -16,8 +16,12 @@ export function formatHtmlField(label: string, value: string): string {
   return `<b>${escapeHtml(label)}:</b> ${value}`;
 }
 
-export function formatDayHeading(dayKey: string): string {
-  return dayKey.split('-').reverse().join('/');
+export function formatDayHeading(dayKey: string, language: string = 'ca'): string {
+  const date = new Date(`${dayKey}T00:00:00.000Z`);
+  const locale = resolveLanguageLocale(language);
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(date);
+  const month = new Intl.DateTimeFormat(locale, { month: 'long', timeZone: 'UTC' }).format(date);
+  return `${capitalizeFirstLetter(weekday)} ${date.getUTCDate()} ${month}`;
 }
 
 export function formatEventTime(startsAt: string): string {
@@ -45,7 +49,7 @@ export function groupScheduleEventsByDay(events: ScheduleEventRecord[]): Map<str
   return groups;
 }
 
-export function formatScheduleListMessage(events: ScheduleEventRecord[]): string {
+export function formatScheduleListMessage(events: ScheduleEventRecord[], language: string = 'ca'): string {
   const groupedEvents = groupScheduleEventsByDay(sortScheduleEvents(events));
   const lines: string[] = [];
 
@@ -53,7 +57,7 @@ export function formatScheduleListMessage(events: ScheduleEventRecord[]): string
     if (lines.length > 0) {
       lines.push('');
     }
-    lines.push(`<b>${formatDayHeading(dayKey)}</b>`);
+    lines.push(`<b>${formatDayHeading(dayKey, language)}</b>`);
     for (const event of dayEvents) {
       lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)}) · ${event.capacity} places`);
       if (event.description) {
