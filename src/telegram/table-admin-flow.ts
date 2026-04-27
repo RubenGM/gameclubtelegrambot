@@ -16,6 +16,7 @@ import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
 import { formatTelegramTableDetails, formatTelegramTableListMessage } from './table-presentation.js';
 
 const createFlowKey = 'table-admin-create';
@@ -472,17 +473,8 @@ async function handleDeactivateSession(
 }
 
 function buildTableAdminMenuOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const i18n = createTelegramI18n(language);
-  const texts = i18n.tableAdmin;
-  return {
-    replyKeyboard: [
-      [texts.create, texts.list],
-      [texts.edit, texts.deactivate],
-      [i18n.actionMenu.start, i18n.actionMenu.help],
-    ],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
+  const texts = createTelegramI18n(language).tableAdmin;
+  return buildSubmenuReplyKeyboard({ language, rows: [[texts.create, texts.list], [texts.edit, texts.deactivate]] });
 }
 
 function resolveAuditRepository(context: TelegramTableAdminContext): AuditLogRepository {

@@ -1,17 +1,16 @@
 import type { CatalogItemType } from '../catalog/catalog-model.js';
 import { createTelegramI18n } from './i18n.js';
 import type { TelegramReplyButton, TelegramReplyKeyboardButton, TelegramReplyOptions } from './runtime-boundary.js';
+import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
 
 export function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
-  const i18n = createTelegramI18n(language);
-  const texts = i18n.catalogAdmin;
-  return buildReplyKeyboard([
+  const texts = createTelegramI18n(language).catalogAdmin;
+  return buildSubmenuReplyKeyboard({ language, rows: [
     [texts.create, texts.listBoardGames],
     [texts.listBooks, texts.listRpgBooks],
     [texts.listExpansions, texts.searchByName],
     [texts.importBggCollection],
-    [i18n.actionMenu.start, i18n.actionMenu.help],
-  ]);
+  ] });
 }
 
 export function buildTypeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {

@@ -13,6 +13,7 @@ import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { TelegramInteractionError, type TelegramCommandHandlerContext } from './command-registry.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
+import { buildGlobalNavigationRow, buildPersistentReplyKeyboard } from './submenu-keyboards.js';
 
 const storageUploadFlowKey = 'storage-upload';
 const storageListFlowKey = 'storage-list';
@@ -1153,8 +1154,7 @@ function resolveAuditRepository(context: StorageFlowContext) {
 }
 
 function buildStorageMenuOptions(language: 'ca' | 'es' | 'en', context?: StorageFlowContext): TelegramReplyOptions {
-  const i18n = createTelegramI18n(language);
-  const texts = i18n.storage;
+  const texts = createTelegramI18n(language).storage;
   const rows: Array<Array<string | TelegramReplyButton>> = [
     [primaryButton(texts.listCategories), primaryButton(texts.listFiles)],
     [secondaryButton(texts.searchFiles), primaryButton(texts.openEntry)],
@@ -1166,12 +1166,8 @@ function buildStorageMenuOptions(language: 'ca' | 'es' | 'en', context?: Storage
   if (context && canManageStorageEntries(context)) {
     rows.push([dangerButton(texts.deleteEntry)]);
   }
-  rows.push([i18n.actionMenu.start, i18n.actionMenu.help]);
-  return {
-    replyKeyboard: rows,
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
+  rows.push(buildGlobalNavigationRow(language));
+  return buildPersistentReplyKeyboard(rows);
 }
 
 function buildCategoryChoiceOptions(categories: StorageCategoryRecord[], language: 'ca' | 'es' | 'en'): TelegramReplyOptions {

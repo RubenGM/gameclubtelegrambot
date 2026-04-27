@@ -29,7 +29,7 @@ Aquest document recull millores funcionals detectades durant la revisio del bot.
 | F-014 | Dashboard admin al bot | pendent | mitjana | Admin | Resum amb sollicituds pendents, activitats proximes, compres obertes, prestecs actius i storage. |
 | F-015 | Gestio de permisos des del bot | pendent | baixa | Admin/Permisos | El motor de permisos existeix, pero falta una UI admin per concedir/revocar permisos globals o per recurs. |
 | F-016 | Agrupar menu admin per categories | pendent | baixa | UX admin | Si el menu admin creix, agrupar per Club, Activitat, Material i Comunicacio. |
-| F-017 | Helpers compartits per teclats de submenus | pendent | baixa | Mantenibilitat | Evitar inconsistencies entre fluxos que construeixen teclats propis i el menu global. |
+| F-017 | Helpers compartits per teclats de submenus | fet | baixa | Mantenibilitat | Afegit helper compartit per reply keyboards persistents i fila global `Inici/Ajuda`; adoptat als submenus principals per reduir inconsistencies. |
 
 ## Estat actual rellevant
 

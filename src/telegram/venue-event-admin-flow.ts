@@ -17,6 +17,7 @@ import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
 
 const createFlowKey = 'venue-event-admin-create';
 const editFlowKey = 'venue-event-admin-edit';
@@ -487,13 +488,8 @@ async function loadVenueEventOrThrow(context: TelegramVenueEventAdminContext, ev
 }
 
 function buildVenueEventMenuOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const i18n = createTelegramI18n(language);
-  const texts = i18n.venueEventAdmin;
-  return {
-    replyKeyboard: [[texts.create, texts.list], [texts.edit, texts.cancel], [i18n.actionMenu.start, i18n.actionMenu.help]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
+  const texts = createTelegramI18n(language).venueEventAdmin;
+  return buildSubmenuReplyKeyboard({ language, rows: [[texts.create, texts.list], [texts.edit, texts.cancel]] });
 }
 
 function buildSingleCancelKeyboard(): TelegramReplyOptions {

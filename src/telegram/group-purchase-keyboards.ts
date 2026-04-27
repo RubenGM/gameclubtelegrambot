@@ -1,6 +1,7 @@
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import type { TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { buildUpcomingDateRows } from './schedule-presentation.js';
+import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
 
 export const groupPurchaseLabels = {
   openMenu: 'Compres conjuntes',
@@ -9,14 +10,8 @@ export const groupPurchaseLabels = {
 } as const;
 
 export function buildGroupPurchaseMenuOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
-  const i18n = createTelegramI18n(language);
-  const texts = i18n.groupPurchases;
-
-  return {
-    replyKeyboard: [[texts.list, texts.create], [i18n.actionMenu.start, i18n.actionMenu.help]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
+  const texts = createTelegramI18n(language).groupPurchases;
+  return buildSubmenuReplyKeyboard({ language, rows: [[texts.list, texts.create]] });
 }
 
 export function buildGroupPurchaseSingleCancelKeyboard(): TelegramReplyOptions {

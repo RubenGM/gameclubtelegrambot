@@ -1,6 +1,7 @@
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import { buildUpcomingDateRows } from './schedule-presentation.js';
 import type { TelegramReplyButton, TelegramReplyKeyboardButton, TelegramReplyOptions } from './runtime-boundary.js';
+import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
 
 export const scheduleLabels = {
   openMenu: 'Activitats',
@@ -41,13 +42,8 @@ export const scheduleLabels = {
 } as const;
 
 export function buildScheduleMenuOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
-  const i18n = createTelegramI18n(language);
-  const texts = i18n.schedule;
-  return {
-    replyKeyboard: [[texts.list, texts.create], [texts.edit, texts.cancel], [i18n.actionMenu.start, i18n.actionMenu.help]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
+  const texts = createTelegramI18n(language).schedule;
+  return buildSubmenuReplyKeyboard({ language, rows: [[texts.list, texts.create], [texts.edit, texts.cancel]] });
 }
 
 export function buildReminderPreferenceOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
