@@ -1370,7 +1370,7 @@ test('createTelegramBoundary routes plain text keyboard actions for admin table 
     {
       message: 'Gestió de taules: tria una acció.',
       options: {
-        replyKeyboard: [['Crear taula', 'Llistar taules'], ['Editar taula', 'Desactivar taula'], ['Inici']],
+        replyKeyboard: [['Crear taula', 'Llistar taules'], ['Editar taula', 'Desactivar taula'], ['Inici', 'Ajuda']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },

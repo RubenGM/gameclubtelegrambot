@@ -377,7 +377,7 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
     [catalogAdminLabels.listBooks, catalogAdminLabels.listRpgBooks],
     [catalogAdminLabels.listExpansions, catalogAdminLabels.searchByName],
     ['Importar col·lecció BGG'],
-    [catalogAdminLabels.start],
+    [catalogAdminLabels.start, 'Ajuda'],
   ]);
 });
 
@@ -393,7 +393,7 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
     ['Listar libros', 'Listar libros RPG'],
     ['Listar expansiones', 'Buscar por nombre'],
     ['Importar colección BGG'],
-    ['Inicio'],
+    ['Inicio', 'Ayuda'],
   ]);
 
   context.messageText = 'Listar juegos de mesa';

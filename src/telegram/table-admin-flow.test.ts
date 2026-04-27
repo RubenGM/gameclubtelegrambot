@@ -228,7 +228,7 @@ test('handleTelegramTableAdminText opens the admin table menu from the keyboard 
     replyKeyboard: [
       [tableAdminLabels.create, tableAdminLabels.list],
       [tableAdminLabels.edit, tableAdminLabels.deactivate],
-      [tableAdminLabels.start],
+      [tableAdminLabels.start, 'Ajuda'],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,

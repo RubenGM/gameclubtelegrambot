@@ -10,7 +10,7 @@ export function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): Tele
     [texts.listBooks, texts.listRpgBooks],
     [texts.listExpansions, texts.searchByName],
     [texts.importBggCollection],
-    [i18n.actionMenu.start],
+    [i18n.actionMenu.start, i18n.actionMenu.help],
   ]);
 }
 

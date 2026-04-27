@@ -478,7 +478,7 @@ function buildTableAdminMenuOptions(language: 'ca' | 'es' | 'en' = 'ca'): Telegr
     replyKeyboard: [
       [texts.create, texts.list],
       [texts.edit, texts.deactivate],
-      [i18n.actionMenu.start],
+      [i18n.actionMenu.start, i18n.actionMenu.help],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
