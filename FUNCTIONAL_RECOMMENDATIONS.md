@@ -19,7 +19,7 @@ Aquest document recull millores funcionals detectades durant la revisio del bot.
 | F-004 | Exposar `Calendari` o crear `Avui al club` | descartat | alta | Activitats | No es fara: exposar `Calendari` com a boto separat duplica `Activitats`. Es conserva la millora de dates llegibles al llistat d'activitats. |
 | F-005 | Pantalla `Avui al club` | fet | alta | Resum usuari | Primera versio al missatge d'`Inici`: activitats d'avui i esdeveniments del local d'avui per a usuaris aprovats en privat. Taules, compres i prestecs queden fora d'aquest abast inicial. |
 | F-006 | Integrar disponibilitat de prestecs amb activitats | fet | alta | Cataleg/Activitats | En crear una partida des d'un joc del cataleg, el bot avisa si el material esta prestat i deixa continuar sense bloquejar el flux. |
-| F-007 | Cerca guiada al cataleg | pendent | mitjana | Cataleg | Afegir boto `Cercar/Buscar` dins del cataleg per iniciar un flux de cerca sense recordar `/catalog_search`. |
+| F-007 | Cerca guiada al cataleg | fet | mitjana | Cataleg | Ja existia com a boto localitzat `Cerca per nom` / `Buscar por nombre` / `Search by name` dins del cataleg, iniciant el flux de cerca sense recordar `/catalog_search`. |
 | F-008 | Recordatoris d'activitats | pendent | mitjana | Notificacions | Enviar recordatori abans d'una activitat, configurable per defecte. |
 | F-009 | Recordatoris de compres conjuntes | pendent | mitjana | Compres conjuntes | Avisar abans del deadline d'apuntar-se o confirmar-se. |
 | F-010 | Recordatoris de prestecs | pendent | mitjana | Cataleg/Prestecs | Avisar quan s'apropa o passa la data prevista de retorn. |
