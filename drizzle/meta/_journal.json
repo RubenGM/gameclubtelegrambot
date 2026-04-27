@@ -141,6 +141,13 @@
       "when": 1777310414426,
       "tag": "0019_freezing_skreet",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1777312374300,
+      "tag": "0020_striped_warpath",
+      "breakpoints": true
     }
   ]
 }

@@ -445,6 +445,33 @@ export const groupPurchaseMessages = pgTable(
   }),
 );
 
+export const groupPurchaseReminders = pgTable(
+  'group_purchase_reminders',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    purchaseId: bigint('purchase_id', { mode: 'number' })
+      .notNull()
+      .references(() => groupPurchases.id),
+    participantTelegramUserId: bigint('participant_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    reminderKind: varchar('reminder_kind', { length: 32 }).notNull(),
+    leadHours: integer('lead_hours').notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueReminder: uniqueIndex('group_purchase_reminders_unique_delivery').on(
+      table.purchaseId,
+      table.participantTelegramUserId,
+      table.reminderKind,
+      table.leadHours,
+    ),
+    purchaseLookup: index('group_purchase_reminders_purchase_id_idx').on(table.purchaseId),
+    participantLookup: index('group_purchase_reminders_participant_telegram_user_id_idx').on(table.participantTelegramUserId),
+  }),
+);
+
 export const storageCategories = pgTable(
   'storage_categories',
   {
