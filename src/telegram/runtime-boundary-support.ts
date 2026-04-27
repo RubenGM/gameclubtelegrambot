@@ -36,6 +36,7 @@ export interface TelegramBoundaryStatus {
 
 export interface TelegramBoundary {
   status: TelegramBoundaryStatus;
+  sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -285,6 +286,7 @@ export async function createTelegramBoundary({
       status: {
         bot: 'connected',
       },
+      sendPrivateMessage: bot.sendPrivateMessage.bind(bot),
       async stop() {
         await bot.stopPolling();
         logger.info({}, 'Telegram bot long polling stopped');

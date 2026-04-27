@@ -74,6 +74,7 @@ test('createApp exposes clean startup boundaries before external integrations ex
       status: {
         bot: 'connected',
       },
+      sendPrivateMessage: async () => {},
       stop: async () => {},
     }),
   });
@@ -172,6 +173,7 @@ test('createApp passes infrastructure services into Telegram startup', async () 
         status: {
           bot: 'connected',
         },
+        sendPrivateMessage: async () => {},
         stop: async () => {},
       };
     },
@@ -206,6 +208,7 @@ test('createApp stops Telegram before infrastructure during shutdown', async () 
       status: {
         bot: 'connected',
       },
+      sendPrivateMessage: async () => {},
       stop: async () => {
         events.push('stop:telegram');
       },
@@ -216,6 +219,51 @@ test('createApp stops Telegram before infrastructure during shutdown', async () 
   await app.stop();
 
   assert.deepEqual(events, ['stop:telegram', 'stop:infrastructure']);
+});
+
+test('createApp starts and stops schedule reminder worker with the app lifecycle', async () => {
+  const events: string[] = [];
+  const logger = {
+    info: (_bindings: object, _message: string) => {},
+  };
+
+  const app = createApp({
+    config: runtimeConfig,
+    logger,
+    startInfrastructure: async () => ({
+      status: {
+        database: 'connected',
+      },
+      services: {
+        database: databaseConnection,
+      },
+      stop: async () => {
+        events.push('stop:infrastructure');
+      },
+    }),
+    startTelegram: async () => ({
+      status: {
+        bot: 'connected',
+      },
+      sendPrivateMessage: async () => {},
+      stop: async () => {
+        events.push('stop:telegram');
+      },
+    }),
+    startScheduleReminders: () => ({
+      start: async () => {
+        events.push('start:reminders');
+      },
+      stop: async () => {
+        events.push('stop:reminders');
+      },
+    }),
+  });
+
+  await app.start();
+  await app.stop();
+
+  assert.deepEqual(events, ['start:reminders', 'stop:reminders', 'stop:telegram', 'stop:infrastructure']);
 });
 
 test('createApp surfaces telegram runtime failures to subscribers', async () => {
@@ -244,6 +292,7 @@ test('createApp surfaces telegram runtime failures to subscribers', async () => 
         status: {
           bot: 'connected',
         },
+        sendPrivateMessage: async () => {},
         stop: async () => {},
       };
     },
@@ -285,6 +334,7 @@ test('createApp attempts infrastructure shutdown even when Telegram stop fails',
       status: {
         bot: 'connected',
       },
+      sendPrivateMessage: async () => {},
       stop: async () => {
         events.push('stop:telegram');
         throw new Error('telegram stop failed');

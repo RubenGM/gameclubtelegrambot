@@ -10,6 +10,10 @@ import {
   type TelegramBoundary,
   type TelegramFatalRuntimeErrorHandler,
 } from '../telegram/runtime-boundary.js';
+import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
+import { createDatabaseScheduleEventReminderRepository } from '../schedule/schedule-reminder-store.js';
+import { sendDueScheduleEventReminders } from '../schedule/schedule-reminders.js';
+import { createScheduleReminderWorker, type ScheduleReminderWorker } from '../schedule/schedule-reminder-worker.js';
 
 export interface LoggerLike {
   info(bindings: object, message: string): void;
@@ -24,6 +28,10 @@ export interface CreateAppOptions {
     services: InfrastructureRuntimeServices;
     onFatalRuntimeError: TelegramFatalRuntimeErrorHandler;
   }) => Promise<TelegramBoundary>;
+  startScheduleReminders?: (options: {
+    services: InfrastructureRuntimeServices;
+    telegram: TelegramBoundary;
+  }) => ScheduleReminderWorker;
 }
 
 export interface App {
@@ -53,9 +61,27 @@ export function createApp({
       },
       onFatalRuntimeError,
     }),
+  startScheduleReminders = ({ services, telegram }) =>
+    createScheduleReminderWorker({
+      enabled: config.notifications.defaults.eventRemindersEnabled,
+      intervalMs: 60_000,
+      logger: {
+        error: logger.error?.bind(logger) ?? (() => {}),
+      },
+      runOnce: async () => {
+        await sendDueScheduleEventReminders({
+          scheduleRepository: createDatabaseScheduleRepository({ database: services.database.db }),
+          reminderRepository: createDatabaseScheduleEventReminderRepository({ database: services.database.db }),
+          leadHours: config.notifications.defaults.eventReminderLeadHours,
+          language: config.bot.language,
+          sendPrivateMessage: telegram.sendPrivateMessage,
+        });
+      },
+    }),
 }: CreateAppOptions): App {
   let infrastructure: InfrastructureBoundary | undefined;
   let telegram: TelegramBoundary | undefined;
+  let scheduleReminders: ScheduleReminderWorker | undefined;
   const fatalRuntimeErrorHandlers = new Set<TelegramFatalRuntimeErrorHandler>();
   const emitFatalRuntimeError = (error: unknown) => {
     for (const handler of fatalRuntimeErrorHandlers) {
@@ -75,6 +101,8 @@ export function createApp({
           services: infrastructure.services,
           onFatalRuntimeError: emitFatalRuntimeError,
         });
+        scheduleReminders = startScheduleReminders({ services: infrastructure.services, telegram });
+        await scheduleReminders.start();
       } catch (error) {
         await infrastructure.stop();
         infrastructure = undefined;
@@ -105,6 +133,9 @@ export function createApp({
 
       if (telegram) {
         try {
+          if (scheduleReminders) {
+            await scheduleReminders.stop();
+          }
           await telegram.stop();
         } catch (error) {
           shutdownErrors.push(normalizeError(error, 'Telegram shutdown failed'));
@@ -120,6 +151,7 @@ export function createApp({
       }
 
       telegram = undefined;
+      scheduleReminders = undefined;
       infrastructure = undefined;
 
       if (shutdownErrors[0]) {

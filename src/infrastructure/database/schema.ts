@@ -246,6 +246,31 @@ export const scheduleEventParticipants = pgTable(
   }),
 );
 
+export const scheduleEventReminders = pgTable(
+  'schedule_event_reminders',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    scheduleEventId: bigint('schedule_event_id', { mode: 'number' })
+      .notNull()
+      .references(() => scheduleEvents.id),
+    participantTelegramUserId: bigint('participant_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    leadHours: integer('lead_hours').notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueReminder: uniqueIndex('schedule_event_reminders_unique_delivery').on(
+      table.scheduleEventId,
+      table.participantTelegramUserId,
+      table.leadHours,
+    ),
+    eventLookup: index('schedule_event_reminders_schedule_event_id_idx').on(table.scheduleEventId),
+    participantLookup: index('schedule_event_reminders_participant_telegram_user_id_idx').on(table.participantTelegramUserId),
+  }),
+);
+
 export const venueEvents = pgTable('venue_events', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
