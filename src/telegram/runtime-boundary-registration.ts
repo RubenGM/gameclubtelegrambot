@@ -75,6 +75,7 @@ import {
 import {
   handleTelegramStorageCommand,
   handleTelegramStorageMessage,
+  handleTelegramStorageStartText,
   handleTelegramStorageText,
 } from './storage-flow.js';
 import {
@@ -583,6 +584,9 @@ function createDefaultCommands({
           return;
         }
         if (await handleTelegramGroupPurchaseStartText({ ...context })) {
+          return;
+        }
+        if (await handleTelegramStorageStartText({ ...context })) {
           return;
         }
         if (await handleTelegramVenueEventAdminStartText({ ...context })) {

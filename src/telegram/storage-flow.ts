@@ -118,6 +118,21 @@ export async function handleTelegramStorageCommand(context: StorageFlowContext):
   await context.reply(texts.selectMenu, buildStorageMenuOptions(language, context));
 }
 
+export async function handleTelegramStorageStartText(context: StorageFlowContext): Promise<boolean> {
+  const text = context.messageText?.trim();
+  if (!text || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
+    return false;
+  }
+
+  const entryId = parseStartPayload(text, storageEntryStartPayloadPrefix);
+  if (entryId === null) {
+    return false;
+  }
+
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  return sendStorageEntryDetail(context, entryId, language);
+}
+
 export async function handleTelegramStorageText(context: StorageFlowContext): Promise<boolean> {
   const text = context.messageText?.trim();
   if (!text || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
@@ -128,9 +143,8 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   const i18n = createTelegramI18n(language);
   const texts = i18n.storage;
   const actionMenuTexts = i18n.actionMenu;
-  const startEntryId = parseStartPayload(text, storageEntryStartPayloadPrefix);
-  if (startEntryId !== null) {
-    return sendStorageEntryDetail(context, startEntryId, language);
+  if (await handleTelegramStorageStartText(context)) {
+    return true;
   }
 
   if (context.runtime.session.current?.flowKey === storageUploadFlowKey) {
