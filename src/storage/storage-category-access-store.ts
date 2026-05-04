@@ -1,15 +1,20 @@
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { auditLog, userPermissionAssignments, userPermissionAuditLog, users } from '../infrastructure/database/schema.js';
 
 export interface StorageCategoryAccessUserRecord {
   telegramUserId: number;
+  username: string | null;
+  displayName: string;
   status: string;
+  isAdmin: boolean;
 }
 
 export interface StorageCategoryAccessRepository {
   findUserByTelegramUserId(telegramUserId: number): Promise<StorageCategoryAccessUserRecord | null>;
+  listApprovedUsers(): Promise<StorageCategoryAccessUserRecord[]>;
+  listCategoryAccessUsers(categoryId: number): Promise<StorageCategoryAccessUserRecord[]>;
   grantCategoryAccess(input: {
     subjectTelegramUserId: number;
     categoryId: number;
@@ -34,11 +39,67 @@ export function createDatabaseStorageCategoryAccessRepository({
       const rows = await database
         .select({
           telegramUserId: users.telegramUserId,
+          username: users.username,
+          displayName: users.displayName,
           status: users.status,
+          isAdmin: users.isAdmin,
         })
         .from(users)
         .where(eq(users.telegramUserId, telegramUserId));
       return rows[0] ?? null;
+    },
+    async listApprovedUsers() {
+      const rows = await database
+        .select({
+          telegramUserId: users.telegramUserId,
+          username: users.username,
+          displayName: users.displayName,
+          status: users.status,
+          isAdmin: users.isAdmin,
+        })
+        .from(users)
+        .where(and(eq(users.status, 'approved'), eq(users.isAdmin, false)))
+        .orderBy(asc(users.displayName), asc(users.telegramUserId));
+
+      return rows;
+    },
+    async listCategoryAccessUsers(categoryId) {
+      const rows = await database
+        .select({
+          telegramUserId: users.telegramUserId,
+          username: users.username,
+          displayName: users.displayName,
+          status: users.status,
+          isAdmin: users.isAdmin,
+          effect: userPermissionAssignments.effect,
+        })
+        .from(userPermissionAssignments)
+        .innerJoin(users, eq(userPermissionAssignments.subjectTelegramUserId, users.telegramUserId))
+        .where(
+          and(
+            eq(users.status, 'approved'),
+            eq(users.isAdmin, false),
+            inArray(userPermissionAssignments.permissionKey, [...categoryPermissionKeys]),
+            eq(userPermissionAssignments.scopeType, 'resource'),
+            eq(userPermissionAssignments.resourceType, 'storage-category'),
+            eq(userPermissionAssignments.resourceId, String(categoryId)),
+            eq(userPermissionAssignments.effect, 'allow'),
+          ),
+        )
+        .orderBy(asc(users.displayName), asc(users.telegramUserId));
+
+      const uniqueUsers = new Map<number, StorageCategoryAccessUserRecord>();
+      for (const row of rows) {
+        uniqueUsers.set(row.telegramUserId, {
+          telegramUserId: row.telegramUserId,
+          username: row.username,
+          displayName: row.displayName,
+          status: row.status,
+          isAdmin: row.isAdmin,
+        });
+      }
+
+      return Array.from(uniqueUsers.values());
     },
     async grantCategoryAccess({ subjectTelegramUserId, categoryId, changedByTelegramUserId }) {
       await database.transaction(async (tx) => {

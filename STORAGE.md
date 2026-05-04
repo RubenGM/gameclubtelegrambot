@@ -6,18 +6,15 @@ Este documento es la referencia funcional y tecnica de `Storage`: que esta hecho
 
 ## Estado ejecutivo
 
-Estado actual: `parcial`.
+Estado actual: `operativo parcial`.
 
-La base funcional esta implementada: categorias, permisos, indice en PostgreSQL, subida por DM, subida directa en topics, busqueda, apertura de entradas y borrado logico. La parte incompleta no es el almacenamiento en si, sino la experiencia de configuracion: crear una categoria aun obliga al admin a escribir manualmente `storageChatId` y `storageThreadId`.
+La base funcional esta implementada: categorias, permisos, indice en PostgreSQL, subida por DM, subida directa en topics, busqueda, apertura de entradas y borrado logico. Crear una categoria ya tiene un flujo guiado: el admin comparte el supergrupo de storage, el bot valida el chat, crea el topic automaticamente y guarda `storageChatId` y `storageThreadId`. La entrada manual sigue disponible como fallback.
 
-La siguiente iteracion debe centrarse en alta guiada de categorias:
+La siguiente iteracion debe centrarse en pulir recuperacion y operaciones avanzadas:
 
-- seleccionar el supergrupo con un boton `request_chat`
-- capturar `chat_shared` en el runtime
-- validar que el chat sirve para storage
-- crear el topic con `createForumTopic`
-- guardar automaticamente `storageChatId` y `storageThreadId`
-- mantener entrada manual solo como fallback asistido
+- revision manual de entradas marcadas como `missing_source`
+- posible borrado fisico opcional en Telegram
+- indexado de contenido interno si el club lo necesita
 
 ## Objetivo de la feature
 
@@ -367,24 +364,25 @@ Limitacion:
 
 ### Crear categoria
 
-Estado: hecho tecnicamente, pendiente de UX guiada.
+Estado: hecho con flujo guiado y fallback manual.
 
-Flujo actual:
+Flujo guiado:
 
 - `slug`
 - nombre visible
 - descripcion opcional
-- `storageChatId`
-- `storageThreadId`
+- compartir supergrupo con boton de Telegram
+- validar que el chat sea supergrupo con topics
+- validar que el bot sea administrador y pueda gestionar topics
+- crear automaticamente el topic con el nombre visible de la categoria
+- guardar automaticamente `storageChatId` y `storageThreadId`
 
-Problema:
+Fallback manual:
 
-- el admin debe conocer ids internos de Telegram
-- es facil equivocarse de chat o topic
-- el bot no valida que el chat sea supergrupo con topics
-- el bot no crea el topic automaticamente
-
-Este es el principal hueco de la feature.
+- el admin puede elegir `Entrada manual`
+- el bot pide `storageChatId`
+- el bot pide `storageThreadId`
+- se conserva para migraciones, recuperaciones o casos donde Telegram no permita completar el flujo guiado
 
 ### Archivar categoria
 
@@ -423,27 +421,30 @@ Estado: hecho.
 Flujo actual:
 
 - elegir categoria
-- introducir id numerico de usuario Telegram
-- validar que el usuario exista y este aprobado
+- elegir usuario aprobado desde el teclado
 - escribir permisos por recurso
 
-Limitacion:
+Pantalla de accesos:
 
-- no hay buscador/listado de usuarios en el flujo
-- no hay pantalla de usuarios con acceso por categoria
+- muestra usuarios con acceso directo a una categoria
+- excluye admins porque ya tienen override global
+
+Fallback:
+
+- si hace falta, el flujo sigue aceptando un id numerico escrito manualmente
 
 ## Que falta
 
 ### S-001. Alta guiada de categorias
 
-Estado: pendiente.
+Estado: hecho.
 
 Objetivo:
 
 - dejar de pedir `storageChatId` y `storageThreadId` como prompts crudos
 - permitir que el bot resuelva esos datos desde Telegram
 
-Alcance recomendado para la proxima iteracion:
+Implementado:
 
 - boton `request_chat` para compartir el supergrupo de storage
 - captura de `chat_shared` o equivalente en runtime
@@ -454,9 +455,9 @@ Alcance recomendado para la proxima iteracion:
 
 ### S-002. Validacion operativa del chat de storage
 
-Estado: pendiente.
+Estado: hecho para el alta guiada.
 
-Validaciones deseadas:
+Validaciones actuales:
 
 - el chat compartido es supergrupo
 - el chat tiene topics/foro activados
@@ -464,15 +465,16 @@ Validaciones deseadas:
 - el bot tiene permisos suficientes
 - el bot puede crear topics
 
-APIs esperadas:
+APIs usadas:
 
 - `getChat`
+- `getMe`
 - `getChatMember`
 - `createForumTopic`
 
 ### S-003. Pantalla de accesos por categoria
 
-Estado: pendiente.
+Estado: hecho.
 
 Objetivo:
 
@@ -488,7 +490,7 @@ Implementacion esperada:
 
 ### S-004. Mejor seleccion de usuarios al conceder/revocar acceso
 
-Estado: pendiente.
+Estado: hecho para usuarios aprobados.
 
 Objetivo:
 
@@ -496,13 +498,13 @@ Objetivo:
 
 Implementacion esperada:
 
-- listar usuarios aprobados paginados o filtrables
-- usar botones inline o reply keyboard por nombre visible
-- conservar entrada manual como fallback
+- listar usuarios aprobados no admin
+- usar reply keyboard por nombre visible y username
+- conservar entrada manual por id como fallback
 
 ### S-005. Marcado de fuente perdida
 
-Estado: pendiente.
+Estado: hecho en apertura de entrada.
 
 Objetivo:
 
@@ -510,9 +512,10 @@ Objetivo:
 
 Implementacion posible:
 
-- capturar errores de `copyMessage` al abrir entrada
-- si Telegram indica mensaje no encontrado o inaccesible, marcar entrada como `missing_source`
-- avisar a admins o registrar auditoria
+- captura errores de `copyMessage` al abrir entrada
+- marca la entrada como `missing_source`
+- registra auditoria
+- avisa al usuario
 
 ### S-006. Borrado fisico opcional en Telegram
 
@@ -546,205 +549,46 @@ Posibles extensiones futuras:
 
 No debe bloquear la siguiente iteracion.
 
-## Como completar S-001 y S-002
+## Alta guiada de categorias
 
-### Paso 1. Extender tipos de teclado para `request_chat`
+El alta guiada de categorias ya esta implementada.
 
-Ficheros esperados:
+Piezas tecnicas usadas:
 
-- `src/telegram/runtime-boundary.ts`
-- `src/telegram/runtime-boundary-registration.ts`
-- tests en `src/telegram/runtime-boundary.test.ts`
+- `request_chat` en reply keyboard para compartir el supergrupo.
+- `chat_shared` transportado hasta `TelegramCommandHandlerContext.sharedChat`.
+- `getChat` para validar que el chat sea `supergroup`.
+- `isForum` para exigir topics activados.
+- `getMe` y `getChatMember` para validar permisos del bot.
+- `createForumTopic` para crear el topic canonico de la categoria.
 
-Trabajo:
+Fallback:
 
-- asegurar que `TelegramReplyKeyboardButton` puede representar `requestChat`
-- emitir raw `request_chat` en `toRawReplyKeyboardButton`
-- usar un `request_id` estable para el flujo de storage
-
-Nota:
-
-- parte del soporte raw de `request_chat` ya existe en `toRawReplyKeyboardButton`; hay que verificar si cubre todos los campos necesarios y tests.
-
-### Paso 2. Capturar `chat_shared` en el runtime
-
-Ficheros esperados:
-
-- `src/telegram/runtime-boundary-support.ts`
-- `src/telegram/command-registry.ts`
-- tests en `src/telegram/runtime-boundary.test.ts`
-
-Trabajo:
-
-- detectar mensajes de Telegram con `chat_shared`
-- exponer en el contexto campos equivalentes a:
-  - `sharedChatId`
-  - `sharedChatRequestId`
-  - `sharedChatTitle` si Telegram lo entrega
-- hacer que `bot.onMessage` llegue al flujo de storage aunque no haya texto ni media
-
-Resultado esperado:
-
-- `storage-flow.ts` puede recibir la seleccion de chat durante una sesion de creacion de categoria
-
-### Paso 3. Crear estado de sesion para seleccion guiada
-
-Fichero principal:
-
-- `src/telegram/storage-flow.ts`
-
-Cambiar el flujo actual:
-
-- de `create-category-chat-id` y `create-category-thread-id`
-- a `create-category-chat-select`, `create-category-chat-validate` y `create-category-topic-create`
-
-Datos de sesion sugeridos:
-
-- `slug`
-- `displayName`
-- `description`
-- `storageChatId`
-- `storageChatTitle`
-- `topicName`
-
-### Paso 4. Validar el chat compartido
-
-Ficheros esperados:
-
-- `src/telegram/storage-flow.ts`
-- posiblemente `src/telegram/runtime-boundary.ts` para exponer llamadas raw del bot
-
-APIs:
-
-- `getChat`
-- `getChatMember`
-
-Validaciones minimas:
-
-- `type === 'supergroup'`
-- `is_forum === true` o equivalente
-- el bot es miembro/admin suficiente
-- puede crear topics si el flujo automatico sera obligatorio
-
-UX de error:
-
-- explicar exactamente que falla
-- ofrecer reintentar seleccion
-- ofrecer entrada manual asistida como ultimo recurso
-
-### Paso 5. Crear topic automaticamente
-
-Ficheros esperados:
-
-- `src/telegram/storage-flow.ts`
-- `src/telegram/runtime-boundary-support.ts` si hace falta wrapper para `createForumTopic`
-
-API:
-
-- `createForumTopic`
-
-Nombre recomendado:
-
-- usar `displayName` de la categoria
-
-Persistir:
-
-- `storageChatId = chat_id` seleccionado
-- `storageThreadId = message_thread_id` devuelto por Telegram
-
-### Paso 6. Mantener fallback manual asistido
-
-No volver al prompt crudo sin explicacion.
-
-Fallback recomendado:
-
-- explicar que el bot no pudo validar o crear el topic
-- dar instrucciones para obtener `chat_id` y `thread_id`
-- pedir ambos valores con contexto claro
-- validar formato numerico
-- dejar auditoria igual que en el flujo automatico
-
-### Paso 7. Textos i18n
-
-Fichero:
-
-- `src/telegram/i18n-storage.ts`
-
-Textos nuevos esperados:
-
-- compartir supergrupo
-- chat recibido
-- chat invalido
-- chat no es supergrupo
-- chat sin topics
-- bot sin permisos
-- creando topic
-- topic creado
-- reintentar seleccion
-- usar entrada manual
-- instrucciones de fallback manual
-
-### Paso 8. Tests minimos
-
-Tests de runtime:
-
-- serializa boton `request_chat`
-- captura `chat_shared`
-- entrega `sharedChatId` al contexto
-
-Tests de storage:
-
-- inicia creacion y pide compartir supergrupo
-- rechaza chat invalido
-- crea topic y guarda categoria
-- cae a fallback manual si falla validacion
-- mantiene el flujo manual como respaldo
-
-Tests de regresion:
-
-- subida por DM sigue copiando al topic
-- subida directa por topic sigue indexando
-- permisos de lectura/subida siguen filtrando categorias
-
-## Orden recomendado de implementacion
-
-1. Anadir tests de runtime para `request_chat` y `chat_shared`.
-2. Implementar transporte de `chat_shared` hasta el contexto.
-3. Anadir tests del nuevo flujo de creacion de categoria.
-4. Cambiar `storage-flow.ts` para seleccion guiada.
-5. Anadir validacion `getChat` y `getChatMember`.
-6. Anadir creacion automatica de topic con `createForumTopic`.
-7. Mantener fallback manual asistido.
-8. Actualizar textos i18n.
-9. Ejecutar `npm run typecheck` y `npm test` o al menos suites de Telegram/storage.
-10. Probar manualmente en un supergrupo privado con topics activados.
+- el admin puede elegir `Entrada manual`
+- se piden `storageChatId` y `storageThreadId`
+- se usa el mismo dominio y auditoria que el flujo guiado
 
 ## Criterios de cierre para completar Storage
 
 La feature puede pasar de `parcial` a `operativa` cuando se cumpla:
 
-- un admin puede crear una categoria sin conocer ids internos de Telegram
-- el bot valida el supergrupo seleccionado
-- el bot crea el topic automaticamente
-- los errores de permisos/chat se explican claramente
-- existe fallback manual asistido
-- hay tests de runtime para `chat_shared`
-- hay tests de flujo storage para alta guiada
-- `npm run typecheck` pasa
-- suite relevante de tests pasa
+- alta guiada de categoria probada en un supergrupo real con topics
+- documentacion operativa actualizada tras la prueba real
+- opcional: flujo admin para revisar o restaurar entradas `missing_source`
 
 ## Operacion actual recomendada
 
-Mientras S-001 no este hecho:
+Para crear categorias:
 
 - usar un supergrupo privado con topics activados
-- crear manualmente un topic por categoria
-- obtener `storageChatId` del supergrupo
-- obtener `storageThreadId` del topic
 - dar al bot permisos suficientes en ese supergrupo
-- crear categorias desde `/storage` con esos ids
+- crear categorias desde `/storage`
+- compartir el supergrupo con el boton del bot
+- dejar que el bot cree el topic automaticamente
 - conceder acceso por categoria desde el bot
 - usar DM para subidas guiadas y el topic para subidas directas
+
+La entrada manual queda reservada para recuperaciones o situaciones donde Telegram no permita compartir el chat o crear el topic automaticamente.
 
 ## Limitaciones actuales aceptadas
 

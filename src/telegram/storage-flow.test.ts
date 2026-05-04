@@ -172,6 +172,10 @@ function createContext(
     actorStatus = 'approved',
     storageCategoryAccessRepository,
     failCopyMessageAtCall,
+    storageChat = { id: -100555, type: 'supergroup', title: 'Storage Club', isForum: true },
+    storageBotMember = { status: 'administrator', canManageTopics: true },
+    createdTopic = { chatId: -100555, name: 'Manuales', messageThreadId: 77 },
+    failCreateForumTopic = false,
   }: {
     isAdmin?: boolean;
     canReadCategoryIds?: number[];
@@ -182,6 +186,10 @@ function createContext(
     actorStatus?: 'pending' | 'approved' | 'blocked' | 'revoked';
     storageCategoryAccessRepository?: StorageCategoryAccessRepository;
     failCopyMessageAtCall?: number;
+    storageChat?: { id: number; type: string; title?: string; isForum?: boolean };
+    storageBotMember?: { status: string; canManageTopics?: boolean };
+    createdTopic?: { chatId: number; name: string; messageThreadId: number };
+    failCreateForumTopic?: boolean;
   } = {},
 ): {
   context: TelegramCommandHandlerContext & Record<string, unknown>;
@@ -262,6 +270,15 @@ function createContext(
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
         username: 'gameclub_test_bot',
+        getMe: async () => ({ id: 1234, username: 'gameclub_test_bot' }),
+        getChat: async () => storageChat,
+        getChatMember: async () => storageBotMember,
+        createForumTopic: async ({ chatId, name }: { chatId: number; name: string }) => {
+          if (failCreateForumTopic) {
+            throw new Error('topic failed');
+          }
+          return { ...createdTopic, chatId, name };
+        },
         sendPrivateMessage: async () => {},
         copyMessage: async ({ fromChatId, messageId, toChatId, messageThreadId }: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }) => {
           copyMessageCalls += 1;
@@ -415,7 +432,7 @@ test('handleTelegramStorageText searches entries inside readable categories', as
   assert.equal(replies.at(-1)?.message, 'Resultados:\n- Manuales · #1 Manual de campana');
 });
 
-test('handleTelegramStorageText lets admins create a storage category', async () => {
+test('handleTelegramStorageMessage lets admins create a storage category with guided chat selection', async () => {
   const repository = createRepository([]);
   const { context, replies, getCurrentSession } = createContext(repository, { isAdmin: true, canReadCategoryIds: [], canUploadCategoryIds: [] });
 
@@ -436,7 +453,55 @@ test('handleTelegramStorageText lets admins create a storage category', async ()
 
   context.messageText = 'Documentacion del club';
   await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'create-category-chat-select');
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
+    [
+      {
+        text: 'Compartir supergrupo de storage',
+        semanticRole: 'primary',
+        requestChat: {
+          requestId: 41101,
+          chatIsChannel: false,
+          chatIsForum: true,
+          botIsMember: true,
+        },
+      },
+    ],
+    [{ text: 'Entrada manual', semanticRole: 'secondary' }],
+    [dangerButton('/cancel')],
+  ]);
+
+  context.sharedChat = { requestId: 41101, chatId: -100555, title: 'Storage Club' };
+  const handled = await handleTelegramStorageMessage(context as never);
+
+  assert.equal(handled, true);
+  const categories = await repository.listCategories();
+  assert.equal(categories.length, 1);
+  assert.equal(categories[0]?.slug, 'manuales');
+  assert.equal(categories[0]?.storageChatId, -100555);
+  assert.equal(categories[0]?.storageThreadId, 77);
+  assert.equal(replies.at(-2)?.message, 'Creando el topic de storage en Storage Club...');
+  assert.equal(replies.at(-1)?.message, 'Categoría creada: Manuales (`manuales`). Supergrupo: Storage Club. Topic: Manuales.');
+  assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageText keeps manual category creation as a fallback', async () => {
+  const repository = createRepository([]);
+  const { context, replies, getCurrentSession } = createContext(repository, { isAdmin: true, canReadCategoryIds: [], canUploadCategoryIds: [] });
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+
+  for (const messageText of ['Crear categoría', 'manuales', 'Manuales', 'Documentacion del club']) {
+    context.messageText = messageText;
+    await handleTelegramStorageText(context as never);
+  }
+  assert.equal(getCurrentSession()?.stepKey, 'create-category-chat-select');
+
+  context.messageText = 'Entrada manual';
+  await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'create-category-chat-id');
+  assert.equal(replies.at(-1)?.message, 'Escribe el chat id del supergrupo de storage.');
 
   context.messageText = '-100123';
   await handleTelegramStorageText(context as never);
@@ -453,6 +518,29 @@ test('handleTelegramStorageText lets admins create a storage category', async ()
   assert.equal(categories[0]?.storageThreadId, 10);
   assert.equal(replies.at(-1)?.message, 'Categoría creada: Manuales (`manuales`).');
   assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageMessage explains invalid guided storage chats', async () => {
+  const repository = createRepository([]);
+  const { context, replies, getCurrentSession } = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [],
+    canUploadCategoryIds: [],
+    storageChat: { id: -100555, type: 'group', title: 'Grupo normal', isForum: false },
+  });
+
+  for (const messageText of ['Almacenamiento', 'Crear categoría', 'manuales', 'Manuales', 'Documentacion del club']) {
+    context.messageText = messageText;
+    await handleTelegramStorageText(context as never);
+  }
+
+  context.sharedChat = { requestId: 41101, chatId: -100555, title: 'Grupo normal' };
+  const handled = await handleTelegramStorageMessage(context as never);
+
+  assert.equal(handled, true);
+  assert.equal(getCurrentSession()?.stepKey, 'create-category-chat-select');
+  assert.equal(replies.at(-1)?.message, 'El chat seleccionado debe ser un supergrupo.');
+  assert.equal((await repository.listCategories()).length, 0);
 });
 
 test('handleTelegramStorageText uses cancel-only keyboards for storage category creation prompts', async () => {
@@ -549,6 +637,51 @@ test('handleTelegramStorageText opens an entry by id and copies its attachments 
   assert.equal(copiedMessages.length, 1);
   assert.deepEqual(copiedMessages[0], { fromChatId: -100123, messageId: 900, toChatId: 42 });
   assert.equal(replies.at(-1)?.message, 'Entrada #1 de Manuales enviada con 1 adjunto(s).');
+  assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageText marks entries as missing source when Telegram copy fails', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Manual de campana',
+    tags: ['rol', 'pdf'],
+    messages: [
+      {
+        storageChatId: -100123,
+        storageMessageId: 900,
+        storageThreadId: 10,
+        telegramFileId: 'file-1',
+        telegramFileUniqueId: 'unique-1',
+        attachmentKind: 'document',
+        caption: null,
+        originalFileName: 'manual.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        mediaGroupId: null,
+        sortOrder: 0,
+      },
+    ],
+  });
+  const { context, replies, getCurrentSession } = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [7],
+    failCopyMessageAtCall: 1,
+  });
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Abrir entrada';
+  await handleTelegramStorageText(context as never);
+  context.messageText = '1';
+
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'missing_source');
+  assert.equal(replies.at(-1)?.message, 'No he podido recuperar la entrada #1 desde Telegram. La he marcado como fuente perdida para que un admin la revise.');
   assert.equal(getCurrentSession(), null);
 });
 
@@ -708,7 +841,15 @@ test('handleTelegramStorageText lets admins grant category access to a user', as
   const grants: Array<{ subjectTelegramUserId: number; categoryId: number; changedByTelegramUserId: number }> = [];
   const accessRepository: StorageCategoryAccessRepository = {
     async findUserByTelegramUserId(telegramUserId) {
-      return { telegramUserId, status: 'approved' };
+      return { telegramUserId, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false };
+    },
+    async listApprovedUsers() {
+      return [
+        { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false },
+      ];
+    },
+    async listCategoryAccessUsers() {
+      return [];
     },
     async grantCategoryAccess(input) {
       grants.push(input);
@@ -730,14 +871,18 @@ test('handleTelegramStorageText lets admins grant category access to a user', as
 
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
-  assert.equal(getCurrentSession()?.stepKey, 'grant-access-user-id');
+  assert.equal(getCurrentSession()?.stepKey, 'grant-access-user');
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
+    ['Ada Lovelace (@ada) · 77'],
+    [dangerButton('/cancel')],
+  ]);
 
-  context.messageText = '77';
+  context.messageText = 'Ada Lovelace (@ada) · 77';
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
   assert.deepEqual(grants, [{ subjectTelegramUserId: 77, categoryId: 7, changedByTelegramUserId: 42 }]);
-  assert.equal(replies.at(-1)?.message, 'Acceso concedido a 77 para Manuales.');
+  assert.equal(replies.at(-1)?.message, 'Acceso concedido a Ada Lovelace (@ada) · 77 para Manuales.');
   assert.equal(getCurrentSession(), null);
 });
 
@@ -745,7 +890,15 @@ test('handleTelegramStorageText refuses to grant storage access to a non-approve
   const repository = createRepository([createCategory()]);
   const accessRepository: StorageCategoryAccessRepository = {
     async findUserByTelegramUserId(telegramUserId) {
-      return { telegramUserId, status: 'pending' };
+      return { telegramUserId, username: 'ada', displayName: 'Ada Lovelace', status: 'pending', isAdmin: false };
+    },
+    async listApprovedUsers() {
+      return [
+        { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false },
+      ];
+    },
+    async listCategoryAccessUsers() {
+      return [];
     },
     async grantCategoryAccess() {
       throw new Error('grant not expected');
@@ -765,13 +918,13 @@ test('handleTelegramStorageText refuses to grant storage access to a non-approve
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
-  context.messageText = '77';
+  context.messageText = 'Ada Lovelace (@ada) · 77';
 
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
   assert.equal(replies.at(-1)?.message, 'El usuario debe estar aprobado antes de recibir acceso a storage.');
-  assert.equal(getCurrentSession()?.stepKey, 'grant-access-user-id');
+  assert.equal(getCurrentSession()?.stepKey, 'grant-access-user');
 });
 
 test('handleTelegramStorageText lets admins revoke category access from a user', async () => {
@@ -779,7 +932,15 @@ test('handleTelegramStorageText lets admins revoke category access from a user',
   const revocations: Array<{ subjectTelegramUserId: number; categoryId: number; changedByTelegramUserId: number }> = [];
   const accessRepository: StorageCategoryAccessRepository = {
     async findUserByTelegramUserId(telegramUserId) {
-      return { telegramUserId, status: 'approved' };
+      return { telegramUserId, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false };
+    },
+    async listApprovedUsers() {
+      return [];
+    },
+    async listCategoryAccessUsers() {
+      return [
+        { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false },
+      ];
     },
     async grantCategoryAccess() {
       throw new Error('grant not expected');
@@ -801,14 +962,59 @@ test('handleTelegramStorageText lets admins revoke category access from a user',
 
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
-  assert.equal(getCurrentSession()?.stepKey, 'revoke-access-user-id');
+  assert.equal(getCurrentSession()?.stepKey, 'revoke-access-user');
 
-  context.messageText = '77';
+  context.messageText = 'Ada Lovelace (@ada) · 77';
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
   assert.deepEqual(revocations, [{ subjectTelegramUserId: 77, categoryId: 7, changedByTelegramUserId: 42 }]);
-  assert.equal(replies.at(-1)?.message, 'Acceso revocado a 77 para Manuales.');
+  assert.equal(replies.at(-1)?.message, 'Acceso revocado a Ada Lovelace (@ada) · 77 para Manuales.');
+  assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageText lets admins view direct category access', async () => {
+  const repository = createRepository([createCategory()]);
+  const accessRepository: StorageCategoryAccessRepository = {
+    async findUserByTelegramUserId(telegramUserId) {
+      return { telegramUserId, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false };
+    },
+    async listApprovedUsers() {
+      return [];
+    },
+    async listCategoryAccessUsers() {
+      return [
+        { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false },
+        { telegramUserId: 88, username: null, displayName: 'Grace Hopper', status: 'approved', isAdmin: false },
+      ];
+    },
+    async grantCategoryAccess() {
+      throw new Error('grant not expected');
+    },
+    async revokeCategoryAccess() {
+      throw new Error('revoke not expected');
+    },
+  };
+  const { context, replies, getCurrentSession } = createContext(repository, {
+    isAdmin: true,
+    storageCategoryAccessRepository: accessRepository,
+  });
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Ver accesos';
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'view-access-category');
+
+  context.messageText = 'Manuales';
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.equal(replies.at(-1)?.message, [
+    'Usuarios con acceso directo a Manuales:',
+    '- Ada Lovelace (@ada) · 77',
+    '- Grace Hopper · 88',
+  ].join('\n'));
   assert.equal(getCurrentSession(), null);
 });
 

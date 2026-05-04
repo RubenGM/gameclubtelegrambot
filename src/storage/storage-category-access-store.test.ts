@@ -72,6 +72,60 @@ test('createDatabaseStorageCategoryAccessRepository revokes read and upload perm
   assert.equal(state.auditRows.length, 1);
 });
 
+test('createDatabaseStorageCategoryAccessRepository lists approved non-admin users', async () => {
+  const repository = createDatabaseStorageCategoryAccessRepository({
+    database: {
+      select: () => ({
+        from: (table: unknown) => {
+          assert.equal(table, usersTable);
+          return {
+            where: () => ({
+              orderBy: async () => [
+                { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false },
+              ],
+            }),
+          };
+        },
+      }),
+    } as never,
+  });
+
+  assert.deepEqual(await repository.listApprovedUsers(), [
+    { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false },
+  ]);
+});
+
+test('createDatabaseStorageCategoryAccessRepository lists users with direct category access once', async () => {
+  const repository = createDatabaseStorageCategoryAccessRepository({
+    database: {
+      select: () => ({
+        from: (table: unknown) => {
+          assert.equal(table, permissionAssignmentsTable);
+          return {
+            innerJoin: (joinedTable: unknown) => {
+              assert.equal(joinedTable, usersTable);
+              return {
+                where: () => ({
+                  orderBy: async () => [
+                    { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false, effect: 'allow' },
+                    { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false, effect: 'allow' },
+                    { telegramUserId: 88, username: null, displayName: 'Grace Hopper', status: 'approved', isAdmin: false, effect: 'allow' },
+                  ],
+                }),
+              };
+            },
+          };
+        },
+      }),
+    } as never,
+  });
+
+  assert.deepEqual(await repository.listCategoryAccessUsers(7), [
+    { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false },
+    { telegramUserId: 88, username: null, displayName: 'Grace Hopper', status: 'approved', isAdmin: false },
+  ]);
+});
+
 function createStorageCategoryAccessDatabaseDouble(state: {
   user: { telegramUserId: number; status: string } | null;
   assignmentRows: Array<Record<string, unknown>>;

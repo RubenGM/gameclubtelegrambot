@@ -23,7 +23,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Prestamos | operativo parcial | Prestamo/devolucion/edicion de notas y fecha prevista. Falta worker de recordatorios de prestamos. |
 | Grupos de noticias | operativo parcial | Comandos `/news` para activar/desactivar y suscribirse. Falta UX con botones. |
 | Compras conjuntas | operativo | Crear/listar/unirse/confirmar/gestionar participantes, mensajes, publicacion y recordatorios de deadline. |
-| Storage/archivos | parcial | Indice funcional de adjuntos en Telegram con categorias, permisos, busqueda, DM upload y topic upload. Alta de categorias aun pide ids tecnicos de chat/topic. |
+| Storage/archivos | operativo parcial | Indice funcional de adjuntos en Telegram con categorias, permisos, busqueda, DM upload, topic upload, alta guiada de categorias, seleccion simple de usuarios para accesos y marcado de fuentes perdidas. |
 | Backups y operacion TUI | tecnico operativo | CLI y TUI para backup/restore, estado del servicio y dependencias Debian. |
 | Analytics UX | tecnico parcial | Hay reporte/TUI de menu UX; mejoras avanzadas siguen en backlog. |
 
@@ -201,29 +201,26 @@ Riesgos o pendientes:
 
 ## Storage y archivos
 
-Estado: `parcial`.
+Estado: `operativo parcial`.
 
 Implementado:
 
 - `/storage` para usuarios aprobados en privado.
 - Categorias con `storageChatId` y `storageThreadId` como ubicacion canonica.
+- Alta guiada de categorias: el admin comparte el supergrupo, el bot valida chat/permisos, crea el topic y guarda los ids automaticamente.
 - Listado de categorias, listado de entradas por categoria, busqueda y apertura de entrada por id.
 - Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot copia al topic canonico antes de indexar.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
 - Soporte de `document`, `photo`, `video` y `audio`.
 - Albums por `media_group_id` agrupados en una sola entrada mediante ventana corta en memoria.
-- Admin: crear, archivar y reactivar categorias; borrar logicamente entradas; conceder y revocar acceso por categoria.
+- Admin: crear, archivar y reactivar categorias; borrar logicamente entradas; ver, conceder y revocar acceso por categoria.
 - Permisos aplicados por recurso para `storage.entry.read` y `storage.entry.upload`.
 - Auditoria de altas de categoria, cambios de estado, borrado logico y permisos.
 
 Lo que esta a medias:
 
-- La creacion de categoria aun pide `storageChatId` y `storageThreadId` manualmente. Esto es usable tecnicamente, pero mala UX para admins no tecnicos.
-- No hay seleccion guiada de supergrupo con `request_chat`.
-- No hay captura de `chat_shared` en runtime para resolver el chat seleccionado.
-- No hay creacion automatica de topic con `createForumTopic`.
-- No hay validacion guiada de que el chat sea supergrupo con topics y permisos suficientes del bot.
-- No hay pantalla para listar usuarios con acceso a una categoria.
+- La entrada manual de `storageChatId` y `storageThreadId` se mantiene como fallback, no como camino principal.
+- No hay flujo dedicado para revisar/restaurar entradas marcadas como `missing_source`.
 
 Limitaciones aceptadas de la v1:
 
@@ -270,7 +267,7 @@ Pendiente:
 
 | Pendiente | Area | Prioridad sugerida | Motivo |
 | --- | --- | --- | --- |
-| Alta guiada de categorias storage | Storage | Alta | Es la feature mas claramente a medias: funciona, pero exige ids internos de Telegram. |
+| Revision de entradas `missing_source` | Storage | Media | El bot ya marca fuentes perdidas al fallar `copyMessage`; falta una vista admin especifica para revisarlas o restaurarlas. |
 | Recordatorios de prestamos | Prestamos | Media | El modelo tiene fecha prevista, pero no hay worker equivalente a agenda/compras. |
 | UI de permisos general | Admin/permisos | Media | El motor existe, pero falta administracion transversal desde el bot. |
 | `/news` con botones | Grupos de noticias | Media | La feature funciona por comandos, pero la UX no es consistente con el resto del bot. |

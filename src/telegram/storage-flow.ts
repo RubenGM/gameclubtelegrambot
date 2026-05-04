@@ -7,7 +7,11 @@ import {
   type StorageCategoryRecord,
   type StorageCategoryRepository,
 } from '../storage/storage-catalog.js';
-import { createDatabaseStorageCategoryAccessRepository, type StorageCategoryAccessRepository } from '../storage/storage-category-access-store.js';
+import {
+  createDatabaseStorageCategoryAccessRepository,
+  type StorageCategoryAccessRepository,
+  type StorageCategoryAccessUserRecord,
+} from '../storage/storage-category-access-store.js';
 import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { TelegramInteractionError, type TelegramCommandHandlerContext } from './command-registry.js';
@@ -25,7 +29,9 @@ const storageReactivateCategoryFlowKey = 'storage-reactivate-category';
 const storageDeleteEntryFlowKey = 'storage-delete-entry';
 const storageGrantAccessFlowKey = 'storage-grant-access';
 const storageRevokeAccessFlowKey = 'storage-revoke-access';
+const storageViewAccessFlowKey = 'storage-view-access';
 const storageTopicMediaGroupWindowMs = 1500;
+const storageChatRequestId = 41101;
 
 type PendingTopicMediaGroup = {
   repository: StorageCategoryRepository;
@@ -64,13 +70,27 @@ type DmUploadDraftMessage = {
   sortOrder: number;
 };
 
+type StorageUserChoice = {
+  telegramUserId: number;
+  username: string | null;
+  displayName: string;
+  status: string;
+  isAdmin: boolean;
+  label: string;
+};
+
 type StorageFlowContext = TelegramCommandHandlerContext & {
   storageRepository?: StorageCategoryRepository | undefined;
   storageCategoryAccessRepository?: StorageCategoryAccessRepository | undefined;
   messageMedia?: TelegramCommandHandlerContext['messageMedia'];
+  sharedChat?: TelegramCommandHandlerContext['sharedChat'];
   messageThreadId?: number | undefined;
   runtime: TelegramCommandHandlerContext['runtime'] & {
     bot: TelegramCommandHandlerContext['runtime']['bot'] & {
+      getMe?: () => Promise<{ id: number; username?: string }>;
+      getChat?: (chatId: number) => Promise<{ id: number; type: string; title?: string; isForum?: boolean }>;
+      getChatMember?: (chatId: number, userId: number) => Promise<{ status: string; canManageTopics?: boolean }>;
+      createForumTopic?: (input: { chatId: number; name: string }) => Promise<{ chatId: number; name: string; messageThreadId: number }>;
       copyMessage?: (input: {
         fromChatId: number;
         messageId: number;
@@ -131,6 +151,9 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   }
   if (context.runtime.session.current?.flowKey === storageRevokeAccessFlowKey) {
     return handleActiveRevokeAccessFlow(context, text, language);
+  }
+  if (context.runtime.session.current?.flowKey === storageViewAccessFlowKey) {
+    return handleActiveViewAccessFlow(context, text, language);
   }
 
   if (text === '/storage' || text === texts.openMenu || text === actionMenuTexts.storage) {
@@ -202,6 +225,23 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
       },
     });
     await context.reply(texts.askGrantAccessCategory, buildCategoryChoiceOptions(categories, language));
+    return true;
+  }
+
+  if (text === texts.viewAccess && canManageStorageCategories(context)) {
+    const categories = await resolveRepository(context).listCategories();
+    if (categories.length === 0) {
+      await context.reply(texts.noCategoriesForAction, buildStorageMenuOptions(language, context));
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: storageViewAccessFlowKey,
+      stepKey: 'view-access-category',
+      data: {
+        categories: categories.map((category) => ({ id: category.id, displayName: category.displayName })),
+      },
+    });
+    await context.reply(texts.askViewAccessCategory, buildCategoryChoiceOptions(categories, language));
     return true;
   }
 
@@ -323,10 +363,34 @@ async function handleActiveCreateCategoryFlow(context: StorageFlowContext, text:
 
   if (session.stepKey === 'create-category-description') {
     await context.runtime.session.advance({
-      stepKey: 'create-category-chat-id',
+      stepKey: 'create-category-chat-select',
       data: { ...session.data, description: text === texts.skipOptional ? null : text },
     });
-    await context.reply(texts.askCategoryChatId, buildSingleCancelOptions());
+    await context.reply(texts.askCategoryStorageChat, buildStorageChatSelectOptions(language));
+    return true;
+  }
+
+  if (session.stepKey === 'create-category-chat-select') {
+    if (text === texts.manualCategorySetup) {
+      await context.runtime.session.advance({
+        stepKey: 'create-category-chat-id',
+        data: session.data,
+      });
+      await context.reply(texts.askCategoryChatIdManual, buildSingleCancelOptions());
+      return true;
+    }
+
+    const chatId = parseSignedInteger(text);
+    if (chatId !== null) {
+      await context.runtime.session.advance({
+        stepKey: 'create-category-thread-id',
+        data: { ...session.data, storageChatId: chatId },
+      });
+      await context.reply(texts.askCategoryThreadIdManual, buildSingleCancelOptions());
+      return true;
+    }
+
+    await context.reply(texts.askCategoryStorageChat, buildStorageChatSelectOptions(language));
     return true;
   }
 
@@ -340,7 +404,7 @@ async function handleActiveCreateCategoryFlow(context: StorageFlowContext, text:
       stepKey: 'create-category-thread-id',
       data: { ...session.data, storageChatId: chatId },
     });
-    await context.reply(texts.askCategoryThreadId, buildSingleCancelOptions());
+    await context.reply(texts.askCategoryThreadIdManual, buildSingleCancelOptions());
     return true;
   }
 
@@ -350,28 +414,12 @@ async function handleActiveCreateCategoryFlow(context: StorageFlowContext, text:
       await context.reply(texts.invalidNumber, buildSingleCancelOptions());
       return true;
     }
-    const created = await createStorageCategory({
-      repository: resolveRepository(context),
-      slug: String(session.data.slug ?? ''),
-      displayName: String(session.data.displayName ?? ''),
-      description: asNullableString(session.data.description),
+    await createCategoryFromDraft(context, {
+      language,
       storageChatId: asSignedNumber(session.data.storageChatId),
       storageThreadId: threadId,
+      setupMode: 'manual',
     });
-    await appendAuditEvent({
-      repository: resolveAuditRepository(context),
-      actorTelegramUserId: context.runtime.actor.telegramUserId,
-      actionKey: 'storage.category.created',
-      targetType: 'storage-category',
-      targetId: created.id,
-      summary: 'Categoria de storage creada',
-      details: { slug: created.slug },
-    });
-    await context.runtime.session.cancel();
-    await context.reply(
-      texts.categoryCreated.replace('{name}', created.displayName).replace('{slug}', created.slug),
-      buildStorageMenuOptions(language, context),
-    );
     return true;
   }
 
@@ -496,18 +544,29 @@ async function handleActiveGrantAccessFlow(context: StorageFlowContext, text: st
       await context.reply(texts.invalidCategory, buildCategoryChoiceOptions(await resolveRepository(context).listCategories(), language));
       return true;
     }
+    const users = await resolveStorageCategoryAccessRepository(context).listApprovedUsers();
+    if (users.length === 0) {
+      await context.runtime.session.cancel();
+      await context.reply(texts.noApprovedUsersForAccess, buildStorageMenuOptions(language, context));
+      return true;
+    }
     await context.runtime.session.advance({
-      stepKey: 'grant-access-user-id',
-      data: { categoryId: selected.id, categoryDisplayName: selected.displayName },
+      stepKey: 'grant-access-user',
+      data: {
+        categoryId: selected.id,
+        categoryDisplayName: selected.displayName,
+        users: users.map(toStorageUserChoice),
+      },
     });
-    await context.reply(texts.askGrantAccessUserId, buildStorageMenuOptions(language, context));
+    await context.reply(texts.askGrantAccessUser, buildStorageUserChoiceOptions(users, language));
     return true;
   }
 
-  if (session.stepKey === 'grant-access-user-id') {
-    const userId = parsePositiveInteger(text);
+  if (session.stepKey === 'grant-access-user') {
+    const userChoices = asStorageUserChoices(session.data.users);
+    const userId = resolveSelectedStorageUserId(text, userChoices);
     if (userId === null) {
-      await context.reply(texts.invalidNumber, buildStorageMenuOptions(language, context));
+      await context.reply(texts.invalidUserChoice, buildStorageUserChoiceOptions(userChoices, language));
       return true;
     }
 
@@ -530,7 +589,7 @@ async function handleActiveGrantAccessFlow(context: StorageFlowContext, text: st
     await context.runtime.session.cancel();
     await context.reply(
       texts.categoryAccessGranted
-        .replace('{userId}', String(userId))
+        .replace('{user}', formatStorageUserLabel(userChoices.find((user) => user.telegramUserId === userId) ?? user))
         .replace('{category}', String(session.data.categoryDisplayName ?? '')),
       buildStorageMenuOptions(language, context),
     );
@@ -554,18 +613,29 @@ async function handleActiveRevokeAccessFlow(context: StorageFlowContext, text: s
       await context.reply(texts.invalidCategory, buildCategoryChoiceOptions(await resolveRepository(context).listCategories(), language));
       return true;
     }
+    const users = await resolveStorageCategoryAccessRepository(context).listCategoryAccessUsers(selected.id);
+    if (users.length === 0) {
+      await context.runtime.session.cancel();
+      await context.reply(texts.noCategoryAccessUsers, buildStorageMenuOptions(language, context));
+      return true;
+    }
     await context.runtime.session.advance({
-      stepKey: 'revoke-access-user-id',
-      data: { categoryId: selected.id, categoryDisplayName: selected.displayName },
+      stepKey: 'revoke-access-user',
+      data: {
+        categoryId: selected.id,
+        categoryDisplayName: selected.displayName,
+        users: users.map(toStorageUserChoice),
+      },
     });
-    await context.reply(texts.askRevokeAccessUserId, buildStorageMenuOptions(language, context));
+    await context.reply(texts.askRevokeAccessUser, buildStorageUserChoiceOptions(users, language));
     return true;
   }
 
-  if (session.stepKey === 'revoke-access-user-id') {
-    const userId = parsePositiveInteger(text);
+  if (session.stepKey === 'revoke-access-user') {
+    const userChoices = asStorageUserChoices(session.data.users);
+    const userId = resolveSelectedStorageUserId(text, userChoices);
     if (userId === null) {
-      await context.reply(texts.invalidNumber, buildStorageMenuOptions(language, context));
+      await context.reply(texts.invalidUserChoice, buildStorageUserChoiceOptions(userChoices, language));
       return true;
     }
 
@@ -584,7 +654,7 @@ async function handleActiveRevokeAccessFlow(context: StorageFlowContext, text: s
     await context.runtime.session.cancel();
     await context.reply(
       texts.categoryAccessRevoked
-        .replace('{userId}', String(userId))
+        .replace('{user}', formatStorageUserLabel(userChoices.find((user) => user.telegramUserId === userId) ?? user))
         .replace('{category}', String(session.data.categoryDisplayName ?? '')),
       buildStorageMenuOptions(language, context),
     );
@@ -592,6 +662,30 @@ async function handleActiveRevokeAccessFlow(context: StorageFlowContext, text: s
   }
 
   return false;
+}
+
+async function handleActiveViewAccessFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== storageViewAccessFlowKey || session.stepKey !== 'view-access-category') {
+    return false;
+  }
+
+  const texts = createTelegramI18n(language).storage;
+  const categories = asCategoryChoices(session.data.categories);
+  const selected = categories.find((category) => category.displayName === text);
+  if (!selected) {
+    await context.reply(texts.invalidCategory, buildCategoryChoiceOptions(await resolveRepository(context).listCategories(), language));
+    return true;
+  }
+
+  const users = await resolveStorageCategoryAccessRepository(context).listCategoryAccessUsers(selected.id);
+  await context.runtime.session.cancel();
+  await context.reply(formatCategoryAccessMessage({
+    categoryDisplayName: selected.displayName,
+    users,
+    language,
+  }), buildStorageMenuOptions(language, context));
+  return true;
 }
 
 async function handleActiveListFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
@@ -669,12 +763,30 @@ async function handleActiveOpenEntryFlow(context: StorageFlowContext, text: stri
     throw new Error('Telegram bot runtime does not support copyMessage');
   }
 
-  for (const message of detail.messages) {
-    await context.runtime.bot.copyMessage({
-      fromChatId: message.storageChatId,
-      messageId: message.storageMessageId,
-      toChatId: context.runtime.chat.chatId,
+  try {
+    for (const message of detail.messages) {
+      await context.runtime.bot.copyMessage({
+        fromChatId: message.storageChatId,
+        messageId: message.storageMessageId,
+        toChatId: context.runtime.chat.chatId,
+      });
+    }
+  } catch {
+    await resolveRepository(context).updateEntryLifecycleStatus({
+      entryId: detail.entry.id,
+      lifecycleStatus: 'missing_source',
     });
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'storage.entry.missing_source',
+      targetType: 'storage-entry',
+      targetId: detail.entry.id,
+      summary: 'Entrada de storage marcada com a font perduda',
+    });
+    await context.runtime.session.cancel();
+    await context.reply(texts.entrySourceMissing.replace('{id}', String(detail.entry.id)), buildStorageMenuOptions(language, context));
+    return true;
   }
 
   await context.runtime.session.cancel();
@@ -689,6 +801,10 @@ async function handleActiveOpenEntryFlow(context: StorageFlowContext, text: stri
 }
 
 export async function handleTelegramStorageMessage(context: StorageFlowContext): Promise<boolean> {
+  if (context.sharedChat && context.runtime.chat.kind === 'private' && context.runtime.session.current?.flowKey === storageCreateCategoryFlowKey) {
+    return handleSharedStorageChat(context);
+  }
+
   if (!context.messageMedia) {
     return false;
   }
@@ -702,6 +818,136 @@ export async function handleTelegramStorageMessage(context: StorageFlowContext):
   }
 
   return false;
+}
+
+async function handleSharedStorageChat(context: StorageFlowContext): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== storageCreateCategoryFlowKey || session.stepKey !== 'create-category-chat-select' || !context.sharedChat) {
+    return false;
+  }
+
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).storage;
+  if (context.sharedChat.requestId !== storageChatRequestId) {
+    await context.reply(texts.invalidSharedChatRequest, buildStorageChatSelectOptions(language));
+    return true;
+  }
+
+  const validation = await validateStorageChatSelection(context, context.sharedChat.chatId);
+  if (!validation.ok) {
+    await context.reply(validation.message, buildStorageChatSelectOptions(language));
+    return true;
+  }
+
+  const topicName = String(session.data.displayName ?? texts.openMenu).trim() || texts.openMenu;
+  await context.reply(texts.creatingCategoryTopic.replace('{chat}', validation.chatTitle), buildSingleCancelOptions());
+  try {
+    const topic = await context.runtime.bot.createForumTopic?.({ chatId: context.sharedChat.chatId, name: topicName });
+    if (!topic) {
+      await context.reply(texts.storageBotCannotCreateTopic, buildStorageChatSelectOptions(language));
+      return true;
+    }
+
+    await createCategoryFromDraft(context, {
+      language,
+      storageChatId: context.sharedChat.chatId,
+      storageThreadId: topic.messageThreadId,
+      setupMode: 'guided',
+      chatTitle: validation.chatTitle,
+      topicName: topic.name,
+    });
+  } catch {
+    await context.reply(texts.storageTopicCreateFailed, buildStorageChatSelectOptions(language));
+  }
+
+  return true;
+}
+
+async function validateStorageChatSelection(context: StorageFlowContext, chatId: number): Promise<
+  | { ok: true; chatTitle: string }
+  | { ok: false; message: string }
+> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).storage;
+  if (!context.runtime.bot.getChat || !context.runtime.bot.getMe || !context.runtime.bot.getChatMember || !context.runtime.bot.createForumTopic) {
+    return { ok: false, message: texts.storageGuidedSetupUnavailable };
+  }
+
+  try {
+    const chat = await context.runtime.bot.getChat(chatId);
+    const chatTitle = chat.title?.trim() || String(chat.id);
+    if (chat.type !== 'supergroup') {
+      return { ok: false, message: texts.storageChatMustBeSupergroup };
+    }
+    if (chat.isForum !== true) {
+      return { ok: false, message: texts.storageChatMustHaveTopics };
+    }
+
+    const me = await context.runtime.bot.getMe();
+    const member = await context.runtime.bot.getChatMember(chatId, me.id);
+    if (!['administrator', 'creator'].includes(member.status)) {
+      return { ok: false, message: texts.storageBotMustBeAdmin };
+    }
+    if (member.status !== 'creator' && member.canManageTopics !== true) {
+      return { ok: false, message: texts.storageBotCannotManageTopics };
+    }
+
+    return { ok: true, chatTitle };
+  } catch {
+    return { ok: false, message: texts.storageChatValidationFailed };
+  }
+}
+
+async function createCategoryFromDraft(
+  context: StorageFlowContext,
+  {
+    language,
+    storageChatId,
+    storageThreadId,
+    setupMode,
+    chatTitle,
+    topicName,
+  }: {
+    language: 'ca' | 'es' | 'en';
+    storageChatId: number;
+    storageThreadId: number;
+    setupMode: 'guided' | 'manual';
+    chatTitle?: string;
+    topicName?: string;
+  },
+): Promise<void> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== storageCreateCategoryFlowKey) {
+    throw new Error('Storage category creation requires an active session');
+  }
+
+  const texts = createTelegramI18n(language).storage;
+  const created = await createStorageCategory({
+    repository: resolveRepository(context),
+    slug: String(session.data.slug ?? ''),
+    displayName: String(session.data.displayName ?? ''),
+    description: asNullableString(session.data.description),
+    storageChatId,
+    storageThreadId,
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'storage.category.created',
+    targetType: 'storage-category',
+    targetId: created.id,
+    summary: 'Categoria de storage creada',
+    details: { slug: created.slug, setupMode, storageChatId, storageThreadId },
+  });
+  await context.runtime.session.cancel();
+  const message = setupMode === 'guided'
+    ? texts.categoryCreatedGuided
+      .replace('{name}', created.displayName)
+      .replace('{slug}', created.slug)
+      .replace('{chat}', chatTitle ?? String(storageChatId))
+      .replace('{topic}', topicName ?? String(storageThreadId))
+    : texts.categoryCreated.replace('{name}', created.displayName).replace('{slug}', created.slug);
+  await context.reply(message, buildStorageMenuOptions(language, context));
 }
 
 async function handleActiveUploadFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
@@ -1161,13 +1407,31 @@ function buildStorageMenuOptions(language: 'ca' | 'es' | 'en', context?: Storage
     [successButton(texts.upload)],
   ];
   if (context && canManageStorageCategories(context)) {
-    rows.push([successButton(texts.createCategory), dangerButton(texts.archiveCategory)], [successButton(texts.reactivateCategory)], [successButton(texts.grantAccess), dangerButton(texts.revokeAccess)]);
+    rows.push(
+      [successButton(texts.createCategory), dangerButton(texts.archiveCategory)],
+      [successButton(texts.reactivateCategory), secondaryButton(texts.viewAccess)],
+      [successButton(texts.grantAccess), dangerButton(texts.revokeAccess)],
+    );
   }
   if (context && canManageStorageEntries(context)) {
     rows.push([dangerButton(texts.deleteEntry)]);
   }
   rows.push(buildGlobalNavigationRow(language));
   return buildPersistentReplyKeyboard(rows);
+}
+
+function buildStorageUserChoiceOptions(
+  users: Array<StorageCategoryAccessUserRecord | StorageUserChoice>,
+  language: 'ca' | 'es' | 'en',
+): TelegramReplyOptions {
+  return {
+    replyKeyboard: [
+      ...users.map((user) => [formatStorageUserLabel(user)]),
+      [dangerButton('/cancel')],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
 }
 
 function buildCategoryChoiceOptions(categories: StorageCategoryRecord[], language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
@@ -1187,6 +1451,30 @@ function buildUploadMediaOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOpt
   const texts = createTelegramI18n(language).storage;
   return {
     replyKeyboard: [[successButton(texts.finishAttachments)], [dangerButton('/cancel')]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildStorageChatSelectOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).storage;
+  return {
+    replyKeyboard: [
+      [
+        {
+          text: texts.shareStorageChat,
+          semanticRole: 'primary',
+          requestChat: {
+            requestId: storageChatRequestId,
+            chatIsChannel: false,
+            chatIsForum: true,
+            botIsMember: true,
+          },
+        },
+      ],
+      [secondaryButton(texts.manualCategorySetup)],
+      [dangerButton('/cancel')],
+    ],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -1235,6 +1523,72 @@ function asCategoryChoices(value: unknown): Array<{ id: number; displayName: str
       displayName: typeof entry === 'object' && entry !== null && 'displayName' in entry ? String(entry.displayName) : '',
     }))
     .filter((entry) => Number.isInteger(entry.id) && entry.id > 0 && entry.displayName.length > 0);
+}
+
+function toStorageUserChoice(user: StorageCategoryAccessUserRecord): StorageUserChoice {
+  return {
+    telegramUserId: user.telegramUserId,
+    username: user.username,
+    displayName: user.displayName,
+    status: user.status,
+    isAdmin: user.isAdmin,
+    label: formatStorageUserLabel(user),
+  };
+}
+
+function asStorageUserChoices(value: unknown): StorageUserChoice[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      const record = typeof entry === 'object' && entry !== null ? entry as Record<string, unknown> : {};
+      return {
+        telegramUserId: Number(record.telegramUserId),
+        username: typeof record.username === 'string' ? record.username : null,
+        displayName: typeof record.displayName === 'string' ? record.displayName : '',
+        status: typeof record.status === 'string' ? record.status : '',
+        isAdmin: record.isAdmin === true,
+        label: typeof record.label === 'string' ? record.label : '',
+      };
+    })
+    .filter((entry) => Number.isInteger(entry.telegramUserId) && entry.telegramUserId > 0 && entry.displayName.length > 0 && entry.label.length > 0);
+}
+
+function resolveSelectedStorageUserId(text: string, users: StorageUserChoice[]): number | null {
+  const selected = users.find((user) => user.label === text);
+  if (selected) {
+    return selected.telegramUserId;
+  }
+
+  return parsePositiveInteger(text);
+}
+
+function formatStorageUserLabel(user: Pick<StorageCategoryAccessUserRecord, 'telegramUserId' | 'username' | 'displayName'>): string {
+  const username = user.username?.trim();
+  const usernameSuffix = username ? ` (@${username.replace(/^@/, '')})` : '';
+  return `${user.displayName}${usernameSuffix} · ${user.telegramUserId}`;
+}
+
+function formatCategoryAccessMessage({
+  categoryDisplayName,
+  users,
+  language,
+}: {
+  categoryDisplayName: string;
+  users: StorageCategoryAccessUserRecord[];
+  language: 'ca' | 'es' | 'en';
+}): string {
+  const texts = createTelegramI18n(language).storage;
+  if (users.length === 0) {
+    return texts.noCategoryAccessUsersForCategory.replace('{category}', categoryDisplayName);
+  }
+
+  return [
+    texts.categoryAccessHeader.replace('{category}', categoryDisplayName),
+    ...users.map((user) => `- ${formatStorageUserLabel(user)}`),
+  ].join('\n');
 }
 
 function asDraftMessages(value: unknown): DmUploadDraftMessage[] {
