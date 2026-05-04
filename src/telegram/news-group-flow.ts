@@ -34,13 +34,18 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const i18n = createTelegramI18n(language);
   const text = context.messageText?.trim();
-  if (!text || !isNewsGroupChat(context.runtime.chat.kind) || !canManageNewsGroups(context)) {
+  if (!text || !isNewsGroupChat(context.runtime.chat.kind)) {
     return false;
   }
 
   const [commandToken = '', ...args] = text.split(/\s+/);
   if (!/^\/news(?:@\w+)?$/i.test(commandToken)) {
     return false;
+  }
+
+  if (!canManageNewsGroups(context)) {
+    await context.reply(i18n.newsGroup.adminOnly);
+    return true;
   }
 
   const action = normalizeAction(args[0]);
@@ -95,7 +100,7 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
 }
 
 function canManageNewsGroups(context: TelegramNewsGroupContext): boolean {
-  return context.runtime.actor.isAdmin || context.runtime.authorization.can('news_group.manage');
+  return context.runtime.actor.isAdmin;
 }
 
 function resolveNewsGroupRepository(context: TelegramNewsGroupContext): NewsGroupRepository {
@@ -185,10 +190,10 @@ function normalizeAction(value: string | undefined): 'status' | 'help' | 'enable
     return 'status';
   }
 
-  if (['status', 'estat', 'state'].includes(normalized)) {
+  if (['status', 'estat', 'estado', 'state'].includes(normalized)) {
     return 'status';
   }
-  if (['help', 'ajuda'].includes(normalized)) {
+  if (['help', 'ajuda', 'ayuda'].includes(normalized)) {
     return 'help';
   }
   if (['enable', 'activar', 'activar!', 'on'].includes(normalized)) {
@@ -197,10 +202,10 @@ function normalizeAction(value: string | undefined): 'status' | 'help' | 'enable
   if (['disable', 'desactivar', 'off'].includes(normalized)) {
     return 'disable';
   }
-  if (['subscribe', 'subscriure', 'add'].includes(normalized)) {
+  if (['subscribe', 'subscriure', 'suscribir', 'add'].includes(normalized)) {
     return 'subscribe';
   }
-  if (['unsubscribe', 'desubscriure', 'remove'].includes(normalized)) {
+  if (['unsubscribe', 'desubscriure', 'desuscribir', 'remove'].includes(normalized)) {
     return 'unsubscribe';
   }
 

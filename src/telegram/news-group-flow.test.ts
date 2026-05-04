@@ -81,10 +81,12 @@ function createContext({
   repository = createRepository(),
   chatKind = 'group',
   isAdmin = true,
+  hasNewsPermission = isAdmin,
 }: {
   repository?: NewsGroupRepository;
   chatKind?: 'group' | 'group-news';
   isAdmin?: boolean;
+  hasNewsPermission?: boolean;
 } = {}) {
   const replies: string[] = [];
   let currentSession: ConversationSessionRecord | null = null;
@@ -105,11 +107,11 @@ function createContext({
       },
       authorization: {
         authorize: (permissionKey: string) => ({
-          allowed: permissionKey === 'news_group.manage' && isAdmin,
+          allowed: permissionKey === 'news_group.manage' && hasNewsPermission,
           permissionKey,
-          reason: isAdmin ? 'admin-override' : 'no-match',
+          reason: hasNewsPermission ? 'global-allow' : 'no-match',
         }),
-        can: (permissionKey: string) => permissionKey === 'news_group.manage' && isAdmin,
+        can: (permissionKey: string) => permissionKey === 'news_group.manage' && hasNewsPermission,
       },
       session: {
         get current() {
@@ -215,5 +217,39 @@ test('handleTelegramNewsGroupText shows help for unknown actions', async () => {
 
   context.messageText = '/news inexplicable';
   assert.equal(await handleTelegramNewsGroupText(context), true);
-  assert.match(replies.at(-1) ?? '', /Usa \/news per veure l'estat actual del grup\./);
+  assert.match(replies.at(-1) ?? '', /Funcionament:/);
+  assert.match(replies.at(-1) ?? '', /\/news estat/);
+  assert.match(replies.at(-1) ?? '', /\/news ajuda/);
+  assert.match(replies.at(-1) ?? '', /\/news activar/);
+  assert.match(replies.at(-1) ?? '', /\/news desactivar/);
+  assert.match(replies.at(-1) ?? '', /\/news subscriure <categoria>/);
+  assert.match(replies.at(-1) ?? '', /\/news desubscriure <categoria>/);
+  assert.match(replies.at(-1) ?? '', /lfg:players/);
+  assert.match(replies.at(-1) ?? '', /lfg:groups/);
+});
+
+test('handleTelegramNewsGroupText allows only bot admins even if a user has news permission', async () => {
+  const { context, replies, repository } = createContext({ isAdmin: false, hasNewsPermission: true });
+
+  context.messageText = '/news activar';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+  assert.match(replies.at(-1) ?? '', /Només els administradors del bot/);
+  assert.equal(await repository.findGroupByChatId(-200), null);
+});
+
+test('handleTelegramNewsGroupText accepts Spanish command aliases', async () => {
+  const { context, replies, repository } = createContext();
+
+  context.messageText = '/news suscribir lfg:groups';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+  assert.match(replies.at(-1) ?? '', /Categoria "lfg:groups" subscrita\./);
+
+  context.messageText = '/news estado';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+  assert.match(replies.at(-1) ?? '', /Categories subscrites: lfg:groups/);
+
+  context.messageText = '/news desuscribir lfg:groups';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+  assert.match(replies.at(-1) ?? '', /Categoria "lfg:groups" eliminada\./);
+  assert.deepEqual(await repository.listSubscriptionsByChatId(-200), []);
 });
