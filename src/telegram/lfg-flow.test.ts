@@ -200,6 +200,15 @@ function createContext(repository: LfgRepository): {
         },
         {
           chatId: -200,
+          isEnabled: true,
+          metadata: null,
+          createdAt: '2026-05-04T09:00:00.000Z',
+          updatedAt: '2026-05-04T09:00:00.000Z',
+          enabledAt: '2026-05-04T09:00:00.000Z',
+          disabledAt: null,
+        },
+        {
+          chatId: -300,
           isEnabled: false,
           metadata: null,
           createdAt: '2026-05-04T09:00:00.000Z',
@@ -219,6 +228,10 @@ function createContext(repository: LfgRepository): {
 
 function createNewsGroupRepository(initialGroups: NewsGroupRecord[]): NewsGroupRepository {
   const groups = new Map(initialGroups.map((group) => [group.chatId, group]));
+  const subscriptions = new Map<string, Set<number>>([
+    ['lfg:players', new Set([-100])],
+    ['lfg:groups', new Set([-200])],
+  ]);
 
   return {
     async findGroupByChatId(chatId) {
@@ -244,14 +257,23 @@ function createNewsGroupRepository(initialGroups: NewsGroupRecord[]): NewsGroupR
     async listSubscriptionsByChatId() {
       return [];
     },
-    async upsertSubscription() {
-      throw new Error('not implemented');
+    async upsertSubscription(input) {
+      const chatIds = subscriptions.get(input.categoryKey) ?? new Set<number>();
+      chatIds.add(input.chatId);
+      subscriptions.set(input.categoryKey, chatIds);
+      return {
+        chatId: input.chatId,
+        categoryKey: input.categoryKey,
+        createdAt: '2026-05-04T09:30:00.000Z',
+        updatedAt: '2026-05-04T09:30:00.000Z',
+      };
     },
-    async deleteSubscription() {
-      return false;
+    async deleteSubscription(input) {
+      return subscriptions.get(input.categoryKey)?.delete(input.chatId) ?? false;
     },
-    async listSubscribedGroupsByCategory() {
-      return [];
+    async listSubscribedGroupsByCategory(categoryKey) {
+      const chatIds = subscriptions.get(categoryKey) ?? new Set<number>();
+      return Array.from(groups.values()).filter((group) => group.isEnabled && chatIds.has(group.chatId));
     },
     async isNewsEnabledGroup(chatId) {
       return groups.get(chatId)?.isEnabled === true;
@@ -334,7 +356,7 @@ test('handleTelegramLfgText publishes a group ad and lists it', async () => {
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/adalovelace">Ada Lovelace \(@adalovelace\)<\/a>/);
   assert.match(replies.at(-1)?.message ?? '', /Places: 2/);
   assert.equal(groupMessages.length, 1);
-  assert.equal(groupMessages[0]?.chatId, -100);
+  assert.equal(groupMessages[0]?.chatId, -200);
   assert.match(groupMessages[0]?.message ?? '', /Nou anunci de grup buscant jugadors:/);
   assert.match(groupMessages[0]?.message ?? '', /<b>Dune Imperium<\/b>/);
   assert.match(groupMessages[0]?.message ?? '', /<a href="https:\/\/t\.me\/adalovelace">Ada Lovelace \(@adalovelace\)<\/a>/);

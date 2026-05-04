@@ -39,6 +39,8 @@ import {
 
 const playerFlowKey = 'lfg-player-ad';
 const groupFlowKey = 'lfg-group-ad';
+const lfgPlayerNewsCategory = 'lfg:players';
+const lfgGroupNewsCategory = 'lfg:groups';
 
 interface LfgPlayerAdDraft {
   adId?: number;
@@ -463,7 +465,10 @@ async function publishLfgPlayerAdAnnouncement(
     return;
   }
 
-  await publishLfgAnnouncement(context, formatLfgPlayerAdBroadcast({ ad, language }));
+  await publishLfgAnnouncement(context, {
+    categoryKey: lfgPlayerNewsCategory,
+    message: formatLfgPlayerAdBroadcast({ ad, language }),
+  });
 }
 
 async function publishLfgGroupAdAnnouncement(
@@ -476,16 +481,28 @@ async function publishLfgGroupAdAnnouncement(
     return;
   }
 
-  await publishLfgAnnouncement(context, formatLfgGroupAdBroadcast({ ad, language }));
+  await publishLfgAnnouncement(context, {
+    categoryKey: lfgGroupNewsCategory,
+    message: formatLfgGroupAdBroadcast({ ad, language }),
+  });
 }
 
-async function publishLfgAnnouncement(context: TelegramLfgContext, message: string): Promise<void> {
+async function publishLfgAnnouncement(
+  context: TelegramLfgContext,
+  {
+    categoryKey,
+    message,
+  }: {
+    categoryKey: string;
+    message: string;
+  },
+): Promise<void> {
   const sendGroupMessage = context.runtime.bot.sendGroupMessage;
   if (!sendGroupMessage) {
     return;
   }
 
-  const groups = await resolveNewsGroupRepository(context).listGroups({ includeDisabled: false });
+  const groups = await resolveNewsGroupRepository(context).listSubscribedGroupsByCategory(categoryKey);
   if (groups.length === 0) {
     return;
   }
