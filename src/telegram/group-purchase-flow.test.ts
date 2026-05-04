@@ -359,7 +359,7 @@ function buildPurchase(overrides: Partial<GroupPurchaseRecord> = {}): GroupPurch
     purchaseMode: 'per_item',
     lifecycleStatus: 'open',
     createdByTelegramUserId: 42,
-    joinDeadlineAt: '2026-04-30T21:00:00.000Z',
+    joinDeadlineAt: '2026-05-30T21:00:00.000Z',
     confirmDeadlineAt: null,
     totalPriceCents: null,
     unitPriceCents: 125,
@@ -400,7 +400,7 @@ test('handleTelegramGroupPurchaseText lists purchases with deep links', async ()
   assert.equal(handled, true);
   assert.deepEqual(replies, [
     {
-      message: 'Compres conjuntes:\n- <a href="https://t.me/cawatest_bot?start=group_purchase_7"><b>Pedido de dados</b></a> · Oberta · apuntar-se fins 30/04',
+      message: 'Compres conjuntes:\n- <a href="https://t.me/cawatest_bot?start=group_purchase_7"><b>Pedido de dados</b></a> · Oberta · apuntar-se fins 30/05',
       options: {
         parseMode: 'HTML',
         replyKeyboard: [['Veure compres', 'Crear compra'], ['Inici', 'Ajuda']],
@@ -446,7 +446,7 @@ test('handleTelegramGroupPurchaseStartText opens purchase detail from /start pay
   assert.deepEqual(replies, [
     {
       message:
-        '<a href="https://t.me/cawatest_bot?start=group_purchase_7"><b>Pedido de dados</b></a>\nMode: Per unitats\nEstat: Oberta\nDescripció: Compra conjunta\nPreu unitari: 1.25 EUR\nUnitat: dado\nApuntar-se fins: 30/04',
+        '<a href="https://t.me/cawatest_bot?start=group_purchase_7"><b>Pedido de dados</b></a>\nMode: Per unitats\nEstat: Oberta\nDescripció: Compra conjunta\nPreu unitari: 1.25 EUR\nUnitat: dado\nApuntar-se fins: 30/05',
       options: {
         parseMode: 'HTML',
         inlineKeyboard: [
@@ -504,16 +504,16 @@ test('create flow shows upcoming date shortcuts for join and confirm deadlines',
   }
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 27/04', 'Dimarts, 28/04'], ['Dimecres, 29/04', 'Dijous, 30/04'], ['Divendres, 01/05', 'Dissabte, 02/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
+    replyKeyboard: [['Dilluns, 04/05', 'Dimarts, 05/05'], ['Dimecres, 06/05', 'Dijous, 07/05'], ['Divendres, 08/05', 'Dissabte, 09/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
 
-  context.messageText = 'Dimarts, 28/04/2026';
+  context.messageText = 'Dimarts, 05/05/2026';
   await handleTelegramGroupPurchaseText(context);
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 27/04', 'Dimarts, 28/04'], ['Dimecres, 29/04', 'Dijous, 30/04'], ['Divendres, 01/05', 'Dissabte, 02/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
+    replyKeyboard: [['Dilluns, 04/05', 'Dimarts, 05/05'], ['Dimecres, 06/05', 'Dijous, 07/05'], ['Divendres, 08/05', 'Dissabte, 09/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -528,7 +528,7 @@ test('shared-cost create flow also shows upcoming date shortcuts for the join de
   }
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 27/04', 'Dimarts, 28/04'], ['Dimecres, 29/04', 'Dijous, 30/04'], ['Divendres, 01/05', 'Dissabte, 02/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
+    replyKeyboard: [['Dilluns, 04/05', 'Dimarts, 05/05'], ['Dimecres, 06/05', 'Dijous, 07/05'], ['Divendres, 08/05', 'Dissabte, 09/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -649,7 +649,7 @@ test('handleTelegramGroupPurchaseCallback starts the participant field flow when
     purchaseMode: 'per_item',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-04-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
     totalPriceCents: null,
     unitPriceCents: 125,
     unitLabel: 'dado',
@@ -684,7 +684,7 @@ test('participant field flow saves answers and enables self confirmation', async
     purchaseMode: 'per_item',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-04-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
     totalPriceCents: null,
     unitPriceCents: 125,
     unitLabel: 'dado',
@@ -732,7 +732,7 @@ test('participant can join as confirmed and still complete required field answer
     purchaseMode: 'per_item',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-04-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
     totalPriceCents: null,
     unitPriceCents: 125,
     unitLabel: 'dado',
@@ -773,7 +773,7 @@ test('participant can reopen the field flow to edit their own answers', async ()
     purchaseMode: 'per_item',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-04-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
     totalPriceCents: null,
     unitPriceCents: 125,
     unitLabel: 'dado',
@@ -817,7 +817,7 @@ test('participant can leave an active group purchase', async () => {
     purchaseMode: 'per_item',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-04-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
     totalPriceCents: null,
     unitPriceCents: 125,
     unitLabel: 'dado',
@@ -901,7 +901,7 @@ test('participant can join directly as confirmed when the purchase is open', asy
     purchaseMode: 'shared_cost',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-04-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
     totalPriceCents: 5000,
     unitPriceCents: null,
     unitLabel: null,

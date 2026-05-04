@@ -600,6 +600,7 @@ function createTelegramCommandContext(
 ): TelegramCommandHandlerContext {
   return {
     ...context,
+    ...(context.from ? { from: context.from } : {}),
     reply(message: string, options?: TelegramReplyOptions) {
       return context.reply(message, toGrammyReplyOptions(options, buttonAppearance));
     },

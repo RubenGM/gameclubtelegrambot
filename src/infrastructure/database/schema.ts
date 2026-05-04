@@ -472,6 +472,55 @@ export const groupPurchaseReminders = pgTable(
   }),
 );
 
+export const lfgPlayerAds = pgTable(
+  'lfg_player_ads',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    telegramUserId: bigint('telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    displayName: varchar('display_name', { length: 255 }).notNull(),
+    description: text('description').notNull(),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  },
+  (table) => ({
+    statusLookup: index('lfg_player_ads_status_idx').on(table.status),
+    userLookup: index('lfg_player_ads_telegram_user_id_idx').on(table.telegramUserId),
+    updatedAtLookup: index('lfg_player_ads_updated_at_idx').on(table.updatedAt),
+    oneActivePerUser: uniqueIndex('lfg_player_ads_one_active_per_user')
+      .on(table.telegramUserId)
+      .where(sql`${table.status} = 'active'`),
+  }),
+);
+
+export const lfgGroupAds = pgTable(
+  'lfg_group_ads',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    creatorDisplayName: varchar('creator_display_name', { length: 255 }).notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    description: text('description').notNull(),
+    seatsAvailable: integer('seats_available'),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  },
+  (table) => ({
+    statusLookup: index('lfg_group_ads_status_idx').on(table.status),
+    creatorLookup: index('lfg_group_ads_created_by_telegram_user_id_idx').on(table.createdByTelegramUserId),
+    updatedAtLookup: index('lfg_group_ads_updated_at_idx').on(table.updatedAt),
+  }),
+);
+
 export const storageCategories = pgTable(
   'storage_categories',
   {

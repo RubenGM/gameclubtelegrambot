@@ -148,6 +148,13 @@
       "when": 1777312374300,
       "tag": "0020_striped_warpath",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1777918399593,
+      "tag": "0021_red_quentin_quire",
+      "breakpoints": true
     }
   ]
 }

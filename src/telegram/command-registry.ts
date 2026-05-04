@@ -17,7 +17,7 @@ export class TelegramInteractionError extends Error {
 }
 
 export type TelegramCommandAccess = 'public' | 'approved' | 'admin';
-export type TelegramHelpSection = 'schedule' | 'catalog' | 'group_purchases' | 'storage';
+export type TelegramHelpSection = 'schedule' | 'catalog' | 'group_purchases' | 'storage' | 'lfg';
 
 export interface TelegramCommandRuntime {
   bot: {
@@ -171,6 +171,7 @@ export function renderTelegramHelpMessage({
     lines.push(`${i18n.actionMenu.catalog}: ${i18n.common.helpCatalogAction}`);
     lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
     lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
+    lines.push(`${i18n.actionMenu.lfg}: ${i18n.common.helpLfgAction}`);
     lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
     lines.push('');
     lines.push(i18n.common.helpMenuHint);
@@ -182,6 +183,7 @@ export function renderTelegramHelpMessage({
   lines.push(`${i18n.actionMenu.catalog}: ${i18n.common.helpCatalogAction}`);
   lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
   lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
+  lines.push(`${i18n.actionMenu.lfg}: ${i18n.common.helpLfgAction}`);
   lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
   lines.push('');
   lines.push(i18n.common.helpMenuHint);
@@ -203,6 +205,10 @@ function helpTextForSection(
 
   if (section === 'group_purchases') {
     return common.helpContextGroupPurchases;
+  }
+
+  if (section === 'lfg') {
+    return common.helpContextLfg;
   }
 
   return common.helpContextStorage;

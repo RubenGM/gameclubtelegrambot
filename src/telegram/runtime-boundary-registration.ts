@@ -57,6 +57,12 @@ import { createAppMetadataTelegramLanguagePreferenceStore } from './language-pre
 import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { handleTelegramLanguageCommand, handleTelegramLanguageText } from './language-flow.js';
+import {
+  handleTelegramLfgCallback,
+  handleTelegramLfgCommand,
+  handleTelegramLfgText,
+  lfgCallbackPrefixes,
+} from './lfg-flow.js';
 import { handleTelegramNewsGroupText } from './news-group-flow.js';
 import { buildTodayAtClubSummary } from './today-at-club-summary.js';
 import {
@@ -129,6 +135,7 @@ export function registerHandlers({
   registerMembershipCallbacks({ bot, publicName, adminElevationPasswordHash });
   registerScheduleCallbacks({ bot });
   registerGroupPurchaseCallbacks({ bot });
+  registerLfgCallbacks({ bot });
   registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
   registerCatalogReadCallbacks({ bot });
@@ -187,6 +194,11 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramLfgText(context)) {
+      setActiveHelpSection(context, 'lfg');
+      return;
+    }
+
     if (await handleTelegramVenueEventAdminText(context)) {
       return;
     }
@@ -234,6 +246,18 @@ function registerGroupPurchaseCallbacks({
   for (const prefix of Object.values(groupPurchaseCallbackPrefixes)) {
     bot.onCallback(prefix, async (context) => {
       await handleTelegramGroupPurchaseCallback(context);
+    });
+  }
+}
+
+function registerLfgCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(lfgCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramLfgCallback(context);
     });
   }
 }
@@ -410,6 +434,19 @@ function createDefaultCommands({
       description: 'Consulta les compres conjuntes del club',
       handle: async (context) => {
         await handleTelegramGroupPurchaseCommand(context);
+      },
+    },
+    {
+      command: 'lfg',
+      contexts: ['private'],
+      access: 'approved',
+      descriptionByLanguage: {
+        ca: 'Troba grup o jugadors per jugar',
+        es: 'Encuentra grupo o jugadores para jugar',
+        en: 'Find a group or players to play',
+      },
+      handle: async (context) => {
+        await handleTelegramLfgCommand(context);
       },
     },
     {
