@@ -103,6 +103,37 @@ function createRepository(initialCategories: StorageCategoryRecord[] = []): Stor
       nextEntryId += 1;
       return { entry, category, messages };
     },
+    async appendEntryMessages(input) {
+      const existing = entries.get(input.entryId);
+      if (!existing) {
+        throw new Error(`Storage entry ${input.entryId} not found`);
+      }
+      const nextSortOrder = Math.max(-1, ...existing.messages.map((message) => message.sortOrder)) + 1;
+      const messages: StorageEntryMessageRecord[] = input.messages.map((message, index) => ({
+        id: existing.messages.length + index + 1,
+        entryId: input.entryId,
+        storageChatId: message.storageChatId,
+        storageMessageId: message.storageMessageId,
+        storageThreadId: message.storageThreadId,
+        telegramFileId: message.telegramFileId ?? null,
+        telegramFileUniqueId: message.telegramFileUniqueId ?? null,
+        attachmentKind: message.attachmentKind,
+        caption: message.caption ?? null,
+        originalFileName: message.originalFileName ?? null,
+        mimeType: message.mimeType ?? null,
+        fileSizeBytes: message.fileSizeBytes ?? null,
+        mediaGroupId: message.mediaGroupId ?? null,
+        sortOrder: nextSortOrder + index,
+        createdAt: '2026-04-21T13:00:00.000Z',
+      }));
+      const detail = {
+        ...existing,
+        entry: { ...existing.entry, updatedAt: '2026-04-21T13:00:00.000Z' },
+        messages: [...existing.messages, ...messages],
+      };
+      entries.set(input.entryId, detail);
+      return detail;
+    },
     async updateEntryLifecycleStatus(input) {
       const existing = entries.get(input.entryId);
       if (!existing) {

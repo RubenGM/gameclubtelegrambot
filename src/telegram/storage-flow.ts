@@ -6,6 +6,8 @@ import {
   setStorageCategoryLifecycleStatus,
   type StorageCategoryRecord,
   type StorageCategoryRepository,
+  type StorageEntryDetailRecord,
+  type StorageEntryMessageRecord,
 } from '../storage/storage-catalog.js';
 import {
   createDatabaseStorageCategoryAccessRepository,
@@ -17,12 +19,14 @@ import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { TelegramInteractionError, type TelegramCommandHandlerContext } from './command-registry.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
+import { escapeHtml } from './schedule-presentation.js';
 import { buildGlobalNavigationRow, buildPersistentReplyKeyboard } from './submenu-keyboards.js';
 
 const storageUploadFlowKey = 'storage-upload';
 const storageListFlowKey = 'storage-list';
 const storageSearchFlowKey = 'storage-search';
 const storageOpenEntryFlowKey = 'storage-open-entry';
+const storageAddImagesFlowKey = 'storage-add-images';
 const storageCreateCategoryFlowKey = 'storage-create-category';
 const storageArchiveCategoryFlowKey = 'storage-archive-category';
 const storageReactivateCategoryFlowKey = 'storage-reactivate-category';
@@ -134,6 +138,9 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   if (context.runtime.session.current?.flowKey === storageOpenEntryFlowKey) {
     return handleActiveOpenEntryFlow(context, text, language);
   }
+  if (context.runtime.session.current?.flowKey === storageAddImagesFlowKey) {
+    return handleActiveAddImagesFlow(context, text, language);
+  }
   if (context.runtime.session.current?.flowKey === storageCreateCategoryFlowKey) {
     return handleActiveCreateCategoryFlow(context, text, language);
   }
@@ -208,6 +215,16 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
       data: {},
     });
     await context.reply(texts.askOpenEntryId, buildSingleCancelOptions());
+    return true;
+  }
+
+  if (text === texts.addImages) {
+    await context.runtime.session.start({
+      flowKey: storageAddImagesFlowKey,
+      stepKey: 'add-images-entry-id',
+      data: {},
+    });
+    await context.reply(texts.askAddImagesEntryId, buildSingleCancelOptions());
     return true;
   }
 
@@ -705,12 +722,20 @@ async function handleActiveListFlow(context: StorageFlowContext, text: string, l
   const repository = resolveRepository(context);
   const details = await repository.listEntryDetailsByCategory(selected.id);
   await context.runtime.session.cancel();
+  if (details.length === 0) {
+    await context.reply(texts.noEntriesInCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
   await context.reply(
-    details.length === 0
-      ? texts.noEntriesInCategory
-      : `${texts.listHeader.replace('{category}', selected.displayName)}\n${details.map(formatStorageListEntry).join('\n')}`,
-    buildStorageMenuOptions(language, context),
+    `${escapeHtml(texts.listHeader.replace('{category}', selected.displayName))}\n\n${details.map((detail) => formatStorageListEntry(detail, language)).join('\n\n')}`,
+    { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
   );
+
+  const failedEntryIds = await copyStorageEntriesToCurrentChat(context, details, { markMissingOnFailure: false });
+  if (failedEntryIds.length > 0) {
+    await context.reply(texts.listAttachmentCopyFailed.replace('{ids}', failedEntryIds.map((id) => `#${id}`).join(', ')), buildStorageMenuOptions(language, context));
+  }
   return true;
 }
 
@@ -764,13 +789,7 @@ async function handleActiveOpenEntryFlow(context: StorageFlowContext, text: stri
   }
 
   try {
-    for (const message of detail.messages) {
-      await context.runtime.bot.copyMessage({
-        fromChatId: message.storageChatId,
-        messageId: message.storageMessageId,
-        toChatId: context.runtime.chat.chatId,
-      });
-    }
+    await copyStorageEntryToCurrentChat(context, detail);
   } catch {
     await resolveRepository(context).updateEntryLifecycleStatus({
       entryId: detail.entry.id,
@@ -800,6 +819,80 @@ async function handleActiveOpenEntryFlow(context: StorageFlowContext, text: stri
   return true;
 }
 
+async function handleActiveAddImagesFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== storageAddImagesFlowKey) {
+    return false;
+  }
+
+  const texts = createTelegramI18n(language).storage;
+  if (session.stepKey === 'add-images-entry-id') {
+    const entryId = parsePositiveInteger(text);
+    if (entryId === null) {
+      await context.reply(texts.invalidNumber, buildSingleCancelOptions());
+      return true;
+    }
+
+    const detail = await resolveRepository(context).getEntryDetail(entryId);
+    if (
+      !detail ||
+      detail.entry.lifecycleStatus !== 'active' ||
+      !context.runtime.authorization.can('storage.entry.upload', { type: 'storage-category', id: String(detail.category.id) })
+    ) {
+      await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
+      return true;
+    }
+
+    await context.runtime.session.advance({
+      stepKey: 'add-images-media',
+      data: {
+        entryId: detail.entry.id,
+        categoryId: detail.category.id,
+        messages: [],
+      },
+    });
+    await context.reply(texts.askAddImagesMedia, buildUploadMediaOptions(language));
+    return true;
+  }
+
+  if (session.stepKey === 'add-images-media') {
+    if (text !== texts.finishAttachments) {
+      return false;
+    }
+
+    const messages = asDraftMessages(session.data.messages);
+    if (messages.length === 0) {
+      await context.reply(texts.addImagesNeedsImage, buildUploadMediaOptions(language));
+      return true;
+    }
+
+    const updated = await persistEntryImageAppend({
+      context,
+      entryId: asNumber(session.data.entryId),
+      messages,
+    });
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'storage.entry.images_added',
+      targetType: 'storage-entry',
+      targetId: updated.entry.id,
+      summary: 'Imatges afegides a entrada de storage',
+      details: { count: messages.length },
+    });
+    await context.runtime.session.cancel();
+    await context.reply(
+      texts.imagesAdded
+        .replace('{id}', String(updated.entry.id))
+        .replace('{count}', String(messages.length)),
+      buildStorageMenuOptions(language, context),
+    );
+    return true;
+  }
+
+  return false;
+}
+
 export async function handleTelegramStorageMessage(context: StorageFlowContext): Promise<boolean> {
   if (context.sharedChat && context.runtime.chat.kind === 'private' && context.runtime.session.current?.flowKey === storageCreateCategoryFlowKey) {
     return handleSharedStorageChat(context);
@@ -811,6 +904,10 @@ export async function handleTelegramStorageMessage(context: StorageFlowContext):
 
   if (context.runtime.chat.kind === 'private' && context.runtime.session.current?.flowKey === storageUploadFlowKey) {
     return handlePrivateUploadMedia(context);
+  }
+
+  if (context.runtime.chat.kind === 'private' && context.runtime.session.current?.flowKey === storageAddImagesFlowKey) {
+    return handlePrivateAddImagesMedia(context);
   }
 
   if (context.runtime.chat.kind === 'group' || context.runtime.chat.kind === 'group-news') {
@@ -1063,6 +1160,46 @@ async function handlePrivateUploadMedia(context: StorageFlowContext): Promise<bo
   return true;
 }
 
+async function handlePrivateAddImagesMedia(context: StorageFlowContext): Promise<boolean> {
+  const session = context.runtime.session.current;
+  const media = context.messageMedia;
+  if (!session || session.stepKey !== 'add-images-media' || !media) {
+    return false;
+  }
+
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).storage;
+  if (media.attachmentKind !== 'photo') {
+    await context.reply(texts.addImagesNeedsPhoto, buildUploadMediaOptions(language));
+    return true;
+  }
+
+  const draftMessages = asDraftMessages(session.data.messages);
+  draftMessages.push({
+    fromChatId: context.runtime.chat.chatId,
+    fromMessageId: media.messageId,
+    attachmentKind: media.attachmentKind,
+    telegramFileId: media.fileId ?? null,
+    telegramFileUniqueId: media.fileUniqueId ?? null,
+    caption: media.caption ?? null,
+    originalFileName: media.originalFileName ?? null,
+    mimeType: media.mimeType ?? null,
+    fileSizeBytes: media.fileSizeBytes ?? null,
+    mediaGroupId: media.mediaGroupId ?? null,
+    sortOrder: draftMessages.length,
+  });
+
+  await context.runtime.session.advance({
+    stepKey: 'add-images-media',
+    data: {
+      ...session.data,
+      messages: draftMessages,
+    },
+  });
+  await context.reply(texts.imageRecorded.replace('{count}', String(draftMessages.length)), buildUploadMediaOptions(language));
+  return true;
+}
+
 async function handleTopicUpload(context: StorageFlowContext): Promise<boolean> {
   const media = context.messageMedia;
   if (!context.messageThreadId || !media || !isSupportedAttachmentKind(media.attachmentKind)) {
@@ -1205,6 +1342,74 @@ async function persistPrivateUpload({
       messages: copiedMessages,
     });
   } catch (error) {
+    await cleanupCopiedStorageMessages(context, copiedMessages);
+    throw new TelegramInteractionError(texts.saveFailed, { cancelSession: true });
+  }
+}
+
+async function persistEntryImageAppend({
+  context,
+  entryId,
+  messages,
+}: {
+  context: StorageFlowContext;
+  entryId: number;
+  messages: DmUploadDraftMessage[];
+}): Promise<StorageEntryDetailRecord> {
+  const repository = resolveRepository(context);
+  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).storage;
+  const detail = await repository.getEntryDetail(entryId);
+  if (!detail) {
+    throw new Error(`Storage entry ${entryId} not found`);
+  }
+  if (!context.runtime.bot.copyMessage) {
+    throw new Error('Telegram bot runtime does not support copyMessage');
+  }
+
+  const copiedMessages = [] as Array<{
+    storageChatId: number;
+    storageMessageId: number;
+    storageThreadId: number;
+    telegramFileId: string | null;
+    telegramFileUniqueId: string | null;
+    attachmentKind: DmUploadDraftMessage['attachmentKind'];
+    caption: string | null;
+    originalFileName: string | null;
+    mimeType: string | null;
+    fileSizeBytes: number | null;
+    mediaGroupId: string | null;
+    sortOrder: number;
+  }>;
+
+  try {
+    for (const message of messages) {
+      const copied = await context.runtime.bot.copyMessage({
+        fromChatId: message.fromChatId,
+        messageId: message.fromMessageId,
+        toChatId: detail.category.storageChatId,
+        messageThreadId: detail.category.storageThreadId,
+      });
+      copiedMessages.push({
+        storageChatId: detail.category.storageChatId,
+        storageMessageId: copied.messageId,
+        storageThreadId: detail.category.storageThreadId,
+        telegramFileId: message.telegramFileId,
+        telegramFileUniqueId: message.telegramFileUniqueId,
+        attachmentKind: message.attachmentKind,
+        caption: message.caption,
+        originalFileName: message.originalFileName,
+        mimeType: message.mimeType,
+        fileSizeBytes: message.fileSizeBytes,
+        mediaGroupId: message.mediaGroupId,
+        sortOrder: message.sortOrder,
+      });
+    }
+
+    return await repository.appendEntryMessages({
+      entryId,
+      messages: copiedMessages,
+    });
+  } catch {
     await cleanupCopiedStorageMessages(context, copiedMessages);
     throw new TelegramInteractionError(texts.saveFailed, { cancelSession: true });
   }
@@ -1404,7 +1609,7 @@ function buildStorageMenuOptions(language: 'ca' | 'es' | 'en', context?: Storage
   const rows: Array<Array<string | TelegramReplyButton>> = [
     [primaryButton(texts.listCategories), primaryButton(texts.listFiles)],
     [secondaryButton(texts.searchFiles), primaryButton(texts.openEntry)],
-    [successButton(texts.upload)],
+    [successButton(texts.upload), successButton(texts.addImages)],
   ];
   if (context && canManageStorageCategories(context)) {
     rows.push(
@@ -1619,16 +1824,114 @@ function asNullableString(value: unknown): string | null {
   return normalized.length === 0 ? null : normalized;
 }
 
-function formatStorageListEntry(detail: Awaited<ReturnType<StorageCategoryRepository['listEntryDetailsByCategory']>>[number]): string {
-  const description = detail.entry.description ?? '-';
-  const tags = detail.entry.tags.join(', ');
-  const suffix = tags.length > 0 ? ` · ${tags}` : '';
-  return `- #${detail.entry.id} ${description}${suffix} · ${detail.messages.length} adjunto(s)`;
+async function copyStorageEntriesToCurrentChat(
+  context: StorageFlowContext,
+  details: StorageEntryDetailRecord[],
+  { markMissingOnFailure }: { markMissingOnFailure: boolean },
+): Promise<number[]> {
+  if (!context.runtime.bot.copyMessage) {
+    return details.map((detail) => detail.entry.id);
+  }
+
+  const failedEntryIds: number[] = [];
+  for (const detail of details) {
+    try {
+      await copyStorageEntryToCurrentChat(context, detail);
+    } catch {
+      failedEntryIds.push(detail.entry.id);
+      if (markMissingOnFailure) {
+        await resolveRepository(context).updateEntryLifecycleStatus({
+          entryId: detail.entry.id,
+          lifecycleStatus: 'missing_source',
+        });
+      }
+    }
+  }
+  return failedEntryIds;
+}
+
+async function copyStorageEntryToCurrentChat(context: StorageFlowContext, detail: StorageEntryDetailRecord): Promise<void> {
+  if (!context.runtime.bot.copyMessage) {
+    throw new Error('Telegram bot runtime does not support copyMessage');
+  }
+
+  for (const message of detail.messages) {
+    await context.runtime.bot.copyMessage({
+      fromChatId: message.storageChatId,
+      messageId: message.storageMessageId,
+      toChatId: context.runtime.chat.chatId,
+    });
+  }
+}
+
+function formatStorageListEntry(detail: StorageEntryDetailRecord, language: 'ca' | 'es' | 'en'): string {
+  const texts = createTelegramI18n(language).storage;
+  const lines = [
+    `<b>#${detail.entry.id}</b>`,
+    `<b>${escapeHtml(texts.entryFieldDescription)}:</b> ${escapeHtml(detail.entry.description ?? texts.entryNoDescription)}`,
+    `<b>${escapeHtml(texts.entryFieldTags)}:</b> ${detail.entry.tags.length > 0 ? detail.entry.tags.map((tag) => `#${escapeHtml(tag)}`).join(', ') : escapeHtml(texts.entryNoTags)}`,
+    `<b>${escapeHtml(texts.entryFieldUploadedBy)}:</b> ${formatStorageUploaderLabel(detail, language)}`,
+    `<b>${escapeHtml(texts.entryFieldUploadedAt)}:</b> ${escapeHtml(formatStorageDateTime(detail.entry.createdAt))}`,
+    `<b>${escapeHtml(texts.entryFieldSource)}:</b> ${escapeHtml(formatStorageSourceKind(detail.entry.sourceKind, language))}`,
+    `<b>${escapeHtml(texts.entryFieldAttachments)}:</b> ${detail.messages.length}`,
+    ...detail.messages.map((message, index) => `  ${index + 1}. ${formatStorageAttachment(message, language)}`),
+  ];
+  return lines.join('\n');
 }
 
 function formatStorageSearchEntry(detail: Awaited<ReturnType<StorageCategoryRepository['searchEntryDetails']>>[number]): string {
   const description = detail.entry.description ?? '-';
   return `- ${detail.category.displayName} · #${detail.entry.id} ${description}`;
+}
+
+function formatStorageAttachment(message: StorageEntryMessageRecord, language: 'ca' | 'es' | 'en'): string {
+  const texts = createTelegramI18n(language).storage;
+  const parts = [
+    escapeHtml(message.attachmentKind),
+    message.originalFileName ? `${escapeHtml(texts.entryFieldFileName)}: ${escapeHtml(message.originalFileName)}` : null,
+    message.mimeType ? `${escapeHtml(texts.entryFieldMimeType)}: ${escapeHtml(message.mimeType)}` : null,
+    message.fileSizeBytes === null ? null : `${escapeHtml(texts.entryFieldSize)}: ${escapeHtml(formatStorageFileSize(message.fileSizeBytes))}`,
+    message.caption ? `${escapeHtml(texts.entryFieldCaption)}: ${escapeHtml(message.caption)}` : null,
+  ].filter((part): part is string => Boolean(part));
+  return parts.join(' · ');
+}
+
+function formatStorageUploaderLabel(detail: StorageEntryDetailRecord, language: 'ca' | 'es' | 'en'): string {
+  const uploader = detail.uploader;
+  if (!uploader) {
+    return escapeHtml(createTelegramI18n(language).storage.entryUnknownUploader.replace('{id}', String(detail.entry.createdByTelegramUserId)));
+  }
+
+  const normalizedUsername = uploader.username?.trim().replace(/^@/, '');
+  const visibleText = normalizedUsername ? `${uploader.displayName} (@${normalizedUsername})` : `${uploader.displayName} (${uploader.telegramUserId})`;
+  const escapedText = escapeHtml(visibleText);
+  if (!normalizedUsername || !/^[A-Za-z0-9_]{5,32}$/.test(normalizedUsername)) {
+    return escapedText;
+  }
+  return `<a href="https://t.me/${escapeHtml(normalizedUsername)}">${escapedText}</a>`;
+}
+
+function formatStorageSourceKind(sourceKind: StorageEntryDetailRecord['entry']['sourceKind'], language: 'ca' | 'es' | 'en'): string {
+  const texts = createTelegramI18n(language).storage;
+  return sourceKind === 'dm_copy' ? texts.sourceDmCopy : texts.sourceTopicDirect;
+}
+
+function formatStorageDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${date.getUTCFullYear()} ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')} UTC`;
+}
+
+function formatStorageFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+  if (sizeBytes < 1024 * 1024) {
+    return `${Math.round(sizeBytes / 1024)} KB`;
+  }
+  return `${Math.round((sizeBytes / (1024 * 1024)) * 10) / 10} MB`;
 }
 
 function formatStorageCategoryListItem(category: StorageCategoryRecord): string {

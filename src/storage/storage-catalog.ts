@@ -48,6 +48,12 @@ export interface StorageEntryMessageRecord {
   createdAt: string;
 }
 
+export interface StorageEntryUploaderRecord {
+  telegramUserId: number;
+  username: string | null;
+  displayName: string;
+}
+
 export interface StorageEntryMessageInput {
   storageChatId: number;
   storageMessageId: number;
@@ -67,6 +73,7 @@ export interface StorageEntryDetailRecord {
   entry: StorageEntryRecord;
   category: StorageCategoryRecord;
   messages: StorageEntryMessageRecord[];
+  uploader?: StorageEntryUploaderRecord | null;
 }
 
 export interface StorageCategoryRepository {
@@ -90,6 +97,10 @@ export interface StorageCategoryRepository {
     sourceKind: StorageEntrySourceKind;
     description: string | null;
     tags: string[];
+    messages: StorageEntryMessageInput[];
+  }): Promise<StorageEntryDetailRecord>;
+  appendEntryMessages(input: {
+    entryId: number;
     messages: StorageEntryMessageInput[];
   }): Promise<StorageEntryDetailRecord>;
   updateEntryLifecycleStatus(input: {

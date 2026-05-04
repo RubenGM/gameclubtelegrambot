@@ -5,12 +5,14 @@ import {
   storageCategories,
   storageEntries,
   storageEntryMessages,
+  users,
 } from '../infrastructure/database/schema.js';
 import { createDatabaseStorageRepository } from './storage-catalog-store.js';
 
 const storageCategoriesTable = storageCategories as unknown;
 const storageEntriesTable = storageEntries as unknown;
 const storageEntryMessagesTable = storageEntryMessages as unknown;
+const usersTable = users as unknown;
 
 test('createDatabaseStorageRepository creates a category', async () => {
   const repository = createDatabaseStorageRepository({
@@ -127,6 +129,17 @@ test('createDatabaseStorageRepository creates an entry and its messages in one t
           },
           select: () => ({
             from: (table: { [key: string]: unknown }) => {
+              if ((table as unknown) === usersTable) {
+                return {
+                  where: async () => [
+                    {
+                      telegramUserId: 42,
+                      username: 'ada',
+                      displayName: 'Ada Lovelace',
+                    },
+                  ],
+                };
+              }
               if ((table as unknown) !== storageCategoriesTable) {
                 throw new Error('unexpected table in select');
               }
@@ -179,6 +192,7 @@ test('createDatabaseStorageRepository creates an entry and its messages in one t
   assert.deepEqual(steps, ['insert:entry', 'insert:messages']);
   assert.equal(detail.entry.id, 15);
   assert.equal(detail.messages[0]?.originalFileName, 'manual.pdf');
+  assert.equal(detail.uploader?.displayName, 'Ada Lovelace');
 });
 
 test('createDatabaseStorageRepository lists category entries with their messages', async () => {
@@ -253,6 +267,18 @@ test('createDatabaseStorageRepository lists category entries with their messages
             };
           }
 
+          if ((table as unknown) === usersTable) {
+            return {
+              where: async () => [
+                {
+                  telegramUserId: 42,
+                  username: 'ada',
+                  displayName: 'Ada Lovelace',
+                },
+              ],
+            };
+          }
+
           throw new Error('unexpected table');
         },
       }),
@@ -264,4 +290,5 @@ test('createDatabaseStorageRepository lists category entries with their messages
   assert.equal(details.length, 1);
   assert.equal(details[0]?.entry.description, 'Manual de campana');
   assert.equal(details[0]?.messages[0]?.originalFileName, 'manual.pdf');
+  assert.equal(details[0]?.uploader?.username, 'ada');
 });

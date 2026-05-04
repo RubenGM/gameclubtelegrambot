@@ -120,7 +120,12 @@ function createRepository(initialCategories: StorageCategoryRecord[] = [createCa
         sortOrder: message.sortOrder,
         createdAt: '2026-04-21T12:00:00.000Z',
       }));
-      const detail = { entry, category, messages } satisfies StorageEntryDetailRecord;
+      const detail = {
+        entry,
+        category,
+        messages,
+        uploader: { telegramUserId: input.createdByTelegramUserId, username: 'adalovelace', displayName: 'Ada Lovelace' },
+      } satisfies StorageEntryDetailRecord;
       entries.push(detail);
       nextEntryId += 1;
       return detail;
@@ -138,6 +143,34 @@ function createRepository(initialCategories: StorageCategoryRecord[] = [createCa
         deletedByTelegramUserId: input.deletedByTelegramUserId ?? null,
       };
       return existing.entry;
+    },
+    async appendEntryMessages(input) {
+      const existing = entries.find((entry) => entry.entry.id === input.entryId);
+      if (!existing) {
+        throw new Error(`Storage entry ${input.entryId} not found`);
+      }
+      const nextSortOrder = Math.max(-1, ...existing.messages.map((message) => message.sortOrder)) + 1;
+      existing.messages.push(
+        ...input.messages.map((message, index) => ({
+          id: existing.messages.length + index + 1,
+          entryId: input.entryId,
+          storageChatId: message.storageChatId,
+          storageMessageId: message.storageMessageId,
+          storageThreadId: message.storageThreadId,
+          telegramFileId: message.telegramFileId ?? null,
+          telegramFileUniqueId: message.telegramFileUniqueId ?? null,
+          attachmentKind: message.attachmentKind,
+          caption: message.caption ?? null,
+          originalFileName: message.originalFileName ?? null,
+          mimeType: message.mimeType ?? null,
+          fileSizeBytes: message.fileSizeBytes ?? null,
+          mediaGroupId: message.mediaGroupId ?? null,
+          sortOrder: nextSortOrder + index,
+          createdAt: '2026-04-21T13:00:00.000Z',
+        })),
+      );
+      existing.entry.updatedAt = '2026-04-21T13:00:00.000Z';
+      return existing;
     },
     async getEntryDetail(entryId) {
       return entries.find((entry) => entry.entry.id === entryId) ?? null;
@@ -342,7 +375,7 @@ test('handleTelegramStorageText lists only categories the user can read', async 
   assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- Manuales (`manuales`)');
 });
 
-test('handleTelegramStorageText lists recent entries for a chosen category', async () => {
+test('handleTelegramStorageText lists recent entries with metadata and copies attachments for a chosen category', async () => {
   const repository = createRepository([createCategory()]);
   await repository.createEntry({
     categoryId: 7,
@@ -367,7 +400,7 @@ test('handleTelegramStorageText lists recent entries for a chosen category', asy
       },
     ],
   });
-  const { context, replies } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
+  const { context, replies, copiedMessages } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
@@ -378,7 +411,23 @@ test('handleTelegramStorageText lists recent entries for a chosen category', asy
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message, 'Manuales:\n- #1 Manual de campana · rol, pdf · 1 adjunto(s)');
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.equal(
+    replies.at(-1)?.message,
+    [
+      'Manuales:',
+      '',
+      '<b>#1</b>',
+      '<b>Descripción:</b> Manual de campana',
+      '<b>Tags:</b> #rol, #pdf',
+      '<b>Subido por:</b> <a href="https://t.me/adalovelace">Ada Lovelace (@adalovelace)</a>',
+      '<b>Fecha:</b> 21/04/2026 12:00 UTC',
+      '<b>Origen:</b> subida por privado',
+      '<b>Adjuntos:</b> 1',
+      '  1. document · Nombre: manual.pdf · Tipo: application/pdf · Tamaño: 1 KB',
+    ].join('\n'),
+  );
+  assert.deepEqual(copiedMessages, [{ fromChatId: -100123, messageId: 900, toChatId: 42 }]);
 });
 
 test('handleTelegramStorageText shows cancel while choosing a storage category', async () => {
@@ -682,6 +731,73 @@ test('handleTelegramStorageText marks entries as missing source when Telegram co
   assert.equal(handled, true);
   assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'missing_source');
   assert.equal(replies.at(-1)?.message, 'No he podido recuperar la entrada #1 desde Telegram. La he marcado como fuente perdida para que un admin la revise.');
+  assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageText adds photos to an existing storage entry', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Manual de campana',
+    tags: ['rol', 'pdf'],
+    messages: [
+      {
+        storageChatId: -100123,
+        storageMessageId: 900,
+        storageThreadId: 10,
+        telegramFileId: 'file-1',
+        telegramFileUniqueId: 'unique-1',
+        attachmentKind: 'document',
+        caption: null,
+        originalFileName: 'manual.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        mediaGroupId: null,
+        sortOrder: 0,
+      },
+    ],
+  });
+  const { context, replies, copiedMessages, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+
+  context.messageText = 'Añadir imágenes';
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'add-images-entry-id');
+
+  context.messageText = '1';
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'add-images-media');
+
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'photo-file-1',
+    fileUniqueId: 'photo-unique-1',
+    caption: 'Portada',
+    originalFileName: null,
+    mimeType: null,
+    fileSizeBytes: 4096,
+    mediaGroupId: null,
+    messageId: 77,
+  };
+  delete context.messageText;
+  await handleTelegramStorageMessage(context as never);
+  assert.equal(replies.at(-1)?.message, 'Imagen añadida al lote actual. Total: 1.');
+
+  context.messageText = 'Terminar adjuntos';
+  delete context.messageMedia;
+  const handled = await handleTelegramStorageText(context as never);
+
+  const detail = await repository.getEntryDetail(1);
+  assert.equal(handled, true);
+  assert.equal(detail?.messages.length, 2);
+  assert.equal(detail?.messages[1]?.attachmentKind, 'photo');
+  assert.equal(detail?.messages[1]?.caption, 'Portada');
+  assert.deepEqual(copiedMessages.at(-1), { fromChatId: 42, messageId: 77, toChatId: -100123, messageThreadId: 10 });
+  assert.equal(replies.at(-1)?.message, 'Imágenes añadidas a la entrada #1. Total añadido: 1.');
   assert.equal(getCurrentSession(), null);
 });
 

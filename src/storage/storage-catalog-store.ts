@@ -5,6 +5,7 @@ import {
   storageCategories,
   storageEntries,
   storageEntryMessages,
+  users,
 } from '../infrastructure/database/schema.js';
 import type {
   StorageCategoryRecord,
@@ -12,6 +13,7 @@ import type {
   StorageEntryDetailRecord,
   StorageEntryMessageRecord,
   StorageEntryRecord,
+  StorageEntryUploaderRecord,
 } from './storage-catalog.js';
 
 export function createDatabaseStorageRepository({
@@ -120,10 +122,13 @@ export function createDatabaseStorageRepository({
               )
               .returning();
 
+        const uploaderRows = await tx.select().from(users).where(eq(users.telegramUserId, input.createdByTelegramUserId));
+
         return {
           entry: mapStorageEntryRow(entryRow),
           category: mapStorageCategoryRow(categoryRow),
           messages: insertedMessages.map(mapStorageEntryMessageRow),
+          uploader: mapStorageUploaderRow(uploaderRows[0]),
         } satisfies StorageEntryDetailRecord;
       });
     },
@@ -146,6 +151,56 @@ export function createDatabaseStorageRepository({
       }
       return mapStorageEntryRow(row);
     },
+    async appendEntryMessages(input) {
+      return database.transaction(async (tx) => {
+        const entryRows = await tx.select().from(storageEntries).where(eq(storageEntries.id, input.entryId));
+        const entryRow = entryRows[0];
+        if (!entryRow) {
+          throw new Error(`Storage entry ${input.entryId} not found`);
+        }
+
+        const existingMessageRows = await tx
+          .select()
+          .from(storageEntryMessages)
+          .where(eq(storageEntryMessages.entryId, input.entryId))
+          .orderBy(desc(storageEntryMessages.sortOrder), desc(storageEntryMessages.id));
+        const nextSortOrder = (existingMessageRows[0]?.sortOrder ?? -1) + 1;
+        const now = new Date();
+
+        if (input.messages.length > 0) {
+          await tx
+            .insert(storageEntryMessages)
+            .values(
+              input.messages.map((message, index) => ({
+                entryId: entryRow.id,
+                storageChatId: message.storageChatId,
+                storageMessageId: message.storageMessageId,
+                storageThreadId: message.storageThreadId,
+                telegramFileId: message.telegramFileId ?? null,
+                telegramFileUniqueId: message.telegramFileUniqueId ?? null,
+                attachmentKind: message.attachmentKind,
+                caption: message.caption ?? null,
+                originalFileName: message.originalFileName ?? null,
+                mimeType: message.mimeType ?? null,
+                fileSizeBytes: message.fileSizeBytes ?? null,
+                mediaGroupId: message.mediaGroupId ?? null,
+                sortOrder: nextSortOrder + index,
+              })),
+            );
+        }
+
+        const updatedRows = await tx
+          .update(storageEntries)
+          .set({
+            updatedAt: now,
+          })
+          .where(eq(storageEntries.id, input.entryId))
+          .returning();
+        const updatedEntryRow = updatedRows[0] ?? entryRow;
+
+        return loadEntryDetail(tx as DatabaseConnection['db'], updatedEntryRow);
+      });
+    },
     async getEntryDetail(entryId) {
       const entryRows = await database.select().from(storageEntries).where(eq(storageEntries.id, entryId));
       const entryRow = entryRows[0];
@@ -164,11 +219,13 @@ export function createDatabaseStorageRepository({
         .from(storageEntryMessages)
         .where(eq(storageEntryMessages.entryId, entryId))
         .orderBy(asc(storageEntryMessages.sortOrder), asc(storageEntryMessages.id));
+      const uploaderRows = await database.select().from(users).where(eq(users.telegramUserId, entryRow.createdByTelegramUserId));
 
       return {
         entry: mapStorageEntryRow(entryRow),
         category: mapStorageCategoryRow(categoryRow),
         messages: messageRows.map(mapStorageEntryMessageRow),
+        uploader: mapStorageUploaderRow(uploaderRows[0]),
       } satisfies StorageEntryDetailRecord;
     },
     async listEntryDetailsByCategory(categoryId) {
@@ -192,10 +249,18 @@ export function createDatabaseStorageRepository({
             .where(inArray(storageEntryMessages.entryId, entryRows.map((entry) => entry.id)))
             .orderBy(asc(storageEntryMessages.sortOrder), asc(storageEntryMessages.id));
 
+      const uploaderRows = entryRows.length === 0
+        ? []
+        : await database
+            .select()
+            .from(users)
+            .where(inArray(users.telegramUserId, Array.from(new Set(entryRows.map((entry) => entry.createdByTelegramUserId)))));
+
       return buildStorageEntryDetails({
         entryRows,
         categoryRows: [categoryRow],
         messageRows,
+        uploaderRows,
       });
     },
     async searchEntryDetails({ categoryIds, query }) {
@@ -213,16 +278,20 @@ export function createDatabaseStorageRepository({
         return [];
       }
 
-      const [categoryRows, messageRows] = await Promise.all([
+      const [categoryRows, messageRows, uploaderRows] = await Promise.all([
         database.select().from(storageCategories).where(inArray(storageCategories.id, categoryIds)),
         database
           .select()
           .from(storageEntryMessages)
           .where(inArray(storageEntryMessages.entryId, entryRows.map((entry) => entry.id)))
           .orderBy(asc(storageEntryMessages.sortOrder), asc(storageEntryMessages.id)),
+        database
+          .select()
+          .from(users)
+          .where(inArray(users.telegramUserId, Array.from(new Set(entryRows.map((entry) => entry.createdByTelegramUserId))))),
       ]);
 
-      return buildStorageEntryDetails({ entryRows, categoryRows, messageRows }).filter((detail) => matchesStorageSearch(detail, normalizedQuery));
+      return buildStorageEntryDetails({ entryRows, categoryRows, messageRows, uploaderRows }).filter((detail) => matchesStorageSearch(detail, normalizedQuery));
     },
   };
 }
@@ -231,12 +300,15 @@ function buildStorageEntryDetails({
   entryRows,
   categoryRows,
   messageRows,
+  uploaderRows = [],
 }: {
   entryRows: Array<typeof storageEntries.$inferSelect>;
   categoryRows: Array<typeof storageCategories.$inferSelect>;
   messageRows: Array<typeof storageEntryMessages.$inferSelect>;
+  uploaderRows?: Array<typeof users.$inferSelect>;
 }): StorageEntryDetailRecord[] {
   const categoryById = new Map(categoryRows.map((category) => [category.id, category]));
+  const uploaderById = new Map(uploaderRows.map((user) => [user.telegramUserId, user]));
   const messagesByEntryId = new Map<number, Array<typeof storageEntryMessages.$inferSelect>>();
 
   for (const message of messageRows) {
@@ -255,6 +327,7 @@ function buildStorageEntryDetails({
       entry: mapStorageEntryRow(entry),
       category: mapStorageCategoryRow(categoryRow),
       messages: (messagesByEntryId.get(entry.id) ?? []).map(mapStorageEntryMessageRow),
+      uploader: mapStorageUploaderRow(uploaderById.get(entry.createdByTelegramUserId)),
     } satisfies StorageEntryDetailRecord;
   });
 }
@@ -274,11 +347,13 @@ async function loadEntryDetail(
     .from(storageEntryMessages)
     .where(eq(storageEntryMessages.entryId, entryRow.id))
     .orderBy(asc(storageEntryMessages.sortOrder), asc(storageEntryMessages.id));
+  const uploaderRows = await database.select().from(users).where(eq(users.telegramUserId, entryRow.createdByTelegramUserId));
 
   return {
     entry: mapStorageEntryRow(entryRow),
     category: mapStorageCategoryRow(categoryRow),
     messages: messageRows.map(mapStorageEntryMessageRow),
+    uploader: mapStorageUploaderRow(uploaderRows[0]),
   } satisfies StorageEntryDetailRecord;
 }
 
@@ -338,5 +413,17 @@ function mapStorageEntryMessageRow(row: typeof storageEntryMessages.$inferSelect
     mediaGroupId: row.mediaGroupId,
     sortOrder: row.sortOrder,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function mapStorageUploaderRow(row: typeof users.$inferSelect | undefined): StorageEntryUploaderRecord | null {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    telegramUserId: row.telegramUserId,
+    username: row.username,
+    displayName: row.displayName,
   };
 }
