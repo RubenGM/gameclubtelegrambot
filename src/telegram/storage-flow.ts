@@ -17,12 +17,15 @@ import {
 import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { TelegramInteractionError, type TelegramCommandHandlerContext } from './command-registry.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { escapeHtml } from './schedule-presentation.js';
 import { buildGlobalNavigationRow, buildPersistentReplyKeyboard } from './submenu-keyboards.js';
 
 const storageUploadFlowKey = 'storage-upload';
+const storageEntryStartPayloadPrefix = 'storage_entry_';
+const storageListPageSize = 20;
 const storageListFlowKey = 'storage-list';
 const storageSearchFlowKey = 'storage-search';
 const storageOpenEntryFlowKey = 'storage-open-entry';
@@ -125,6 +128,10 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   const i18n = createTelegramI18n(language);
   const texts = i18n.storage;
   const actionMenuTexts = i18n.actionMenu;
+  const startEntryId = parseStartPayload(text, storageEntryStartPayloadPrefix);
+  if (startEntryId !== null) {
+    return sendStorageEntryDetail(context, startEntryId, language);
+  }
 
   if (context.runtime.session.current?.flowKey === storageUploadFlowKey) {
     return handleActiveUploadFlow(context, text, language);
@@ -728,14 +735,13 @@ async function handleActiveListFlow(context: StorageFlowContext, text: string, l
   }
 
   await context.reply(
-    `${escapeHtml(texts.listHeader.replace('{category}', selected.displayName))}\n\n${details.map((detail) => formatStorageListEntry(detail, language)).join('\n\n')}`,
+    formatStorageListMessage({
+      categoryDisplayName: selected.displayName,
+      details,
+      language,
+    }),
     { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
   );
-
-  const failedEntryIds = await copyStorageEntriesToCurrentChat(context, details, { markMissingOnFailure: false });
-  if (failedEntryIds.length > 0) {
-    await context.reply(texts.listAttachmentCopyFailed.replace('{ids}', failedEntryIds.map((id) => `#${id}`).join(', ')), buildStorageMenuOptions(language, context));
-  }
   return true;
 }
 
@@ -755,8 +761,8 @@ async function handleActiveSearchFlow(context: StorageFlowContext, text: string,
   await context.reply(
     details.length === 0
       ? texts.noSearchResults
-      : `${texts.searchResultsHeader}\n${details.map(formatStorageSearchEntry).join('\n')}`,
-    buildStorageMenuOptions(language, context),
+      : `${escapeHtml(texts.searchResultsHeader)}\n${details.slice(0, storageListPageSize).map((detail) => formatStorageSummaryEntry(detail, language, { includeCategory: true })).join('\n')}${details.length > storageListPageSize ? `\n${escapeHtml(formatStorageListLimitedFooter(details.length, storageListPageSize, language))}` : ''}`,
+    details.length === 0 ? buildStorageMenuOptions(language, context) : { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
   );
   return true;
 }
@@ -784,9 +790,28 @@ async function handleActiveOpenEntryFlow(context: StorageFlowContext, text: stri
     return true;
   }
 
-  if (!context.runtime.bot.copyMessage) {
-    throw new Error('Telegram bot runtime does not support copyMessage');
+  await context.runtime.session.cancel();
+  return sendStorageEntryDetail(context, detail.entry.id, language, detail);
+}
+
+async function sendStorageEntryDetail(
+  context: StorageFlowContext,
+  entryId: number,
+  language: 'ca' | 'es' | 'en',
+  loadedDetail?: StorageEntryDetailRecord,
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).storage;
+  const detail = loadedDetail ?? await resolveRepository(context).getEntryDetail(entryId);
+  if (
+    !detail ||
+    detail.entry.lifecycleStatus !== 'active' ||
+    !context.runtime.authorization.can('storage.entry.read', { type: 'storage-category', id: String(detail.category.id) })
+  ) {
+    await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
+    return true;
   }
+
+  await context.reply(formatStorageEntryDetail(detail, language), { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' });
 
   try {
     await copyStorageEntryToCurrentChat(context, detail);
@@ -803,12 +828,10 @@ async function handleActiveOpenEntryFlow(context: StorageFlowContext, text: stri
       targetId: detail.entry.id,
       summary: 'Entrada de storage marcada com a font perduda',
     });
-    await context.runtime.session.cancel();
     await context.reply(texts.entrySourceMissing.replace('{id}', String(detail.entry.id)), buildStorageMenuOptions(language, context));
     return true;
   }
 
-  await context.runtime.session.cancel();
   await context.reply(
     texts.entryOpened
       .replace('{id}', String(detail.entry.id))
@@ -1824,32 +1847,6 @@ function asNullableString(value: unknown): string | null {
   return normalized.length === 0 ? null : normalized;
 }
 
-async function copyStorageEntriesToCurrentChat(
-  context: StorageFlowContext,
-  details: StorageEntryDetailRecord[],
-  { markMissingOnFailure }: { markMissingOnFailure: boolean },
-): Promise<number[]> {
-  if (!context.runtime.bot.copyMessage) {
-    return details.map((detail) => detail.entry.id);
-  }
-
-  const failedEntryIds: number[] = [];
-  for (const detail of details) {
-    try {
-      await copyStorageEntryToCurrentChat(context, detail);
-    } catch {
-      failedEntryIds.push(detail.entry.id);
-      if (markMissingOnFailure) {
-        await resolveRepository(context).updateEntryLifecycleStatus({
-          entryId: detail.entry.id,
-          lifecycleStatus: 'missing_source',
-        });
-      }
-    }
-  }
-  return failedEntryIds;
-}
-
 async function copyStorageEntryToCurrentChat(context: StorageFlowContext, detail: StorageEntryDetailRecord): Promise<void> {
   if (!context.runtime.bot.copyMessage) {
     throw new Error('Telegram bot runtime does not support copyMessage');
@@ -1864,10 +1861,50 @@ async function copyStorageEntryToCurrentChat(context: StorageFlowContext, detail
   }
 }
 
-function formatStorageListEntry(detail: StorageEntryDetailRecord, language: 'ca' | 'es' | 'en'): string {
+function formatStorageListMessage({
+  categoryDisplayName,
+  details,
+  language,
+}: {
+  categoryDisplayName: string;
+  details: StorageEntryDetailRecord[];
+  language: 'ca' | 'es' | 'en';
+}): string {
+  const texts = createTelegramI18n(language).storage;
+  const visibleDetails = details.slice(0, storageListPageSize);
+  const lines = [
+    escapeHtml(texts.listHeader.replace('{category}', categoryDisplayName)),
+    ...visibleDetails.map((detail) => formatStorageSummaryEntry(detail, language)),
+  ];
+  if (details.length > visibleDetails.length) {
+    lines.push(formatStorageListLimitedFooter(details.length, visibleDetails.length, language));
+  }
+  return lines.join('\n');
+}
+
+function formatStorageSummaryEntry(
+  detail: StorageEntryDetailRecord,
+  language: 'ca' | 'es' | 'en',
+  { includeCategory = false }: { includeCategory?: boolean } = {},
+): string {
+  const description = detail.entry.description ?? createTelegramI18n(language).storage.entryNoDescription;
+  const title = includeCategory ? `${detail.category.displayName} · #${detail.entry.id}` : `#${detail.entry.id}`;
+  const texts = createTelegramI18n(language).storage;
+  const attachmentSummary = `${texts.entryFieldAttachments}: ${detail.messages.length}`;
+  const tags = detail.entry.tags.length > 0 ? ` · ${detail.entry.tags.map((tag) => `#${tag}`).join(', ')}` : '';
+  return `- <a href="${escapeHtml(buildTelegramStartUrl(`${storageEntryStartPayloadPrefix}${detail.entry.id}`))}"><b>${escapeHtml(title)}</b></a> · ${escapeHtml(description)} · ${escapeHtml(attachmentSummary)}${escapeHtml(tags)}`;
+}
+
+function formatStorageListLimitedFooter(total: number, shown: number, language: 'ca' | 'es' | 'en'): string {
+  return createTelegramI18n(language).storage.listLimitedFooter
+    .replace('{shown}', String(shown))
+    .replace('{total}', String(total));
+}
+
+function formatStorageEntryDetail(detail: StorageEntryDetailRecord, language: 'ca' | 'es' | 'en'): string {
   const texts = createTelegramI18n(language).storage;
   const lines = [
-    `<b>#${detail.entry.id}</b>`,
+    `<a href="${escapeHtml(buildTelegramStartUrl(`${storageEntryStartPayloadPrefix}${detail.entry.id}`))}"><b>#${detail.entry.id}</b></a> · ${escapeHtml(detail.category.displayName)}`,
     `<b>${escapeHtml(texts.entryFieldDescription)}:</b> ${escapeHtml(detail.entry.description ?? texts.entryNoDescription)}`,
     `<b>${escapeHtml(texts.entryFieldTags)}:</b> ${detail.entry.tags.length > 0 ? detail.entry.tags.map((tag) => `#${escapeHtml(tag)}`).join(', ') : escapeHtml(texts.entryNoTags)}`,
     `<b>${escapeHtml(texts.entryFieldUploadedBy)}:</b> ${formatStorageUploaderLabel(detail, language)}`,
@@ -1877,11 +1914,6 @@ function formatStorageListEntry(detail: StorageEntryDetailRecord, language: 'ca'
     ...detail.messages.map((message, index) => `  ${index + 1}. ${formatStorageAttachment(message, language)}`),
   ];
   return lines.join('\n');
-}
-
-function formatStorageSearchEntry(detail: Awaited<ReturnType<StorageCategoryRepository['searchEntryDetails']>>[number]): string {
-  const description = detail.entry.description ?? '-';
-  return `- ${detail.category.displayName} · #${detail.entry.id} ${description}`;
 }
 
 function formatStorageAttachment(message: StorageEntryMessageRecord, language: 'ca' | 'es' | 'en'): string {
@@ -1950,6 +1982,15 @@ function canManageStorageEntries(context: StorageFlowContext): boolean {
 function parsePositiveInteger(value: string): number | null {
   const parsed = Number(value.trim());
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseStartPayload(messageText: string, prefix: string): number | null {
+  const payload = messageText.trim().split(/\s+/).slice(1).join(' ');
+  if (!payload.startsWith(prefix)) {
+    return null;
+  }
+
+  return parsePositiveInteger(payload.slice(prefix.length));
 }
 
 function parseSignedInteger(value: string): number | null {

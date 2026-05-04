@@ -375,7 +375,7 @@ test('handleTelegramStorageText lists only categories the user can read', async 
   assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- Manuales (`manuales`)');
 });
 
-test('handleTelegramStorageText lists recent entries with metadata and copies attachments for a chosen category', async () => {
+test('handleTelegramStorageText lists recent entries as clickable text links without copying attachments', async () => {
   const repository = createRepository([createCategory()]);
   await repository.createEntry({
     categoryId: 7,
@@ -416,18 +416,10 @@ test('handleTelegramStorageText lists recent entries with metadata and copies at
     replies.at(-1)?.message,
     [
       'Manuales:',
-      '',
-      '<b>#1</b>',
-      '<b>Descripción:</b> Manual de campana',
-      '<b>Tags:</b> #rol, #pdf',
-      '<b>Subido por:</b> <a href="https://t.me/adalovelace">Ada Lovelace (@adalovelace)</a>',
-      '<b>Fecha:</b> 21/04/2026 12:00 UTC',
-      '<b>Origen:</b> subida por privado',
-      '<b>Adjuntos:</b> 1',
-      '  1. document · Nombre: manual.pdf · Tipo: application/pdf · Tamaño: 1 KB',
+      '- <a href="https://t.me/cawatest_bot?start=storage_entry_1"><b>#1</b></a> · Manual de campana · Adjuntos: 1 · #rol, #pdf',
     ].join('\n'),
   );
-  assert.deepEqual(copiedMessages, [{ fromChatId: -100123, messageId: 900, toChatId: 42 }]);
+  assert.deepEqual(copiedMessages, []);
 });
 
 test('handleTelegramStorageText shows cancel while choosing a storage category', async () => {
@@ -478,7 +470,8 @@ test('handleTelegramStorageText searches entries inside readable categories', as
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message, 'Resultados:\n- Manuales · #1 Manual de campana');
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.equal(replies.at(-1)?.message, 'Resultados:\n- <a href="https://t.me/cawatest_bot?start=storage_entry_1"><b>Manuales · #1</b></a> · Manual de campana · Adjuntos: 1 · #rol, #pdf');
 });
 
 test('handleTelegramStorageMessage lets admins create a storage category with guided chat selection', async () => {
@@ -685,8 +678,48 @@ test('handleTelegramStorageText opens an entry by id and copies its attachments 
   assert.equal(handled, true);
   assert.equal(copiedMessages.length, 1);
   assert.deepEqual(copiedMessages[0], { fromChatId: -100123, messageId: 900, toChatId: 42 });
+  assert.equal(replies.at(-2)?.options?.parseMode, 'HTML');
+  assert.match(replies.at(-2)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_entry_1"><b>#1<\/b><\/a> · Manuales/);
+  assert.match(replies.at(-2)?.message ?? '', /<b>Descripción:<\/b> Manual de campana/);
   assert.equal(replies.at(-1)?.message, 'Entrada #1 de Manuales enviada con 1 adjunto(s).');
   assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageText opens an entry detail from a deep link', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Manual de campana',
+    tags: ['rol', 'pdf'],
+    messages: [
+      {
+        storageChatId: -100123,
+        storageMessageId: 900,
+        storageThreadId: 10,
+        telegramFileId: 'file-1',
+        telegramFileUniqueId: 'unique-1',
+        attachmentKind: 'document',
+        caption: null,
+        originalFileName: 'manual.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        mediaGroupId: null,
+        sortOrder: 0,
+      },
+    ],
+  });
+  const { context, replies, copiedMessages } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
+
+  context.messageText = '/start storage_entry_1';
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.equal(replies[0]?.options?.parseMode, 'HTML');
+  assert.match(replies[0]?.message, /<b>Subido por:<\/b> <a href="https:\/\/t\.me\/adalovelace">Ada Lovelace \(@adalovelace\)<\/a>/);
+  assert.deepEqual(copiedMessages, [{ fromChatId: -100123, messageId: 900, toChatId: 42 }]);
+  assert.equal(replies.at(-1)?.message, 'Entrada #1 de Manuales enviada con 1 adjunto(s).');
 });
 
 test('handleTelegramStorageText marks entries as missing source when Telegram copy fails', async () => {
