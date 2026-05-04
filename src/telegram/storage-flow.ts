@@ -41,6 +41,21 @@ const storageRevokeAccessFlowKey = 'storage-revoke-access';
 const storageViewAccessFlowKey = 'storage-view-access';
 const storageTopicMediaGroupWindowMs = 1500;
 const storageChatRequestId = 41101;
+const storageChatAdministratorRights = {
+  isAnonymous: false,
+  canManageChat: true,
+  canDeleteMessages: false,
+  canManageVideoChats: false,
+  canRestrictMembers: false,
+  canPromoteMembers: false,
+  canChangeInfo: false,
+  canInviteUsers: true,
+  canPostStories: false,
+  canEditStories: false,
+  canDeleteStories: false,
+  canPinMessages: false,
+  canManageTopics: true,
+};
 
 type PendingTopicMediaGroup = {
   repository: StorageCategoryRepository;
@@ -1780,6 +1795,8 @@ function buildStorageChatSelectOptions(language: 'ca' | 'es' | 'en'): TelegramRe
             chatIsChannel: false,
             chatIsForum: true,
             botIsMember: true,
+            userAdministratorRights: storageChatAdministratorRights,
+            botAdministratorRights: storageChatAdministratorRights,
           },
         },
       ],

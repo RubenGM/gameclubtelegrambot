@@ -107,6 +107,7 @@ import type {
   TelegramButtonAppearanceConfig,
   TelegramInlineButton,
   TelegramReplyOptions,
+  TelegramReplyButton,
   TelegramReplyKeyboardButton,
 } from './runtime-boundary.js';
 
@@ -721,10 +722,32 @@ function toRawReplyKeyboardButton(
         chat_is_channel: normalizedButton.requestChat.chatIsChannel,
         ...(normalizedButton.requestChat.chatIsForum !== undefined ? { chat_is_forum: normalizedButton.requestChat.chatIsForum } : {}),
         ...(normalizedButton.requestChat.botIsMember !== undefined ? { bot_is_member: normalizedButton.requestChat.botIsMember } : {}),
+        ...(normalizedButton.requestChat.userAdministratorRights ? { user_administrator_rights: toRawChatAdministratorRights(normalizedButton.requestChat.userAdministratorRights) } : {}),
+        ...(normalizedButton.requestChat.botAdministratorRights ? { bot_administrator_rights: toRawChatAdministratorRights(normalizedButton.requestChat.botAdministratorRights) } : {}),
       },
     } : {}),
     ...(appearance?.style ? { style: appearance.style } : {}),
     ...(appearance?.iconCustomEmojiId ? { icon_custom_emoji_id: appearance.iconCustomEmojiId } : {}),
+  };
+}
+
+function toRawChatAdministratorRights(rights: NonNullable<TelegramReplyButton['requestChat']>['botAdministratorRights']): Record<string, boolean> {
+  return {
+    ...(rights?.isAnonymous !== undefined ? { is_anonymous: rights.isAnonymous } : {}),
+    ...(rights?.canManageChat !== undefined ? { can_manage_chat: rights.canManageChat } : {}),
+    ...(rights?.canDeleteMessages !== undefined ? { can_delete_messages: rights.canDeleteMessages } : {}),
+    ...(rights?.canManageVideoChats !== undefined ? { can_manage_video_chats: rights.canManageVideoChats } : {}),
+    ...(rights?.canRestrictMembers !== undefined ? { can_restrict_members: rights.canRestrictMembers } : {}),
+    ...(rights?.canPromoteMembers !== undefined ? { can_promote_members: rights.canPromoteMembers } : {}),
+    ...(rights?.canChangeInfo !== undefined ? { can_change_info: rights.canChangeInfo } : {}),
+    ...(rights?.canInviteUsers !== undefined ? { can_invite_users: rights.canInviteUsers } : {}),
+    ...(rights?.canPostStories !== undefined ? { can_post_stories: rights.canPostStories } : {}),
+    ...(rights?.canEditStories !== undefined ? { can_edit_stories: rights.canEditStories } : {}),
+    ...(rights?.canDeleteStories !== undefined ? { can_delete_stories: rights.canDeleteStories } : {}),
+    ...(rights?.canPostMessages !== undefined ? { can_post_messages: rights.canPostMessages } : {}),
+    ...(rights?.canEditMessages !== undefined ? { can_edit_messages: rights.canEditMessages } : {}),
+    ...(rights?.canPinMessages !== undefined ? { can_pin_messages: rights.canPinMessages } : {}),
+    ...(rights?.canManageTopics !== undefined ? { can_manage_topics: rights.canManageTopics } : {}),
   };
 }
 

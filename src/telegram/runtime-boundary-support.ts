@@ -102,10 +102,30 @@ export interface TelegramReplyButton {
     chatIsChannel: boolean;
     chatIsForum?: boolean;
     botIsMember?: boolean;
+    userAdministratorRights?: TelegramChatAdministratorRights;
+    botAdministratorRights?: TelegramChatAdministratorRights;
   };
 }
 
 export type TelegramReplyKeyboardButton = string | TelegramReplyButton;
+
+export interface TelegramChatAdministratorRights {
+  isAnonymous?: boolean;
+  canManageChat?: boolean;
+  canDeleteMessages?: boolean;
+  canManageVideoChats?: boolean;
+  canRestrictMembers?: boolean;
+  canPromoteMembers?: boolean;
+  canChangeInfo?: boolean;
+  canInviteUsers?: boolean;
+  canPostStories?: boolean;
+  canEditStories?: boolean;
+  canDeleteStories?: boolean;
+  canPostMessages?: boolean;
+  canEditMessages?: boolean;
+  canPinMessages?: boolean;
+  canManageTopics?: boolean;
+}
 
 export interface TelegramReplyOptions {
   inlineKeyboard?: TelegramInlineButton[][];
