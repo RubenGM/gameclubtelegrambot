@@ -1,6 +1,8 @@
 import { APP_VERSION } from '../app-version.js';
 import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
+import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
+import { createDatabaseVenueEventRepository } from '../venue-events/venue-event-catalog-store.js';
 import { elevateApprovedUserToAdmin } from '../membership/admin-elevation.js';
 import { createDatabaseAdminElevationRepository } from '../membership/admin-elevation-store.js';
 import {
@@ -49,12 +51,26 @@ import {
   renderTelegramHelpMessage,
   type TelegramCommandDefinition,
   type TelegramCommandHandlerContext,
+  type TelegramHelpSection,
 } from './command-registry.js';
 import { createAppMetadataTelegramLanguagePreferenceStore } from './language-preference-store.js';
 import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { handleTelegramLanguageCommand, handleTelegramLanguageText } from './language-flow.js';
 import { handleTelegramNewsGroupText } from './news-group-flow.js';
+import { buildTodayAtClubSummary } from './today-at-club-summary.js';
+import {
+  groupPurchaseCallbackPrefixes,
+  handleTelegramGroupPurchaseCallback,
+  handleTelegramGroupPurchaseCommand,
+  handleTelegramGroupPurchaseStartText,
+  handleTelegramGroupPurchaseText,
+} from './group-purchase-flow.js';
+import {
+  handleTelegramStorageCommand,
+  handleTelegramStorageMessage,
+  handleTelegramStorageText,
+} from './storage-flow.js';
 import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleStartText,
@@ -81,14 +97,17 @@ import {
 } from './venue-event-admin-flow.js';
 import type {
   TelegramBotLike,
+  TelegramButtonAppearanceConfig,
   TelegramInlineButton,
   TelegramReplyOptions,
+  TelegramReplyKeyboardButton,
 } from './runtime-boundary.js';
 
 const membershipRevokeFlowKey = 'membership-revoke';
 const membershipRevokeSelectPrefix = 'membership_revoke:select:';
 const membershipRevokeConfirmCallback = 'membership_revoke:confirm';
 const membershipRevokeCancelCallback = 'membership_revoke:cancel';
+const activeHelpSections = new Map<string, TelegramHelpSection>();
 
 export function registerHandlers({
   bot,
@@ -109,12 +128,14 @@ export function registerHandlers({
 
   registerMembershipCallbacks({ bot, publicName, adminElevationPasswordHash });
   registerScheduleCallbacks({ bot });
+  registerGroupPurchaseCallbacks({ bot });
   registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
   registerCatalogReadCallbacks({ bot });
   registerCatalogAdminCallbacks({ bot });
   registerVenueEventAdminCallbacks({ bot });
   registerTextHandlers({ bot, publicName, adminElevationPasswordHash });
+  registerMessageHandlers({ bot });
 }
 
 function registerTextHandlers({
@@ -128,6 +149,13 @@ function registerTextHandlers({
 }): void {
   bot.onText(async (context) => {
     await recordCurrentMenuActionSelection(context);
+    const text = context.messageText?.trim();
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    const i18n = createTelegramI18n(language);
+
+    if (text === i18n.actionMenu.start) {
+      clearActiveHelpSection(context);
+    }
 
     if (await handleTelegramLanguageText(context)) {
       return;
@@ -149,6 +177,16 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramStorageText(context)) {
+      setActiveHelpSection(context, 'storage');
+      return;
+    }
+
+    if (await handleTelegramGroupPurchaseText(context)) {
+      setActiveHelpSection(context, 'group_purchases');
+      return;
+    }
+
     if (await handleTelegramVenueEventAdminText(context)) {
       return;
     }
@@ -158,6 +196,7 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramScheduleText(context)) {
+      setActiveHelpSection(context, 'schedule');
       return;
     }
 
@@ -166,13 +205,37 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramCatalogAdminText(context)) {
+      setActiveHelpSection(context, 'catalog');
       return;
     }
 
     if (await handleTelegramCatalogReadText(context)) {
+      setActiveHelpSection(context, 'catalog');
       return;
     }
   });
+}
+
+function registerMessageHandlers({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  bot.onMessage?.(async (context) => {
+    await handleTelegramStorageMessage(context);
+  });
+}
+
+function registerGroupPurchaseCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(groupPurchaseCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramGroupPurchaseCallback(context);
+    });
+  }
 }
 
 function createDefaultCommands({
@@ -341,6 +404,24 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'group_purchases',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Consulta les compres conjuntes del club',
+      handle: async (context) => {
+        await handleTelegramGroupPurchaseCommand(context);
+      },
+    },
+    {
+      command: 'storage',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Consulta categories i pujades d emmagatzematge',
+      handle: async (context) => {
+        await handleTelegramStorageCommand(context);
+      },
+    },
+    {
       command: 'news',
       contexts: ['group', 'group-news'],
       access: 'admin',
@@ -464,6 +545,9 @@ function createDefaultCommands({
         if (await handleTelegramCatalogAdminStartText({ ...context })) {
           return;
         }
+        if (await handleTelegramGroupPurchaseStartText({ ...context })) {
+          return;
+        }
         if (await handleTelegramVenueEventAdminStartText({ ...context })) {
           return;
         }
@@ -486,6 +570,7 @@ function createDefaultCommands({
           renderTelegramHelpMessage({
             commands: createDefaultCommands({ publicName, adminElevationPasswordHash }),
             context,
+            section: getActiveHelpSection(context),
           }),
         );
       },
@@ -541,7 +626,10 @@ function parseCallbackTarget(
   return telegramUserId;
 }
 
-export function toGrammyReplyOptions(options?: TelegramReplyOptions): Record<string, unknown> | undefined {
+export function toGrammyReplyOptions(
+  options?: TelegramReplyOptions,
+  buttonAppearance?: TelegramButtonAppearanceConfig,
+): Record<string, unknown> | undefined {
   if (!options) {
     return undefined;
   }
@@ -553,7 +641,7 @@ export function toGrammyReplyOptions(options?: TelegramReplyOptions): Record<str
   if (options.replyKeyboard) {
     return {
       reply_markup: {
-        keyboard: options.replyKeyboard.map((row) => row.map((buttonText) => ({ text: buttonText }))),
+        keyboard: options.replyKeyboard.map((row) => row.map((button) => toRawReplyKeyboardButton(button, buttonAppearance))),
         resize_keyboard: options.resizeKeyboard ?? true,
         is_persistent: options.persistentKeyboard ?? true,
       },
@@ -570,13 +658,46 @@ export function toGrammyReplyOptions(options?: TelegramReplyOptions): Record<str
   return {
     reply_markup: {
       inline_keyboard: inlineKeyboard.map((row) =>
-        row.map((button) => ({
-          text: button.text,
-          ...(button.url ? { url: button.url } : { callback_data: button.callbackData }),
-        })),
+        row.map((button) => toRawInlineKeyboardButton(button, buttonAppearance)),
       ),
     },
     ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
+  };
+}
+
+function toRawReplyKeyboardButton(
+  button: TelegramReplyKeyboardButton,
+  buttonAppearance?: TelegramButtonAppearanceConfig,
+): Record<string, unknown> {
+  const normalizedButton = typeof button === 'string' ? { text: button } : button;
+  const appearance = normalizedButton.semanticRole ? buttonAppearance?.[normalizedButton.semanticRole] : undefined;
+
+  return {
+    text: normalizedButton.text,
+    ...(normalizedButton.requestChat ? {
+      request_chat: {
+        request_id: normalizedButton.requestChat.requestId,
+        chat_is_channel: normalizedButton.requestChat.chatIsChannel,
+        ...(normalizedButton.requestChat.chatIsForum !== undefined ? { chat_is_forum: normalizedButton.requestChat.chatIsForum } : {}),
+        ...(normalizedButton.requestChat.botIsMember !== undefined ? { bot_is_member: normalizedButton.requestChat.botIsMember } : {}),
+      },
+    } : {}),
+    ...(appearance?.style ? { style: appearance.style } : {}),
+    ...(appearance?.iconCustomEmojiId ? { icon_custom_emoji_id: appearance.iconCustomEmojiId } : {}),
+  };
+}
+
+function toRawInlineKeyboardButton(
+  button: TelegramInlineButton,
+  buttonAppearance?: TelegramButtonAppearanceConfig,
+): Record<string, unknown> {
+  const appearance = button.semanticRole ? buttonAppearance?.[button.semanticRole] : undefined;
+
+  return {
+    text: button.text,
+    ...(button.url ? { url: button.url } : { callback_data: button.callbackData }),
+    ...(appearance?.style ? { style: appearance.style } : {}),
+    ...(appearance?.iconCustomEmojiId ? { icon_custom_emoji_id: appearance.iconCustomEmojiId } : {}),
   };
 }
 
@@ -626,15 +747,19 @@ async function buildStartReply({
 }): Promise<{ message: string; options: TelegramReplyOptions | undefined }> {
   const language = context.runtime.bot.language ?? 'ca';
   if (context.runtime.chat.kind === 'private') {
+    const message = formatStartMessage({
+      publicName,
+      version,
+      isAdmin: context.runtime.actor.isAdmin,
+      isApproved: context.runtime.actor.isApproved,
+      language,
+    });
+    const todaySummary = await buildTodayAtClubSummaryForStart(context, language);
+    const options = await buildReplyOptionsForCurrentActionMenu(context);
+
     return {
-      message: formatStartMessage({
-        publicName,
-        version,
-        isAdmin: context.runtime.actor.isAdmin,
-        isApproved: context.runtime.actor.isApproved,
-        language,
-      }),
-      options: await buildReplyOptionsForCurrentActionMenu(context),
+      message: todaySummary ? `${message}\n\n${todaySummary}` : message,
+      options: todaySummary ? { ...options, parseMode: 'HTML' } : options,
     };
   }
 
@@ -647,6 +772,25 @@ async function buildStartReply({
         }
       : undefined,
   };
+}
+
+async function buildTodayAtClubSummaryForStart(
+  context: TelegramCommandHandlerContext,
+  language: 'ca' | 'es' | 'en',
+): Promise<string | undefined> {
+  if (!context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
+    return undefined;
+  }
+
+  try {
+    return await buildTodayAtClubSummary({
+      language,
+      scheduleRepository: createDatabaseScheduleRepository({ database: context.runtime.services.database.db as never }),
+      venueEventRepository: createDatabaseVenueEventRepository({ database: context.runtime.services.database.db as never }),
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 function registerMembershipCallbacks({
@@ -667,6 +811,7 @@ function registerMembershipCallbacks({
       renderTelegramHelpMessage({
         commands: createDefaultCommands({ publicName, adminElevationPasswordHash }),
         context,
+        section: getActiveHelpSection(context),
       }),
     );
   });
@@ -1050,6 +1195,7 @@ async function handleTelegramTranslatedActionMenuText(
       renderTelegramHelpMessage({
         commands: createDefaultCommands(commandConfig),
         context,
+        section: getActiveHelpSection(context),
       }),
     );
     return true;
@@ -1102,6 +1248,34 @@ async function handlePrivateAutoMembershipRequest(
 
   await context.reply(result.message, await buildReplyOptionsForCurrentActionMenu(context));
   return true;
+}
+
+function setActiveHelpSection(context: TelegramCommandHandlerContext, section: TelegramHelpSection): void {
+  const key = activeHelpSectionKey(context);
+  if (key) {
+    activeHelpSections.set(key, section);
+  }
+}
+
+function getActiveHelpSection(context: TelegramCommandHandlerContext): TelegramHelpSection | undefined {
+  const key = activeHelpSectionKey(context);
+  return key ? activeHelpSections.get(key) : undefined;
+}
+
+function clearActiveHelpSection(context: TelegramCommandHandlerContext): void {
+  const key = activeHelpSectionKey(context);
+  if (key) {
+    activeHelpSections.delete(key);
+  }
+}
+
+function activeHelpSectionKey(context: TelegramCommandHandlerContext): string | undefined {
+  const telegramUserId = context.runtime.actor.telegramUserId;
+  if (!telegramUserId) {
+    return undefined;
+  }
+
+  return `${context.runtime.chat.chatId}:${telegramUserId}`;
 }
 
 async function buildReplyOptionsForCurrentActionMenu(

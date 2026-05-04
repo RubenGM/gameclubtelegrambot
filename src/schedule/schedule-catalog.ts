@@ -28,6 +28,8 @@ export interface ScheduleParticipantRecord {
   status: ScheduleParticipantStatus;
   addedByTelegramUserId: number;
   removedByTelegramUserId: number | null;
+  reminderLeadHours?: number | null;
+  reminderPreferenceConfigured?: boolean;
   joinedAt: string;
   updatedAt: string;
   leftAt: string | null;
@@ -76,6 +78,8 @@ export interface ScheduleRepository {
     participantTelegramUserId: number;
     actorTelegramUserId: number;
     status: ScheduleParticipantStatus;
+    reminderLeadHours?: number | null;
+    reminderPreferenceConfigured?: boolean;
   }): Promise<ScheduleParticipantRecord>;
 }
 

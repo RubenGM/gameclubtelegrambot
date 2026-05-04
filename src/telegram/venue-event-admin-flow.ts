@@ -17,6 +17,7 @@ import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
 
 const createFlowKey = 'venue-event-admin-create';
 const editFlowKey = 'venue-event-admin-edit';
@@ -487,59 +488,62 @@ async function loadVenueEventOrThrow(context: TelegramVenueEventAdminContext, ev
 }
 
 function buildVenueEventMenuOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const i18n = createTelegramI18n(language);
-  const texts = i18n.venueEventAdmin;
-  return {
-    replyKeyboard: [[texts.create, texts.list], [texts.edit, texts.cancel], [i18n.actionMenu.start, i18n.actionMenu.help]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
+  const texts = createTelegramI18n(language).venueEventAdmin;
+  return buildSubmenuReplyKeyboard({ language, rows: [[texts.create, texts.list], [texts.edit, texts.cancel]] });
 }
 
 function buildSingleCancelKeyboard(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildDescriptionOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.skipOptional], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[successButton(venueEventAdminLabels.skipOptional)], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildDateOptions(context: TelegramVenueEventAdminContext): TelegramReplyOptions {
-  return { replyKeyboard: [...buildUpcomingDateRows(resolveBotLanguage(context)), [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [...buildUpcomingDateRows(resolveBotLanguage(context)), [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildTimeModeOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.allDay, venueEventAdminLabels.specificTime], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[venueEventAdminLabels.allDay, venueEventAdminLabels.specificTime], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildEditDateOptions(context: TelegramVenueEventAdminContext): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], ...buildUpcomingDateRows(resolveBotLanguage(context)), [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], ...buildUpcomingDateRows(resolveBotLanguage(context)), [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildEditTimeModeOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.allDay, venueEventAdminLabels.specificTime], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[venueEventAdminLabels.allDay, venueEventAdminLabels.specificTime], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildKeepCurrentOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildEditDescriptionOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], [venueEventAdminLabels.skipOptional], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], [successButton(venueEventAdminLabels.skipOptional)], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildScopeOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.scopePartial, venueEventAdminLabels.scopeFull], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[venueEventAdminLabels.scopePartial, venueEventAdminLabels.scopeFull], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildEditScopeOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], [venueEventAdminLabels.scopePartial, venueEventAdminLabels.scopeFull], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], [venueEventAdminLabels.scopePartial, venueEventAdminLabels.scopeFull], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildImpactOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.impactLow, venueEventAdminLabels.impactMedium, venueEventAdminLabels.impactHigh], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[venueEventAdminLabels.impactLow, venueEventAdminLabels.impactMedium, venueEventAdminLabels.impactHigh], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildEditImpactOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], [venueEventAdminLabels.impactLow, venueEventAdminLabels.impactMedium, venueEventAdminLabels.impactHigh], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[venueEventAdminLabels.keepCurrent], [venueEventAdminLabels.impactLow, venueEventAdminLabels.impactMedium, venueEventAdminLabels.impactHigh], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildCreateConfirmOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.confirmCreate], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[successButton(venueEventAdminLabels.confirmCreate)], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildEditConfirmOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.confirmEdit], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[successButton(venueEventAdminLabels.confirmEdit)], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
 }
 function buildCancelConfirmOptions(): TelegramReplyOptions {
-  return { replyKeyboard: [[venueEventAdminLabels.confirmCancel], [venueEventAdminLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true };
+  return { replyKeyboard: [[dangerButton(venueEventAdminLabels.confirmCancel)], [dangerButton(venueEventAdminLabels.cancelFlow)]], resizeKeyboard: true, persistentKeyboard: true };
+}
+
+function successButton(text: string) {
+  return { text, semanticRole: 'success' as const };
+}
+
+function dangerButton(text: string) {
+  return { text, semanticRole: 'danger' as const };
 }
 
 function formatVenueEventListMessage(events: VenueEventRecord[]): string {

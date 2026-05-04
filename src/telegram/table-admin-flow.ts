@@ -16,6 +16,7 @@ import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
 import { formatTelegramTableDetails, formatTelegramTableListMessage } from './table-presentation.js';
 
 const createFlowKey = 'table-admin-create';
@@ -472,17 +473,8 @@ async function handleDeactivateSession(
 }
 
 function buildTableAdminMenuOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
-  const i18n = createTelegramI18n(language);
-  const texts = i18n.tableAdmin;
-  return {
-    replyKeyboard: [
-      [texts.create, texts.list],
-      [texts.edit, texts.deactivate],
-      [i18n.actionMenu.start],
-    ],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  };
+  const texts = createTelegramI18n(language).tableAdmin;
+  return buildSubmenuReplyKeyboard({ language, rows: [[texts.create, texts.list], [texts.edit, texts.deactivate]] });
 }
 
 function resolveAuditRepository(context: TelegramTableAdminContext): AuditLogRepository {
@@ -495,7 +487,7 @@ function resolveAuditRepository(context: TelegramTableAdminContext): AuditLogRep
 function buildDescriptionOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[texts.skipOptional], [tableAdminLabels.cancel]],
+    replyKeyboard: [[successButton(texts.skipOptional)], [dangerButton(tableAdminLabels.cancel)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -504,7 +496,7 @@ function buildDescriptionOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramR
 function buildCapacityOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[texts.noCapacity], [tableAdminLabels.cancel]],
+    replyKeyboard: [[successButton(texts.noCapacity)], [dangerButton(tableAdminLabels.cancel)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -513,7 +505,7 @@ function buildCapacityOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramRepl
 function buildCreateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[texts.confirmCreate], [tableAdminLabels.cancel]],
+    replyKeyboard: [[successButton(texts.confirmCreate)], [dangerButton(tableAdminLabels.cancel)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -522,7 +514,7 @@ function buildCreateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): Telegra
 function buildEditNameOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[texts.keepCurrent], [tableAdminLabels.cancel]],
+    replyKeyboard: [[texts.keepCurrent], [dangerButton(tableAdminLabels.cancel)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -533,7 +525,7 @@ function buildEditDescriptionOptions(language: 'ca' | 'es' | 'en' = 'ca'): Teleg
   return {
     replyKeyboard: [
       [texts.keepCurrent, texts.clearDescription],
-      [tableAdminLabels.cancel],
+      [dangerButton(tableAdminLabels.cancel)],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
@@ -545,7 +537,7 @@ function buildEditCapacityOptions(language: 'ca' | 'es' | 'en' = 'ca'): Telegram
   return {
     replyKeyboard: [
       [texts.keepCurrent, texts.noCapacity],
-      [tableAdminLabels.cancel],
+      [dangerButton(tableAdminLabels.cancel)],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
@@ -555,7 +547,7 @@ function buildEditCapacityOptions(language: 'ca' | 'es' | 'en' = 'ca'): Telegram
 function buildEditConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[texts.confirmEdit], [tableAdminLabels.cancel]],
+    replyKeyboard: [[successButton(texts.confirmEdit)], [dangerButton(tableAdminLabels.cancel)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -564,7 +556,7 @@ function buildEditConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramR
 function buildDeactivateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).tableAdmin;
   return {
-    replyKeyboard: [[texts.confirmDeactivate], [tableAdminLabels.cancel]],
+    replyKeyboard: [[dangerButton(texts.confirmDeactivate)], [dangerButton(tableAdminLabels.cancel)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
@@ -572,10 +564,18 @@ function buildDeactivateConfirmOptions(language: 'ca' | 'es' | 'en' = 'ca'): Tel
 
 function buildSingleCancelKeyboard(_language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   return {
-    replyKeyboard: [[tableAdminLabels.cancel]],
+    replyKeyboard: [[dangerButton(tableAdminLabels.cancel)]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
+}
+
+function successButton(text: string) {
+  return { text, semanticRole: 'success' as const };
+}
+
+function dangerButton(text: string) {
+  return { text, semanticRole: 'danger' as const };
 }
 
 async function replyWithTableList(

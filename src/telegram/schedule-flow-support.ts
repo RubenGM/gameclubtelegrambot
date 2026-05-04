@@ -58,6 +58,8 @@ import {
   asNullableString,
   buildTimeFromHourAndMinute,
   buildStartsAt,
+  formatLocalDateInput,
+  formatLocalTimeInput,
   parseCapacity,
   parseDate,
   parseDurationHours,
@@ -92,6 +94,7 @@ import {
   buildEditTimeMinuteOptions,
   buildInitialOccupiedSeatsOptions,
   buildKeepCurrentKeyboard,
+  buildReminderPreferenceOptions,
   buildScheduleMenuOptions,
   buildSingleBackCancelKeyboard,
   buildSingleCancelKeyboard,
@@ -103,6 +106,7 @@ import {
 const createFlowKey = 'schedule-create';
 const editFlowKey = 'schedule-edit';
 const cancelFlowKey = 'schedule-cancel';
+const joinReminderFlowKey = 'schedule-join-reminder';
 const scheduleStartPayloadPrefix = 'schedule_event_';
 
 export const scheduleCallbackPrefixes = {
@@ -258,16 +262,15 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
       participantTelegramUserId: context.runtime.actor.telegramUserId,
       actorTelegramUserId: context.runtime.actor.telegramUserId,
     });
+    await context.runtime.session.start({
+      flowKey: joinReminderFlowKey,
+      stepKey: 'select',
+      data: { eventId },
+    });
     await context.reply(
-      `T'has apuntat correctament a <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}`,
+      `T'has apuntat correctament a <b>${escapeHtml(event.title)}</b>\n${await formatScheduleEventView(context, await loadEventOrThrow(context, eventId))}\n\n${texts.askReminderPreference}`,
       {
-        ...buildScheduleDetailActionOptions({
-          actor: context.runtime.actor,
-          event,
-          isAttending: true,
-          language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
-          callbackPrefixes: scheduleCallbackPrefixes,
-        }),
+        ...buildReminderPreferenceOptions(language),
         parseMode: 'HTML',
       },
     );
@@ -353,7 +356,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
 }
 
 function isScheduleSession(flowKey: string | undefined): boolean {
-  return flowKey === createFlowKey || flowKey === editFlowKey || flowKey === cancelFlowKey;
+  return flowKey === createFlowKey || flowKey === editFlowKey || flowKey === cancelFlowKey || flowKey === joinReminderFlowKey;
 }
 
 async function handleActiveScheduleSession(context: TelegramScheduleContext, text: string): Promise<boolean> {
@@ -370,6 +373,9 @@ async function handleActiveScheduleSession(context: TelegramScheduleContext, tex
   }
   if (session.flowKey === cancelFlowKey) {
     return handleCancelSession(context, text, session.data);
+  }
+  if (session.flowKey === joinReminderFlowKey) {
+    return handleJoinReminderSession(context, text, session.stepKey, session.data);
   }
 
   return false;
@@ -388,17 +394,16 @@ async function handleCreateSession(
   }
 
   if (stepKey === 'title') {
-    await context.runtime.session.advance({ stepKey: 'description', data: { title: text } });
-    await context.reply(texts.askDescription, buildDescriptionOptions(language));
+    await context.runtime.session.advance({ stepKey: 'date', data: { title: text } });
+    await context.reply(texts.askDate, buildDateOptions(resolveBotLanguage(context)));
     return true;
   }
 
   if (stepKey === 'description') {
-    await context.runtime.session.advance({
-      stepKey: 'date',
-      data: { ...data, description: text === texts.skipOptional || text === scheduleLabels.skipOptional ? null : text },
+    await replyCreateConfirm(context, {
+      ...data,
+      description: text === texts.skipOptional || text === scheduleLabels.skipOptional ? null : text,
     });
-    await context.reply(texts.askDate, buildDateOptions(resolveBotLanguage(context)));
     return true;
   }
 
@@ -572,6 +577,11 @@ async function handleCreateSession(
   }
 
   if (stepKey === 'confirm') {
+    if (text === texts.editFieldDescription || text === scheduleLabels.editFieldDescription) {
+      await context.runtime.session.advance({ stepKey: 'description', data });
+      await context.reply(texts.askDescription, buildDescriptionOptions(language));
+      return true;
+    }
     if (text !== texts.confirmCreate && text !== scheduleLabels.confirmCreate) {
       await context.reply(texts.confirmCreatePrompt, buildCreateConfirmOptions(language));
       return true;
@@ -637,6 +647,69 @@ async function handleCreateSession(
   return false;
 }
 
+async function handleJoinReminderSession(
+  context: TelegramScheduleContext,
+  text: string,
+  stepKey: string,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  const eventId = Number(data.eventId);
+  if (!Number.isInteger(eventId)) {
+    await context.runtime.session.cancel();
+    return false;
+  }
+
+  if (stepKey === 'custom') {
+    const reminderLeadHours = Number(text);
+    if (!Number.isInteger(reminderLeadHours) || reminderLeadHours < 1 || reminderLeadHours > 168) {
+      await context.reply(texts.invalidCustomReminderHours, buildSingleCancelKeyboard());
+      return true;
+    }
+    return saveJoinReminderPreference(context, eventId, reminderLeadHours, `${reminderLeadHours}h abans`);
+  }
+
+  if (text === texts.reminder2h || text === scheduleLabels.reminder2h) {
+    return saveJoinReminderPreference(context, eventId, 2, texts.reminder2h);
+  }
+  if (text === texts.reminder24h || text === scheduleLabels.reminder24h) {
+    return saveJoinReminderPreference(context, eventId, 24, texts.reminder24h);
+  }
+  if (text === texts.reminderNone || text === scheduleLabels.reminderNone) {
+    return saveJoinReminderPreference(context, eventId, null, texts.reminderNone);
+  }
+  if (text === texts.reminderCustom || text === scheduleLabels.reminderCustom) {
+    await context.runtime.session.advance({ stepKey: 'custom', data });
+    await context.reply(texts.askCustomReminderHours, buildSingleCancelKeyboard());
+    return true;
+  }
+
+  await context.reply(texts.askReminderPreference, buildReminderPreferenceOptions(language));
+  return true;
+}
+
+async function saveJoinReminderPreference(
+  context: TelegramScheduleContext,
+  eventId: number,
+  reminderLeadHours: number | null,
+  label: string,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  await resolveScheduleRepository(context).upsertParticipant({
+    eventId,
+    participantTelegramUserId: context.runtime.actor.telegramUserId,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    status: 'active',
+    reminderLeadHours,
+    reminderPreferenceConfigured: true,
+  });
+  await context.runtime.session.cancel();
+  await context.reply(texts.reminderConfigured.replace('{label}', label), buildScheduleMenuOptions(language));
+  return true;
+}
+
 async function handleCreateSessionBack(
   context: TelegramScheduleContext,
   stepKey: string,
@@ -644,6 +717,7 @@ async function handleCreateSessionBack(
   language: 'ca' | 'es' | 'en',
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).schedule;
+  const descriptionPatch = data.description === undefined ? {} : { description: data.description };
 
   if (stepKey === 'title') {
     await context.runtime.session.cancel();
@@ -652,14 +726,13 @@ async function handleCreateSessionBack(
   }
 
   if (stepKey === 'description') {
-    await context.runtime.session.advance({ stepKey: 'title', data: {} });
-    await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
+    await replyCreateConfirm(context, data);
     return true;
   }
 
   if (stepKey === 'date') {
-    await context.runtime.session.advance({ stepKey: 'description', data: { title: data.title } });
-    await context.reply(texts.askDescription, buildDescriptionOptions(language));
+    await context.runtime.session.advance({ stepKey: 'title', data: {} });
+    await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
     return true;
   }
 
@@ -672,7 +745,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'time-minute') {
     await context.runtime.session.advance({
       stepKey: 'time',
-      data: { title: data.title, description: data.description, date: data.date },
+      data: { title: data.title, ...descriptionPatch, date: data.date },
     });
     await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
     return true;
@@ -681,7 +754,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'duration-mode') {
     await context.runtime.session.advance({
       stepKey: 'time',
-      data: { title: data.title, description: data.description, date: data.date },
+      data: { title: data.title, ...descriptionPatch, date: data.date },
     });
     await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
     return true;
@@ -690,7 +763,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'duration-hours' || stepKey === 'duration-hours-minutes' || stepKey === 'duration') {
     await context.runtime.session.advance({
       stepKey: 'duration-mode',
-      data: { title: data.title, description: data.description, date: data.date, time: data.time },
+      data: { title: data.title, ...descriptionPatch, date: data.date, time: data.time },
     });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
@@ -699,7 +772,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'attendance-mode') {
     await context.runtime.session.advance({
       stepKey: 'duration-mode',
-      data: { title: data.title, description: data.description, date: data.date, time: data.time },
+      data: { title: data.title, ...descriptionPatch, date: data.date, time: data.time },
     });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
@@ -710,7 +783,7 @@ async function handleCreateSessionBack(
       stepKey: 'attendance-mode',
       data: {
         title: data.title,
-        description: data.description,
+        ...descriptionPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -725,7 +798,7 @@ async function handleCreateSessionBack(
       stepKey: 'capacity',
       data: {
         title: data.title,
-        description: data.description,
+        ...descriptionPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -742,7 +815,7 @@ async function handleCreateSessionBack(
         stepKey: 'initial-occupied-seats',
         data: {
           title: data.title,
-          description: data.description,
+          ...descriptionPatch,
           date: data.date,
           time: data.time,
           durationMinutes: data.durationMinutes,
@@ -758,7 +831,7 @@ async function handleCreateSessionBack(
       stepKey: 'capacity',
       data: {
         title: data.title,
-        description: data.description,
+        ...descriptionPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -774,7 +847,7 @@ async function handleCreateSessionBack(
       stepKey: 'table',
       data: {
         title: data.title,
-        description: data.description,
+        ...descriptionPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -857,7 +930,7 @@ async function handleEditSession(
     return returnToEditMenu(context, event, data, { description, title: data.title ?? event.title });
   }
   if (stepKey === 'date') {
-    const currentDate = event.startsAt.slice(0, 10);
+    const currentDate = formatLocalDateInput(event.startsAt);
     const date = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? currentDate : parseDate(text);
     if (date instanceof Error) {
       await context.reply(texts.invalidDate, buildEditDateOptions(resolveBotLanguage(context), language));
@@ -866,7 +939,7 @@ async function handleEditSession(
     return returnToEditMenu(context, event, data, { date });
   }
   if (stepKey === 'time') {
-    const currentTime = event.startsAt.slice(11, 16);
+    const currentTime = formatLocalTimeInput(event.startsAt);
     if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
       return returnToEditMenu(context, event, data, { time: currentTime });
     }
@@ -884,7 +957,7 @@ async function handleEditSession(
     return true;
   }
   if (stepKey === 'time-minute') {
-    const currentTime = event.startsAt.slice(11, 16);
+    const currentTime = formatLocalTimeInput(event.startsAt);
     if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
       return returnToEditMenu(context, event, data, { time: currentTime });
     }
@@ -1060,8 +1133,10 @@ async function persistEditedScheduleEvent(
     repository: resolveScheduleRepository(context),
     eventId: Number(data.eventId),
     title: String(data.title ?? event.title),
-    description: asNullableString(data.description),
-    startsAt: buildStartsAt(String(data.date ?? event.startsAt.slice(0, 10)), String(data.time ?? event.startsAt.slice(11, 16))),
+    description: Object.prototype.hasOwnProperty.call(data, 'description')
+      ? asNullableString(data.description)
+      : event.description,
+    startsAt: buildStartsAt(String(data.date ?? formatLocalDateInput(event.startsAt)), String(data.time ?? formatLocalTimeInput(event.startsAt))),
     durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
     organizerTelegramUserId: event.organizerTelegramUserId,
     tableId: asNullableNumber(data.tableId),
@@ -1192,14 +1267,7 @@ async function advanceCreateTableSelection(
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
   if (text === texts.noTable || text === scheduleLabels.noTable) {
-    const nextData = { ...data, tableId: null };
-    await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-    await context.reply(`${await formatScheduleDraftSummary({
-      botLanguage: resolveBotLanguage(context),
-      data: nextData,
-      tableRepository: resolveTableRepository(context),
-      resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
-    })}\n\n${texts.confirmPrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
+    await replyCreateConfirm(context, { ...data, tableId: null });
     return true;
   }
 
@@ -1210,15 +1278,28 @@ async function advanceCreateTableSelection(
   }
 
   const nextData = { ...data, tableId: selectedTable.id };
-  await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-  await context.reply(`${await formatScheduleDraftSummary({
-    botLanguage: resolveBotLanguage(context),
-    data: nextData,
-    selectedTable,
-    tableRepository: resolveTableRepository(context),
-    resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
-  })}\n\n${texts.confirmPrompt}`, { ...buildCreateConfirmOptions(language), parseMode: 'HTML' });
+  await replyCreateConfirm(context, nextData, selectedTable);
   return true;
+}
+
+async function replyCreateConfirm(
+  context: TelegramScheduleContext,
+  data: Record<string, unknown>,
+  selectedTable?: ClubTableRecord | null,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  await context.runtime.session.advance({ stepKey: 'confirm', data });
+  await context.reply(
+    `${await formatScheduleDraftSummary({
+      botLanguage: resolveBotLanguage(context),
+      data,
+      tableRepository: resolveTableRepository(context),
+      resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
+      ...(selectedTable === undefined ? {} : { selectedTable }),
+    })}\n\n${texts.confirmPrompt}`,
+    { ...buildCreateConfirmOptions(language), parseMode: 'HTML' },
+  );
 }
 
 async function advanceEditTableSelection(
@@ -1265,7 +1346,7 @@ async function replyWithManageableEventList(
     return true;
   }
 
-  await context.reply(formatScheduleListMessage(events), {
+  await context.reply(formatScheduleListMessage(events, language), {
     parseMode: 'HTML',
     inlineKeyboard: events.map((event) => [
       {
@@ -1419,6 +1500,7 @@ async function replyWithInspectableEventList(
 
   const listMessage = await formatScheduleListWithVenueImpact({
     events: filteredEvents,
+    language,
     loadAttendance: async (eventId) => {
       const attendance = await getScheduleEventAttendance({
         repository: resolveScheduleRepository(context),

@@ -53,6 +53,12 @@ const runtimeConfig = {
   featureFlags: {},
 } as const;
 
+function replyKeyboardLabels(replyKeyboard: TelegramReplyOptions['replyKeyboard']): string[][] | undefined {
+  return replyKeyboard?.map((row) =>
+    row.map((button) => typeof button === 'string' ? button : button.text),
+  );
+}
+
 test('createTelegramBoundary reports a connected bot when long polling starts', async () => {
   const events: string[] = [];
   const sessionRecords = new Map<string, ConversationSessionRecord>();
@@ -133,7 +139,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
                 events.push(`buttons:${options.inlineKeyboard.flat().map((button) => button.text).join('|')}`);
               }
               if (options?.replyKeyboard) {
-                events.push(`reply-keyboard:${options.replyKeyboard.flat().join('|')}`);
+                events.push(`reply-keyboard:${options.replyKeyboard.flat().map((button) => typeof button === 'string' ? button : button.text).join('|')}`);
               }
             },
           };
@@ -230,6 +236,8 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:/calendar',
     'register:/tables',
     'register:/catalog_search',
+    'register:/group_purchases',
+    'register:/storage',
     'register:/news',
     'register:/venue_events',
     'register:/catalog',
@@ -254,6 +262,18 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:schedule:select_edit:',
     'register:callback:schedule:select_cancel:',
     'register:callback:schedule:table:',
+    'register:callback:group_purchase:join:',
+    'register:callback:group_purchase:join_interested:',
+    'register:callback:group_purchase:join_confirmed:',
+    'register:callback:group_purchase:edit_values:',
+    'register:callback:group_purchase:leave:',
+    'register:callback:group_purchase:confirm:',
+    'register:callback:group_purchase:manage_participants:',
+    'register:callback:group_purchase:participant_status:',
+    'register:callback:group_purchase:publish_message:',
+    'register:callback:group_purchase:lifecycle:',
+    'register:callback:group_purchase:edit_purchase:',
+    'register:callback:group_purchase:publish_group:',
     'register:callback:table_read:inspect:',
     'register:callback:table_admin:inspect:',
     'register:callback:table_admin:edit:',
@@ -284,12 +304,12 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'runtime:database:1',
     'reply:He registrat la teva sollicitud d acces. Ara queda pendent de revisio per part d un administrador del club. Quan te l aprovin, ja podras fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
     'reply:La teva sollicitud d acces ja esta pendent. Un administrador del club l ha de revisar abans que puguis fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
-    'reply-keyboard:Acces al club|Idioma|Ajuda',
-    'reply:Sollicituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
+    'reply-keyboard:Accés al club|Idioma|Ajuda',
+    'reply:Sol·licituds pendents:\n- New (@new_member) -> /approve 42 o /reject 42',
     'buttons:Aprovar|Rebutjar',
     'reply:No hi ha cap usuari aprovat disponible per expulsar.',
     'reply:Usuari aprovat correctament.',
-    'reply:Que pots fer ara:\nRevisar sollicituds: revisa i resol les sollicituds pendents.\nAdministrar usuaris: administra usuaris aprovats i expulsions.\nActivitats: consulta, crea o edita activitats del club.\nTaules: consulta les taules actives del local.\nCataleg: explora el cataleg i revisa prestecs.\n\nToca un boto del menu per continuar.',
+    "reply:Què pots fer ara:\nRevisar sol·licituds: revisa i resol les sol·licituds pendents.\nAdministrar usuaris: administra usuaris aprovats i expulsions.\nActivitats: consulta i gestiona les activitats del club.\nTaules: consulta les taules actives del local.\nCatàleg: explora jocs, llibres i préstecs.\nEmmagatzematge: consulta material guardat del club.\nCompres conjuntes: segueix i participa en comandes compartides.\nIdioma: canvia l'idioma del bot.\n\nToca un botó del menú per continuar.",
     'start-polling',
     'stop-polling',
   ]);
@@ -309,7 +329,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
         actorRole: 'pending',
         language: 'ca',
         visibleActionIds: ['access', 'language', 'help'],
-        visibleLabels: ['Acces al club', 'Idioma', 'Ajuda'],
+        visibleLabels: ['Accés al club', 'Idioma', 'Ajuda'],
       },
     },
     {
@@ -576,7 +596,7 @@ test('createTelegramBoundary replies with a safe message and clears session on u
 
   assert.equal(telegram.status.bot, 'connected');
   assert.equal(cancelCalls, 1);
-  assert.deepEqual(replies, ['S ha produit un error inesperat. Torna-ho a provar en uns moments.']);
+  assert.deepEqual(replies, ["S'ha produït un error inesperat. Torna-ho a provar en uns moments."]);
 });
 
 test('runTelegramCallbackHandler still acknowledges the callback when the handler throws', async () => {
@@ -729,6 +749,71 @@ test('toGrammyReplyOptions converts reply keyboard to grammY reply markup', asyn
   );
 });
 
+test('toGrammyReplyOptions applies configured style and custom emoji to reply keyboard buttons', async () => {
+  assert.deepEqual(
+    toGrammyReplyOptions(
+      {
+        replyKeyboard: [[{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Ajuda', semanticRole: 'help' }]],
+        resizeKeyboard: true,
+        persistentKeyboard: true,
+      },
+      {
+        primary: {
+          style: 'primary',
+          iconCustomEmojiId: '5393123412341234123',
+        },
+        help: {
+          iconCustomEmojiId: '5393123412341234888',
+        },
+      },
+    ),
+    {
+      reply_markup: {
+        keyboard: [[
+          { text: 'Activitats', style: 'primary', icon_custom_emoji_id: '5393123412341234123' },
+          { text: 'Ajuda', icon_custom_emoji_id: '5393123412341234888' },
+        ]],
+        resize_keyboard: true,
+        is_persistent: true,
+      },
+    },
+  );
+});
+
+test('toGrammyReplyOptions converts request_chat reply keyboard buttons to raw Bot API payloads', async () => {
+  assert.deepEqual(
+    toGrammyReplyOptions({
+      replyKeyboard: [[{
+        text: 'Compartir supergrupo',
+        semanticRole: 'primary',
+        requestChat: {
+          requestId: 7001,
+          chatIsChannel: false,
+          chatIsForum: true,
+          botIsMember: true,
+        },
+      }]],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    }),
+    {
+      reply_markup: {
+        keyboard: [[{
+          text: 'Compartir supergrupo',
+          request_chat: {
+            request_id: 7001,
+            chat_is_channel: false,
+            chat_is_forum: true,
+            bot_is_member: true,
+          },
+        }]],
+        resize_keyboard: true,
+        is_persistent: true,
+      },
+    },
+  );
+});
+
 test('translated quick-action buttons still trigger the same handlers', async () => {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const membershipUsers = new Map([
@@ -851,11 +936,11 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Revisar sollicituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']]);
-  assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.2\.0\)/);
-  assert.match(replies[0]?.message ?? '', /sollicituds/i);
-  assert.match(replies[1]?.message ?? '', /Que pots fer ara/);
-  assert.match(replies[2]?.message ?? '', /Sollicituds pendents/);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Revisar sol·licituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes'], ['Idioma', 'Ajuda']]);
+  assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
+  assert.match(replies[0]?.message ?? '', /sol·licituds/i);
+  assert.match(replies[1]?.message ?? '', /Què pots fer ara/);
+  assert.match(replies[2]?.message ?? '', /Sol·licituds pendents/);
   assert.deepEqual(
     replies[2]?.options?.inlineKeyboard?.flat().map((button) => button.text),
     ['Aprovar', 'Rebutjar'],
@@ -973,17 +1058,24 @@ test('cancel restores the default action menu after an active flow', async () =>
   assert.equal(telegram.status.bot, 'connected');
   assert.deepEqual(replies, [
     {
-      message: 'Proces cancel.lat correctament.',
-      options: {
-        menuId: 'private-approved-default',
-        replyKeyboard: [['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']],
-        actionRows: [['schedule', 'tables_read'], ['catalog'], ['language', 'help']],
-        actions: [
-          { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
-          { id: 'tables_read', label: 'Taules', telemetryActionKey: 'menu.tables', uxSection: 'primary' },
-          { id: 'catalog', label: 'Cataleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
-          { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
-          { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
+      message: 'Procés cancel·lat correctament.',
+        options: {
+          menuId: 'private-approved-default',
+          replyKeyboard: [
+            [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
+            [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
+            [{ text: 'Compres conjuntes', semanticRole: 'primary' }],
+            [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
+          ],
+          actionRows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases'], ['language', 'help']],
+          actions: [
+            { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
+            { id: 'tables_read', label: 'Taules', telemetryActionKey: 'menu.tables', uxSection: 'primary' },
+            { id: 'catalog', label: 'Catàleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
+            { id: 'storage', label: 'Emmagatzematge', telemetryActionKey: 'menu.storage', uxSection: 'primary' },
+            { id: 'group_purchases', label: 'Compres conjuntes', telemetryActionKey: 'menu.group_purchases', uxSection: 'primary' },
+            { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
+            { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
         ],
         resizeKeyboard: true,
         persistentKeyboard: true,
@@ -1276,9 +1368,9 @@ test('createTelegramBoundary routes plain text keyboard actions for admin table 
   assert.equal(telegram.status.bot, 'connected');
   assert.deepEqual(replies, [
     {
-      message: 'Gestio de taules: tria una accio.',
+      message: 'Gestió de taules: tria una acció.',
       options: {
-        replyKeyboard: [['Crear taula', 'Llistar taules'], ['Editar taula', 'Desactivar taula'], ['Inici']],
+        replyKeyboard: [['Crear taula', 'Llistar taules'], ['Editar taula', 'Desactivar taula'], ['Inici', 'Ajuda']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },
@@ -1516,8 +1608,8 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
   });
 
   assert.equal(telegram.status.bot, 'connected');
-  assert.match(replies[0]?.message ?? '', /Des del menu pots obrir activitats, taules i cataleg/);
-  assert.deepEqual(replies[0]?.options?.replyKeyboard, [['Activitats', 'Taules'], ['Cataleg'], ['Idioma', 'Ajuda']]);
+  assert.match(replies[0]?.message ?? '', /Des del menú pots obrir activitats, taules i catàleg/);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes'], ['Idioma', 'Ajuda']]);
   assert.deepEqual(auditEvents, [
     {
       actionKey: 'telegram.menu.shown',
@@ -1528,11 +1620,230 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
         chatKind: 'private',
         actorRole: 'member',
         language: 'ca',
-        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'language', 'help'],
-        visibleLabels: ['Activitats', 'Taules', 'Cataleg', 'Idioma', 'Ajuda'],
+        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'storage', 'group_purchases', 'language', 'help'],
+        visibleLabels: ['Activitats', 'Taules', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'Idioma', 'Ajuda'],
       },
     },
   ]);
+});
+
+test('createTelegramBoundary appends today at club summary to approved member start', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }> = [];
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createTodayAtClubDatabaseStub({ auditEvents }) as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+      const commandHandlers = new Map<string, TelegramCommandHandler>();
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: (command, handler) => {
+          commandHandlers.set(command, handler);
+        },
+        onCallback: () => {},
+        onText: () => {},
+        username: 'gameclub_test_bot',
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const realDate = Date;
+          const fixedNow = new Date('2026-04-27T09:30:00.000Z');
+          globalThis.Date = class extends realDate {
+            constructor(value?: string | number | Date) {
+              super(value ?? fixedNow);
+            }
+            static now() {
+              return fixedNow.getTime();
+            }
+          } as DateConstructor;
+
+          try {
+            const context: TelegramContextLike = {
+              chat: {
+                id: 100,
+                type: 'private',
+              },
+              from: {
+                id: 77,
+                username: 'member77',
+                first_name: 'Member',
+              },
+              messageText: '/start',
+              reply: async (message: string, options?: TelegramReplyOptions) => {
+                replies.push({ message, ...(options ? { options } : {}) });
+              },
+            };
+
+            let index = -1;
+            const dispatch = async (middlewareIndex: number): Promise<void> => {
+              if (middlewareIndex <= index) {
+                throw new Error('next called multiple times');
+              }
+
+              index = middlewareIndex;
+
+              if (middlewareIndex === middlewares.length) {
+                const startHandler = commandHandlers.get('start');
+                if (!startHandler) {
+                  throw new Error('start handler not registered');
+                }
+
+                await startHandler(context as unknown as TelegramCommandHandlerContext);
+                return;
+              }
+
+              const middleware = middlewares[middlewareIndex];
+              if (!middleware) {
+                throw new Error(`middleware ${middlewareIndex} not registered`);
+              }
+
+              await middleware(context, () => dispatch(middlewareIndex + 1));
+            };
+
+            await dispatch(0);
+          } finally {
+            globalThis.Date = realDate;
+          }
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.match(replies[0]?.message ?? '', /<b>Avui al club<\/b>/);
+  assert.match(replies[0]?.message ?? '', /- 16:00 Wingspan/);
+  assert.match(replies[0]?.message ?? '', /- 18:00-21:00 Torneig intern/);
+  assert.equal(replies[0]?.options?.parseMode, 'HTML');
+});
+
+test('createTelegramBoundary shows contextual help after opening a submenu', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  let textHandler: TelegramCommandHandler | undefined;
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub({ membershipUsers: new Map(), statusAuditLog: [], auditEvents: [] }) as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: (handler) => {
+          textHandler = handler;
+        },
+        username: 'gameclub_test_bot',
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 77,
+              username: 'member77',
+              first_name: 'Member',
+            },
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push({ message, ...(options ? { options } : {}) });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              if (!textHandler) {
+                throw new Error('text handler not registered');
+              }
+
+              context.messageText = 'Emmagatzematge';
+              await textHandler(context as unknown as TelegramCommandHandlerContext);
+              context.messageText = 'Ajuda';
+              await textHandler(context as unknown as TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.match(replies.at(-1)?.message ?? '', /Emmagatzematge ara:/);
+  assert.match(replies.at(-1)?.message ?? '', /pots veure categories, cercar arxius, obrir entrades per ID/i);
 });
 
 test('createTelegramBoundary routes plain text keyboard actions for schedule management', async () => {
@@ -1632,7 +1943,7 @@ test('createTelegramBoundary routes plain text keyboard actions for schedule man
     {
       message: 'No hi ha activitats programades ara mateix.',
       options: {
-        replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel.lar activitat'], ['Inici', 'Ajuda']],
+        replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },
@@ -1647,11 +1958,11 @@ test('formatStartMessage shows version only to admins', async () => {
   );
   assert.equal(
     formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false, isApproved: true, language: 'ca' }),
-    'Benvingut a Game Club Bot. Des del menu pots obrir activitats, taules i cataleg.',
+    'Benvingut a Game Club Bot. Des del menú pots obrir activitats, taules i catàleg.',
   );
   assert.equal(
     formatStartMessage({ publicName: 'Game Club Bot', version: '0.1.0', isAdmin: false, isApproved: false, language: 'ca' }),
-    'Benvingut a Game Club Bot. Per començar, toca Acces al club o escriu /start. Si la teva sollicitud ja esta pendent, espera l aprovacio d un administrador.',
+    "Benvingut a Game Club Bot. Per començar, toca Accés al club o escriu /start. Si la teva sol·licitud ja està pendent, espera l'aprovació d'un administrador.",
   );
 });
 
@@ -1782,7 +2093,7 @@ function createMembershipDatabaseStub({
 
   let stub!: MembershipDatabaseStub;
   stub = {
-    select(selection: Record<string, unknown>) {
+    select(selection: Record<string, unknown> = {}) {
       return {
         from() {
           const rows = async () => {
@@ -1955,6 +2266,83 @@ function createNewsGroupDatabaseStub() {
               return Promise.resolve([]);
             },
           };
+        },
+      };
+    },
+  };
+}
+
+function createTodayAtClubDatabaseStub({
+  auditEvents,
+}: {
+  auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }>;
+}) {
+  const scheduleRows = [
+    {
+      id: 1,
+      title: 'Wingspan',
+      description: null,
+      startsAt: new Date('2026-04-27T16:00:00.000Z'),
+      durationMinutes: 180,
+      organizerTelegramUserId: 77,
+      createdByTelegramUserId: 77,
+      tableId: null,
+      attendanceMode: 'open',
+      initialOccupiedSeats: 0,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: new Date('2026-04-20T10:00:00.000Z'),
+      updatedAt: new Date('2026-04-20T10:00:00.000Z'),
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ];
+  const venueRows = [
+    {
+      id: 1,
+      name: 'Torneig intern',
+      description: null,
+      startsAt: new Date('2026-04-27T18:00:00.000Z'),
+      endsAt: new Date('2026-04-27T21:00:00.000Z'),
+      occupancyScope: 'partial',
+      impactLevel: 'medium',
+      lifecycleStatus: 'scheduled',
+      createdAt: new Date('2026-04-20T10:00:00.000Z'),
+      updatedAt: new Date('2026-04-20T10:00:00.000Z'),
+      cancelledAt: null,
+      cancellationReason: null,
+    },
+  ];
+
+  return {
+    select() {
+      return {
+        from(table: Record<string, unknown>) {
+          const rows = 'durationMinutes' in table ? scheduleRows : 'occupancyScope' in table ? venueRows : [];
+          const orderedRows = async () => rows;
+          const whereRows = rows as unknown as Promise<unknown[]> & { orderBy(): Promise<unknown[]> };
+          whereRows.orderBy = orderedRows;
+          return {
+            where: () => whereRows,
+            orderBy: orderedRows,
+          };
+        },
+      };
+    },
+    insert() {
+      return {
+        values(value: Record<string, unknown>) {
+          if ('actionKey' in value && 'targetType' in value && 'targetId' in value) {
+            auditEvents.push({
+              actionKey: String(value.actionKey),
+              targetType: String(value.targetType),
+              targetId: String(value.targetId),
+              summary: String(value.summary),
+              details: (value.details as Record<string, unknown> | null | undefined) ?? null,
+            });
+          }
+          return Promise.resolve();
         },
       };
     },

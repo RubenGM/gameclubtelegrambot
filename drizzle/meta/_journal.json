@@ -113,6 +113,41 @@
       "when": 1776590400000,
       "tag": "0015_novel_blue_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1776666000000,
+      "tag": "0016_curious_talos",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1776781481286,
+      "tag": "0017_flaky_satana",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777309234848,
+      "tag": "0018_bumpy_thor",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777310414426,
+      "tag": "0019_freezing_skreet",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1777312374300,
+      "tag": "0020_striped_warpath",
+      "breakpoints": true
     }
   ]
 }

@@ -147,7 +147,7 @@ test('handleTelegramTableReadCallback shows member-facing table details without 
   assert.equal(handled, true);
   assert.deepEqual(replies, [
     {
-      message: '<a href="https://t.me/cawatest_bot?start=table_read_1"><b>Mesa TV</b></a>\nDescripcio: Prop del televisor\nCapacitat recomanada: 6',
+      message: '<a href="https://t.me/cawatest_bot?start=table_read_1"><b>Mesa TV</b></a>\nDescripció: Prop del televisor\nCapacitat recomanada: 6',
       options: {
         parseMode: 'HTML',
       },
@@ -176,7 +176,7 @@ test('handleTelegramTableReadStartText opens the linked member table details fro
   assert.equal(handled, true);
   assert.deepEqual(replies, [
     {
-      message: '<a href="https://t.me/cawatest_bot?start=table_read_1"><b>Mesa TV</b></a>\nDescripcio: Prop del televisor\nCapacitat recomanada: 6',
+      message: '<a href="https://t.me/cawatest_bot?start=table_read_1"><b>Mesa TV</b></a>\nDescripció: Prop del televisor\nCapacitat recomanada: 6',
       options: {
         parseMode: 'HTML',
       },

@@ -17,6 +17,7 @@ export class TelegramInteractionError extends Error {
 }
 
 export type TelegramCommandAccess = 'public' | 'approved' | 'admin';
+export type TelegramHelpSection = 'schedule' | 'catalog' | 'group_purchases' | 'storage';
 
 export interface TelegramCommandRuntime {
   bot: {
@@ -24,8 +25,14 @@ export interface TelegramCommandRuntime {
     clubName: string;
     language?: BotLanguage;
     username?: string | undefined;
+    getMe?(): Promise<{ id: number; username?: string }>;
+    getChat?(chatId: number): Promise<{ id: number; type: string; title?: string; isForum?: boolean }>;
+    getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean }>;
+    createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
     sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+    copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+    deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
   chat: TelegramChatContext;
@@ -43,6 +50,23 @@ export interface TelegramCommandHandlerContext {
   };
   messageText?: string;
   callbackData?: string;
+  messageThreadId?: number;
+  messageMedia?: {
+    attachmentKind: string;
+    fileId?: string | null;
+    fileUniqueId?: string | null;
+    caption?: string | null;
+    originalFileName?: string | null;
+    mimeType?: string | null;
+    fileSizeBytes?: number | null;
+    mediaGroupId?: string | null;
+    messageId: number;
+  };
+  sharedChat?: {
+    requestId: number;
+    chatId: number;
+    title?: string | null;
+  };
   reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: TelegramCommandRuntime;
   __replies?: string[];
@@ -107,9 +131,11 @@ export function registerTelegramCommands({
 export function renderTelegramHelpMessage({
   commands,
   context,
+  section,
 }: {
   commands: TelegramCommandDefinition[];
   context: TelegramCommandHandlerContext;
+  section?: TelegramHelpSection | undefined;
 }): string {
   void commands;
   const language = context.runtime.bot.language ?? 'ca';
@@ -131,12 +157,21 @@ export function renderTelegramHelpMessage({
     return lines.join('\n');
   }
 
+  const contextualHelp = section ? helpTextForSection(section, i18n.common) : undefined;
+  if (contextualHelp) {
+    lines.push(contextualHelp);
+    lines.push('');
+  }
+
   if (context.runtime.actor.isAdmin) {
     lines.push(`${i18n.actionMenu.reviewAccess}: ${i18n.common.helpReviewAccessAction}`);
     lines.push(`${i18n.actionMenu.manageUsers}: ${i18n.common.helpManageUsersAction}`);
     lines.push(`${i18n.actionMenu.schedule}: ${i18n.common.helpScheduleAction}`);
     lines.push(`${i18n.actionMenu.tables}: ${i18n.common.helpTablesAction}`);
     lines.push(`${i18n.actionMenu.catalog}: ${i18n.common.helpCatalogAction}`);
+    lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
+    lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
+    lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
     lines.push('');
     lines.push(i18n.common.helpMenuHint);
     return lines.join('\n');
@@ -145,11 +180,32 @@ export function renderTelegramHelpMessage({
   lines.push(`${i18n.actionMenu.schedule}: ${i18n.common.helpScheduleAction}`);
   lines.push(`${i18n.actionMenu.tablesRead}: ${i18n.common.helpTablesAction}`);
   lines.push(`${i18n.actionMenu.catalog}: ${i18n.common.helpCatalogAction}`);
+  lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
+  lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
   lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
   lines.push('');
   lines.push(i18n.common.helpMenuHint);
 
   return lines.join('\n');
+}
+
+function helpTextForSection(
+  section: TelegramHelpSection,
+  common: ReturnType<typeof createTelegramI18n>['common'],
+): string {
+  if (section === 'schedule') {
+    return common.helpContextSchedule;
+  }
+
+  if (section === 'catalog') {
+    return common.helpContextCatalog;
+  }
+
+  if (section === 'group_purchases') {
+    return common.helpContextGroupPurchases;
+  }
+
+  return common.helpContextStorage;
 }
 
 function hasRequiredAccess(

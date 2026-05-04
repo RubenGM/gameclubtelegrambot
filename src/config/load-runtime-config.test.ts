@@ -186,6 +186,51 @@ test('loadRuntimeConfig applies defaults for schema version, notification defaul
   assert.deepEqual(config.featureFlags, {});
 });
 
+test('loadRuntimeConfig accepts optional Telegram button appearance config', async () => {
+  const config = await loadRuntimeConfig({
+    readConfigFile: async () =>
+      JSON.stringify({
+        bot: {
+          publicName: 'Game Club Bot',
+          clubName: 'Game Club',
+        },
+        telegram: {
+          token: 'telegram-token',
+          buttonAppearance: {
+            primary: {
+              style: 'primary',
+              iconCustomEmojiId: '5393123412341234123',
+            },
+            help: {
+              iconCustomEmojiId: '5393123412341234888',
+            },
+          },
+        },
+        database: {
+          host: 'localhost',
+          port: 5432,
+          name: 'gameclub',
+          user: 'gameclub_user',
+          password: 'super-secret',
+          ssl: false,
+        },
+        adminElevation: {
+          passwordHash: 'hashed:admin-secret',
+        },
+        bootstrap: {
+          firstAdmin: {
+            telegramUserId: 123456789,
+            displayName: 'Club Administrator',
+          },
+        },
+      }),
+  });
+
+  assert.equal(config.telegram.buttonAppearance?.primary?.style, 'primary');
+  assert.equal(config.telegram.buttonAppearance?.primary?.iconCustomEmojiId, '5393123412341234123');
+  assert.equal(config.telegram.buttonAppearance?.help?.iconCustomEmojiId, '5393123412341234888');
+});
+
 test('loadRuntimeConfig fails with an operator-friendly error when the file is missing', async () => {
   await assert.rejects(
     () =>

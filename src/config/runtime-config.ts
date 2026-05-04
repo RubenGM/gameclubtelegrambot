@@ -3,6 +3,24 @@ import { z } from 'zod';
 export const botLanguageValues = ['ca', 'es', 'en'] as const;
 
 const botLanguageSchema = z.enum(botLanguageValues);
+const telegramButtonStyleSchema = z.enum(['primary', 'success', 'danger']);
+const telegramButtonAppearanceSchema = z
+  .object({
+    style: telegramButtonStyleSchema.optional(),
+    iconCustomEmojiId: z.string().trim().min(1).optional(),
+  })
+  .strict();
+const telegramButtonAppearanceByRoleSchema = z
+  .object({
+    primary: telegramButtonAppearanceSchema.optional(),
+    secondary: telegramButtonAppearanceSchema.optional(),
+    success: telegramButtonAppearanceSchema.optional(),
+    danger: telegramButtonAppearanceSchema.optional(),
+    navigation: telegramButtonAppearanceSchema.optional(),
+    help: telegramButtonAppearanceSchema.optional(),
+  })
+  .strict()
+  .optional();
 
 const defaultNotificationDefaults = {
   groupAnnouncementsEnabled: true,
@@ -20,6 +38,7 @@ export const runtimeConfigSchema = z.object({
   }),
   telegram: z.object({
     token: z.string().trim().min(1),
+    buttonAppearance: telegramButtonAppearanceByRoleSchema,
   }),
   bgg: z
     .object({

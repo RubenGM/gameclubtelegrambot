@@ -98,6 +98,17 @@ export const runtimeConfigFieldSpecs: RuntimeConfigFieldSpec[] = [
     description: 'Telegram bot token. Stored in .env and never persisted back to runtime.json.',
   },
   {
+    section: 'Telegram',
+    path: ['telegram', 'buttonAppearance'],
+    label: 'Button appearance',
+    type: 'json',
+    destination: 'json',
+    description: 'Optional semantic-role mapping for Telegram button style and custom emoji IDs.',
+    optional: true,
+    example:
+      '{"primary":{"style":"primary","iconCustomEmojiId":"5393123412341234123"},"help":{"iconCustomEmojiId":"5393123412341234888"}}',
+  },
+  {
     section: 'BoardGameGeek',
     path: ['bgg', 'apiKey'],
     label: 'BGG API key',
