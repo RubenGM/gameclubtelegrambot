@@ -201,6 +201,7 @@ npm run tray:debian
 
 ## Documentación relacionada
 
+- `docs/feature-status.md`
 - `docs/bootstrap-wizard.md`
 - `docs/runtime-configuration.md`
 - `docs/debian-service-operations.md`
