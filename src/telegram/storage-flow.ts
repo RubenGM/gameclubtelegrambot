@@ -25,7 +25,9 @@ import { buildGlobalNavigationRow, buildPersistentReplyKeyboard } from './submen
 
 const storageUploadFlowKey = 'storage-upload';
 const storageEntryStartPayloadPrefix = 'storage_entry_';
+const storageCategoryStartPayloadPrefix = 'storage_category_';
 const storageListPageSize = 20;
+const storageCategoryListPageSize = 50;
 const storageListFlowKey = 'storage-list';
 const storageSearchFlowKey = 'storage-search';
 const storageOpenEntryFlowKey = 'storage-open-entry';
@@ -125,12 +127,51 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
   }
 
   const entryId = parseStartPayload(text, storageEntryStartPayloadPrefix);
-  if (entryId === null) {
-    return false;
+  if (entryId !== null) {
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    return sendStorageEntryDetail(context, entryId, language);
   }
 
-  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-  return sendStorageEntryDetail(context, entryId, language);
+  const categoryId = parseStartPayload(text, storageCategoryStartPayloadPrefix);
+  if (categoryId !== null) {
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    return sendStorageCategoryEntryList(context, categoryId, language);
+  }
+
+  return false;
+}
+
+async function sendStorageCategoryEntryList(
+  context: StorageFlowContext,
+  categoryId: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).storage;
+  const categories = await listReadableCategories(context);
+  const category = categories.find((candidate) => candidate.id === categoryId);
+  if (!category) {
+    await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  const details = await resolveRepository(context).listEntryDetailsByCategory(category.id);
+  const children = categories.filter((candidate) => candidate.parentCategoryId === category.id);
+  if (details.length === 0 && children.length === 0) {
+    await context.reply(texts.noEntriesInCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  await context.reply(
+    formatStorageCategoryDetailMessage({
+      category,
+      childCategories: children,
+      details,
+      allCategories: categories,
+      language,
+    }),
+    { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
+  );
+  return true;
 }
 
 export async function handleTelegramStorageText(context: StorageFlowContext): Promise<boolean> {
@@ -196,8 +237,11 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
     await context.reply(
       categories.length === 0
         ? texts.noReadableCategories
-        : `${texts.categoriesHeader}\n${categories.map(formatStorageCategoryListItem).join('\n')}`,
-      buildStorageMenuOptions(language, context),
+        : formatStorageCategoryListMessage({
+          categories,
+          language,
+        }),
+      categories.length === 0 ? buildStorageMenuOptions(language, context) : { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
     );
     return true;
   }
@@ -215,7 +259,10 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
         categories: categories.map((category) => ({ id: category.id, displayName: category.displayName })),
       },
     });
-    await context.reply(texts.askListCategory, buildCategoryChoiceOptions(categories, language));
+    await context.reply(
+      `${escapeHtml(texts.askListCategory)}\n${formatStorageCategoryLinks(categories, language).join('\n')}`,
+      { ...buildCategoryChoiceOptions(categories, language), parseMode: 'HTML' },
+    );
     return true;
   }
 
@@ -391,9 +438,30 @@ async function handleActiveCreateCategoryFlow(context: StorageFlowContext, text:
   }
 
   if (session.stepKey === 'create-category-name') {
+    const categories = (await resolveRepository(context).listCategories()).filter((category) => category.lifecycleStatus === 'active');
+    await context.runtime.session.advance({
+      stepKey: 'create-category-parent',
+      data: {
+        ...session.data,
+        displayName: text,
+        categories: categories.map((category) => ({ id: category.id, displayName: category.displayName })),
+      },
+    });
+    await context.reply(texts.askCategoryParent, buildCategoryChoiceOptions(categories, language));
+    return true;
+  }
+
+  if (session.stepKey === 'create-category-parent') {
+    const categories = asCategoryChoices(session.data.categories);
+    const selected = categories.find((category) => category.displayName === text);
+    if (text !== texts.skipOptional && !selected) {
+      await context.reply(texts.invalidCategory, buildCategoryChoiceOptions((await resolveRepository(context).listCategories()).filter((category) => category.lifecycleStatus === 'active'), language));
+      return true;
+    }
+
     await context.runtime.session.advance({
       stepKey: 'create-category-description',
-      data: { ...session.data, displayName: text },
+      data: { ...session.data, parentCategoryId: selected?.id ?? null },
     });
     await context.reply(texts.askCategoryDescription, buildSkipOptionalOptions(language));
     return true;
@@ -1060,6 +1128,7 @@ async function createCategoryFromDraft(
     repository: resolveRepository(context),
     slug: String(session.data.slug ?? ''),
     displayName: String(session.data.displayName ?? ''),
+    parentCategoryId: asOptionalNumber(session.data.parentCategoryId),
     description: asNullableString(session.data.description),
     storageChatId,
     storageThreadId,
@@ -1071,7 +1140,7 @@ async function createCategoryFromDraft(
     targetType: 'storage-category',
     targetId: created.id,
     summary: 'Categoria de storage creada',
-    details: { slug: created.slug, setupMode, storageChatId, storageThreadId },
+    details: { slug: created.slug, parentCategoryId: created.parentCategoryId, setupMode, storageChatId, storageThreadId },
   });
   await context.runtime.session.cancel();
   const message = setupMode === 'guided'
@@ -1845,6 +1914,13 @@ function asNumber(value: unknown): number {
   return parsed;
 }
 
+function asOptionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return asNumber(value);
+}
+
 function asSignedNumber(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed === 0) {
@@ -1894,6 +1970,148 @@ function formatStorageListMessage({
     lines.push(formatStorageListLimitedFooter(details.length, visibleDetails.length, language));
   }
   return lines.join('\n');
+}
+
+function formatStorageCategoryDetailMessage({
+  category,
+  childCategories,
+  details,
+  allCategories,
+  language,
+}: {
+  category: StorageCategoryRecord;
+  childCategories: StorageCategoryRecord[];
+  details: StorageEntryDetailRecord[];
+  allCategories: StorageCategoryRecord[];
+  language: 'ca' | 'es' | 'en';
+}): string {
+  const texts = createTelegramI18n(language).storage;
+  const lines = [
+    `<a href="${escapeHtml(buildStorageCategoryDeepLink(category.id))}"><b>${escapeHtml(formatStorageCategoryPath(category, allCategories))}</b></a>`,
+  ];
+
+  if (childCategories.length > 0) {
+    lines.push('', escapeHtml(texts.categoryChildrenHeader), ...formatStorageCategoryLinks(childCategories, language, allCategories));
+  }
+
+  if (details.length > 0) {
+    lines.push('', escapeHtml(texts.categoryEntriesHeader), ...details.slice(0, storageListPageSize).map((detail) => formatStorageSummaryEntry(detail, language)));
+    if (details.length > storageListPageSize) {
+      lines.push(escapeHtml(formatStorageListLimitedFooter(details.length, storageListPageSize, language)));
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function formatStorageCategoryListMessage({
+  categories,
+  language,
+}: {
+  categories: StorageCategoryRecord[];
+  language: 'ca' | 'es' | 'en';
+}): string {
+  const texts = createTelegramI18n(language).storage;
+  const visibleCategories = categories.slice(0, storageCategoryListPageSize);
+  const lines = [
+    escapeHtml(texts.categoriesHeader),
+    ...formatStorageCategoryLinks(visibleCategories, language, categories),
+  ];
+  if (categories.length > visibleCategories.length) {
+    lines.push(formatStorageCategoryLimitedFooter(categories.length, visibleCategories.length, language));
+  }
+  return lines.join('\n');
+}
+
+function formatStorageCategoryLinks(
+  categories: StorageCategoryRecord[],
+  language: 'ca' | 'es' | 'en',
+  allCategories: StorageCategoryRecord[] = categories,
+): string[] {
+  return orderStorageCategoriesForTree(categories, allCategories).map((category) => {
+    const depth = resolveStorageCategoryDepth(category, allCategories);
+    const prefix = `${'  '.repeat(depth)}- `;
+    const suffix = category.lifecycleStatus === 'archived' ? ' [archived]' : '';
+    return `${prefix}<a href="${escapeHtml(buildStorageCategoryDeepLink(category.id))}"><b>${escapeHtml(category.displayName)}</b></a> <code>${escapeHtml(category.slug)}</code>${escapeHtml(suffix)}`;
+  });
+}
+
+function formatStorageCategoryPath(category: StorageCategoryRecord, allCategories: StorageCategoryRecord[]): string {
+  const byId = new Map(allCategories.map((candidate) => [candidate.id, candidate]));
+  const segments = [category.displayName];
+  let current = category;
+  const visited = new Set<number>([category.id]);
+  while (current.parentCategoryId !== null) {
+    const parent = byId.get(current.parentCategoryId);
+    if (!parent || visited.has(parent.id)) {
+      break;
+    }
+    segments.unshift(parent.displayName);
+    visited.add(parent.id);
+    current = parent;
+  }
+  return segments.join(' / ');
+}
+
+function orderStorageCategoriesForTree(categories: StorageCategoryRecord[], allCategories: StorageCategoryRecord[]): StorageCategoryRecord[] {
+  const selectedIds = new Set(categories.map((category) => category.id));
+  const childrenByParent = new Map<number | null, StorageCategoryRecord[]>();
+  for (const category of categories) {
+    const parentId = category.parentCategoryId !== null && selectedIds.has(category.parentCategoryId) ? category.parentCategoryId : null;
+    const siblings = childrenByParent.get(parentId) ?? [];
+    siblings.push(category);
+    childrenByParent.set(parentId, siblings);
+  }
+  for (const siblings of childrenByParent.values()) {
+    siblings.sort(compareStorageCategories);
+  }
+
+  const ordered: StorageCategoryRecord[] = [];
+  const visit = (parentId: number | null) => {
+    for (const category of childrenByParent.get(parentId) ?? []) {
+      ordered.push(category);
+      visit(category.id);
+    }
+  };
+  visit(null);
+
+  if (ordered.length !== categories.length) {
+    const orderedIds = new Set(ordered.map((category) => category.id));
+    ordered.push(...categories.filter((category) => !orderedIds.has(category.id)).sort(compareStorageCategories));
+  }
+
+  return ordered;
+}
+
+function compareStorageCategories(left: StorageCategoryRecord, right: StorageCategoryRecord): number {
+  return left.displayName.localeCompare(right.displayName) || left.id - right.id;
+}
+
+function resolveStorageCategoryDepth(category: StorageCategoryRecord, allCategories: StorageCategoryRecord[]): number {
+  const byId = new Map(allCategories.map((candidate) => [candidate.id, candidate]));
+  let depth = 0;
+  let current = category;
+  const visited = new Set<number>([category.id]);
+  while (current.parentCategoryId !== null) {
+    const parent = byId.get(current.parentCategoryId);
+    if (!parent || visited.has(parent.id)) {
+      break;
+    }
+    depth += 1;
+    visited.add(parent.id);
+    current = parent;
+  }
+  return depth;
+}
+
+function buildStorageCategoryDeepLink(categoryId: number): string {
+  return buildTelegramStartUrl(`${storageCategoryStartPayloadPrefix}${categoryId}`);
+}
+
+function formatStorageCategoryLimitedFooter(total: number, shown: number, language: 'ca' | 'es' | 'en'): string {
+  return createTelegramI18n(language).storage.listLimitedCategoriesFooter
+    .replace('{shown}', String(shown))
+    .replace('{total}', String(total));
 }
 
 function formatStorageSummaryEntry(
@@ -1978,11 +2196,6 @@ function formatStorageFileSize(sizeBytes: number): string {
     return `${Math.round(sizeBytes / 1024)} KB`;
   }
   return `${Math.round((sizeBytes / (1024 * 1024)) * 10) / 10} MB`;
-}
-
-function formatStorageCategoryListItem(category: StorageCategoryRecord): string {
-  const suffix = category.lifecycleStatus === 'archived' ? ' [archived]' : '';
-  return `- ${category.displayName} (\`${category.slug}\`)${suffix}`;
 }
 
 function canManageStorageCategories(context: StorageFlowContext): boolean {

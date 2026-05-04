@@ -1,0 +1,3 @@
+ALTER TABLE "storage_categories" ADD COLUMN "parent_category_id" bigint;--> statement-breakpoint
+ALTER TABLE "storage_categories" ADD CONSTRAINT "storage_categories_parent_category_id_storage_categories_id_fk" FOREIGN KEY ("parent_category_id") REFERENCES "public"."storage_categories"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "storage_categories_parent_category_id_idx" ON "storage_categories" USING btree ("parent_category_id");

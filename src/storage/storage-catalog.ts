@@ -7,6 +7,7 @@ export interface StorageCategoryRecord {
   id: number;
   slug: string;
   displayName: string;
+  parentCategoryId: number | null;
   description: string | null;
   storageChatId: number;
   storageThreadId: number;
@@ -80,6 +81,7 @@ export interface StorageCategoryRepository {
   createCategory(input: {
     slug: string;
     displayName: string;
+    parentCategoryId: number | null;
     description: string | null;
     storageChatId: number;
     storageThreadId: number;
@@ -145,12 +147,14 @@ export async function createStorageCategory({
   slug,
   displayName,
   description,
+  parentCategoryId,
   storageChatId,
   storageThreadId,
 }: {
   repository: StorageCategoryRepository;
   slug: string;
   displayName: string;
+  parentCategoryId?: number | null;
   description?: string | null;
   storageChatId: number;
   storageThreadId: number;
@@ -158,6 +162,7 @@ export async function createStorageCategory({
   return repository.createCategory({
     slug: normalizeSlug(slug),
     displayName: normalizeRequiredText(displayName, 'display name'),
+    parentCategoryId: normalizeOptionalPositiveInteger(parentCategoryId),
     description: normalizeOptionalText(description),
     storageChatId: normalizeTelegramId(storageChatId, 'storage chat'),
     storageThreadId: normalizePositiveInteger(storageThreadId, 'storage thread'),
@@ -303,6 +308,13 @@ function normalizeOptionalNonNegativeInteger(value: number | null | undefined): 
     return null;
   }
   return normalizeNonNegativeInteger(value, 'file size');
+}
+
+function normalizeOptionalPositiveInteger(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return normalizePositiveInteger(value, 'optional positive integer');
 }
 
 function normalizeTelegramId(value: number, label: string): number {

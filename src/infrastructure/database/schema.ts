@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   bigint,
   bigserial,
   boolean,
@@ -527,6 +528,7 @@ export const storageCategories = pgTable(
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     slug: varchar('slug', { length: 128 }).notNull(),
     displayName: varchar('display_name', { length: 255 }).notNull(),
+    parentCategoryId: bigint('parent_category_id', { mode: 'number' }).references((): AnyPgColumn => storageCategories.id),
     description: text('description'),
     storageChatId: bigint('storage_chat_id', { mode: 'number' }).notNull(),
     storageThreadId: integer('storage_thread_id').notNull(),
@@ -539,6 +541,7 @@ export const storageCategories = pgTable(
     uniqueSlug: uniqueIndex('storage_categories_slug_unique').on(table.slug),
     uniqueTopic: uniqueIndex('storage_categories_storage_topic_unique').on(table.storageChatId, table.storageThreadId),
     lifecycleLookup: index('storage_categories_lifecycle_status_idx').on(table.lifecycleStatus),
+    parentLookup: index('storage_categories_parent_category_id_idx').on(table.parentCategoryId),
   }),
 );
 

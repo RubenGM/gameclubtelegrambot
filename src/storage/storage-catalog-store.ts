@@ -28,6 +28,7 @@ export function createDatabaseStorageRepository({
         .values({
           slug: input.slug,
           displayName: input.displayName,
+          parentCategoryId: input.parentCategoryId,
           description: input.description,
           storageChatId: input.storageChatId,
           storageThreadId: input.storageThreadId,
@@ -371,6 +372,7 @@ function mapStorageCategoryRow(row: typeof storageCategories.$inferSelect): Stor
     slug: row.slug,
     displayName: row.displayName,
     description: row.description,
+    parentCategoryId: row.parentCategoryId,
     storageChatId: row.storageChatId,
     storageThreadId: row.storageThreadId,
     lifecycleStatus: row.lifecycleStatus as StorageCategoryRecord['lifecycleStatus'],

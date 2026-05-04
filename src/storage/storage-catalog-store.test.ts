@@ -23,6 +23,7 @@ test('createDatabaseStorageRepository creates a category', async () => {
           values: (values: Record<string, unknown>) => {
             assert.equal(values.slug, 'manuales');
             assert.equal(values.displayName, 'Manuales');
+            assert.equal(values.parentCategoryId, null);
             assert.equal(values.storageThreadId, 10);
             return {
               returning: async () => [
@@ -30,6 +31,7 @@ test('createDatabaseStorageRepository creates a category', async () => {
                   id: 7,
                   slug: 'manuales',
                   displayName: 'Manuales',
+                  parentCategoryId: null,
                   description: 'Documentacion',
                   storageChatId: -100123,
                   storageThreadId: 10,
@@ -49,6 +51,7 @@ test('createDatabaseStorageRepository creates a category', async () => {
   const category = await repository.createCategory({
     slug: 'manuales',
     displayName: 'Manuales',
+    parentCategoryId: null,
     description: 'Documentacion',
     storageChatId: -100123,
     storageThreadId: 10,
@@ -149,6 +152,7 @@ test('createDatabaseStorageRepository creates an entry and its messages in one t
                     id: 7,
                     slug: 'manuales',
                     displayName: 'Manuales',
+                    parentCategoryId: null,
                     description: 'Documentacion',
                     storageChatId: -100123,
                     storageThreadId: 10,
@@ -229,6 +233,7 @@ test('createDatabaseStorageRepository lists category entries with their messages
                   id: 7,
                   slug: 'manuales',
                   displayName: 'Manuales',
+                  parentCategoryId: null,
                   description: 'Documentacion',
                   storageChatId: -100123,
                   storageThreadId: 10,

@@ -29,6 +29,7 @@ function createCategory(overrides: Partial<StorageCategoryRecord> = {}): Storage
     id: 7,
     slug: 'manuales',
     displayName: 'Manuales',
+    parentCategoryId: null,
     description: 'Documentacion',
     storageChatId: -100123,
     storageThreadId: 10,
@@ -54,6 +55,7 @@ function createRepository(initialCategories: StorageCategoryRecord[] = [createCa
         id: Math.max(0, ...categories.keys()) + 1,
         slug: input.slug,
         displayName: input.displayName,
+        parentCategoryId: input.parentCategoryId,
         description: input.description,
         storageChatId: input.storageChatId,
         storageThreadId: input.storageThreadId,
@@ -372,7 +374,8 @@ test('handleTelegramStorageText lists only categories the user can read', async 
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- Manuales (`manuales`)');
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a> <code>manuales</code>');
 });
 
 test('handleTelegramStorageText lists recent entries as clickable text links without copying attachments', async () => {
@@ -416,6 +419,50 @@ test('handleTelegramStorageText lists recent entries as clickable text links wit
     replies.at(-1)?.message,
     [
       'Manuales:',
+      '- <a href="https://t.me/cawatest_bot?start=storage_entry_1"><b>#1</b></a> · Manual de campana · Adjuntos: 1 · #rol, #pdf',
+    ].join('\n'),
+  );
+  assert.deepEqual(copiedMessages, []);
+});
+
+test('handleTelegramStorageText opens a storage category from a deep link', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Manual de campana',
+    tags: ['rol', 'pdf'],
+    messages: [
+      {
+        storageChatId: -100123,
+        storageMessageId: 900,
+        storageThreadId: 10,
+        telegramFileId: 'file-1',
+        telegramFileUniqueId: 'unique-1',
+        attachmentKind: 'document',
+        caption: null,
+        originalFileName: 'manual.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        mediaGroupId: null,
+        sortOrder: 0,
+      },
+    ],
+  });
+  const { context, replies, copiedMessages } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
+
+  context.messageText = '/start storage_category_7';
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.equal(replies[0]?.options?.parseMode, 'HTML');
+  assert.equal(
+    replies[0]?.message,
+    [
+      '<a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>',
+      '',
+      'Entradas:',
       '- <a href="https://t.me/cawatest_bot?start=storage_entry_1"><b>#1</b></a> · Manual de campana · Adjuntos: 1 · #rol, #pdf',
     ].join('\n'),
   );
@@ -491,6 +538,10 @@ test('handleTelegramStorageMessage lets admins create a storage category with gu
 
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'create-category-parent');
+
+  context.messageText = 'Omitir';
+  await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'create-category-description');
 
   context.messageText = 'Documentacion del club';
@@ -534,7 +585,7 @@ test('handleTelegramStorageText keeps manual category creation as a fallback', a
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
-  for (const messageText of ['Crear categoría', 'manuales', 'Manuales', 'Documentacion del club']) {
+  for (const messageText of ['Crear categoría', 'manuales', 'Manuales', 'Omitir', 'Documentacion del club']) {
     context.messageText = messageText;
     await handleTelegramStorageText(context as never);
   }
@@ -562,6 +613,23 @@ test('handleTelegramStorageText keeps manual category creation as a fallback', a
   assert.equal(getCurrentSession(), null);
 });
 
+test('handleTelegramStorageText lets admins create a storage subcategory', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context } = createContext(repository, { isAdmin: true, canReadCategoryIds: [7], canUploadCategoryIds: [7] });
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+  for (const messageText of ['Crear categoría', 'monstruos', 'Monstruos', 'Manuales', 'Bestiarios y tokens', 'Entrada manual', '-100123', '44']) {
+    context.messageText = messageText;
+    await handleTelegramStorageText(context as never);
+  }
+
+  const categories = await repository.listCategories();
+  const created = categories.find((category) => category.slug === 'monstruos');
+  assert.equal(created?.parentCategoryId, 7);
+  assert.equal(created?.storageThreadId, 44);
+});
+
 test('handleTelegramStorageMessage explains invalid guided storage chats', async () => {
   const repository = createRepository([]);
   const { context, replies, getCurrentSession } = createContext(repository, {
@@ -571,7 +639,7 @@ test('handleTelegramStorageMessage explains invalid guided storage chats', async
     storageChat: { id: -100555, type: 'group', title: 'Grupo normal', isForum: false },
   });
 
-  for (const messageText of ['Almacenamiento', 'Crear categoría', 'manuales', 'Manuales', 'Documentacion del club']) {
+  for (const messageText of ['Almacenamiento', 'Crear categoría', 'manuales', 'Manuales', 'Omitir', 'Documentacion del club']) {
     context.messageText = messageText;
     await handleTelegramStorageText(context as never);
   }
@@ -961,7 +1029,15 @@ test('handleTelegramStorageText shows archived categories to admins in category 
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
-  assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- Manuales (`manuales`)\n- Historico (`historico`) [archived]');
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.equal(
+    replies.at(-1)?.message,
+    [
+      'Categorías disponibles:',
+      '- <a href="https://t.me/cawatest_bot?start=storage_category_8"><b>Historico</b></a> <code>historico</code> [archived]',
+      '- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a> <code>manuales</code>',
+    ].join('\n'),
+  );
 });
 
 test('handleTelegramStorageText lets admins reactivate an archived category', async () => {
