@@ -23,7 +23,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Prestamos | operativo parcial | Prestamo/devolucion/edicion de notas y fecha prevista. Falta worker de recordatorios de prestamos. |
 | Grupos de noticias | operativo parcial | Comandos `/news` para activar/desactivar y suscribirse. Falta UX con botones. |
 | Compras conjuntas | operativo | Crear/listar/unirse/confirmar/gestionar participantes, mensajes, publicacion y recordatorios de deadline. |
-| Storage/archivos | operativo parcial | Indice funcional de adjuntos en Telegram con categorias, permisos, busqueda, DM upload, topic upload, alta guiada de categorias, seleccion simple de usuarios para accesos y marcado de fuentes perdidas. |
+| Storage/archivos | operativo | Indice funcional de adjuntos en Telegram con categorias, permisos, busqueda, DM upload, topic upload, alta guiada de categorias, seleccion simple de usuarios para accesos y marcado de fuentes perdidas. |
 | Backups y operacion TUI | tecnico operativo | CLI y TUI para backup/restore, estado del servicio y dependencias Debian. |
 | Analytics UX | tecnico parcial | Hay reporte/TUI de menu UX; mejoras avanzadas siguen en backlog. |
 
@@ -201,7 +201,7 @@ Riesgos o pendientes:
 
 ## Storage y archivos
 
-Estado: `operativo parcial`.
+Estado: `operativo`.
 
 Implementado:
 
@@ -217,7 +217,7 @@ Implementado:
 - Permisos aplicados por recurso para `storage.entry.read` y `storage.entry.upload`.
 - Auditoria de altas de categoria, cambios de estado, borrado logico y permisos.
 
-Lo que esta a medias:
+Mejoras opcionales:
 
 - La entrada manual de `storageChatId` y `storageThreadId` se mantiene como fallback, no como camino principal.
 - No hay flujo dedicado para revisar/restaurar entradas marcadas como `missing_source`.
@@ -231,7 +231,7 @@ Limitaciones aceptadas de la v1:
 Documentacion relacionada:
 
 - `STORAGE.md` describe la v1 implementada.
-- `STORAGE_GROUP_IMPROVEMENT.md` describe la mejora pendiente para alta guiada de categorias.
+- `STORAGE_GROUP_IMPROVEMENT.md` describe el diseño usado para la alta guiada de categorias.
 - `docs/superpowers/specs/2026-04-21-telegram-storage-design.md` contiene el diseño original.
 
 ## Backups y consola operativa

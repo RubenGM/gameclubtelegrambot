@@ -6,11 +6,11 @@ Este documento es la referencia funcional y tecnica de `Storage`: que esta hecho
 
 ## Estado ejecutivo
 
-Estado actual: `operativo parcial`.
+Estado actual: `operativo`.
 
 La base funcional esta implementada: categorias, permisos, indice en PostgreSQL, subida por DM, subida directa en topics, busqueda, apertura de entradas y borrado logico. Crear una categoria ya tiene un flujo guiado: el admin comparte el supergrupo de storage, el bot valida el chat, crea el topic automaticamente y guarda `storageChatId` y `storageThreadId`. La entrada manual sigue disponible como fallback.
 
-La siguiente iteracion debe centrarse en pulir recuperacion y operaciones avanzadas:
+Las siguientes mejoras son opcionales y de madurez operativa:
 
 - revision manual de entradas marcadas como `missing_source`
 - posible borrado fisico opcional en Telegram
@@ -570,7 +570,7 @@ Fallback:
 
 ## Criterios de cierre para completar Storage
 
-La feature puede pasar de `parcial` a `operativa` cuando se cumpla:
+La feature esta marcada como `operativa`. Para madurarla mas, quedan estos posibles trabajos:
 
 - alta guiada de categoria probada en un supergrupo real con topics
 - documentacion operativa actualizada tras la prueba real
