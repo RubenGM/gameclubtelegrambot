@@ -173,6 +173,12 @@ Instalación completa de producción:
 ./scripts/install-debian-stack.sh --app-root /opt/gameclubtelegrambot --config-source ./config/runtime.json --operator-user "$USER"
 ```
 
+Desinstalacion de servicio y autoarranque:
+
+```bash
+./scripts/uninstall-debian-stack.sh --operator-user "$USER"
+```
+
 Safata de escritorio:
 
 ```bash

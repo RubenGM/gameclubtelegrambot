@@ -163,6 +163,24 @@ Habilitar i arrencar el servei:
 sudo systemctl enable --now gameclubtelegrambot.service
 ```
 
+## Desinstal·lació de servei i autoarrencada
+
+Per retirar les peces que fan que el bot arrenqui al sistema:
+
+```bash
+./scripts/uninstall-debian-stack.sh --operator-user "$USER"
+```
+
+Aquest script atura i deshabilita `gameclubtelegrambot.service`, elimina la unitat instal·lada a `/etc/systemd/system/`, elimina la regla `polkit` del projecte i elimina l'autostart de safata de l'usuari operador.
+
+Abans d'executar canvis reals es pot revisar la seqüència:
+
+```bash
+./scripts/uninstall-debian-stack.sh --dry-run --operator-user "$USER"
+```
+
+No elimina `/opt/gameclubtelegrambot`, `/etc/gameclubtelegrambot`, bases de dades, paquets del sistema, usuaris ni grups.
+
 Comandes bàsiques d'operació:
 
 ```bash
