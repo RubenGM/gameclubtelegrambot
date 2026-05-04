@@ -4,6 +4,7 @@ import {
   createStorageEntry,
   parseStorageCaptionMetadata,
   setStorageCategoryLifecycleStatus,
+  updateStorageEntryMetadata,
   type StorageCategoryRecord,
   type StorageCategoryRepository,
   type StorageEntryDetailRecord,
@@ -26,12 +27,15 @@ import { buildGlobalNavigationRow, buildPersistentReplyKeyboard } from './submen
 const storageUploadFlowKey = 'storage-upload';
 const storageEntryStartPayloadPrefix = 'storage_entry_';
 const storageCategoryStartPayloadPrefix = 'storage_category_';
+const storageEditCategoryStartPayloadPrefix = 'storage_edit_category_';
+const storageEditEntryStartPayloadPrefix = 'storage_edit_entry_';
 const storageListPageSize = 20;
 const storageCategoryListPageSize = 50;
 const storageListFlowKey = 'storage-list';
 const storageSearchFlowKey = 'storage-search';
 const storageOpenEntryFlowKey = 'storage-open-entry';
 const storageAddImagesFlowKey = 'storage-add-images';
+const storageEditEntryFlowKey = 'storage-edit-entry';
 const storageCreateCategoryFlowKey = 'storage-create-category';
 const storageArchiveCategoryFlowKey = 'storage-archive-category';
 const storageReactivateCategoryFlowKey = 'storage-reactivate-category';
@@ -121,6 +125,11 @@ type StorageFlowContext = TelegramCommandHandlerContext & {
         toChatId: number;
         messageThreadId?: number;
       }) => Promise<{ messageId: number }>;
+      sendMediaGroup?: (input: {
+        chatId: number;
+        media: Array<{ type: 'photo'; media: string; caption?: string }>;
+        messageThreadId?: number;
+      }) => Promise<Array<{ messageId: number }>>;
       deleteMessage?: (input: {
         chatId: number;
         messageId: number;
@@ -132,7 +141,23 @@ type StorageFlowContext = TelegramCommandHandlerContext & {
 export async function handleTelegramStorageCommand(context: StorageFlowContext): Promise<void> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).storage;
-  await context.reply(texts.selectMenu, buildStorageMenuOptions(language, context));
+  const categories = await listMenuCategories(context);
+  await context.reply(
+    categories.length === 0
+      ? texts.selectMenu
+      : `${escapeHtml(texts.selectMenu)}\n\n${formatStorageCategoryListMessage({ categories, language })}`,
+    categories.length === 0 ? buildStorageMenuOptions(language, context) : { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
+  );
+}
+
+async function listMenuCategories(context: StorageFlowContext): Promise<StorageCategoryRecord[]> {
+  try {
+    return canManageStorageCategories(context)
+      ? (await resolveRepository(context).listCategories()).filter((category) => category.lifecycleStatus === 'active')
+      : await listReadableCategories(context);
+  } catch {
+    return [];
+  }
 }
 
 export async function handleTelegramStorageStartText(context: StorageFlowContext): Promise<boolean> {
@@ -147,6 +172,18 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
     return sendStorageEntryDetail(context, entryId, language);
   }
 
+  const editEntryId = parseStartPayload(text, storageEditEntryStartPayloadPrefix);
+  if (editEntryId !== null) {
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    return startStorageEntryMetadataEdit(context, editEntryId, language);
+  }
+
+  const editCategoryId = parseStartPayload(text, storageEditCategoryStartPayloadPrefix);
+  if (editCategoryId !== null) {
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    return sendStorageEditableEntryList(context, editCategoryId, language);
+  }
+
   const categoryId = parseStartPayload(text, storageCategoryStartPayloadPrefix);
   if (categoryId !== null) {
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
@@ -154,6 +191,79 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
   }
 
   return false;
+}
+
+async function startStorageEntryMetadataEdit(
+  context: StorageFlowContext,
+  entryId: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).storage;
+  const detail = await resolveRepository(context).getEntryDetail(entryId);
+  if (
+    !detail ||
+    detail.entry.lifecycleStatus !== 'active' ||
+    !context.runtime.authorization.can('storage.entry.upload', { type: 'storage-category', id: String(detail.category.id) })
+  ) {
+    await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  await context.runtime.session.start({
+    flowKey: storageEditEntryFlowKey,
+    stepKey: 'edit-entry-description',
+    data: {
+      entryId: detail.entry.id,
+      categoryId: detail.category.id,
+      currentDescription: detail.entry.description,
+      currentTags: detail.entry.tags,
+    },
+  });
+  await context.reply(
+    texts.askEditDescription.replace('{current}', detail.entry.description ?? texts.entryNoDescription),
+    buildSkipOptionalOptions(language),
+  );
+  return true;
+}
+
+async function sendStorageEditableEntryList(
+  context: StorageFlowContext,
+  categoryId: number,
+  language: 'ca' | 'es' | 'en',
+  { sessionData = {} }: { sessionData?: Record<string, unknown> } = {},
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).storage;
+  const categories = await listUploadableCategories(context);
+  const category = categories.find((candidate) => candidate.id === categoryId);
+  if (!category) {
+    await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  const editableDetails = await listEditableEntryDetails(context, category.id);
+  if (editableDetails.length === 0) {
+    await context.reply(texts.noEntriesInCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  await context.runtime.session.start({
+    flowKey: storageEditEntryFlowKey,
+    stepKey: 'edit-entry-select',
+    data: {
+      ...sessionData,
+      categoryId: category.id,
+      entries: editableDetails.map((detail) => ({ id: detail.entry.id })),
+    },
+  });
+  await context.reply(
+    formatStorageEditEntryListMessage({
+      categoryDisplayName: category.displayName,
+      details: editableDetails,
+      language,
+    }),
+    { ...buildStorageEntryChoiceOptions(editableDetails), parseMode: 'HTML' },
+  );
+  return true;
 }
 
 async function sendStorageCategoryEntryList(
@@ -218,6 +328,9 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   if (context.runtime.session.current?.flowKey === storageAddImagesFlowKey) {
     return handleActiveAddImagesFlow(context, text, language);
   }
+  if (context.runtime.session.current?.flowKey === storageEditEntryFlowKey) {
+    return handleActiveEditEntryFlow(context, text, language);
+  }
   if (context.runtime.session.current?.flowKey === storageCreateCategoryFlowKey) {
     return handleActiveCreateCategoryFlow(context, text, language);
   }
@@ -247,7 +360,7 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
 
   if (text === texts.listCategories) {
     const categories = canManageStorageCategories(context)
-      ? await resolveRepository(context).listCategories()
+      ? (await resolveRepository(context).listCategories()).filter((category) => category.lifecycleStatus === 'active')
       : await listReadableCategories(context);
     await context.reply(
       categories.length === 0
@@ -257,26 +370,6 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
           language,
         }),
       categories.length === 0 ? buildStorageMenuOptions(language, context) : { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
-    );
-    return true;
-  }
-
-  if (text === texts.listFiles) {
-    const categories = await listReadableCategories(context);
-    if (categories.length === 0) {
-      await context.reply(texts.noCategoriesForAction, buildStorageMenuOptions(language, context));
-      return true;
-    }
-    await context.runtime.session.start({
-      flowKey: storageListFlowKey,
-      stepKey: 'list-category',
-      data: {
-        categories: categories.map((category) => ({ id: category.id, displayName: category.displayName })),
-      },
-    });
-    await context.reply(
-      `${escapeHtml(texts.askListCategory)}\n${formatStorageCategoryLinks(categories, language).join('\n')}`,
-      { ...buildCategoryChoiceOptions(categories, language), parseMode: 'HTML' },
     );
     return true;
   }
@@ -308,6 +401,26 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
       data: {},
     });
     await context.reply(texts.askAddImagesEntryId, buildSingleCancelOptions());
+    return true;
+  }
+
+  if (text === texts.editEntry) {
+    const categories = await listUploadableCategories(context);
+    if (categories.length === 0) {
+      await context.reply(texts.noCategoriesForAction, buildStorageMenuOptions(language, context));
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: storageEditEntryFlowKey,
+      stepKey: 'edit-category',
+      data: {
+        categories: categories.map((category) => ({ id: category.id, displayName: category.displayName })),
+      },
+    });
+    await context.reply(
+      `${escapeHtml(texts.askEditCategory)}\n${formatStorageCategoryLinks(categories, language, categories, { linkMode: 'edit' }).join('\n')}`,
+      { ...buildCategoryChoiceOptions(categories, language), parseMode: 'HTML' },
+    );
     return true;
   }
 
@@ -908,7 +1021,7 @@ async function sendStorageEntryDetail(
     return true;
   }
 
-  await context.reply(formatStorageEntryDetail(detail, language), { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' });
+  await context.reply(formatStorageEntryDetail(detail, language, { includeUploader: canManageStorageEntries(context) }), { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' });
 
   try {
     await copyStorageEntryToCurrentChat(context, detail);
@@ -1005,6 +1118,91 @@ async function handleActiveAddImagesFlow(context: StorageFlowContext, text: stri
       texts.imagesAdded
         .replace('{id}', String(updated.entry.id))
         .replace('{count}', String(messages.length)),
+      buildStorageMenuOptions(language, context),
+    );
+    return true;
+  }
+
+  return false;
+}
+
+async function handleActiveEditEntryFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== storageEditEntryFlowKey) {
+    return false;
+  }
+
+  const texts = createTelegramI18n(language).storage;
+  if (session.stepKey === 'edit-category') {
+    const categories = asCategoryChoices(session.data.categories);
+    const selected = categories.find((category) => category.displayName === text);
+    if (!selected) {
+      await context.reply(texts.invalidCategory, buildCategoryChoiceOptions(await listUploadableCategories(context), language));
+      return true;
+    }
+
+    return sendStorageEditableEntryList(context, selected.id, language, { sessionData: session.data });
+  }
+
+  if (session.stepKey === 'edit-entry-select') {
+    const entryId = parseEntryChoice(text, asEntryChoices(session.data.entries));
+    if (entryId === null) {
+      await context.reply(texts.invalidEntryId, buildStorageEntryChoiceOptions(await listEditableEntryDetails(context, asNumber(session.data.categoryId))));
+      return true;
+    }
+
+    const detail = await resolveRepository(context).getEntryDetail(entryId);
+    if (
+      !detail ||
+      detail.entry.lifecycleStatus !== 'active' ||
+      !context.runtime.authorization.can('storage.entry.upload', { type: 'storage-category', id: String(detail.category.id) })
+    ) {
+      await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
+      return true;
+    }
+
+    return startStorageEntryMetadataEdit(context, detail.entry.id, language);
+  }
+
+  if (session.stepKey === 'edit-entry-description') {
+    const currentDescription = asNullableString(session.data.currentDescription);
+    await context.runtime.session.advance({
+      stepKey: 'edit-entry-tags',
+      data: {
+        ...session.data,
+        description: text === texts.skipOptional ? currentDescription : text,
+      },
+    });
+    await context.reply(
+      texts.askEditTags.replace('{current}', formatCurrentTags(asStringArray(session.data.currentTags), language)),
+      buildSkipOptionalOptions(language),
+    );
+    return true;
+  }
+
+  if (session.stepKey === 'edit-entry-tags') {
+    const currentTags = asStringArray(session.data.currentTags);
+    const updated = await updateStorageEntryMetadata({
+      repository: resolveRepository(context),
+      entryId: asNumber(session.data.entryId),
+      description: asNullableString(session.data.description),
+      tags: text === texts.skipOptional ? currentTags : parseStorageCaptionMetadata(text).tags,
+    });
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'storage.entry.metadata_updated',
+      targetType: 'storage-entry',
+      targetId: updated.entry.id,
+      summary: 'Metadades actualitzades a entrada de storage',
+      details: {
+        description: updated.entry.description,
+        tags: updated.entry.tags,
+      },
+    });
+    await context.runtime.session.cancel();
+    await context.reply(
+      texts.entryMetadataUpdated.replace('{id}', String(updated.entry.id)),
       buildStorageMenuOptions(language, context),
     );
     return true;
@@ -1713,6 +1911,15 @@ async function listUploadableCategories(context: StorageFlowContext): Promise<St
   );
 }
 
+async function listEditableEntryDetails(context: StorageFlowContext, categoryId: number): Promise<StorageEntryDetailRecord[]> {
+  const details = await resolveRepository(context).listEntryDetailsByCategory(categoryId);
+  return details.filter(
+    (detail) =>
+      detail.entry.lifecycleStatus === 'active' &&
+      context.runtime.authorization.can('storage.entry.upload', { type: 'storage-category', id: String(detail.category.id) }),
+  );
+}
+
 function resolveRepository(context: StorageFlowContext): StorageCategoryRepository {
   return context.storageRepository ?? createDatabaseStorageRepository({ database: context.runtime.services.database.db });
 }
@@ -1728,9 +1935,10 @@ function resolveAuditRepository(context: StorageFlowContext) {
 function buildStorageMenuOptions(language: 'ca' | 'es' | 'en', context?: StorageFlowContext): TelegramReplyOptions {
   const texts = createTelegramI18n(language).storage;
   const rows: Array<Array<string | TelegramReplyButton>> = [
-    [primaryButton(texts.listCategories), primaryButton(texts.listFiles)],
+    [primaryButton(texts.listCategories)],
     [secondaryButton(texts.searchFiles), primaryButton(texts.openEntry)],
     [successButton(texts.upload), successButton(texts.addImages)],
+    [secondaryButton(texts.editEntry)],
   ];
   if (context && canManageStorageCategories(context)) {
     rows.push(
@@ -1771,6 +1979,21 @@ function buildCategoryChoiceOptions(categories: StorageCategoryRecord[], languag
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
+}
+
+function buildStorageEntryChoiceOptions(details: StorageEntryDetailRecord[]): TelegramReplyOptions {
+  return {
+    replyKeyboard: [
+      ...details.slice(0, storageListPageSize).map((detail) => [formatStorageEntryChoiceLabel(detail)]),
+      [dangerButton('/cancel')],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function formatStorageEntryChoiceLabel(detail: StorageEntryDetailRecord): string {
+  return `#${detail.entry.id} - ${detail.entry.description ?? detail.messages[0]?.originalFileName ?? detail.category.displayName}`;
 }
 
 function buildUploadMediaOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
@@ -1851,6 +2074,30 @@ function asCategoryChoices(value: unknown): Array<{ id: number; displayName: str
       displayName: typeof entry === 'object' && entry !== null && 'displayName' in entry ? String(entry.displayName) : '',
     }))
     .filter((entry) => Number.isInteger(entry.id) && entry.id > 0 && entry.displayName.length > 0);
+}
+
+function asEntryChoices(value: unknown): Array<{ id: number }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => ({
+      id: typeof entry === 'object' && entry !== null && 'id' in entry ? Number(entry.id) : NaN,
+    }))
+    .filter((entry) => Number.isInteger(entry.id) && entry.id > 0);
+}
+
+function parseEntryChoice(text: string, entries: Array<{ id: number }>): number | null {
+  const explicitId = parsePositiveInteger(text);
+  if (explicitId !== null && entries.some((entry) => entry.id === explicitId)) {
+    return explicitId;
+  }
+  const prefixedId = text.match(/^#(\d+)\b/)?.[1];
+  if (!prefixedId) {
+    return null;
+  }
+  const parsed = parsePositiveInteger(prefixedId);
+  return parsed !== null && entries.some((entry) => entry.id === parsed) ? parsed : null;
 }
 
 function toStorageUserChoice(user: StorageCategoryAccessUserRecord): StorageUserChoice {
@@ -1954,12 +2201,35 @@ function asNullableString(value: unknown): string | null {
   return normalized.length === 0 ? null : normalized;
 }
 
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function formatCurrentTags(tags: string[], language: 'ca' | 'es' | 'en'): string {
+  return tags.length > 0 ? tags.map((tag) => `#${tag}`).join(' ') : createTelegramI18n(language).storage.entryNoTags;
+}
+
 async function copyStorageEntryToCurrentChat(context: StorageFlowContext, detail: StorageEntryDetailRecord): Promise<void> {
   if (!context.runtime.bot.copyMessage) {
     throw new Error('Telegram bot runtime does not support copyMessage');
   }
 
+  const albumPhotoIds = detail.messages
+    .filter((message) => message.attachmentKind === 'photo' && message.telegramFileId)
+    .map((message) => message.telegramFileId as string);
+  if (albumPhotoIds.length > 1 && context.runtime.bot.sendMediaGroup) {
+    for (let index = 0; index < albumPhotoIds.length; index += 10) {
+      await context.runtime.bot.sendMediaGroup({
+        chatId: context.runtime.chat.chatId,
+        media: albumPhotoIds.slice(index, index + 10).map((fileId) => ({ type: 'photo', media: fileId })),
+      });
+    }
+  }
+
   for (const message of detail.messages) {
+    if (albumPhotoIds.length > 1 && message.attachmentKind === 'photo' && message.telegramFileId) {
+      continue;
+    }
     await context.runtime.bot.copyMessage({
       fromChatId: message.storageChatId,
       messageId: message.storageMessageId,
@@ -1972,6 +2242,29 @@ function formatStorageListMessage({
   categoryDisplayName,
   details,
   language,
+  linkMode = 'detail',
+}: {
+  categoryDisplayName: string;
+  details: StorageEntryDetailRecord[];
+  language: 'ca' | 'es' | 'en';
+  linkMode?: 'detail' | 'edit';
+}): string {
+  const texts = createTelegramI18n(language).storage;
+  const visibleDetails = details.slice(0, storageListPageSize);
+  const lines = [
+    escapeHtml(texts.listHeader.replace('{category}', categoryDisplayName)),
+    ...visibleDetails.map((detail) => formatStorageSummaryEntry(detail, language, { linkMode })),
+  ];
+  if (details.length > visibleDetails.length) {
+    lines.push(formatStorageListLimitedFooter(details.length, visibleDetails.length, language));
+  }
+  return lines.join('\n');
+}
+
+function formatStorageEditEntryListMessage({
+  categoryDisplayName,
+  details,
+  language,
 }: {
   categoryDisplayName: string;
   details: StorageEntryDetailRecord[];
@@ -1981,7 +2274,7 @@ function formatStorageListMessage({
   const visibleDetails = details.slice(0, storageListPageSize);
   const lines = [
     escapeHtml(texts.listHeader.replace('{category}', categoryDisplayName)),
-    ...visibleDetails.map((detail) => formatStorageSummaryEntry(detail, language)),
+    ...visibleDetails.map((detail) => formatStorageSummaryEntry(detail, language, { linkMode: 'edit' })),
   ];
   if (details.length > visibleDetails.length) {
     lines.push(formatStorageListLimitedFooter(details.length, visibleDetails.length, language));
@@ -2044,12 +2337,15 @@ function formatStorageCategoryLinks(
   categories: StorageCategoryRecord[],
   language: 'ca' | 'es' | 'en',
   allCategories: StorageCategoryRecord[] = categories,
+  { linkMode = 'detail' }: { linkMode?: 'detail' | 'edit' } = {},
 ): string[] {
   return orderStorageCategoriesForTree(categories, allCategories).map((category) => {
     const depth = resolveStorageCategoryDepth(category, allCategories);
     const prefix = `${'  '.repeat(depth)}- `;
-    const suffix = category.lifecycleStatus === 'archived' ? ' [archived]' : '';
-    return `${prefix}<a href="${escapeHtml(buildStorageCategoryDeepLink(category.id))}"><b>${escapeHtml(category.displayName)}</b></a> <code>${escapeHtml(category.slug)}</code>${escapeHtml(suffix)}`;
+    const href = linkMode === 'edit'
+      ? buildTelegramStartUrl(`${storageEditCategoryStartPayloadPrefix}${category.id}`)
+      : buildStorageCategoryDeepLink(category.id);
+    return `${prefix}<a href="${escapeHtml(href)}"><b>${escapeHtml(category.displayName)}</b></a>`;
   });
 }
 
@@ -2134,14 +2430,15 @@ function formatStorageCategoryLimitedFooter(total: number, shown: number, langua
 function formatStorageSummaryEntry(
   detail: StorageEntryDetailRecord,
   language: 'ca' | 'es' | 'en',
-  { includeCategory = false }: { includeCategory?: boolean } = {},
+  { includeCategory = false, linkMode = 'detail' }: { includeCategory?: boolean; linkMode?: 'detail' | 'edit' } = {},
 ): string {
   const description = detail.entry.description ?? createTelegramI18n(language).storage.entryNoDescription;
   const title = includeCategory ? `${detail.category.displayName} · #${detail.entry.id}` : `#${detail.entry.id}`;
   const texts = createTelegramI18n(language).storage;
   const attachmentSummary = `${texts.entryFieldAttachments}: ${detail.messages.length}`;
   const tags = detail.entry.tags.length > 0 ? ` · ${detail.entry.tags.map((tag) => `#${tag}`).join(', ')}` : '';
-  return `- <a href="${escapeHtml(buildTelegramStartUrl(`${storageEntryStartPayloadPrefix}${detail.entry.id}`))}"><b>${escapeHtml(title)}</b></a> · ${escapeHtml(description)} · ${escapeHtml(attachmentSummary)}${escapeHtml(tags)}`;
+  const payloadPrefix = linkMode === 'edit' ? storageEditEntryStartPayloadPrefix : storageEntryStartPayloadPrefix;
+  return `- <a href="${escapeHtml(buildTelegramStartUrl(`${payloadPrefix}${detail.entry.id}`))}"><b>${escapeHtml(title)}</b></a> · ${escapeHtml(description)} · ${escapeHtml(attachmentSummary)}${escapeHtml(tags)}`;
 }
 
 function formatStorageListLimitedFooter(total: number, shown: number, language: 'ca' | 'es' | 'en'): string {
@@ -2150,13 +2447,17 @@ function formatStorageListLimitedFooter(total: number, shown: number, language: 
     .replace('{total}', String(total));
 }
 
-function formatStorageEntryDetail(detail: StorageEntryDetailRecord, language: 'ca' | 'es' | 'en'): string {
+function formatStorageEntryDetail(
+  detail: StorageEntryDetailRecord,
+  language: 'ca' | 'es' | 'en',
+  { includeUploader = false }: { includeUploader?: boolean } = {},
+): string {
   const texts = createTelegramI18n(language).storage;
   const lines = [
     `<a href="${escapeHtml(buildTelegramStartUrl(`${storageEntryStartPayloadPrefix}${detail.entry.id}`))}"><b>#${detail.entry.id}</b></a> · ${escapeHtml(detail.category.displayName)}`,
     `<b>${escapeHtml(texts.entryFieldDescription)}:</b> ${escapeHtml(detail.entry.description ?? texts.entryNoDescription)}`,
     `<b>${escapeHtml(texts.entryFieldTags)}:</b> ${detail.entry.tags.length > 0 ? detail.entry.tags.map((tag) => `#${escapeHtml(tag)}`).join(', ') : escapeHtml(texts.entryNoTags)}`,
-    `<b>${escapeHtml(texts.entryFieldUploadedBy)}:</b> ${formatStorageUploaderLabel(detail, language)}`,
+    ...(includeUploader ? [`<b>${escapeHtml(texts.entryFieldUploadedBy)}:</b> ${formatStorageUploaderLabel(detail, language)}`] : []),
     `<b>${escapeHtml(texts.entryFieldUploadedAt)}:</b> ${escapeHtml(formatStorageDateTime(detail.entry.createdAt))}`,
     `<b>${escapeHtml(texts.entryFieldSource)}:</b> ${escapeHtml(formatStorageSourceKind(detail.entry.sourceKind, language))}`,
     `<b>${escapeHtml(texts.entryFieldAttachments)}:</b> ${detail.messages.length}`,

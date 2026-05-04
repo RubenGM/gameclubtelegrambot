@@ -145,6 +145,7 @@ export interface TelegramRuntime {
     sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+    sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
@@ -175,6 +176,7 @@ export interface TelegramBotLike {
   sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+  sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
   deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   startPolling(): Promise<void>;
   stopPolling(): Promise<void>;
@@ -443,6 +445,14 @@ function createGrammyTelegramBot({
       return {
         messageId: Number((result as { message_id: number }).message_id),
       };
+    },
+    async sendMediaGroup({ chatId, media, messageThreadId }) {
+      const result = await bot.api.raw.sendMediaGroup({
+        chat_id: chatId,
+        media,
+        ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+      });
+      return (result as Array<{ message_id: number }>).map((message) => ({ messageId: Number(message.message_id) }));
     },
     async deleteMessage({ chatId, messageId }) {
       await bot.api.raw.deleteMessage({

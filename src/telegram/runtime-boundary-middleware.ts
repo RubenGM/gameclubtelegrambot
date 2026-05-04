@@ -205,6 +205,7 @@ function createRuntimeContextMiddleware({
         sendPrivateMessage: bot.sendPrivateMessage.bind(bot),
         ...(bot.sendGroupMessage ? { sendGroupMessage: bot.sendGroupMessage.bind(bot) } : {}),
         ...(bot.copyMessage ? { copyMessage: bot.copyMessage.bind(bot) } : {}),
+        ...(bot.sendMediaGroup ? { sendMediaGroup: bot.sendMediaGroup.bind(bot) } : {}),
         ...(bot.deleteMessage ? { deleteMessage: bot.deleteMessage.bind(bot) } : {}),
       },
       services,

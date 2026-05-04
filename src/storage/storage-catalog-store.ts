@@ -152,6 +152,24 @@ export function createDatabaseStorageRepository({
       }
       return mapStorageEntryRow(row);
     },
+    async updateEntryMetadata(input) {
+      const now = new Date();
+      const updatedRows = await database
+        .update(storageEntries)
+        .set({
+          description: input.description,
+          tags: input.tags,
+          updatedAt: now,
+        })
+        .where(eq(storageEntries.id, input.entryId))
+        .returning();
+
+      const updatedEntryRow = updatedRows[0];
+      if (!updatedEntryRow) {
+        throw new Error(`Storage entry ${input.entryId} not found`);
+      }
+      return loadEntryDetail(database, updatedEntryRow);
+    },
     async appendEntryMessages(input) {
       return database.transaction(async (tx) => {
         const entryRows = await tx.select().from(storageEntries).where(eq(storageEntries.id, input.entryId));

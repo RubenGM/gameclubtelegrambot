@@ -105,6 +105,11 @@ export interface StorageCategoryRepository {
     entryId: number;
     messages: StorageEntryMessageInput[];
   }): Promise<StorageEntryDetailRecord>;
+  updateEntryMetadata(input: {
+    entryId: number;
+    description: string | null;
+    tags: string[];
+  }): Promise<StorageEntryDetailRecord>;
   updateEntryLifecycleStatus(input: {
     entryId: number;
     lifecycleStatus: StorageEntryLifecycleStatus;
@@ -219,6 +224,32 @@ export async function createStorageEntry({
     description: normalizeOptionalText(description),
     tags: normalizeTags(tags ?? []),
     messages: normalizedMessages,
+  });
+}
+
+export async function updateStorageEntryMetadata({
+  repository,
+  entryId,
+  description,
+  tags,
+}: {
+  repository: StorageCategoryRepository;
+  entryId: number;
+  description?: string | null;
+  tags?: string[];
+}): Promise<StorageEntryDetailRecord> {
+  const detail = await repository.getEntryDetail(normalizePositiveInteger(entryId, 'entry'));
+  if (!detail) {
+    throw new Error(`Storage entry ${entryId} not found`);
+  }
+  if (detail.entry.lifecycleStatus !== 'active') {
+    throw new Error(`Storage entry ${entryId} is not active`);
+  }
+
+  return repository.updateEntryMetadata({
+    entryId: detail.entry.id,
+    description: normalizeOptionalText(description),
+    tags: normalizeTags(tags ?? []),
   });
 }
 
