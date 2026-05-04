@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { LfgGroupAdRecord, LfgPlayerAdRecord, LfgRepository } from '../lfg/lfg-catalog.js';
+import type { NewsGroupRecord, NewsGroupRepository } from '../news/news-group-catalog.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
@@ -108,11 +109,13 @@ function createRepository(): LfgRepository {
 }
 
 function createContext(repository: LfgRepository): {
-  context: TelegramCommandHandlerContext & { lfgRepository: LfgRepository };
+  context: TelegramCommandHandlerContext & { lfgRepository: LfgRepository; newsGroupRepository: NewsGroupRepository };
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
+  groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }>;
   getCurrentSession(): ConversationSessionRecord | null;
 } {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
   let currentSession: ConversationSessionRecord | null = null;
 
   return {
@@ -132,6 +135,9 @@ function createContext(repository: LfgRepository): {
           clubName: 'Game Club',
           language: 'ca',
           sendPrivateMessage: async () => undefined,
+          sendGroupMessage: async (chatId: number, message: string, options?: TelegramReplyOptions) => {
+            groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
+          },
         },
         services: {
           database: {
@@ -182,10 +188,73 @@ function createContext(repository: LfgRepository): {
         },
       },
       lfgRepository: repository,
+      newsGroupRepository: createNewsGroupRepository([
+        {
+          chatId: -100,
+          isEnabled: true,
+          metadata: null,
+          createdAt: '2026-05-04T09:00:00.000Z',
+          updatedAt: '2026-05-04T09:00:00.000Z',
+          enabledAt: '2026-05-04T09:00:00.000Z',
+          disabledAt: null,
+        },
+        {
+          chatId: -200,
+          isEnabled: false,
+          metadata: null,
+          createdAt: '2026-05-04T09:00:00.000Z',
+          updatedAt: '2026-05-04T09:00:00.000Z',
+          enabledAt: null,
+          disabledAt: '2026-05-04T09:00:00.000Z',
+        },
+      ]),
     },
     replies,
+    groupMessages,
     getCurrentSession() {
       return currentSession;
+    },
+  };
+}
+
+function createNewsGroupRepository(initialGroups: NewsGroupRecord[]): NewsGroupRepository {
+  const groups = new Map(initialGroups.map((group) => [group.chatId, group]));
+
+  return {
+    async findGroupByChatId(chatId) {
+      return groups.get(chatId) ?? null;
+    },
+    async listGroups({ includeDisabled } = {}) {
+      return Array.from(groups.values()).filter((group) => includeDisabled || group.isEnabled);
+    },
+    async upsertGroup(input) {
+      const now = '2026-05-04T09:30:00.000Z';
+      const record: NewsGroupRecord = {
+        chatId: input.chatId,
+        isEnabled: input.isEnabled,
+        metadata: input.metadata ?? null,
+        createdAt: groups.get(input.chatId)?.createdAt ?? now,
+        updatedAt: now,
+        enabledAt: input.isEnabled ? now : null,
+        disabledAt: input.isEnabled ? null : now,
+      };
+      groups.set(record.chatId, record);
+      return record;
+    },
+    async listSubscriptionsByChatId() {
+      return [];
+    },
+    async upsertSubscription() {
+      throw new Error('not implemented');
+    },
+    async deleteSubscription() {
+      return false;
+    },
+    async listSubscribedGroupsByCategory() {
+      return [];
+    },
+    async isNewsEnabledGroup(chatId) {
+      return groups.get(chatId)?.isEnabled === true;
     },
   };
 }
@@ -224,7 +293,7 @@ test('handleTelegramLfgText returns from the LFG submenu to the main menu', asyn
 
 test('handleTelegramLfgText publishes a player ad through the confirmation flow', async () => {
   const repository = createRepository();
-  const { context, replies, getCurrentSession } = createContext(repository);
+  const { context, replies, groupMessages, getCurrentSession } = createContext(repository);
 
   for (const messageText of ['Busco grup', 'Eurogames mitjans els divendres', 'Publicar anunci', 'Jugadors buscant grup']) {
     context.messageText = messageText;
@@ -237,11 +306,16 @@ test('handleTelegramLfgText publishes a player ad through the confirmation flow'
   assert.equal(ads.length, 1);
   assert.equal(ads[0]?.displayName, 'Ada Lovelace');
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/adalovelace"><b>Ada Lovelace \(@adalovelace\)<\/b><\/a>/);
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.chatId, -100);
+  assert.equal(groupMessages[0]?.options?.parseMode, 'HTML');
+  assert.match(groupMessages[0]?.message ?? '', /Nou jugador buscant grup:/);
+  assert.match(groupMessages[0]?.message ?? '', /<a href="https:\/\/t\.me\/adalovelace">Ada Lovelace \(@adalovelace\)<\/a>/);
 });
 
 test('handleTelegramLfgText publishes a group ad and lists it', async () => {
   const repository = createRepository();
-  const { context, replies } = createContext(repository);
+  const { context, replies, groupMessages } = createContext(repository);
 
   for (const messageText of [
     'Busquem jugadors',
@@ -259,6 +333,11 @@ test('handleTelegramLfgText publishes a group ad and lists it', async () => {
   assert.match(replies.at(-1)?.message ?? '', /Dune Imperium/);
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/adalovelace">Ada Lovelace \(@adalovelace\)<\/a>/);
   assert.match(replies.at(-1)?.message ?? '', /Places: 2/);
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.chatId, -100);
+  assert.match(groupMessages[0]?.message ?? '', /Nou anunci de grup buscant jugadors:/);
+  assert.match(groupMessages[0]?.message ?? '', /<b>Dune Imperium<\/b>/);
+  assert.match(groupMessages[0]?.message ?? '', /<a href="https:\/\/t\.me\/adalovelace">Ada Lovelace \(@adalovelace\)<\/a>/);
 });
 
 test('handleTelegramLfgCallback resolves an owned player ad', async () => {

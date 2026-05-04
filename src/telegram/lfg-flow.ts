@@ -10,6 +10,8 @@ import {
   type LfgRepository,
 } from '../lfg/lfg-catalog.js';
 import { createDatabaseLfgRepository } from '../lfg/lfg-catalog-store.js';
+import type { NewsGroupRepository } from '../news/news-group-catalog.js';
+import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import { resolveTelegramActionMenu } from './action-menu.js';
@@ -25,9 +27,11 @@ import {
 } from './lfg-keyboards.js';
 import {
   formatLfgGroupAdDetail,
+  formatLfgGroupAdBroadcast,
   formatLfgGroupAdListMessage,
   formatLfgGroupDraftSummary,
   formatLfgMyAdsMessage,
+  formatLfgPlayerAdBroadcast,
   formatLfgPlayerAdDetail,
   formatLfgPlayerAdListMessage,
   formatLfgPlayerDraftSummary,
@@ -52,6 +56,7 @@ interface LfgGroupAdDraft {
 
 export type TelegramLfgContext = TelegramCommandHandlerContext & {
   lfgRepository?: LfgRepository;
+  newsGroupRepository?: NewsGroupRepository;
 };
 
 export { lfgCallbackPrefixes };
@@ -301,12 +306,13 @@ async function handleActivePlayerFlow(context: TelegramLfgContext, text: string,
       return true;
     }
 
-    await upsertLfgPlayerAd({
+    const saved = await upsertLfgPlayerAd({
       repository: resolveRepository(context),
       telegramUserId: context.runtime.actor.telegramUserId,
       displayName: resolveActorDisplayName(context),
       description: draft.description ?? '',
     });
+    await publishLfgPlayerAdAnnouncement(context, saved.id, language);
     await context.runtime.session.cancel();
     await context.reply(texts.playerSaved, buildLfgMenuOptions(language));
     return true;
@@ -399,7 +405,7 @@ async function handleActiveGroupFlow(context: TelegramLfgContext, text: string, 
       return true;
     }
 
-    await createLfgGroupAd({
+    const saved = await createLfgGroupAd({
       repository: resolveRepository(context),
       createdByTelegramUserId: context.runtime.actor.telegramUserId,
       creatorDisplayName: resolveActorDisplayName(context),
@@ -407,6 +413,7 @@ async function handleActiveGroupFlow(context: TelegramLfgContext, text: string, 
       description: draft.description ?? '',
       seatsAvailable: draft.seatsAvailable ?? null,
     });
+    await publishLfgGroupAdAnnouncement(context, saved.id, language);
     await context.runtime.session.cancel();
     await context.reply(texts.groupSaved, buildLfgMenuOptions(language));
     return true;
@@ -437,6 +444,61 @@ async function replyWithMyAds(context: TelegramLfgContext, language: BotLanguage
 
 function resolveRepository(context: TelegramLfgContext): LfgRepository {
   return context.lfgRepository ?? createDatabaseLfgRepository({ database: context.runtime.services.database.db });
+}
+
+function resolveNewsGroupRepository(context: TelegramLfgContext): NewsGroupRepository {
+  return (
+    context.newsGroupRepository ??
+    createDatabaseNewsGroupRepository({ database: context.runtime.services.database.db as never })
+  );
+}
+
+async function publishLfgPlayerAdAnnouncement(
+  context: TelegramLfgContext,
+  adId: number,
+  language: BotLanguage,
+): Promise<void> {
+  const ad = await resolveRepository(context).findPlayerAdById(adId);
+  if (!ad) {
+    return;
+  }
+
+  await publishLfgAnnouncement(context, formatLfgPlayerAdBroadcast({ ad, language }));
+}
+
+async function publishLfgGroupAdAnnouncement(
+  context: TelegramLfgContext,
+  adId: number,
+  language: BotLanguage,
+): Promise<void> {
+  const ad = await resolveRepository(context).findGroupAdById(adId);
+  if (!ad) {
+    return;
+  }
+
+  await publishLfgAnnouncement(context, formatLfgGroupAdBroadcast({ ad, language }));
+}
+
+async function publishLfgAnnouncement(context: TelegramLfgContext, message: string): Promise<void> {
+  const sendGroupMessage = context.runtime.bot.sendGroupMessage;
+  if (!sendGroupMessage) {
+    return;
+  }
+
+  const groups = await resolveNewsGroupRepository(context).listGroups({ includeDisabled: false });
+  if (groups.length === 0) {
+    return;
+  }
+
+  await Promise.all(
+    groups.map(async (group) => {
+      try {
+        await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+      } catch {
+        // No bloqueja la publicació local de l'anunci LFG.
+      }
+    }),
+  );
 }
 
 function resolveActorDisplayName(context: TelegramLfgContext): string {

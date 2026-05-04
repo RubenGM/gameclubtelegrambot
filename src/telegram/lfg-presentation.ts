@@ -77,6 +77,39 @@ export function formatLfgGroupAdDetail({
   ].join('\n');
 }
 
+export function formatLfgPlayerAdBroadcast({
+  ad,
+  language,
+}: {
+  ad: LfgPlayerAdRecord;
+  language: BotLanguage;
+}): string {
+  const texts = createTelegramI18n(language).lfg;
+  return [
+    texts.playerBroadcastHeader,
+    `<b>${escapeHtml(texts.playerAdLabel)}</b>`,
+    `${texts.playerLabel}: ${formatTelegramUserLabel(ad.displayName, ad.username)}`,
+    `${texts.descriptionLabel}: ${escapeHtml(ad.description)}`,
+  ].join('\n');
+}
+
+export function formatLfgGroupAdBroadcast({
+  ad,
+  language,
+}: {
+  ad: LfgGroupAdRecord;
+  language: BotLanguage;
+}): string {
+  const texts = createTelegramI18n(language).lfg;
+  return [
+    texts.groupBroadcastHeader,
+    `<b>${escapeHtml(ad.title)}</b>`,
+    `${texts.creatorLabel}: ${formatTelegramUserLabel(ad.creatorDisplayName, ad.creatorUsername)}`,
+    `${texts.seatsLabel}: ${ad.seatsAvailable === null ? texts.noSeats : String(ad.seatsAvailable)}`,
+    `${texts.descriptionLabel}: ${escapeHtml(ad.description)}`,
+  ].join('\n');
+}
+
 export function formatLfgPlayerDraftSummary({
   description,
   displayName,
