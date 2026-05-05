@@ -289,6 +289,9 @@ RESOURCES: tuple[ResourceDef, ...] = (
     ),
 )
 
+SUMMARY_VIEW_KEY = "__summary__"
+RESOURCE_OPTIONS = (("Resumen", SUMMARY_VIEW_KEY), *((resource.label, resource.key) for resource in RESOURCES))
+
 
 class TextInputScreen(ModalScreen[str | None]):
     CSS = """
@@ -481,6 +484,7 @@ class AdminConsoleTextualApp(App[None]):
         self.service_name = service_name
         self.operator_id = operator_id
         self.config = load_runtime_config(config_path, env_path)
+        self.view_key = SUMMARY_VIEW_KEY
         self.resource = RESOURCES[0]
         self.selected_id: str | int | None = None
         self.selected_row: dict[str, Any] | None = None
@@ -497,8 +501,10 @@ class AdminConsoleTextualApp(App[None]):
             with Horizontal(id="main"):
                 with Vertical(id="sidebar"):
                     yield Select(
-                        [(resource.label, resource.key) for resource in RESOURCES],
-                        value=self.resource.key,
+                        RESOURCE_OPTIONS,
+                        prompt="Vista",
+                        allow_blank=False,
+                        value=self.view_key,
                         id="resource-select",
                     )
                     with Vertical(id="user-actions"):
@@ -560,7 +566,24 @@ class AdminConsoleTextualApp(App[None]):
 
     @on(Select.Changed, "#resource-select")
     def resource_changed(self, event: Select.Changed) -> None:
-        self.resource = next(resource for resource in RESOURCES if resource.key == event.value)
+        if event.value == Select.BLANK:
+            self.query_one("#resource-select", Select).value = self.view_key
+            return
+        if event.value == SUMMARY_VIEW_KEY:
+            self.view_key = SUMMARY_VIEW_KEY
+            self.selected_id = None
+            self.selected_row = None
+            self.clear_selection(show_status=False)
+            self.update_user_action_state()
+            self.refresh_rows()
+            return
+        resource = next((resource for resource in RESOURCES if resource.key == event.value), None)
+        if resource is None:
+            self.query_one("#resource-select", Select).value = self.view_key
+            self.set_status(f"Vista no soportada: {event.value}")
+            return
+        self.view_key = resource.key
+        self.resource = resource
         self.selected_id = None
         self.selected_row = None
         self.clear_selection(show_status=False)
@@ -631,6 +654,8 @@ class AdminConsoleTextualApp(App[None]):
 
     @on(DataTable.RowSelected)
     def row_selected(self, event: DataTable.RowSelected) -> None:
+        if self.view_key == SUMMARY_VIEW_KEY:
+            return
         if event.row_key.value is None:
             return
         self.selected_id = event.row_key.value
@@ -659,6 +684,11 @@ class AdminConsoleTextualApp(App[None]):
     @work(thread=True)
     def refresh_rows(self) -> None:
         try:
+            if self.view_key == SUMMARY_VIEW_KEY:
+                summary = self.fetch_current_state()
+                self.call_from_thread(self.render_current_state, summary)
+                self.call_from_thread(self.set_status, "Resumen actualizado.")
+                return
             rows = self.fetch_rows(self.resource, self.query_one("#search", Input).value.strip())
             self.call_from_thread(self.render_rows, rows)
             self.call_from_thread(self.set_status, f"{len(rows)} filas cargadas de {self.resource.label}.")
@@ -680,6 +710,34 @@ class AdminConsoleTextualApp(App[None]):
             selection_mark = "x" if row_key in self.selected_ids else ""
             table.add_row(selection_mark, *(format_cell(row.get(column)) for column in self.resource.list_columns), key=row_key)
         self.query_one("#detail", Static).update("Selecciona una fila para ver el detalle.")
+        self.update_user_action_state()
+
+    def render_current_state(self, summary: dict[str, Any]) -> None:
+        table = self.query_one(DataTable)
+        table.clear(columns=True)
+        table.cursor_type = "row"
+        self.visible_row_ids = []
+        self.selected_ids.clear()
+        table.add_column("Area")
+        table.add_column("Estado")
+        table.add_column("Detalle")
+        table.add_row("Servicio", summary["service_state"], self.service_name, key="service")
+        table.add_row("Base de datos", summary["database_name"], summary["database_host"], key="database")
+        for label, table_name in summary["tables"]:
+            table.add_row(label, str(summary["counts"].get(table_name, 0)), table_name, key=table_name)
+        lines = [
+            "Resumen del estado actual",
+            "",
+            f"Servicio: {self.service_name}",
+            f"Estado: {summary['service_state']}",
+            f"Base de datos: {summary['database_name']}@{summary['database_host']}",
+            "",
+            "Contenido:",
+        ]
+        lines.extend(f"- {label}: {summary['counts'].get(table_name, 0)}" for label, table_name in summary["tables"])
+        self.selected_id = None
+        self.selected_row = None
+        self.query_one("#detail", Static).update("\n".join(lines))
         self.update_user_action_state()
 
     @work(thread=True)
@@ -714,6 +772,9 @@ class AdminConsoleTextualApp(App[None]):
         self.update_user_action_state()
 
     def start_edit(self) -> None:
+        if self.view_key == SUMMARY_VIEW_KEY:
+            self.set_status("El resumen no tiene campos editables.")
+            return
         if self.selected_id is None or not self.selected_row:
             self.set_status("Selecciona una fila antes de editar.")
             return
@@ -747,6 +808,9 @@ class AdminConsoleTextualApp(App[None]):
             self.call_from_thread(self.set_status, f"Error editando: {error}")
 
     def start_delete(self, hard_delete: bool) -> None:
+        if self.view_key == SUMMARY_VIEW_KEY:
+            self.set_status("El resumen no se puede borrar.")
+            return
         target_ids = self.action_target_ids()
         if not target_ids:
             self.set_status("Selecciona una fila antes de borrar.")
@@ -861,7 +925,7 @@ class AdminConsoleTextualApp(App[None]):
             self.set_status("Selección múltiple limpiada.")
 
     def update_user_action_state(self) -> None:
-        enabled = self.resource.key == "users" and self.selected_id is not None
+        enabled = self.view_key == "users" and self.selected_id is not None
         for button_id in (
             "#user-approve",
             "#user-pending",
@@ -892,6 +956,25 @@ class AdminConsoleTextualApp(App[None]):
                     cursor.execute(f'select count(*) from "{table}"')
                     result[table] = int(cursor.fetchone()[0])
                 return result
+
+    def fetch_current_state(self) -> dict[str, Any]:
+        database = self.config["database"]
+        tables = (
+            ("Usuarios", "users"),
+            ("Catalogo", "catalog_items"),
+            ("Storage", "storage_entries"),
+            ("Actividades", "schedule_events"),
+            ("Sala", "venue_events"),
+            ("Compras", "group_purchases"),
+        )
+        return {
+            "service_state": run_command(["systemctl", "show", self.service_name, "--property=ActiveState", "--value"]).strip()
+            or "unknown",
+            "database_name": database["name"],
+            "database_host": f"{database['host']}:{database['port']}",
+            "tables": tables,
+            "counts": self.fetch_counts(),
+        }
 
     def fetch_rows(self, resource: ResourceDef, search: str) -> list[dict[str, Any]]:
         columns = unique_columns((resource.id_column, resource.title_column, *resource.subtitle_columns, *resource.list_columns))
