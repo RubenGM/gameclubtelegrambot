@@ -21,6 +21,7 @@ import {
   handleTelegramGroupPurchaseStartText,
   handleTelegramGroupPurchaseText,
 } from './group-purchase-flow.js';
+import { buildGroupPurchaseDateOptions } from './group-purchase-keyboards.js';
 
 function successButton(text: string) {
   return { text, semanticRole: 'success' as const };
@@ -497,26 +498,19 @@ test('per-item create flow explains the visible unit with examples', async () =>
 
 test('create flow shows upcoming date shortcuts for join and confirm deadlines', async () => {
   const { context, replies } = createContext(createRepository());
+  const expectedDateOptions = buildGroupPurchaseDateOptions('ca');
 
   for (const messageText of ['Crear compra', 'Pedido de dados', 'Compra conjunta', 'Per unitats', '1.25', 'dado']) {
     context.messageText = messageText;
     await handleTelegramGroupPurchaseText(context);
   }
 
-  assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 04/05', 'Dimarts, 05/05'], ['Dimecres, 06/05', 'Dijous, 07/05'], ['Divendres, 08/05', 'Dissabte, 09/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  });
+  assert.deepEqual(replies.at(-1)?.options, expectedDateOptions);
 
   context.messageText = 'Dimarts, 05/05/2026';
   await handleTelegramGroupPurchaseText(context);
 
-  assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 04/05', 'Dimarts, 05/05'], ['Dimecres, 06/05', 'Dijous, 07/05'], ['Divendres, 08/05', 'Dissabte, 09/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  });
+  assert.deepEqual(replies.at(-1)?.options, expectedDateOptions);
 });
 
 test('shared-cost create flow also shows upcoming date shortcuts for the join deadline', async () => {
@@ -527,11 +521,7 @@ test('shared-cost create flow also shows upcoming date shortcuts for the join de
     await handleTelegramGroupPurchaseText(context);
   }
 
-  assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Dilluns, 04/05', 'Dimarts, 05/05'], ['Dimecres, 06/05', 'Dijous, 07/05'], ['Divendres, 08/05', 'Dissabte, 09/05'], [successButton('Ometre')], [dangerButton('/cancel')]],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-  });
+  assert.deepEqual(replies.at(-1)?.options, buildGroupPurchaseDateOptions('ca'));
 });
 
 test('create flow shows a summary before saving the purchase', async () => {

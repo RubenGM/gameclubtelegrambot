@@ -105,18 +105,27 @@ export function createApp({
       fatalRuntimeErrorHandlers.add(handler);
     },
     async start() {
-      infrastructure = await startInfrastructure();
+      const startedInfrastructure = await startInfrastructure();
+      infrastructure = startedInfrastructure;
 
       try {
-        telegram = await startTelegram({
-          services: infrastructure.services,
+        const startedTelegram = await startTelegram({
+          services: startedInfrastructure.services,
           onFatalRuntimeError: emitFatalRuntimeError,
         });
-        scheduleReminders = startScheduleReminders({ services: infrastructure.services, telegram });
+        if (infrastructure !== startedInfrastructure) {
+          await startedTelegram.stop();
+          throw new Error('Application startup interrupted');
+        }
+
+        telegram = startedTelegram;
+        scheduleReminders = startScheduleReminders({ services: startedInfrastructure.services, telegram });
         await scheduleReminders.start();
       } catch (error) {
-        await infrastructure.stop();
-        infrastructure = undefined;
+        if (infrastructure === startedInfrastructure) {
+          await startedInfrastructure.stop();
+          infrastructure = undefined;
+        }
         throw error;
       }
 

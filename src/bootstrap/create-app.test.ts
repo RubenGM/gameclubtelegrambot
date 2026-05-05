@@ -347,3 +347,57 @@ test('createApp attempts infrastructure shutdown even when Telegram stop fails',
   await assert.rejects(() => app.stop(), /telegram stop failed/);
   assert.deepEqual(events, ['stop:telegram', 'stop:infrastructure']);
 });
+
+test('createApp stops Telegram if startup completes after stop was requested', async () => {
+  const events: string[] = [];
+  let resolveTelegramStartup: ((value: {
+    status: { bot: 'connected' };
+    sendPrivateMessage: () => Promise<void>;
+    stop: () => Promise<void>;
+  }) => void) | undefined;
+  const logger = {
+    info: (_bindings: object, _message: string) => {},
+    error: (_bindings: object, _message: string) => {},
+  };
+
+  const app = createApp({
+    config: runtimeConfig,
+    logger,
+    startInfrastructure: async () => ({
+      status: {
+        database: 'connected',
+      },
+      services: {
+        database: databaseConnection,
+      },
+      stop: async () => {
+        events.push('stop:infrastructure');
+      },
+    }),
+    startTelegram: async () =>
+      new Promise<{
+        status: { bot: 'connected' };
+        sendPrivateMessage: () => Promise<void>;
+        stop: () => Promise<void>;
+      }>((resolve) => {
+        resolveTelegramStartup = resolve;
+      }),
+  });
+
+  const startup = app.start();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  await app.stop();
+  resolveTelegramStartup?.({
+    status: {
+      bot: 'connected',
+    },
+    sendPrivateMessage: async () => {},
+    stop: async () => {
+      events.push('stop:telegram');
+    },
+  });
+
+  await assert.rejects(() => startup, /Application startup interrupted/);
+  assert.deepEqual(events, ['stop:infrastructure', 'stop:telegram']);
+});

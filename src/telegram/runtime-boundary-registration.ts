@@ -73,10 +73,12 @@ import {
   handleTelegramGroupPurchaseText,
 } from './group-purchase-flow.js';
 import {
+  handleTelegramStorageCallback,
   handleTelegramStorageCommand,
   handleTelegramStorageMessage,
   handleTelegramStorageStartText,
   handleTelegramStorageText,
+  storageCallbackPrefixes,
 } from './storage-flow.js';
 import {
   handleTelegramScheduleCallback,
@@ -142,6 +144,7 @@ export function registerHandlers({
   registerTableAdminCallbacks({ bot });
   registerCatalogReadCallbacks({ bot });
   registerCatalogAdminCallbacks({ bot });
+  registerStorageCallbacks({ bot });
   registerVenueEventAdminCallbacks({ bot });
   registerTextHandlers({ bot, publicName, adminElevationPasswordHash });
   registerMessageHandlers({ bot });
@@ -1100,6 +1103,18 @@ function registerCatalogReadCallbacks({
   bot.onCallback(catalogLoanCallbackPrefixes.edit, async (context) => {
     await handleTelegramCatalogLoanCallback(context);
   });
+}
+
+function registerStorageCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const callbackPrefix of Object.values(storageCallbackPrefixes)) {
+    bot.onCallback(callbackPrefix, async (context) => {
+      await handleTelegramStorageCallback(context);
+    });
+  }
 }
 
 function registerScheduleCallbacks({

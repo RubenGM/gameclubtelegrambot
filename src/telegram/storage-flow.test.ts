@@ -15,11 +15,14 @@ import type { StorageCategoryAccessRepository } from '../storage/storage-categor
 import {
   __resetStorageTopicMediaGroupsForTests,
   __flushStorageTopicMediaGroupForTests,
+  handleTelegramStorageCallback,
   handleTelegramStorageCommand,
   handleTelegramStorageMessage,
   handleTelegramStorageStartText,
   handleTelegramStorageText,
+  storageCallbackPrefixes,
 } from './storage-flow.js';
+import { toGrammyReplyOptions } from './runtime-boundary-registration.js';
 
 function dangerButton(text: string) {
   return { text, semanticRole: 'danger' as const };
@@ -407,6 +410,67 @@ test('handleTelegramStorageText lists only categories the user can read', async 
   assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>');
 });
 
+test('handleTelegramStorageText renders category tree links with local labels', async () => {
+  const repository = createRepository([
+    createCategory({ id: 7, slug: 'mutant', displayName: 'Mutant Chronicles' }),
+    createCategory({ id: 8, slug: 'libros', displayName: 'Libros', parentCategoryId: 7, storageThreadId: 11 }),
+  ]);
+  const { context, replies } = createContext(repository, { canReadCategoryIds: [7, 8], canUploadCategoryIds: [7, 8] });
+
+  context.messageText = 'Listar categorías';
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.equal(
+    replies.at(-1)?.message,
+    [
+      'Categorías disponibles:',
+      '- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Mutant Chronicles</b></a>',
+      '  - <a href="https://t.me/cawatest_bot?start=storage_category_8"><b>Libros</b></a>',
+    ].join('\n'),
+  );
+});
+
+test('handleTelegramStorageText renders the full category path in entry detail', async () => {
+  const repository = createRepository([
+    createCategory({ id: 7, slug: 'rol', displayName: 'Rol' }),
+    createCategory({ id: 8, slug: 'mutant', displayName: 'Mutant Chronicles', parentCategoryId: 7, storageThreadId: 11 }),
+    createCategory({ id: 9, slug: 'libros', displayName: 'Libros', parentCategoryId: 8, storageThreadId: 12 }),
+  ]);
+  await repository.createEntry({
+    categoryId: 9,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Mutant Chronicles Capitol Sourcebook',
+    tags: [],
+    messages: [
+      {
+        storageChatId: -100123,
+        storageMessageId: 900,
+        storageThreadId: 12,
+        telegramFileId: 'file-1',
+        telegramFileUniqueId: 'unique-1',
+        attachmentKind: 'document',
+        caption: null,
+        originalFileName: 'capitol.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        mediaGroupId: null,
+        sortOrder: 0,
+      },
+    ],
+  });
+  const { context, replies } = createContext(repository, { canReadCategoryIds: [7, 8, 9], canUploadCategoryIds: [7, 8, 9] });
+
+  context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageText(context as never);
+
+  assert.match(
+    replies[0]?.message ?? '',
+    /<b>#1<\/b> · <a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_9">Rol \/ Mutant Chronicles \/ Libros<\/a>/,
+  );
+});
+
 test('handleTelegramStorageText lists recent entries as clickable text links without copying attachments', async () => {
   const repository = createRepository([createCategory()]);
   await repository.createEntry({
@@ -444,10 +508,55 @@ test('handleTelegramStorageText lists recent entries as clickable text links wit
       '<a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>',
       '',
       'Entradas:',
-      '- <a href="https://t.me/cawatest_bot?start=storage_entry_1"><b>#1</b></a> · Manual de campana · Adjuntos: 1 · #rol, #pdf',
+      '- <a href="https://t.me/cawatest_bot?start=storage_entry_1">Manual de campana</a> · #rol, #pdf',
     ].join('\n'),
   );
   assert.deepEqual(copiedMessages, []);
+});
+
+test('handleTelegramStorageText lists category entries alphabetically by linked description', async () => {
+  const repository = createRepository([createCategory()]);
+  for (const description of ['Zeta dossier', 'Alpha manual', 'Beta appendix']) {
+    await repository.createEntry({
+      categoryId: 7,
+      createdByTelegramUserId: 42,
+      sourceKind: 'dm_copy',
+      description,
+      tags: [],
+      messages: [
+        {
+          storageChatId: -100123,
+          storageMessageId: 900,
+          storageThreadId: 10,
+          telegramFileId: 'file-1',
+          telegramFileUniqueId: 'unique-1',
+          attachmentKind: 'document',
+          caption: null,
+          originalFileName: `${description}.pdf`,
+          mimeType: 'application/pdf',
+          fileSizeBytes: 1024,
+          mediaGroupId: null,
+          sortOrder: 0,
+        },
+      ],
+    });
+  }
+  const { context, replies } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
+
+  context.messageText = '/start storage_category_7';
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(
+    replies.at(-1)?.message,
+    [
+      '<a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>',
+      '',
+      'Entradas:',
+      '- <a href="https://t.me/cawatest_bot?start=storage_entry_2">Alpha manual</a>',
+      '- <a href="https://t.me/cawatest_bot?start=storage_entry_3">Beta appendix</a>',
+      '- <a href="https://t.me/cawatest_bot?start=storage_entry_1">Zeta dossier</a>',
+    ].join('\n'),
+  );
 });
 
 test('handleTelegramStorageText opens a storage category from a deep link', async () => {
@@ -488,7 +597,7 @@ test('handleTelegramStorageText opens a storage category from a deep link', asyn
       '<a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>',
       '',
       'Entradas:',
-      '- <a href="https://t.me/cawatest_bot?start=storage_entry_1"><b>#1</b></a> · Manual de campana · Adjuntos: 1 · #rol, #pdf',
+      '- <a href="https://t.me/cawatest_bot?start=storage_entry_1">Manual de campana</a> · #rol, #pdf',
     ].join('\n'),
   );
   assert.deepEqual(copiedMessages, []);
@@ -799,10 +908,12 @@ test('handleTelegramStorageText opens an entry by id and copies its attachments 
   assert.equal(handled, true);
   assert.equal(copiedMessages.length, 1);
   assert.deepEqual(copiedMessages[0], { fromChatId: -100123, messageId: 900, toChatId: 42 });
-  assert.equal(replies.at(-2)?.options?.parseMode, 'HTML');
-  assert.match(replies.at(-2)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_entry_1"><b>#1<\/b><\/a> · Manuales/);
-  assert.match(replies.at(-2)?.message ?? '', /<b>Descripción:<\/b> Manual de campana/);
-  assert.equal(replies.at(-1)?.message, 'Entrada #1 de Manuales enviada con 1 adjunto(s).');
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.match(replies.at(-1)?.message ?? '', /<b>#1<\/b> · <a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">Manuales<\/a>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_entry_1"><b>#1<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Descripción:<\/b> Manual de campana/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Origen:<\/b>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Adjuntos:<\/b>/);
   assert.equal(getCurrentSession(), null);
 });
 
@@ -839,8 +950,10 @@ test('handleTelegramStorageText opens an entry detail from a deep link', async (
   assert.equal(handled, true);
   assert.equal(replies[0]?.options?.parseMode, 'HTML');
   assert.equal(replies[0]?.message.includes('Subido por'), false);
+  assert.doesNotMatch(replies[0]?.message ?? '', /<b>Origen:<\/b>/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /<b>Adjuntos:<\/b>/);
   assert.deepEqual(copiedMessages, [{ fromChatId: -100123, messageId: 900, toChatId: 42 }]);
-  assert.equal(replies.at(-1)?.message, 'Entrada #1 de Manuales enviada con 1 adjunto(s).');
+  assert.equal(replies.length, 1);
 });
 
 test('handleTelegramStorageText marks entries as missing source when Telegram copy fails', async () => {
@@ -990,7 +1103,23 @@ test('handleTelegramStorageText lets admins logically delete an entry by id', as
   assert.equal(getCurrentSession()?.stepKey, 'delete-entry-id');
 
   context.messageText = '1';
-  const handled = await handleTelegramStorageText(context as never);
+  let handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.equal(getCurrentSession()?.stepKey, 'delete-entry-confirm');
+  assert.equal(replies.at(-1)?.message, 'Escribe DELETE exactamente para eliminar la entrada #1.');
+  assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'active');
+
+  context.messageText = 'delete';
+  handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.equal(getCurrentSession()?.stepKey, 'delete-entry-confirm');
+  assert.equal(replies.at(-1)?.message, 'La confirmación no coincide. Escribe DELETE exactamente para eliminar la entrada #1, o /cancel para salir.');
+  assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'active');
+
+  context.messageText = 'DELETE';
+  handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
   const detail = await repository.getEntryDetail(1);
@@ -1061,6 +1190,28 @@ test('handleTelegramStorageText hides archived categories from DM upload choices
   assert.equal(handled, true);
   assert.equal(getCurrentSession(), null);
   assert.equal(replies.at(-1)?.message, 'No hay categorías disponibles para esta acción.');
+});
+
+test('handleTelegramStorageText accepts a category deep link while choosing an upload category', async () => {
+  const repository = createRepository([
+    createCategory({ id: 7, slug: 'mutant', displayName: 'Mutant Chronicles' }),
+    createCategory({ id: 8, slug: 'libros', displayName: 'Libros', parentCategoryId: 7, storageThreadId: 11 }),
+  ]);
+  const { context, replies, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7, 8], canUploadCategoryIds: [7, 8] });
+
+  context.messageText = 'Subir archivos';
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(getCurrentSession()?.stepKey, 'upload-category');
+  assert.match(replies.at(-1)?.message ?? '', /Mutant Chronicles \/ Libros/);
+
+  context.messageText = '/start storage_category_8';
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, true);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-media');
+  assert.equal(getCurrentSession()?.data.categoryId, 8);
+  assert.equal(getCurrentSession()?.data.categoryDisplayName, 'Libros');
 });
 
 test('handleTelegramStorageText hides archived categories from admins in category listing', async () => {
@@ -1359,9 +1510,9 @@ test('handleTelegramStorageText cleans copied topic messages when DM upload fail
   context.messageText = 'Terminar adjuntos';
   delete context.messageMedia;
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Omitir';
+  context.messageText = 'Guardar juntos';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Omitir';
+  context.messageText = 'Aceptar';
 
   await assert.rejects(() => handleTelegramStorageText(context as never), /No se ha podido guardar la entrada en Telegram/);
   assert.equal(repository.__entries.length, 0);
@@ -1520,6 +1671,10 @@ test('handleTelegramStorageText edits storage entry metadata', async () => {
 
   context.messageText = '#1 - manual.pdf';
   await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'edit-entry-action');
+
+  context.messageText = 'Modificar descripción';
+  await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'edit-entry-description');
 
   context.messageText = 'Manual revisado';
@@ -1531,7 +1686,11 @@ test('handleTelegramStorageText edits storage entry metadata', async () => {
 
   assert.equal(repository.__entries[0]?.entry.description, 'Manual revisado');
   assert.deepEqual(repository.__entries[0]?.entry.tags, ['rol', 'pdf']);
-  assert.equal(replies.at(-1)?.message, 'Detalles actualizados en la entrada #1.');
+  assert.equal(replies.at(-1)?.message, 'Detalles actualizados en la entrada #1.\n\n¿Qué quieres modificar de esta entrada?');
+  assert.equal(getCurrentSession()?.stepKey, 'edit-entry-action');
+
+  context.messageText = 'Terminar edición';
+  await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession(), null);
 });
 
@@ -1600,8 +1759,8 @@ test('handleTelegramStorageText starts metadata editing from an edit deep link',
 
   assert.equal(handled, true);
   assert.equal(getCurrentSession()?.flowKey, 'storage-edit-entry');
-  assert.equal(getCurrentSession()?.stepKey, 'edit-entry-description');
-  assert.equal(replies.at(-1)?.message, 'Escribe la nueva descripción o elige Omitir para mantenerla. Actual: Sin descripción');
+  assert.equal(getCurrentSession()?.stepKey, 'edit-entry-action');
+  assert.equal(replies.at(-1)?.message, '¿Qué quieres modificar de esta entrada?');
 });
 
 test('sendStorageEntryDetail hides uploader for regular users and sends photos as an album', async () => {
@@ -1655,9 +1814,10 @@ test('sendStorageEntryDetail hides uploader for regular users and sends photos a
     { type: 'photo', media: 'photo-file-1' },
     { type: 'photo', media: 'photo-file-2' },
   ]);
+  assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 });
 
-test('sendStorageEntryDetail shows uploader for admins', async () => {
+test('sendStorageEntryDetail hides uploader for admins', async () => {
   const repository = createRepository([createCategory()]);
   await repository.createEntry({
     categoryId: 7,
@@ -1685,7 +1845,212 @@ test('sendStorageEntryDetail shows uploader for admins', async () => {
   context.messageText = '/start storage_entry_1';
   await handleTelegramStorageStartText(context as never);
 
-  assert.equal(replies[0]?.message.includes('Subido por'), true);
+  assert.equal(replies[0]?.message.includes('Subido por'), false);
+  assert.doesNotMatch(replies[0]?.message ?? '', /<b>Tags:<\/b> Sin tags/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /<b>Origen:<\/b>/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /<b>Adjuntos:<\/b>/);
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
+    [
+      { text: 'Editar', callbackData: `${storageCallbackPrefixes.editEntry}1` },
+      { text: 'Eliminar', callbackData: `${storageCallbackPrefixes.deleteEntry}1`, semanticRole: 'danger' },
+    ],
+  ]);
+  assert.deepEqual(toGrammyReplyOptions(replies[0]?.options), {
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[
+        { text: 'Editar', callback_data: `${storageCallbackPrefixes.editEntry}1` },
+        { text: 'Eliminar', callback_data: `${storageCallbackPrefixes.deleteEntry}1` },
+      ]],
+    },
+  });
+});
+
+test('sendStorageEntryDetail shows edit action to the original uploader', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Manual propio',
+    tags: [],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 501,
+      storageThreadId: 10,
+      telegramFileId: 'file-1',
+      telegramFileUniqueId: 'unique-1',
+      attachmentKind: 'document',
+      caption: null,
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+  const { context, replies } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [] });
+
+  context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageStartText(context as never);
+
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
+    [
+      { text: 'Editar', callbackData: `${storageCallbackPrefixes.editEntry}1` },
+      { text: 'Eliminar', callbackData: `${storageCallbackPrefixes.deleteEntry}1`, semanticRole: 'danger' },
+    ],
+  ]);
+});
+
+test('handleTelegramStorageCallback opens edit flow only for allowed users', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 99,
+    sourceKind: 'dm_copy',
+    description: 'Manual ajeno',
+    tags: [],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 501,
+      storageThreadId: 10,
+      telegramFileId: 'file-1',
+      telegramFileUniqueId: 'unique-1',
+      attachmentKind: 'document',
+      caption: null,
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+  const denied = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [] });
+
+  denied.context.callbackData = `${storageCallbackPrefixes.editEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(denied.context as never), true);
+  assert.equal(denied.getCurrentSession(), null);
+  assert.equal(denied.replies.at(-1)?.message, 'No existe ninguna entrada disponible con ese identificador.');
+
+  const uploader = createContext(repository, { actorTelegramUserId: 99, canReadCategoryIds: [7], canUploadCategoryIds: [] });
+  uploader.context.callbackData = `${storageCallbackPrefixes.editEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(uploader.context as never), true);
+  assert.equal(uploader.getCurrentSession()?.flowKey, 'storage-edit-entry');
+  assert.equal(uploader.getCurrentSession()?.stepKey, 'edit-entry-action');
+  assert.equal(uploader.replies.at(-1)?.message, '¿Qué quieres modificar de esta entrada?');
+});
+
+test('handleTelegramStorageCallback deletes entries only for admins or the original uploader', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 99,
+    sourceKind: 'dm_copy',
+    description: 'Manual propio',
+    tags: [],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 501,
+      storageThreadId: 10,
+      telegramFileId: 'file-1',
+      telegramFileUniqueId: 'unique-1',
+      attachmentKind: 'document',
+      caption: null,
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+
+  const denied = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [] });
+  denied.context.callbackData = `${storageCallbackPrefixes.deleteEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(denied.context as never), true);
+  assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'active');
+  assert.equal(denied.replies.at(-1)?.message, 'No existe ninguna entrada disponible con ese identificador.');
+
+  const uploader = createContext(repository, { actorTelegramUserId: 99, canReadCategoryIds: [7], canUploadCategoryIds: [] });
+  uploader.context.callbackData = `${storageCallbackPrefixes.deleteEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(uploader.context as never), true);
+  assert.equal(uploader.getCurrentSession()?.stepKey, 'delete-entry-confirm');
+  assert.equal(uploader.replies.at(-1)?.message, 'Escribe DELETE exactamente para eliminar la entrada #1.');
+  assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'active');
+
+  delete uploader.context.callbackData;
+  uploader.context.messageText = 'DELETE';
+  assert.equal(await handleTelegramStorageText(uploader.context as never), true);
+  assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'deleted');
+  assert.equal((await repository.getEntryDetail(1))?.entry.deletedByTelegramUserId, 99);
+  assert.equal(uploader.replies.at(-1)?.message, 'Entrada #1 borrada lógicamente.');
+
+  await repository.updateEntryLifecycleStatus({ entryId: 1, lifecycleStatus: 'active', deletedByTelegramUserId: null });
+  const admin = createContext(repository, { isAdmin: true, actorTelegramUserId: 42 });
+  admin.context.callbackData = `${storageCallbackPrefixes.deleteEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(admin.context as never), true);
+  assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'active');
+
+  delete admin.context.callbackData;
+  admin.context.messageText = 'DELETE';
+  assert.equal(await handleTelegramStorageText(admin.context as never), true);
+  assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'deleted');
+  assert.equal((await repository.getEntryDetail(1))?.entry.deletedByTelegramUserId, 42);
+});
+
+test('handleTelegramStorageCallback lets the uploader add images from the edit flow', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Manual propio',
+    tags: [],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 501,
+      storageThreadId: 10,
+      telegramFileId: 'file-1',
+      telegramFileUniqueId: 'unique-1',
+      attachmentKind: 'document',
+      caption: null,
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+  const { context, copiedMessages, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [] });
+
+  context.callbackData = `${storageCallbackPrefixes.editEntry}1`;
+  await handleTelegramStorageCallback(context as never);
+
+  delete context.callbackData;
+  context.messageText = 'Añadir imágenes';
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'add-images-media');
+
+  delete context.messageText;
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'photo-file',
+    fileUniqueId: 'photo-unique',
+    caption: null,
+    originalFileName: null,
+    mimeType: null,
+    fileSizeBytes: 100,
+    mediaGroupId: null,
+    messageId: 777,
+  };
+  await handleTelegramStorageMessage(context as never);
+
+  delete context.messageMedia;
+  context.messageText = 'Terminar adjuntos';
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(repository.__entries[0]?.messages.length, 2);
+  assert.deepEqual(copiedMessages.at(-1), { fromChatId: 42, messageId: 777, toChatId: -100123, messageThreadId: 10 });
+  assert.equal(getCurrentSession()?.stepKey, 'edit-entry-action');
 });
 
 test('handleTelegramStorageText collects a DM upload, copies it to the category topic and persists it', async () => {
@@ -1721,20 +2086,184 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   context.messageText = 'Terminar adjuntos';
   delete context.messageMedia;
   await handleTelegramStorageText(context as never);
-  assert.equal(getCurrentSession()?.stepKey, 'upload-description');
+  assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
+  assert.match(replies.at(-1)?.message ?? '', /Vista previa de la subida/);
 
+  context.messageText = 'Modificar descripción';
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-description');
   context.messageText = 'Manual de campana';
   await handleTelegramStorageText(context as never);
-  assert.equal(getCurrentSession()?.stepKey, 'upload-tags');
+  assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
 
-  context.messageText = '#rol #pdf';
+  context.messageText = 'Aceptar';
   await handleTelegramStorageText(context as never);
 
   assert.equal(copiedMessages.length, 1);
   assert.deepEqual(copiedMessages[0], { fromChatId: 42, messageId: 77, toChatId: -100123, messageThreadId: 10 });
   assert.equal(repository.__entries.length, 1);
   assert.equal(repository.__entries[0]?.entry.description, 'Manual de campana');
-  assert.deepEqual(repository.__entries[0]?.entry.tags, ['rol', 'pdf']);
+  assert.deepEqual(repository.__entries[0]?.entry.tags, []);
   assert.equal(replies.at(-1)?.message, 'Archivo guardado en Manuales con 1 adjunto(s).');
+  assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageText uses the normalized file name as the default upload description', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, replies, getCurrentSession } = createContext(repository);
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Subir archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Manuales';
+  await handleTelegramStorageText(context as never);
+
+  context.messageMedia = {
+    attachmentKind: 'document',
+    fileId: 'private-file-1',
+    fileUniqueId: 'private-unique-1',
+    caption: null,
+    originalFileName: 'Manual_de_Campaña-final.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 2048,
+    mediaGroupId: null,
+    messageId: 77,
+  };
+  delete context.messageText;
+  await handleTelegramStorageMessage(context as never);
+
+  context.messageText = 'Terminar adjuntos';
+  delete context.messageMedia;
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
+  assert.match(replies.at(-1)?.message ?? '', /Manual de Campana final/);
+
+  context.messageText = 'Aceptar';
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(repository.__entries[0]?.entry.description, 'Manual de Campana final');
+  assert.deepEqual(repository.__entries[0]?.entry.tags, []);
+  assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageText adds images to the upload draft from the preview', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, copiedMessages, getCurrentSession } = createContext(repository);
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Subir archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Manuales';
+  await handleTelegramStorageText(context as never);
+
+  context.messageMedia = {
+    attachmentKind: 'document',
+    fileId: 'private-file-1',
+    fileUniqueId: 'private-unique-1',
+    caption: null,
+    originalFileName: 'manual.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 2048,
+    mediaGroupId: null,
+    messageId: 77,
+  };
+  delete context.messageText;
+  await handleTelegramStorageMessage(context as never);
+
+  context.messageText = 'Terminar adjuntos';
+  delete context.messageMedia;
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
+
+  context.messageText = 'Añadir imágenes';
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-preview-images');
+
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'photo-file-1',
+    fileUniqueId: 'photo-unique-1',
+    caption: 'Portada',
+    originalFileName: null,
+    mimeType: null,
+    fileSizeBytes: 4096,
+    mediaGroupId: null,
+    messageId: 78,
+  };
+  delete context.messageText;
+  await handleTelegramStorageMessage(context as never);
+
+  context.messageText = 'Terminar adjuntos';
+  delete context.messageMedia;
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
+
+  context.messageText = 'Aceptar';
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(repository.__entries.length, 1);
+  assert.equal(repository.__entries[0]?.messages.length, 2);
+  assert.equal(repository.__entries[0]?.messages[1]?.attachmentKind, 'photo');
+  assert.equal(repository.__entries[0]?.messages[1]?.caption, 'Portada');
+  assert.deepEqual(copiedMessages.map((message) => message.messageId), [77, 78]);
+  assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageText asks whether multiple DM uploads should be stored together or separately', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, replies, copiedMessages, getCurrentSession } = createContext(repository);
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Subir archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Manuales';
+  await handleTelegramStorageText(context as never);
+
+  context.messageMedia = {
+    attachmentKind: 'document',
+    fileId: 'private-file-1',
+    fileUniqueId: 'private-unique-1',
+    caption: null,
+    originalFileName: 'uno.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 100,
+    mediaGroupId: null,
+    messageId: 77,
+  };
+  delete context.messageText;
+  await handleTelegramStorageMessage(context as never);
+
+  context.messageMedia = {
+    attachmentKind: 'document',
+    fileId: 'private-file-2',
+    fileUniqueId: 'private-unique-2',
+    caption: null,
+    originalFileName: 'dos.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 100,
+    mediaGroupId: null,
+    messageId: 78,
+  };
+  await handleTelegramStorageMessage(context as never);
+
+  context.messageText = 'Terminar adjuntos';
+  delete context.messageMedia;
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(getCurrentSession()?.stepKey, 'upload-grouping');
+  assert.equal(replies.at(-1)?.message, 'Has enviado más de un adjunto. ¿Quieres guardarlos juntos en una entrada o separados?');
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 2), [[{ text: 'Guardar juntos', semanticRole: 'success' }], [{ text: 'Guardar separados', semanticRole: 'secondary' }]]);
+
+  context.messageText = 'Guardar separados';
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(repository.__entries.length, 2);
+  assert.equal(repository.__entries[0]?.entry.description, 'uno');
+  assert.equal(repository.__entries[1]?.entry.description, 'dos');
+  assert.equal(copiedMessages.length, 2);
+  assert.equal(replies.at(-1)?.message, '2 archivo(s) guardado(s) por separado en Manuales.');
   assert.equal(getCurrentSession(), null);
 });
