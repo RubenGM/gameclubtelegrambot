@@ -17,6 +17,7 @@ import type { TelegramActor } from './actor-store.js';
 import {
   TelegramInteractionError,
 } from './command-registry.js';
+import { configureTelegramDeepLinks } from './deep-links.js';
 import type {
   TelegramBotLike,
   TelegramContextLike,
@@ -192,6 +193,7 @@ function createRuntimeContextMiddleware({
   boardGameGeekCollectionImportService: ReturnType<typeof createBoardGameGeekCollectionImportService>;
 }): TelegramMiddleware {
   return async (context, next) => {
+    configureTelegramDeepLinks({ botUsername: await resolveBotUsername(bot) });
     context.runtime = {
       bot: {
         clubName: config.bot.clubName,
@@ -205,6 +207,7 @@ function createRuntimeContextMiddleware({
         sendPrivateMessage: bot.sendPrivateMessage.bind(bot),
         ...(bot.sendGroupMessage ? { sendGroupMessage: bot.sendGroupMessage.bind(bot) } : {}),
         ...(bot.copyMessage ? { copyMessage: bot.copyMessage.bind(bot) } : {}),
+        ...(bot.forwardMessage ? { forwardMessage: bot.forwardMessage.bind(bot) } : {}),
         ...(bot.sendMediaGroup ? { sendMediaGroup: bot.sendMediaGroup.bind(bot) } : {}),
         ...(bot.deleteMessage ? { deleteMessage: bot.deleteMessage.bind(bot) } : {}),
       },
@@ -215,6 +218,21 @@ function createRuntimeContextMiddleware({
 
     await next();
   };
+}
+
+async function resolveBotUsername(bot: TelegramBotLike): Promise<string | undefined> {
+  if (bot.username) {
+    return bot.username;
+  }
+  if (!bot.getMe) {
+    return undefined;
+  }
+
+  try {
+    return (await bot.getMe()).username;
+  } catch {
+    return undefined;
+  }
 }
 
 function createChatContextMiddleware({

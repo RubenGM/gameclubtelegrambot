@@ -401,7 +401,7 @@ test('handleTelegramGroupPurchaseText lists purchases with deep links', async ()
   assert.equal(handled, true);
   assert.deepEqual(replies, [
     {
-      message: 'Compres conjuntes:\n- <a href="https://t.me/cawatest_bot?start=group_purchase_7"><b>Pedido de dados</b></a> · Oberta · apuntar-se fins 30/05',
+      message: 'Compres conjuntes:\n- <a href="https://t.me/cawa_management_bot?start=group_purchase_7"><b>Pedido de dados</b></a> · Oberta · apuntar-se fins 30/05',
       options: {
         parseMode: 'HTML',
         replyKeyboard: [['Veure compres', 'Crear compra'], ['Inici', 'Ajuda']],
@@ -447,7 +447,7 @@ test('handleTelegramGroupPurchaseStartText opens purchase detail from /start pay
   assert.deepEqual(replies, [
     {
       message:
-        '<a href="https://t.me/cawatest_bot?start=group_purchase_7"><b>Pedido de dados</b></a>\nMode: Per unitats\nEstat: Oberta\nDescripció: Compra conjunta\nPreu unitari: 1.25 EUR\nUnitat: dado\nApuntar-se fins: 30/05',
+        '<a href="https://t.me/cawa_management_bot?start=group_purchase_7"><b>Pedido de dados</b></a>\nMode: Per unitats\nEstat: Oberta\nDescripció: Compra conjunta\nPreu unitari: 1.25 EUR\nUnitat: dado\nApuntar-se fins: 30/05',
       options: {
         parseMode: 'HTML',
         inlineKeyboard: [
@@ -978,7 +978,7 @@ test('participant management message shows display name and captured values', as
   context.callbackData = `group_purchase:manage_participants:${created.purchase.id}`;
   await handleTelegramGroupPurchaseCallback(context);
 
-  assert.match(replies.at(-1)?.message ?? '', new RegExp(`https://t\\.me/cawatest_bot\\?start=group_purchase_participant_${created.purchase.id}_77`));
+  assert.match(replies.at(-1)?.message ?? '', new RegExp(`https://t\\.me/cawa_management_bot\\?start=group_purchase_participant_${created.purchase.id}_77`));
   assert.match(replies.at(-1)?.message ?? '', /Participant 77/);
   assert.match(replies.at(-1)?.message ?? '', /Cantidad: 3/);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');

@@ -368,7 +368,7 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
   assert.match(replies[0]?.message ?? '', /Resultats per a "Game"/);
   assert.match(replies[0]?.message ?? '', /Pàgina 1\/2/);
   assert.match(replies[0]?.message ?? '', /Prestat a Marta/);
-  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=catalog_read_item_1"><b>Game 1<\/b><\/a>/);
+  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_item_1"><b>Game 1<\/b><\/a>/);
   assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[0]?.text, 'Game 1');
   assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[1]?.text, 'Retornar');
 

@@ -538,7 +538,7 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
 
   assert.equal(handled, true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Diumenge 5 abril<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /18h-21h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(3 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /18h-21h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(3 libres\)/);
   assert.match(replies.at(-1)?.message ?? '', /<i>Ocells i engines<\/i>/);
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
@@ -1199,7 +1199,7 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
   assert.equal(groupMessages[0]?.chatId, -200);
   assert.equal(groupMessages[0]?.options?.parseMode, 'HTML');
   assert.match(groupMessages[0]?.message ?? '', /Calendari actualitzat:/);
-  assert.match(groupMessages[0]?.message ?? '', /14h-17h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_1"><b>Dune Imperium<\/b><\/a> · Mesa abierta · 5p \(5 libres\) · Mesa TV/);
+  assert.match(groupMessages[0]?.message ?? '', /14h-17h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_1"><b>Dune Imperium<\/b><\/a> · Mesa abierta · 5p \(5 libres\) · Mesa TV/);
   assert.match(groupMessages[0]?.message ?? '', /ha creado la actividad Dune Imperium del Diumenge 5 abril/i);
 });
 
@@ -1499,8 +1499,8 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
   assert.equal(handled, true);
   assert.equal(scheduleRepository.__cancelledEventIds.includes(5), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Diumenge 5 abril<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /18h-21h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(2 libres\)/);
-  assert.match(replies.at(-1)?.message ?? '', /20:30h-23:30h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_6"><b>Ravenloft<\/b><\/a> · Mesa abierta · 4p \(3 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /18h-21h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(2 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /20:30h-23:30h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_6"><b>Ravenloft<\/b><\/a> · Mesa abierta · 4p \(3 libres\)/);
   assert.deepEqual(replies.at(-1)?.options, { parseMode: 'HTML' });
 });
 
@@ -1564,8 +1564,8 @@ test('handleTelegramScheduleCallback opens a selected day with activity buttons'
   assert.equal(await handleTelegramScheduleCallback(context), true);
 
   assert.match(replies.at(-1)?.message ?? '', /<b>Diumenge 5 abril<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /18h-21h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(3 libres\)/);
-  assert.match(replies.at(-1)?.message ?? '', /20:30h-23:30h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_6"><b>Ravenloft<\/b><\/a> · Mesa abierta · 4p \(4 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /18h-21h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(3 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /20:30h-23:30h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_6"><b>Ravenloft<\/b><\/a> · Mesa abierta · 4p \(4 libres\)/);
   assert.deepEqual(replies.at(-1)?.options, { parseMode: 'HTML' });
 });
 
@@ -1611,9 +1611,9 @@ test('handleTelegramScheduleText separates different day groups with a blank lin
 
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Diumenge 5 abril<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /18h-21h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(3 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /18h-21h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(3 libres\)/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Dilluns 6 abril<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /17h-20h <a href="https:\/\/t\.me\/cawatest_bot\?start=schedule_event_8"><b>Blood Bowl<\/b><\/a> · Mesa abierta · 2p \(2 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /17h-20h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_8"><b>Blood Bowl<\/b><\/a> · Mesa abierta · 2p \(2 libres\)/);
 });
 
 test('handleTelegramScheduleText includes venue impact hints in the activity list when the local is affected', async () => {

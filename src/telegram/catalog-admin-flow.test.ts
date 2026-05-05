@@ -2256,7 +2256,7 @@ test('handleTelegramCatalogAdminText hides deactivated items from the normal cat
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
   assert.match(replies.at(-1)?.message ?? '', /Sense grup/);
   assert.match(replies.at(-1)?.message ?? '', /------/);
-  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=catalog_admin_item_1"><b>Actiu<\/b><\/a> · <i>Llibre RPG · Disponible<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_1"><b>Actiu<\/b><\/a> · <i>Llibre RPG · Disponible<\/i>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
 });
@@ -2344,9 +2344,9 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
   assert.match(replies.at(-1)?.message ?? '', /Família: Mundodisco/);
   assert.match(replies.at(-1)?.message ?? '', /------/);
-  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=catalog_admin_item_2"><b>El color de la magia<\/b><\/a>/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_2"><b>El color de la magia<\/b><\/a>/);
   assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Disponible<\/i>/);
-  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=catalog_admin_item_3"><b>Mort<\/b><\/a>/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_3"><b>Mort<\/b><\/a>/);
   assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Prestat a Anna · des de 04\/04\/2026<\/i>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
   assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));

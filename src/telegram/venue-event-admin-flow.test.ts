@@ -312,7 +312,7 @@ test('handleTelegramVenueEventAdminText lists linked venue events and /start ope
   context.messageText = venueEventAdminLabels.list;
   assert.equal(await handleTelegramVenueEventAdminText(context), true);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
-  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=venue_event_admin_9"><b>Concert &lt;live&gt;<\/b><\/a>/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=venue_event_admin_9"><b>Concert &lt;live&gt;<\/b><\/a>/);
 
   replies.length = 0;
   context.messageText = '/start venue_event_admin_9';

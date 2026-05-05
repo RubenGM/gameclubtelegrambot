@@ -145,6 +145,7 @@ export interface TelegramRuntime {
     sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+    forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
@@ -176,6 +177,7 @@ export interface TelegramBotLike {
   sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+  forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
   deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   startPolling(): Promise<void>;
@@ -437,6 +439,17 @@ function createGrammyTelegramBot({
     },
     async copyMessage({ fromChatId, messageId, toChatId, messageThreadId }) {
       const result = await bot.api.raw.copyMessage({
+        from_chat_id: fromChatId,
+        message_id: messageId,
+        chat_id: toChatId,
+        ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+      });
+      return {
+        messageId: Number((result as { message_id: number }).message_id),
+      };
+    },
+    async forwardMessage({ fromChatId, messageId, toChatId, messageThreadId }) {
+      const result = await bot.api.raw.forwardMessage({
         from_chat_id: fromChatId,
         message_id: messageId,
         chat_id: toChatId,
