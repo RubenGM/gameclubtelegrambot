@@ -722,36 +722,6 @@ test('handleTelegramStorageMessage lets admins create a storage category with gu
           chatIsChannel: false,
           chatIsForum: true,
           botIsMember: true,
-          userAdministratorRights: {
-            isAnonymous: false,
-            canManageChat: true,
-            canDeleteMessages: false,
-            canManageVideoChats: false,
-            canRestrictMembers: false,
-            canPromoteMembers: false,
-            canChangeInfo: false,
-            canInviteUsers: true,
-            canPostStories: false,
-            canEditStories: false,
-            canDeleteStories: false,
-            canPinMessages: false,
-            canManageTopics: true,
-          },
-          botAdministratorRights: {
-            isAnonymous: false,
-            canManageChat: true,
-            canDeleteMessages: false,
-            canManageVideoChats: false,
-            canRestrictMembers: false,
-            canPromoteMembers: false,
-            canChangeInfo: false,
-            canInviteUsers: true,
-            canPostStories: false,
-            canEditStories: false,
-            canDeleteStories: false,
-            canPinMessages: false,
-            canManageTopics: true,
-          },
         },
       },
     ],
@@ -2539,6 +2509,64 @@ test('handleTelegramStorageText asks whether multiple DM uploads should be store
   assert.equal(repository.__entries[0]?.entry.description, 'uno');
   assert.equal(repository.__entries[1]?.entry.description, 'dos');
   assert.equal(copiedMessages.length, 2);
+  assert.equal(replies.at(-3)?.message, 'Guardando 1/2: uno.pdf');
+  assert.equal(replies.at(-2)?.message, 'Guardando 2/2: dos.pdf');
   assert.equal(replies.at(-1)?.message, '2 archivo(s) guardado(s) por separado en Manuales.');
+  assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramStorageText reports partial progress when separate uploads fail', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, replies, copiedMessages, getCurrentSession } = createContext(repository, {
+    failCopyMessageAtCall: 2,
+    supportsForwardMessage: false,
+  });
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Subir archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Manuales';
+  await handleTelegramStorageText(context as never);
+
+  context.messageMedia = {
+    attachmentKind: 'document',
+    fileId: 'private-file-1',
+    fileUniqueId: 'private-unique-1',
+    caption: null,
+    originalFileName: 'uno.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 100,
+    mediaGroupId: null,
+    messageId: 77,
+  };
+  delete context.messageText;
+  await handleTelegramStorageMessage(context as never);
+
+  context.messageMedia = {
+    attachmentKind: 'document',
+    fileId: 'private-file-2',
+    fileUniqueId: 'private-unique-2',
+    caption: null,
+    originalFileName: 'dos.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 100,
+    mediaGroupId: null,
+    messageId: 78,
+  };
+  await handleTelegramStorageMessage(context as never);
+
+  context.messageText = 'Terminar adjuntos';
+  delete context.messageMedia;
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Guardar separados';
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(repository.__entries.length, 1);
+  assert.equal(repository.__entries[0]?.entry.description, 'uno');
+  assert.equal(copiedMessages.length, 1);
+  assert.equal(replies.at(-3)?.message, 'Guardando 1/2: uno.pdf');
+  assert.equal(replies.at(-2)?.message, 'Guardando 2/2: dos.pdf');
+  assert.equal(replies.at(-1)?.message, 'Se han guardado 1/2 archivos. Ha fallado el 2: dos.pdf. El resto no se ha procesado; vuelve a subir solo los pendientes.');
   assert.equal(getCurrentSession(), null);
 });

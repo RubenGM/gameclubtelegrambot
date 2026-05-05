@@ -52,21 +52,6 @@ const storageTopicMediaGroupWindowMs = 1500;
 const storageLargeAttachmentForwardThresholdBytes = 50 * 1024 * 1024;
 const storageMaxAttachmentSizeBytes = 2 * 1024 * 1024 * 1024;
 const storageChatRequestId = 41101;
-const storageChatAdministratorRights = {
-  isAnonymous: false,
-  canManageChat: true,
-  canDeleteMessages: false,
-  canManageVideoChats: false,
-  canRestrictMembers: false,
-  canPromoteMembers: false,
-  canChangeInfo: false,
-  canInviteUsers: true,
-  canPostStories: false,
-  canEditStories: false,
-  canDeleteStories: false,
-  canPinMessages: false,
-  canManageTopics: true,
-};
 
 type PendingTopicMediaGroup = {
   repository: StorageCategoryRepository;
@@ -1748,15 +1733,37 @@ async function handleActiveUploadFlow(context: StorageFlowContext, text: string,
     const messages = asDraftMessages(session.data.messages);
     if (text === texts.uploadSeparate) {
       const savedEntries = [];
-      for (const message of messages) {
-        savedEntries.push(await persistPrivateUpload({
-          context,
-          categoryId: asNumber(session.data.categoryId),
-          categoryDisplayName: String(session.data.categoryDisplayName ?? ''),
-          description: resolveDefaultUploadDescription([message], language),
-          tags: [],
-          messages: [message],
-        }));
+      for (const [index, message] of messages.entries()) {
+        const fileName = formatDraftStorageAttachmentLabel(message, language);
+        await context.reply(
+          texts.uploadSeparateProgress
+            .replace('{current}', String(index + 1))
+            .replace('{total}', String(messages.length))
+            .replace('{file}', fileName),
+          buildSingleCancelOptions(),
+        );
+
+        try {
+          savedEntries.push(await persistPrivateUpload({
+            context,
+            categoryId: asNumber(session.data.categoryId),
+            categoryDisplayName: String(session.data.categoryDisplayName ?? ''),
+            description: resolveDefaultUploadDescription([message], language),
+            tags: [],
+            messages: [message],
+          }));
+        } catch (error) {
+          await context.runtime.session.cancel();
+          await context.reply(
+            texts.uploadSeparatePartialFailed
+              .replace('{saved}', String(savedEntries.length))
+              .replace('{total}', String(messages.length))
+              .replace('{failed}', String(index + 1))
+              .replace('{file}', fileName),
+            buildStorageMenuOptions(language, context),
+          );
+          return true;
+        }
       }
       await context.runtime.session.cancel();
       await context.reply(
@@ -2547,8 +2554,6 @@ function buildStorageChatSelectOptions(language: 'ca' | 'es' | 'en'): TelegramRe
             chatIsChannel: false,
             chatIsForum: true,
             botIsMember: true,
-            userAdministratorRights: storageChatAdministratorRights,
-            botAdministratorRights: storageChatAdministratorRights,
           },
         },
       ],
@@ -2617,6 +2622,10 @@ function formatDraftStorageAttachment(message: DmUploadDraftMessage, language: '
     message.caption ? `${escapeHtml(texts.entryFieldCaption)}: ${escapeHtml(message.caption)}` : null,
   ].filter((part): part is string => Boolean(part));
   return parts.join(' · ');
+}
+
+function formatDraftStorageAttachmentLabel(message: DmUploadDraftMessage, language: 'ca' | 'es' | 'en'): string {
+  return message.originalFileName ?? resolveDefaultUploadDescription([message], language) ?? message.attachmentKind;
 }
 
 function resolveDefaultUploadDescription(messages: DmUploadDraftMessage[], language: 'ca' | 'es' | 'en'): string | null {
