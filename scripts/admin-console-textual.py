@@ -1018,6 +1018,7 @@ class AdminConsoleTextualApp(App[None]):
         hard_delete: bool,
     ) -> None:
         if hard_delete or resource.soft_delete is None:
+            self.delete_dependents(cursor, resource, row_id)
             cursor.execute(f'delete from "{resource.table}" where "{resource.id_column}" = %s', [normalize_id(row_id)])
             return
         soft = resource.soft_delete
@@ -1038,6 +1039,12 @@ class AdminConsoleTextualApp(App[None]):
             f'update "{resource.table}" set {", ".join(assignments)} where "{resource.id_column}" = %s',
             params,
         )
+
+    def delete_dependents(self, cursor: psycopg.Cursor[Any], resource: ResourceDef, row_id: str | int) -> None:
+        normalized_id = normalize_id(row_id)
+        if resource.table == "catalog_items":
+            cursor.execute('delete from "catalog_media" where "item_id" = %s', [normalized_id])
+            cursor.execute('delete from "catalog_loans" where "item_id" = %s', [normalized_id])
 
 
 def load_runtime_config(config_path: Path, env_path: Path) -> dict[str, Any]:
