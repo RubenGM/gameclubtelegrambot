@@ -405,7 +405,7 @@ class AdminConsoleTextualApp(App[None]):
         height: 1fr;
     }
     #sidebar {
-        width: 31;
+        width: 40;
         border-right: solid #2b3340;
         padding: 1;
         background: #151922;
@@ -452,7 +452,7 @@ class AdminConsoleTextualApp(App[None]):
         height: 3;
     }
     #user-actions Button {
-        width: 13;
+        width: 17;
         margin-right: 1;
     }
     #status {
@@ -510,7 +510,7 @@ class AdminConsoleTextualApp(App[None]):
                             yield Button("Aprob.", id="user-toggle-approved", disabled=True)
                     yield Button("Refrescar", id="refresh", variant="primary")
                     yield Button("Editar", id="edit")
-                    yield Button("Desactivar / archivar", id="soft-delete", variant="warning")
+                    yield Button("Desactivar", id="soft-delete", variant="warning")
                     yield Button("Borrar definitivo", id="hard-delete", variant="error")
                     yield Button("Start servicio", id="service-start")
                     yield Button("Stop servicio", id="service-stop")
@@ -920,7 +920,7 @@ class AdminConsoleTextualApp(App[None]):
                         insert into "user_permission_audit_log"
                             ("subject_telegram_user_id", "permission_key", "scope_type", "resource_type", "resource_id",
                              "previous_effect", "next_effect", "changed_by_telegram_user_id", "reason")
-                        values (%s, 'admin', 'global', null, null, null, %s, %s, %s)
+                        values (%s, 'admin', 'global', null, null, %s, %s, %s, %s)
                         """,
                         [
                             normalized_id,
