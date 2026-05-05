@@ -184,6 +184,92 @@ test('createApp passes infrastructure services into Telegram startup', async () 
   assert.equal(seenDatabaseConnection, databaseConnection);
 });
 
+test('createApp notifies the first admin when startup is ready', async () => {
+  const messages: Array<{ telegramUserId: number; message: string }> = [];
+  const logger = {
+    info: (_bindings: object, _message: string) => {},
+  };
+
+  const app = createApp({
+    config: runtimeConfig,
+    logger,
+    startInfrastructure: async () => ({
+      status: {
+        database: 'connected',
+      },
+      services: {
+        database: databaseConnection,
+      },
+      stop: async () => {},
+    }),
+    startTelegram: async () => ({
+      status: {
+        bot: 'connected',
+      },
+      sendPrivateMessage: async (telegramUserId, message) => {
+        messages.push({ telegramUserId, message });
+      },
+      stop: async () => {},
+    }),
+    startScheduleReminders: () => ({
+      start: async () => {},
+      stop: async () => {},
+    }),
+  });
+
+  await app.start();
+
+  assert.deepEqual(messages, [
+    {
+      telegramUserId: 123456789,
+      message: 'Game Club Bot està llest.',
+    },
+  ]);
+});
+
+test('createApp keeps running when the first admin startup notification fails', async () => {
+  const errors: Array<{ bindings: object; message: string }> = [];
+  const logger = {
+    info: (_bindings: object, _message: string) => {},
+    error: (bindings: object, message: string) => {
+      errors.push({ bindings, message });
+    },
+  };
+
+  const app = createApp({
+    config: runtimeConfig,
+    logger,
+    startInfrastructure: async () => ({
+      status: {
+        database: 'connected',
+      },
+      services: {
+        database: databaseConnection,
+      },
+      stop: async () => {},
+    }),
+    startTelegram: async () => ({
+      status: {
+        bot: 'connected',
+      },
+      sendPrivateMessage: async () => {
+        throw new Error('bot was blocked by the user');
+      },
+      stop: async () => {},
+    }),
+    startScheduleReminders: () => ({
+      start: async () => {},
+      stop: async () => {},
+    }),
+  });
+
+  const status = await app.start();
+
+  assert.equal(status.telegram.bot, 'connected');
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0]?.message, 'First admin startup notification failed');
+});
+
 test('createApp stops Telegram before infrastructure during shutdown', async () => {
   const events: string[] = [];
   const logger = {

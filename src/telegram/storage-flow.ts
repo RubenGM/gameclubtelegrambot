@@ -41,7 +41,6 @@ const storageListPageSize = 20;
 const storageCategoryListPageSize = 50;
 const storageListFlowKey = 'storage-list';
 const storageSearchFlowKey = 'storage-search';
-const storageOpenEntryFlowKey = 'storage-open-entry';
 const storageAddImagesFlowKey = 'storage-add-images';
 const storageEditEntryFlowKey = 'storage-edit-entry';
 const storageCreateCategoryFlowKey = 'storage-create-category';
@@ -188,6 +187,12 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
   const selectedCategoryId = parseStartPayload(text, storageSelectCategoryStartPayloadPrefix);
   if (selectedCategoryId !== null) {
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    if (
+      context.runtime.session.current?.flowKey === storageSearchFlowKey &&
+      context.runtime.session.current.stepKey === 'search-scope'
+    ) {
+      return selectStorageSearchCategory(context, selectedCategoryId, language);
+    }
     if (
       context.runtime.session.current?.flowKey === storageUploadFlowKey &&
       context.runtime.session.current.stepKey === 'upload-category'
@@ -495,9 +500,6 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   if (context.runtime.session.current?.flowKey === storageSearchFlowKey) {
     return handleActiveSearchFlow(context, text, language);
   }
-  if (context.runtime.session.current?.flowKey === storageOpenEntryFlowKey) {
-    return handleActiveOpenEntryFlow(context, text, language);
-  }
   if (context.runtime.session.current?.flowKey === storageAddImagesFlowKey) {
     return handleActiveAddImagesFlow(context, text, language);
   }
@@ -548,22 +550,20 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   }
 
   if (text === texts.searchFiles) {
+    const categories = await listReadableCategories(context);
     await context.runtime.session.start({
       flowKey: storageSearchFlowKey,
-      stepKey: 'search-query',
-      data: {},
+      stepKey: 'search-scope',
+      data: {
+        categories: categories.map((category) => ({ id: category.id, displayName: category.displayName })),
+      },
     });
-    await context.reply(texts.askSearchQuery, buildSingleCancelOptions());
-    return true;
-  }
-
-  if (text === texts.openEntry) {
-    await context.runtime.session.start({
-      flowKey: storageOpenEntryFlowKey,
-      stepKey: 'open-entry-id',
-      data: {},
-    });
-    await context.reply(texts.askOpenEntryId, buildSingleCancelOptions());
+    await context.reply(
+      categories.length === 0
+        ? texts.askSearchQuery
+        : `${escapeHtml(texts.askSearchScope)}\n${formatStorageCategoryListMessage({ categories, language, linkMode: 'select' })}`,
+      categories.length === 0 ? buildSingleCancelOptions() : { ...buildSingleCancelOptions(), parseMode: 'HTML' },
+    );
     return true;
   }
 
@@ -1231,51 +1231,71 @@ async function handleActiveListFlow(context: StorageFlowContext, text: string, l
 
 async function handleActiveSearchFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
   const session = context.runtime.session.current;
-  if (!session || session.flowKey !== storageSearchFlowKey || session.stepKey !== 'search-query') {
+  if (!session || session.flowKey !== storageSearchFlowKey) {
     return false;
   }
 
+  if (session.stepKey === 'search-scope') {
+    return runStorageSearch(context, text, language);
+  }
+
+  if (session.stepKey !== 'search-query') {
+    return false;
+  }
+
+  const categoryIds = asNumberArray(session.data.categoryIds);
+  return runStorageSearch(context, text, language, categoryIds.length > 0 ? categoryIds : undefined);
+}
+
+async function selectStorageSearchCategory(
+  context: StorageFlowContext,
+  categoryId: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  const texts = createTelegramI18n(language).storage;
+  if (!session || session.flowKey !== storageSearchFlowKey || session.stepKey !== 'search-scope') {
+    await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  const categories = await listReadableCategories(context);
+  const selected = categories.find((category) => category.id === categoryId);
+  if (!selected) {
+    await context.reply(texts.invalidCategory, buildSingleCancelOptions());
+    return true;
+  }
+  const categoryIds = collectStorageCategoryDescendantIds(selected.id, categories);
+
+  await context.runtime.session.advance({
+    stepKey: 'search-query',
+    data: { ...session.data, categoryIds, categoryDisplayName: selected.displayName },
+  });
+  await context.reply(texts.askSearchQueryInCategory.replace('{category}', selected.displayName), buildSingleCancelOptions());
+  return true;
+}
+
+async function runStorageSearch(
+  context: StorageFlowContext,
+  query: string,
+  language: 'ca' | 'es' | 'en',
+  scopedCategoryIds?: number[],
+): Promise<boolean> {
   const texts = createTelegramI18n(language).storage;
   const categories = await listReadableCategories(context);
+  const categoryIds = scopedCategoryIds ?? categories.map((category) => category.id);
   const details = await resolveRepository(context).searchEntryDetails({
-    categoryIds: categories.map((category) => category.id),
-    query: text,
+    categoryIds,
+    query,
   });
   await context.runtime.session.cancel();
   await context.reply(
     details.length === 0
       ? texts.noSearchResults
-      : `${escapeHtml(texts.searchResultsHeader)}\n${details.slice(0, storageListPageSize).map((detail) => formatStorageSummaryEntry(detail, language, { includeCategory: true })).join('\n')}${details.length > storageListPageSize ? `\n${escapeHtml(formatStorageListLimitedFooter(details.length, storageListPageSize, language))}` : ''}`,
+      : formatStorageSearchResultsMessage(details, categories, language),
     details.length === 0 ? buildStorageMenuOptions(language, context) : { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
   );
   return true;
-}
-
-async function handleActiveOpenEntryFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
-  const session = context.runtime.session.current;
-  if (!session || session.flowKey !== storageOpenEntryFlowKey || session.stepKey !== 'open-entry-id') {
-    return false;
-  }
-
-  const texts = createTelegramI18n(language).storage;
-  const entryId = parsePositiveInteger(text);
-  if (entryId === null) {
-    await context.reply(texts.invalidNumber, buildStorageMenuOptions(language, context));
-    return true;
-  }
-
-  const detail = await resolveRepository(context).getEntryDetail(entryId);
-  if (
-    !detail ||
-    detail.entry.lifecycleStatus !== 'active' ||
-    !context.runtime.authorization.can('storage.entry.read', { type: 'storage-category', id: String(detail.category.id) })
-  ) {
-    await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
-    return true;
-  }
-
-  await context.runtime.session.cancel();
-  return sendStorageEntryDetail(context, detail.entry.id, language, detail);
 }
 
 async function sendStorageEntryDetail(
@@ -2498,7 +2518,7 @@ function buildStorageMenuOptions(language: 'ca' | 'es' | 'en', context?: Storage
   const texts = createTelegramI18n(language).storage;
   const rows: Array<Array<string | TelegramReplyButton>> = [
     [primaryButton(texts.listCategories)],
-    [secondaryButton(texts.searchFiles), primaryButton(texts.openEntry)],
+    [secondaryButton(texts.searchFiles)],
     [successButton(texts.upload), successButton(texts.addImages)],
     [secondaryButton(texts.editEntry)],
   ];
@@ -2967,6 +2987,10 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
+function asNumberArray(value: unknown): number[] {
+  return Array.isArray(value) ? value.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0) : [];
+}
+
 function formatCurrentTags(tags: string[], language: 'ca' | 'es' | 'en'): string {
   return tags.length > 0 ? tags.map((tag) => `#${tag}`).join(' ') : createTelegramI18n(language).storage.entryNoTags;
 }
@@ -3266,10 +3290,94 @@ function buildStorageCategoryDeepLink(categoryId: number): string {
   return buildTelegramStartUrl(`${storageCategoryStartPayloadPrefix}${categoryId}`);
 }
 
+function collectStorageCategoryDescendantIds(categoryId: number, categories: StorageCategoryRecord[]): number[] {
+  const childrenByParent = new Map<number | null, StorageCategoryRecord[]>();
+  for (const category of categories) {
+    const siblings = childrenByParent.get(category.parentCategoryId) ?? [];
+    siblings.push(category);
+    childrenByParent.set(category.parentCategoryId, siblings);
+  }
+
+  const ids = new Set<number>();
+  const stack = [categoryId];
+  while (stack.length > 0) {
+    const currentId = stack.pop();
+    if (currentId === undefined || ids.has(currentId)) {
+      continue;
+    }
+    ids.add(currentId);
+    for (const child of childrenByParent.get(currentId) ?? []) {
+      stack.push(child.id);
+    }
+  }
+
+  return [...ids];
+}
+
 function formatStorageCategoryLimitedFooter(total: number, shown: number, language: 'ca' | 'es' | 'en'): string {
   return createTelegramI18n(language).storage.listLimitedCategoriesFooter
     .replace('{shown}', String(shown))
     .replace('{total}', String(total));
+}
+
+function formatStorageSearchResultsMessage(
+  details: StorageEntryDetailRecord[],
+  categories: StorageCategoryRecord[],
+  language: 'ca' | 'es' | 'en',
+): string {
+  const texts = createTelegramI18n(language).storage;
+  const categoryById = new Map(categories.map((category) => [category.id, category]));
+  const sortedDetails = sortStorageEntryDetailsAlphabetically(details);
+  const detailsByCategory = new Map<number, StorageEntryDetailRecord[]>();
+  for (const detail of sortedDetails) {
+    const group = detailsByCategory.get(detail.category.id) ?? [];
+    group.push(detail);
+    detailsByCategory.set(detail.category.id, group);
+  }
+
+  const sortedCategoryIds = [...detailsByCategory.keys()].sort((leftId, rightId) => {
+    const left = categoryById.get(leftId) ?? detailsByCategory.get(leftId)?.[0]?.category;
+    const right = categoryById.get(rightId) ?? detailsByCategory.get(rightId)?.[0]?.category;
+    const leftPath = left ? formatStorageCategoryPath(left, categories) : '';
+    const rightPath = right ? formatStorageCategoryPath(right, categories) : '';
+    return leftPath.localeCompare(rightPath, undefined, { sensitivity: 'base', numeric: true }) || leftId - rightId;
+  });
+
+  const lines = [escapeHtml(texts.searchResultsHeader)];
+  let shown = 0;
+  for (const categoryId of sortedCategoryIds) {
+    if (shown >= storageListPageSize) {
+      break;
+    }
+    const category = categoryById.get(categoryId) ?? detailsByCategory.get(categoryId)?.[0]?.category;
+    if (!category) {
+      continue;
+    }
+    lines.push(
+      '',
+      `<a href="${escapeHtml(buildStorageCategoryDeepLink(category.id))}"><b>${escapeHtml(formatStorageCategoryPath(category, categories))}</b></a>`,
+    );
+    for (const detail of detailsByCategory.get(categoryId) ?? []) {
+      if (shown >= storageListPageSize) {
+        break;
+      }
+      lines.push(formatStorageSearchResultEntry(detail, language));
+      shown += 1;
+    }
+  }
+
+  if (details.length > shown) {
+    lines.push(escapeHtml(formatStorageListLimitedFooter(details.length, shown, language)));
+  }
+
+  return lines.join('\n');
+}
+
+function formatStorageSearchResultEntry(detail: StorageEntryDetailRecord, language: 'ca' | 'es' | 'en'): string {
+  const description = detail.entry.description ?? createTelegramI18n(language).storage.entryNoDescription;
+  const url = escapeHtml(buildTelegramStartUrl(`${storageEntryStartPayloadPrefix}${detail.entry.id}`));
+  const tags = detail.entry.tags.length > 0 ? ` · ${detail.entry.tags.map((tag) => `#${tag}`).join(', ')}` : '';
+  return `- <a href="${url}">${escapeHtml(description)}</a>${escapeHtml(tags)}`;
 }
 
 function formatStorageSummaryEntry(

@@ -121,6 +121,11 @@ export function createApp({
         telegram = startedTelegram;
         scheduleReminders = startScheduleReminders({ services: startedInfrastructure.services, telegram });
         await scheduleReminders.start();
+        await notifyFirstAdminReady({
+          config,
+          logger,
+          telegram: startedTelegram,
+        });
       } catch (error) {
         if (infrastructure === startedInfrastructure) {
           await startedInfrastructure.stop();
@@ -187,4 +192,41 @@ function normalizeError(error: unknown, fallbackMessage: string): Error {
   }
 
   return new Error(fallbackMessage);
+}
+
+async function notifyFirstAdminReady({
+  config,
+  logger,
+  telegram,
+}: {
+  config: RuntimeConfig;
+  logger: LoggerLike;
+  telegram: TelegramBoundary;
+}): Promise<void> {
+  try {
+    await telegram.sendPrivateMessage(
+      config.bootstrap.firstAdmin.telegramUserId,
+      formatFirstAdminReadyMessage(config),
+    );
+  } catch (error) {
+    logger.error?.(
+      {
+        error: error instanceof Error ? error.message : String(error),
+        firstAdminTelegramUserId: config.bootstrap.firstAdmin.telegramUserId,
+      },
+      'First admin startup notification failed',
+    );
+  }
+}
+
+function formatFirstAdminReadyMessage(config: RuntimeConfig): string {
+  switch (config.bot.language) {
+    case 'es':
+      return `${config.bot.publicName} está listo.`;
+    case 'en':
+      return `${config.bot.publicName} is ready.`;
+    case 'ca':
+    default:
+      return `${config.bot.publicName} està llest.`;
+  }
 }

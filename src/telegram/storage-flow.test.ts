@@ -746,13 +746,74 @@ test('handleTelegramStorageText searches entries inside readable categories', as
 
   context.messageText = 'Buscar archivos';
   await handleTelegramStorageText(context as never);
+  assert.match(replies.at(-1)?.message ?? '', /Elige una categoría para limitar la búsqueda/);
+  assert.match(replies.at(-1)?.message ?? '', /storage_select_category_7/);
 
   context.messageText = 'manual';
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
-  assert.equal(replies.at(-1)?.message, 'Resultados:\n- <a href="https://t.me/cawatest_bot?start=storage_entry_1"><b>Manuales · #1</b></a> · Manual de campana · Adjuntos: 1 · #rol, #pdf');
+  assert.equal(
+    replies.at(-1)?.message,
+    [
+      'Resultados:',
+      '',
+      '<a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>',
+      '- <a href="https://t.me/cawatest_bot?start=storage_entry_1">Manual de campana</a> · #rol, #pdf',
+    ].join('\n'),
+  );
+});
+
+test('handleTelegramStorageText can scope searches to a selected category', async () => {
+  const repository = createRepository([
+    createCategory({ id: 7, slug: 'manuales', displayName: 'Manuales' }),
+    createCategory({ id: 8, slug: 'mapas', displayName: 'Mapas', storageThreadId: 11 }),
+    createCategory({ id: 9, slug: 'regionales', displayName: 'Regionales', parentCategoryId: 8, storageThreadId: 12 }),
+  ]);
+  for (const categoryId of [7, 8, 9]) {
+    await repository.createEntry({
+      categoryId,
+      createdByTelegramUserId: 42,
+      sourceKind: 'dm_copy',
+      description: categoryId === 9 ? 'Manual regional' : 'Manual compartido',
+      tags: [],
+      messages: [{
+        storageChatId: -100123,
+        storageMessageId: 900 + categoryId,
+        storageThreadId: categoryId === 7 ? 10 : categoryId === 8 ? 11 : 12,
+        telegramFileId: `file-${categoryId}`,
+        telegramFileUniqueId: `unique-${categoryId}`,
+        attachmentKind: 'document',
+        caption: null,
+        originalFileName: `manual-${categoryId}.pdf`,
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        mediaGroupId: null,
+        sortOrder: 0,
+      }],
+    });
+  }
+  const { context, replies, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7, 8, 9], canUploadCategoryIds: [7, 8, 9] });
+
+  context.messageText = 'Buscar archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = '/start storage_select_category_8';
+  await handleTelegramStorageStartText(context as never);
+
+  assert.equal(getCurrentSession()?.stepKey, 'search-query');
+  assert.equal(replies.at(-1)?.message, 'Escribe el texto que quieres buscar en Mapas.');
+
+  context.messageText = 'manual';
+  await handleTelegramStorageText(context as never);
+
+  assert.match(replies.at(-1)?.message ?? '', /<b>Mapas<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /Manual compartido/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Mapas \/ Regionales<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /Manual regional/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Manuales<\/b>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /#1/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Adjuntos/);
 });
 
 test('handleTelegramStorageMessage lets admins create a storage category with guided chat selection', async () => {
@@ -991,55 +1052,6 @@ test('handleTelegramStorageText lets admins archive a storage category', async (
   assert.equal(getCurrentSession(), null);
 });
 
-test('handleTelegramStorageText opens an entry by id and copies its attachments to private chat', async () => {
-  const repository = createRepository([createCategory()]);
-  await repository.createEntry({
-    categoryId: 7,
-    createdByTelegramUserId: 42,
-    sourceKind: 'dm_copy',
-    description: 'Manual de campana',
-    tags: ['rol', 'pdf'],
-    messages: [
-      {
-        storageChatId: -100123,
-        storageMessageId: 900,
-        storageThreadId: 10,
-        telegramFileId: 'file-1',
-        telegramFileUniqueId: 'unique-1',
-        attachmentKind: 'document',
-        caption: null,
-        originalFileName: 'manual.pdf',
-        mimeType: 'application/pdf',
-        fileSizeBytes: 1024,
-        mediaGroupId: null,
-        sortOrder: 0,
-      },
-    ],
-  });
-  const { context, replies, copiedMessages, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
-
-  context.messageText = 'Almacenamiento';
-  await handleTelegramStorageText(context as never);
-
-  context.messageText = 'Abrir entrada';
-  await handleTelegramStorageText(context as never);
-  assert.equal(getCurrentSession()?.stepKey, 'open-entry-id');
-
-  context.messageText = '1';
-  const handled = await handleTelegramStorageText(context as never);
-
-  assert.equal(handled, true);
-  assert.equal(copiedMessages.length, 1);
-  assert.deepEqual(copiedMessages[0], { fromChatId: -100123, messageId: 900, toChatId: 42 });
-  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
-  assert.match(replies.at(-1)?.message ?? '', /<b>#1<\/b> · <a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">Manuales<\/a>/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_entry_1"><b>#1<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Descripción:<\/b> Manual de campana/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Origen:<\/b>/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Adjuntos:<\/b>/);
-  assert.equal(getCurrentSession(), null);
-});
-
 test('handleTelegramStorageText opens an entry detail from a deep link', async () => {
   const repository = createRepository([createCategory()]);
   await repository.createEntry({
@@ -1110,11 +1122,7 @@ test('handleTelegramStorageText marks entries as missing source when Telegram co
     failCopyMessageAtCall: 1,
   });
 
-  context.messageText = 'Almacenamiento';
-  await handleTelegramStorageText(context as never);
-  context.messageText = 'Abrir entrada';
-  await handleTelegramStorageText(context as never);
-  context.messageText = '1';
+  context.messageText = '/start storage_entry_1';
 
   const handled = await handleTelegramStorageText(context as never);
 
@@ -1944,7 +1952,6 @@ test('handleTelegramStorageText edits storage entry metadata', async () => {
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => typeof button === 'string' ? button : button.text), [
     'Listar categorías',
     'Buscar archivos',
-    'Abrir entrada',
     'Subir archivos',
     'Añadir imágenes',
     'Editar detalles',
