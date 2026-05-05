@@ -551,7 +551,7 @@ export const storageEntries = pgTable(
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     categoryId: bigint('category_id', { mode: 'number' })
       .notNull()
-      .references(() => storageCategories.id),
+      .references(() => storageCategories.id, { onDelete: 'cascade' }),
     createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
       .notNull()
       .references(() => users.telegramUserId),
@@ -577,7 +577,7 @@ export const storageEntryMessages = pgTable(
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     entryId: bigint('entry_id', { mode: 'number' })
       .notNull()
-      .references(() => storageEntries.id),
+      .references(() => storageEntries.id, { onDelete: 'cascade' }),
     storageChatId: bigint('storage_chat_id', { mode: 'number' }).notNull(),
     storageMessageId: integer('storage_message_id').notNull(),
     storageThreadId: integer('storage_thread_id').notNull(),
