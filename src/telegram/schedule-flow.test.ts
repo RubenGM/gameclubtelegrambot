@@ -1219,6 +1219,67 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
   assert.match(groupMessages[0]?.message ?? '', /ha creado la actividad Dune Imperium del Diumenge 5 abril/i);
 });
 
+test('handleTelegramScheduleText still publishes the calendar when the private confirmation reply fails', async () => {
+  const tableRepository = createTableRepository([
+    {
+      id: 7,
+      displayName: 'Mesa TV',
+      description: null,
+      recommendedCapacity: 6,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const scheduleRepository = createScheduleRepository();
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      enabledAt: '2026-04-04T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ]);
+  const { context, groupMessages } = createContext({ scheduleRepository, tableRepository, newsGroupRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Dune Imperium';
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.durationMinutes;
+  await handleTelegramScheduleText(context);
+  context.messageText = '180';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.attendanceOpen;
+  await handleTelegramScheduleText(context);
+  context.messageText = '5';
+  await handleTelegramScheduleText(context);
+  context.messageText = '0';
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Mesa TV';
+  await handleTelegramScheduleText(context);
+  context.reply = async () => {
+    throw new Error('sendMessage failed');
+  };
+  context.messageText = scheduleLabels.confirmCreate;
+
+  const handled = await handleTelegramScheduleText(context);
+
+  assert.equal(handled, true);
+  assert.equal((await scheduleRepository.findEventById(1))?.title, 'Dune Imperium');
+  assert.equal(groupMessages.length, 1);
+  assert.match(groupMessages[0]?.message ?? '', /Calendari actualitzat:/);
+  assert.match(groupMessages[0]?.message ?? '', /Dune Imperium/);
+});
+
 test('handleTelegramScheduleText accepts dd/MM/yyyy dates and shows upcoming day shortcuts', async () => {
   const { context, replies, getCurrentSession } = createContext({ actorTelegramUserId: 42 });
 

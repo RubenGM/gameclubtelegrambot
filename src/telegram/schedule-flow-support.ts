@@ -623,24 +623,12 @@ async function handleCreateSession(
       },
     });
     await context.runtime.session.cancel();
-    await context.reply(
+    await runAfterScheduleSaveSideEffects(context, created, 'created');
+    await replyAfterScheduleSave(
+      context,
       `${texts.created.replace('.', '')}: <b>${escapeHtml(created.title)}</b>\n${await formatScheduleEventView(context, created)}`,
       { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
     );
-    await notifyScheduleConflicts({
-      eventId: created.id,
-      actorTelegramUserId: context.runtime.actor.telegramUserId,
-      scheduleRepository: resolveScheduleRepository(context),
-      loadEvent: async (eventId) => loadEventOrThrow(context, eventId),
-      sendPrivateMessage: async (telegramUserId, message) => context.runtime.bot.sendPrivateMessage(telegramUserId, message),
-    });
-    await publishCalendarSnapshotToNewsGroups({
-      change: {
-        action: 'created',
-        event: created,
-      },
-      ...buildCalendarBroadcastDependencies(context),
-    });
     return true;
   }
 
@@ -1161,24 +1149,12 @@ async function persistEditedScheduleEvent(
     },
   });
   await context.runtime.session.cancel();
-  await context.reply(
+  await runAfterScheduleSaveSideEffects(context, updated, 'updated');
+  await replyAfterScheduleSave(
+    context,
     `${texts.updated.replace('.', '')}: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId), language })}`,
     { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
   );
-  await notifyScheduleConflicts({
-    eventId: updated.id,
-    actorTelegramUserId: context.runtime.actor.telegramUserId,
-    scheduleRepository: resolveScheduleRepository(context),
-    loadEvent: async (eventId) => loadEventOrThrow(context, eventId),
-    sendPrivateMessage: async (telegramUserId, message) => context.runtime.bot.sendPrivateMessage(telegramUserId, message),
-  });
-    await publishCalendarSnapshotToNewsGroups({
-      change: {
-        action: 'updated',
-        event: updated,
-      },
-      ...buildCalendarBroadcastDependencies(context),
-    });
 }
 
 async function handleCancelSession(
@@ -1211,14 +1187,12 @@ async function handleCancelSession(
     },
   });
   await context.runtime.session.cancel();
-  await context.reply(`${texts.cancelled.replace('.', '')}: <b>${escapeHtml(cancelled.title)}</b>`, { ...buildScheduleMenuOptions(language), parseMode: 'HTML' });
-    await publishCalendarSnapshotToNewsGroups({
-      change: {
-        action: 'deleted',
-        event: cancelled,
-      },
-      ...buildCalendarBroadcastDependencies(context),
-    });
+  await runAfterScheduleSaveSideEffects(context, cancelled, 'deleted');
+  await replyAfterScheduleSave(
+    context,
+    `${texts.cancelled.replace('.', '')}: <b>${escapeHtml(cancelled.title)}</b>`,
+    { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
+  );
   return true;
 }
 
@@ -1558,6 +1532,52 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
     ...(context.tableRepository ? { tableRepository: context.tableRepository } : {}),
     resolveActorDisplayName: async () => resolveBroadcastMemberName(context, context.runtime.actor.telegramUserId),
   };
+}
+
+async function runAfterScheduleSaveSideEffects(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+  action: 'created' | 'updated' | 'deleted',
+): Promise<void> {
+  if (action !== 'deleted') {
+    await ignoreSchedulePostSaveFailure(async () => {
+      await notifyScheduleConflicts({
+        eventId: event.id,
+        actorTelegramUserId: context.runtime.actor.telegramUserId,
+        scheduleRepository: resolveScheduleRepository(context),
+        loadEvent: async (eventId) => loadEventOrThrow(context, eventId),
+        sendPrivateMessage: async (telegramUserId, message) => context.runtime.bot.sendPrivateMessage(telegramUserId, message),
+      });
+    });
+  }
+
+  await ignoreSchedulePostSaveFailure(async () => {
+    await publishCalendarSnapshotToNewsGroups({
+      change: {
+        action,
+        event,
+      },
+      ...buildCalendarBroadcastDependencies(context),
+    });
+  });
+}
+
+async function replyAfterScheduleSave(
+  context: TelegramScheduleContext,
+  message: string,
+  options: TelegramReplyOptions,
+): Promise<void> {
+  await ignoreSchedulePostSaveFailure(async () => {
+    await context.reply(message, options);
+  });
+}
+
+async function ignoreSchedulePostSaveFailure(action: () => Promise<void>): Promise<void> {
+  try {
+    await action();
+  } catch {
+    // Once the activity is persisted, Telegram delivery failures must not turn the save into an apparent error.
+  }
 }
 
 function resolveVenueEventRepository(context: TelegramScheduleContext): VenueEventRepository {
