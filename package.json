@@ -18,7 +18,7 @@
     "backup:cli": "./scripts/backup-cli.sh",
     "telegram:ux": "node --import tsx src/scripts/telegram-menu-ux-report.ts",
     "telegram:ux:tui": "node --import tsx src/scripts/telegram-menu-ux-console.ts",
-    "admin:console": "node --import tsx src/scripts/admin-console.ts",
+    "admin:console": "./scripts/admin-console.sh",
     "bootstrap:wizard": "node --import tsx src/scripts/bootstrap-wizard.ts",
     "config:check": "node --import tsx src/scripts/check-runtime-config.ts",
     "config:edit": "node --import tsx src/scripts/runtime-config-editor.ts",

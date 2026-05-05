@@ -124,7 +124,7 @@ function formatMessageRow(message: AdminConsoleMessageRecord): string {
 }
 
 function formatContentTotals(content: AdminConsoleContentSummary): string {
-  return `${content.catalogItems + content.scheduleEvents + content.venueEvents} item.`,
+  return `${content.catalogItems + content.scheduleEvents + content.venueEvents} items`;
 }
 
 function truncate(input: string, maxLength: number): string {
