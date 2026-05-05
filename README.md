@@ -82,6 +82,7 @@ npm run config:check
 npm run db:generate
 npm run db:check
 npm run db:migrate
+npm run admin:console
 npm run backup:console
 ./scripts/backup-cli.sh status
 ./scripts/backup-cli.sh backup [--output-dir /path]
@@ -150,6 +151,20 @@ La TUI muestra:
 - acciones para crear o restaurar backups
 
 Si faltan dependencias soportadas como `pg_dump` o `psql`, la herramienta intenta instalarlas automáticamente en Debian con `apt-get` y `sudo` cuando hace falta.
+
+La consola TUI de administración permite revisar el servicio, consultar logs, ver configuración y gestionar usuarios y contenido de base de datos:
+
+```bash
+npm run admin:console
+```
+
+Desde SSH usa una pseudo-terminal:
+
+```bash
+ssh -t usuario@host 'cd /home/cawa/telegrambot/gameclubtelegrambot && npm run admin:console'
+```
+
+Guía completa: `docs/admin-console-tui.md`.
 
 Per a una gestió operativa ràpida també hi ha un wrapper shell:
 
