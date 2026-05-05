@@ -465,6 +465,8 @@ class AdminConsoleTextualApp(App[None]):
         ("q", "quit", "Salir"),
         ("r", "refresh", "Refrescar"),
         ("e", "edit", "Editar"),
+        ("space", "toggle_selection", "Seleccionar"),
+        ("c", "clear_selection", "Limpiar sel."),
         ("d", "soft_delete", "Desactivar"),
         ("D", "hard_delete", "Borrar"),
         ("s", "service_start", "Start"),
@@ -482,6 +484,8 @@ class AdminConsoleTextualApp(App[None]):
         self.resource = RESOURCES[0]
         self.selected_id: str | int | None = None
         self.selected_row: dict[str, Any] | None = None
+        self.selected_ids: set[str] = set()
+        self.visible_row_ids: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -533,6 +537,12 @@ class AdminConsoleTextualApp(App[None]):
     def action_edit(self) -> None:
         self.start_edit()
 
+    def action_toggle_selection(self) -> None:
+        self.toggle_selection()
+
+    def action_clear_selection(self) -> None:
+        self.clear_selection()
+
     def action_soft_delete(self) -> None:
         self.start_delete(False)
 
@@ -553,15 +563,18 @@ class AdminConsoleTextualApp(App[None]):
         self.resource = next(resource for resource in RESOURCES if resource.key == event.value)
         self.selected_id = None
         self.selected_row = None
+        self.clear_selection(show_status=False)
         self.update_user_action_state()
         self.refresh_rows()
 
     @on(Input.Submitted, "#search")
     def search_submitted(self) -> None:
+        self.clear_selection(show_status=False)
         self.refresh_rows()
 
     @on(Button.Pressed, "#search-button")
     def search_clicked(self) -> None:
+        self.clear_selection(show_status=False)
         self.refresh_rows()
 
     @on(Button.Pressed, "#refresh")
@@ -656,10 +669,16 @@ class AdminConsoleTextualApp(App[None]):
         table = self.query_one(DataTable)
         table.clear(columns=True)
         table.cursor_type = "row"
-        table.add_columns(*self.resource.list_columns)
+        self.visible_row_ids = [str(row.get(self.resource.id_column)) for row in rows]
+        self.selected_ids.intersection_update(self.visible_row_ids)
+        table.add_column("Sel", key="selected", width=3)
+        for column in self.resource.list_columns:
+            table.add_column(column)
         for row in rows:
             row_id = row.get(self.resource.id_column)
-            table.add_row(*(format_cell(row.get(column)) for column in self.resource.list_columns), key=str(row_id))
+            row_key = str(row_id)
+            selection_mark = "x" if row_key in self.selected_ids else ""
+            table.add_row(selection_mark, *(format_cell(row.get(column)) for column in self.resource.list_columns), key=row_key)
         self.query_one("#detail", Static).update("Selecciona una fila para ver el detalle.")
         self.update_user_action_state()
 
@@ -728,24 +747,36 @@ class AdminConsoleTextualApp(App[None]):
             self.call_from_thread(self.set_status, f"Error editando: {error}")
 
     def start_delete(self, hard_delete: bool) -> None:
-        if self.selected_id is None:
+        target_ids = self.action_target_ids()
+        if not target_ids:
             self.set_status("Selecciona una fila antes de borrar.")
             return
         action = "borrar definitivamente" if hard_delete else "desactivar/archivar"
+        target_label = (
+            f"{self.resource.label} #{target_ids[0]}"
+            if len(target_ids) == 1
+            else f"{len(target_ids)} filas de {self.resource.label}"
+        )
         self.push_screen(
-            ConfirmScreen(f"Confirmar {action} {self.resource.label} #{self.selected_id}?"),
-            lambda confirmed: self.apply_delete(hard_delete, confirmed),
+            ConfirmScreen(f"Confirmar {action} {target_label}?"),
+            lambda confirmed: self.apply_delete(hard_delete, confirmed, target_ids),
         )
 
     @work(thread=True)
-    def apply_delete(self, hard_delete: bool, confirmed: bool) -> None:
-        if not confirmed or self.selected_id is None:
+    def apply_delete(self, hard_delete: bool, confirmed: bool, target_ids: list[str]) -> None:
+        if not confirmed or not target_ids:
             return
         try:
-            self.delete_resource(self.resource, self.selected_id, hard_delete)
+            self.delete_resources(self.resource, target_ids, hard_delete)
             self.selected_id = None
             self.selected_row = None
-            self.call_from_thread(self.set_status, "Fila eliminada." if hard_delete else "Fila desactivada/archivada.")
+            self.selected_ids.clear()
+            message = (
+                f"{len(target_ids)} filas eliminadas."
+                if hard_delete
+                else f"{len(target_ids)} filas desactivadas/archivadas."
+            )
+            self.call_from_thread(self.set_status, message)
             self.call_from_thread(self.refresh_rows)
         except Exception as error:
             self.call_from_thread(self.set_status, f"Error borrando: {error}")
@@ -790,6 +821,44 @@ class AdminConsoleTextualApp(App[None]):
 
     def set_status(self, message: str) -> None:
         self.query_one("#status", Static).update(message)
+
+    def action_target_ids(self) -> list[str]:
+        if self.selected_ids:
+            return [row_id for row_id in self.visible_row_ids if row_id in self.selected_ids]
+        if self.selected_id is None:
+            return []
+        return [str(self.selected_id)]
+
+    def toggle_selection(self) -> None:
+        table = self.query_one(DataTable)
+        if table.row_count == 0 or not table.is_valid_row_index(table.cursor_row):
+            self.set_status("No hay fila actual para seleccionar.")
+            return
+        row_id = self.visible_row_ids[table.cursor_row]
+        if row_id in self.selected_ids:
+            self.selected_ids.remove(row_id)
+            mark = ""
+        else:
+            self.selected_ids.add(row_id)
+            mark = "x"
+        table.update_cell(row_id, "selected", mark)
+        count = len(self.selected_ids)
+        plural = "s" if count != 1 else ""
+        self.set_status(f"{count} fila{plural} seleccionada{plural}.")
+
+    def clear_selection(self, show_status: bool = True) -> None:
+        if not self.selected_ids:
+            if show_status:
+                self.set_status("No hay selección múltiple activa.")
+            return
+        table = self.query_one(DataTable)
+        previous_ids = list(self.selected_ids)
+        self.selected_ids.clear()
+        for row_id in previous_ids:
+            if row_id in self.visible_row_ids:
+                table.update_cell(row_id, "selected", "")
+        if show_status:
+            self.set_status("Selección múltiple limpiada.")
 
     def update_user_action_state(self) -> None:
         enabled = self.resource.key == "users" and self.selected_id is not None
@@ -932,29 +1001,43 @@ class AdminConsoleTextualApp(App[None]):
                     )
 
     def delete_resource(self, resource: ResourceDef, row_id: str | int, hard_delete: bool) -> None:
+        self.delete_resources(resource, [str(row_id)], hard_delete)
+
+    def delete_resources(self, resource: ResourceDef, row_ids: list[str], hard_delete: bool) -> None:
         with self.connection() as conn:
             with conn.cursor() as cursor:
-                if hard_delete or resource.soft_delete is None:
-                    cursor.execute(f'delete from "{resource.table}" where "{resource.id_column}" = %s', [normalize_id(row_id)])
-                    return
-                soft = resource.soft_delete
-                assignments = [f'"{soft.column}" = %s']
-                params: list[Any] = ["now" if soft.value == "now" else soft.value]
-                if soft.value == "now":
-                    assignments = [f'"{soft.column}" = now()']
-                    params = []
-                if soft.timestamp_column:
-                    assignments.append(f'"{soft.timestamp_column}" = now()')
-                if soft.actor_column:
-                    assignments.append(f'"{soft.actor_column}" = %s')
-                    params.append(self.operator_id)
-                if table_has_column(conn, resource.table, "updated_at"):
-                    assignments.append('"updated_at" = now()')
-                params.append(normalize_id(row_id))
-                cursor.execute(
-                    f'update "{resource.table}" set {", ".join(assignments)} where "{resource.id_column}" = %s',
-                    params,
-                )
+                for row_id in row_ids:
+                    self.execute_delete_resource(conn, cursor, resource, row_id, hard_delete)
+
+    def execute_delete_resource(
+        self,
+        conn: psycopg.Connection[Any],
+        cursor: psycopg.Cursor[Any],
+        resource: ResourceDef,
+        row_id: str | int,
+        hard_delete: bool,
+    ) -> None:
+        if hard_delete or resource.soft_delete is None:
+            cursor.execute(f'delete from "{resource.table}" where "{resource.id_column}" = %s', [normalize_id(row_id)])
+            return
+        soft = resource.soft_delete
+        assignments = [f'"{soft.column}" = %s']
+        params: list[Any] = ["now" if soft.value == "now" else soft.value]
+        if soft.value == "now":
+            assignments = [f'"{soft.column}" = now()']
+            params = []
+        if soft.timestamp_column:
+            assignments.append(f'"{soft.timestamp_column}" = now()')
+        if soft.actor_column:
+            assignments.append(f'"{soft.actor_column}" = %s')
+            params.append(self.operator_id)
+        if table_has_column(conn, resource.table, "updated_at"):
+            assignments.append('"updated_at" = now()')
+        params.append(normalize_id(row_id))
+        cursor.execute(
+            f'update "{resource.table}" set {", ".join(assignments)} where "{resource.id_column}" = %s',
+            params,
+        )
 
 
 def load_runtime_config(config_path: Path, env_path: Path) -> dict[str, Any]:
