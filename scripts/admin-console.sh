@@ -11,7 +11,7 @@ Usage: ./scripts/admin-console.sh [options]
 
 Options:
   --service-name NAME     Set the systemd service name. Defaults to gameclubtelegrambot.service.
-  --poll-ms MS            Poll interval in milliseconds for status refresh. Defaults to 8000.
+  --poll-ms MS            Accepted for compatibility. The Textual UI refreshes on demand.
   --operator-id ID        Telegram user ID used as operator (defaults to 0).
   --config PATH           Path to runtime config JSON (GAMECLUB_CONFIG_PATH).
   --env PATH              Path to env file (GAMECLUB_ENV_PATH).
@@ -41,7 +41,7 @@ EOF
   fi
 }
 
-require_command node
+require_command python3
 
 service_name="${GAMECLUB_SERVICE_NAME:-gameclubtelegrambot.service}"
 poll_ms="${GAMECLUB_ADMIN_CONSOLE_POLL_MS:-8000}"
@@ -123,9 +123,35 @@ if [ "${poll_ms}" -lt 1 ] 2>/dev/null; then
   exit 1
 fi
 
+VENV_DIR="$ROOT_DIR/.venv-admin-console"
+PYTHON_BIN="$VENV_DIR/bin/python"
+
+if [ ! -x "$PYTHON_BIN" ]; then
+  if ! python3 -m venv "$VENV_DIR"; then
+    cat <<'EOF' >&2
+No s'ha pogut crear l'entorn Python per a Textual.
+En Debian/Ubuntu instal-la primer:
+
+  sudo apt-get install -y python3-venv python3-pip
+
+Despres torna a executar ./scripts/admin-console.sh
+EOF
+    exit 1
+  fi
+fi
+
+if ! "$PYTHON_BIN" -c "import textual, psycopg" >/dev/null 2>&1; then
+  "$PYTHON_BIN" -m pip install -r "$ROOT_DIR/requirements-admin-console.txt"
+fi
+
+args=(--service-name "$service_name" --operator-id "$operator_id")
+if [ -n "$config_path" ]; then
+  args+=(--config "$config_path")
+fi
+if [ -n "$env_path" ]; then
+  args+=(--env "$env_path")
+fi
+
 GAMECLUB_SERVICE_NAME="$service_name" \
-GAMECLUB_ADMIN_CONSOLE_POLL_MS="$poll_ms" \
 GAMECLUB_ADMIN_CONSOLE_OPERATOR_ID="$operator_id" \
-${config_path:+GAMECLUB_CONFIG_PATH="$config_path"} \
-${env_path:+GAMECLUB_ENV_PATH="$env_path"} \
-node --import tsx src/scripts/admin-console.ts
+"$PYTHON_BIN" "$ROOT_DIR/scripts/admin-console-textual.py" "${args[@]}"

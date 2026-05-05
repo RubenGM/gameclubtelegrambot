@@ -1,6 +1,6 @@
 # Admin Console TUI
 
-La consola de administracion es una TUI local basada en `terminal-kit` para operar el servicio, revisar configuracion y gestionar contenido persistido en PostgreSQL.
+La consola de administracion es una TUI local basada en Textual para operar el servicio, revisar configuracion y gestionar contenido persistido en PostgreSQL.
 
 ## Arranque
 
@@ -31,6 +31,12 @@ Opciones del launcher:
 ```
 
 La TUI requiere `stdin` y `stdout` interactivos. Si se ejecuta desde cron, pipe o una sesion SSH sin `-t`, el launcher termina con un mensaje explicito.
+
+El launcher crea un entorno Python local en `.venv-admin-console` e instala `requirements-admin-console.txt` la primera vez. En Debian/Ubuntu puede requerir:
+
+```bash
+sudo apt-get install -y python3-venv python3-pip
+```
 
 ## Vistas
 
