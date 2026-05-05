@@ -35,6 +35,7 @@ export async function runService({
     ? await Promise.resolve(createRunnableApp())
     : await Promise.reject(new Error('createApp is required'));
   let shuttingDown: Promise<number> | undefined;
+  let resolveRun: ((exitCode: number) => void) | undefined;
 
   const shutdown = (reason: string, exitCode: number, level: 'info' | 'fatal', error?: unknown) => {
     if (shuttingDown) {
@@ -56,6 +57,9 @@ export async function runService({
 
       return exitCode;
     })();
+    if (resolveRun) {
+      void shuttingDown.then(resolveRun);
+    }
 
     return shuttingDown;
   };
@@ -87,16 +91,12 @@ export async function runService({
     logger.info({}, 'Service startup completed');
 
     return await new Promise<number>((resolve) => {
-      const poll = () => {
-        if (shuttingDown) {
-          void shuttingDown.then(resolve);
-          return;
-        }
+      if (shuttingDown) {
+        void shuttingDown.then(resolve);
+        return;
+      }
 
-        setImmediate(poll);
-      };
-
-      poll();
+      resolveRun = resolve;
     });
   } finally {
     processInterface.removeListener('uncaughtException', handleUncaughtException);
