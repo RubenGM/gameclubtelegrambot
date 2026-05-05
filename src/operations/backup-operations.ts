@@ -86,6 +86,8 @@ export function createBackupOperations(options: CreateBackupOperationsOptions): 
   const listBackupArchives = options.listBackupArchives ?? (() => listBackupArchivesFromDirectory(options.backupDir));
   const readConfigFiles = options.readConfigFiles ?? readRuntimeConfigFileStatuses;
   const readDatabaseSummary = options.readDatabaseSummary ?? defaultReadDatabaseSummary;
+  const runtimePaths = resolveRuntimeConfigPaths(process.env);
+  const serviceEnvPath = process.env.GAMECLUB_SERVICE_ENV_PATH ?? '/etc/default/gameclubtelegrambot';
 
   let lastOperationLog = 'No operations run yet.';
 
@@ -138,7 +140,17 @@ export function createBackupOperations(options: CreateBackupOperationsOptions): 
       });
       const result = await runCommand({
         command: 'bash',
-        args: [join(options.appRoot, 'scripts', 'backup-full.sh'), '--output-dir', options.backupDir],
+        args: [
+          join(options.appRoot, 'scripts', 'backup-full.sh'),
+          '--config',
+          runtimePaths.configPath,
+          '--env',
+          runtimePaths.envPath,
+          '--service-env',
+          serviceEnvPath,
+          '--output-dir',
+          options.backupDir,
+        ],
         cwd: options.appRoot,
       });
       const output = combineCommandOutput(result);

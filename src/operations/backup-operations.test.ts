@@ -96,7 +96,17 @@ test('createFullBackup runs the CLI script and returns the archive path', async 
   assert.match(result.output, /Backup complet creat/);
   assert.deepEqual(calls, [{
     command: 'bash',
-    args: ['/repo/scripts/backup-full.sh', '--output-dir', '/repo/backups'],
+    args: [
+      '/repo/scripts/backup-full.sh',
+      '--config',
+      'config/runtime.json',
+      '--env',
+      'config/.env',
+      '--service-env',
+      '/etc/default/gameclubtelegrambot',
+      '--output-dir',
+      '/repo/backups',
+    ],
     cwd: '/repo',
   }]);
 });

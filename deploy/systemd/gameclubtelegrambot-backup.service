@@ -5,10 +5,14 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+User=gameclubbot
+Group=gameclubbot
+SupplementaryGroups=gameclubbot-operators
 WorkingDirectory=/opt/gameclubtelegrambot
 EnvironmentFile=-/etc/default/gameclubtelegrambot
 Environment=GAMECLUB_BACKUP_DIR=/var/backups/gameclubtelegrambot
-ExecStartPre=/usr/bin/install -d -m 0750 -o root -g gameclubbot /var/backups/gameclubtelegrambot
+PermissionsStartOnly=yes
+ExecStartPre=/usr/bin/install -d -m 2770 -o gameclubbot -g gameclubbot-operators /var/backups/gameclubtelegrambot
 ExecStart=/opt/gameclubtelegrambot/scripts/backup-cli.sh backup --output-dir /var/backups/gameclubtelegrambot --app-root /opt/gameclubtelegrambot --service-name gameclubtelegrambot.service
 Nice=10
 IOSchedulingClass=best-effort

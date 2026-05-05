@@ -152,6 +152,7 @@ ensure_groups_and_user() {
   fi
 
   run_root_cmd usermod -aG "$OPERATOR_GROUP" "$OPERATOR_USER"
+  run_root_cmd usermod -aG "$OPERATOR_GROUP" "$SERVICE_USER"
 }
 
 prepare_build_artifacts() {
@@ -214,7 +215,7 @@ install_runtime_config() {
     exit 1
   fi
 
-  run_root_cmd install -d -m 0755 "$CONFIG_DIR"
+  run_root_cmd install -d -m 0750 -o root -g "$OPERATOR_GROUP" "$CONFIG_DIR"
 
   source_realpath="$(realpath "$CONFIG_SOURCE")"
   target_realpath="$(realpath -m "$CONFIG_TARGET")"
@@ -222,7 +223,7 @@ install_runtime_config() {
   if [ "$source_realpath" = "$target_realpath" ]; then
     log 'La configuració runtime ja apunta al fitxer instal.lat. S omet la copia redundant.'
   else
-    run_root_cmd install -m 0640 -o root -g "$SERVICE_GROUP" "$CONFIG_SOURCE" "$CONFIG_TARGET"
+    run_root_cmd install -m 0660 -o root -g "$OPERATOR_GROUP" "$CONFIG_SOURCE" "$CONFIG_TARGET"
   fi
 
   if [ -f "$ENV_SOURCE" ]; then
@@ -232,7 +233,7 @@ install_runtime_config() {
     if [ "$env_source_realpath" = "$env_target_realpath" ]; then
       log 'El fitxer .env runtime ja apunta al destí instal·lat. S omet la copia redundant.'
     else
-      run_root_cmd install -m 0640 -o root -g "$SERVICE_GROUP" "$ENV_SOURCE" "$RUNTIME_ENV_TARGET"
+      run_root_cmd install -m 0660 -o root -g "$OPERATOR_GROUP" "$ENV_SOURCE" "$RUNTIME_ENV_TARGET"
     fi
   else
     log "No s ha trobat cap fitxer .env a $ENV_SOURCE. S omet la copia de secrets; si la configuracio encara els guarda al JSON, cal migrar-los amb el TUI."
@@ -278,13 +279,17 @@ install_service_assets() {
   run_root_cmd install -m 0644 "$service_tmp" "/etc/systemd/system/$SERVICE_NAME"
 
   sed \
+    -e "s|^User=.*|User=$SERVICE_USER|" \
+    -e "s|^Group=.*|Group=$SERVICE_GROUP|" \
+    -e "s|^SupplementaryGroups=.*|SupplementaryGroups=$OPERATOR_GROUP|" \
     -e "s|^WorkingDirectory=.*|WorkingDirectory=$APP_ROOT|" \
+    -e "s|^ExecStartPre=/usr/bin/install -d .* /var/backups/gameclubtelegrambot|ExecStartPre=/usr/bin/install -d -m 2770 -o $SERVICE_USER -g $OPERATOR_GROUP /var/backups/gameclubtelegrambot|" \
     -e "s|^ExecStart=/opt/gameclubtelegrambot/scripts/backup-cli.sh .*|ExecStart=$APP_ROOT/scripts/backup-cli.sh backup --output-dir /var/backups/gameclubtelegrambot --app-root $APP_ROOT --service-name $SERVICE_NAME|" \
     "$ROOT_DIR/deploy/systemd/gameclubtelegrambot-backup.service" > "$backup_service_tmp"
 
   run_root_cmd install -m 0644 "$backup_service_tmp" "/etc/systemd/system/$BACKUP_SERVICE_NAME"
   run_root_cmd install -m 0644 "$ROOT_DIR/deploy/systemd/gameclubtelegrambot-backup.timer" "/etc/systemd/system/$BACKUP_TIMER_NAME"
-  run_root_cmd install -d -m 0750 -o root -g "$SERVICE_GROUP" /var/backups/gameclubtelegrambot
+  run_root_cmd install -d -m 2770 -o "$SERVICE_USER" -g "$OPERATOR_GROUP" /var/backups/gameclubtelegrambot
   run_root_cmd install -d -m 0755 /etc/polkit-1/rules.d
   run_root_cmd install -m 0644 "$ROOT_DIR/deploy/polkit/rules.d/50-gameclubtelegrambot.rules" /etc/polkit-1/rules.d/50-gameclubtelegrambot.rules
   run_root_cmd systemctl daemon-reload
