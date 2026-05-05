@@ -48,6 +48,35 @@ poll_ms="${GAMECLUB_ADMIN_CONSOLE_POLL_MS:-8000}"
 operator_id="${GAMECLUB_ADMIN_CONSOLE_OPERATOR_ID:-0}"
 config_path="${GAMECLUB_CONFIG_PATH:-}"
 env_path="${GAMECLUB_ENV_PATH:-}"
+service_env_file="${GAMECLUB_SERVICE_ENV_FILE:-/etc/default/gameclubtelegrambot}"
+
+if [ -f "$service_env_file" ]; then
+  while IFS= read -r line; do
+    case "$line" in
+      GAMECLUB_CONFIG_PATH=*)
+        if [ -z "$config_path" ]; then
+          config_path="${line#GAMECLUB_CONFIG_PATH=}"
+          config_path="${config_path%\"}"
+          config_path="${config_path#\"}"
+        fi
+        ;;
+      GAMECLUB_ENV_PATH=*)
+        if [ -z "$env_path" ]; then
+          env_path="${line#GAMECLUB_ENV_PATH=}"
+          env_path="${env_path%\"}"
+          env_path="${env_path#\"}"
+        fi
+        ;;
+      GAMECLUB_SERVICE_NAME=*)
+        if [ -z "${GAMECLUB_SERVICE_NAME:-}" ]; then
+          service_name="${line#GAMECLUB_SERVICE_NAME=}"
+          service_name="${service_name%\"}"
+          service_name="${service_name#\"}"
+        fi
+        ;;
+    esac
+  done < "$service_env_file"
+fi
 
 while [ "$#" -gt 0 ]; do
   case "$1" in

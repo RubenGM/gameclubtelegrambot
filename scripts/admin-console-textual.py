@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -291,9 +292,11 @@ RESOURCES: tuple[ResourceDef, ...] = (
 )
 
 SUMMARY_VIEW_KEY = "__summary__"
+CONFIG_VIEW_KEY = "__config__"
 BACKUPS_VIEW_KEY = "__backups__"
 RESOURCE_OPTIONS = (
     ("Resumen", SUMMARY_VIEW_KEY),
+    ("Config", CONFIG_VIEW_KEY),
     ("Backups", BACKUPS_VIEW_KEY),
     *((resource.label, resource.key) for resource in RESOURCES),
 )
@@ -481,6 +484,7 @@ class AdminConsoleTextualApp(App[None]):
         ("D", "hard_delete", "Borrar"),
         ("b", "backup_create", "Backup"),
         ("R", "backup_restore", "Restaurar"),
+        ("t", "telegram_token", "Token bot"),
         ("s", "service_start", "Start"),
         ("x", "service_stop", "Stop"),
         ("S", "service_restart", "Restart"),
@@ -538,6 +542,8 @@ class AdminConsoleTextualApp(App[None]):
                     yield Button("Start servicio", id="service-start")
                     yield Button("Stop servicio", id="service-stop")
                     yield Button("Restart servicio", id="service-restart")
+                    yield Label("Config")
+                    yield Button("Cambiar token bot", id="telegram-token", variant="primary")
                     yield Label("Backups")
                     yield Button("Crear backup", id="backup-create", variant="success")
                     yield Button("Restaurar backup", id="backup-restore", variant="warning", disabled=True)
@@ -578,6 +584,9 @@ class AdminConsoleTextualApp(App[None]):
     def action_backup_restore(self) -> None:
         self.start_backup_restore()
 
+    def action_telegram_token(self) -> None:
+        self.start_telegram_token_update()
+
     def action_service_start(self) -> None:
         self.run_service("start")
 
@@ -604,6 +613,16 @@ class AdminConsoleTextualApp(App[None]):
             return
         if event.value == BACKUPS_VIEW_KEY:
             self.view_key = BACKUPS_VIEW_KEY
+            self.selected_id = None
+            self.selected_row = None
+            self.selected_backup = None
+            self.clear_selection(show_status=False)
+            self.update_user_action_state()
+            self.update_backup_action_state()
+            self.refresh_rows()
+            return
+        if event.value == CONFIG_VIEW_KEY:
+            self.view_key = CONFIG_VIEW_KEY
             self.selected_id = None
             self.selected_row = None
             self.selected_backup = None
@@ -676,6 +695,10 @@ class AdminConsoleTextualApp(App[None]):
     @on(Button.Pressed, "#backup-delete")
     def backup_delete_clicked(self) -> None:
         self.start_backup_delete()
+
+    @on(Button.Pressed, "#telegram-token")
+    def telegram_token_clicked(self) -> None:
+        self.start_telegram_token_update()
 
     @on(Button.Pressed, "#user-approve")
     def user_approve_clicked(self) -> None:
@@ -754,6 +777,10 @@ class AdminConsoleTextualApp(App[None]):
                 self.call_from_thread(self.render_backups, backups)
                 self.call_from_thread(self.set_status, f"{len(backups)} backups cargados.")
                 return
+            if self.view_key == CONFIG_VIEW_KEY:
+                self.call_from_thread(self.render_config)
+                self.call_from_thread(self.set_status, "Configuracion cargada.")
+                return
             rows = self.fetch_rows(self.resource, self.query_one("#search", Input).value.strip())
             self.call_from_thread(self.render_rows, rows)
             self.call_from_thread(self.set_status, f"{len(rows)} filas cargadas de {self.resource.label}.")
@@ -829,6 +856,39 @@ class AdminConsoleTextualApp(App[None]):
         self.update_user_action_state()
         self.update_backup_action_state()
 
+    def render_config(self) -> None:
+        table = self.query_one(DataTable)
+        table.clear(columns=True)
+        table.cursor_type = "row"
+        self.visible_row_ids = []
+        self.selected_ids.clear()
+        table.add_column("Campo")
+        table.add_column("Valor")
+        table.add_row("runtime.json", str(self.config_path), key="config-path")
+        table.add_row("runtime .env", str(self.env_path), key="env-path")
+        table.add_row("bot.publicName", str(self.config.get("bot", {}).get("publicName", "")), key="bot-name")
+        table.add_row("bot.clubName", str(self.config.get("bot", {}).get("clubName", "")), key="club-name")
+        table.add_row("telegram.token", "<hidden>", key="telegram-token")
+        table.add_row("backup config", "runtime.json + runtime.env + /etc/default/gameclubtelegrambot", key="backup-config")
+        self.selected_id = None
+        self.selected_row = None
+        self.selected_backup = None
+        self.query_one("#detail", Static).update(
+            "\n".join([
+                "Configuracion runtime",
+                "",
+                f"runtime.json: {self.config_path}",
+                f"runtime .env: {self.env_path}",
+                "",
+                "Acciones:",
+                "- Pulsa t o el boton 'Cambiar token bot' para pegar el token nuevo de BotFather.",
+                "- Despues pulsa S o 'Restart servicio' para aplicar el cambio.",
+                "- Los backups completos incluyen runtime.json, runtime.env y /etc/default/gameclubtelegrambot.",
+            ]),
+        )
+        self.update_user_action_state()
+        self.update_backup_action_state()
+
     @work(thread=True)
     def load_detail(self) -> None:
         if self.selected_id is None:
@@ -877,9 +937,36 @@ class AdminConsoleTextualApp(App[None]):
         self.query_one("#detail", Static).update("\n".join(lines))
         self.update_backup_action_state()
 
+    def start_telegram_token_update(self) -> None:
+        self.push_screen(TextInputScreen("Nuevo token de Telegram BotFather"), self.confirm_telegram_token_update)
+
+    def confirm_telegram_token_update(self, token: str | None) -> None:
+        if token is None or not token.strip():
+            return
+        if not re.match(r"^\d+:[A-Za-z0-9_-]{20,}$", token.strip()):
+            self.set_status("El token no tiene el formato esperado de BotFather.")
+            return
+        self.push_screen(
+            ConfirmScreen("Actualizar GAMECLUB_TELEGRAM_TOKEN en el .env runtime? Despues reinicia el servicio."),
+            lambda confirmed: self.apply_telegram_token_update(token, confirmed),
+        )
+
+    @work(thread=True)
+    def apply_telegram_token_update(self, token: str, confirmed: bool) -> None:
+        if not confirmed:
+            return
+        try:
+            update_env_file_value(self.env_path, "GAMECLUB_TELEGRAM_TOKEN", token.strip())
+            self.config = load_runtime_config(self.config_path, self.env_path)
+            self.call_from_thread(self.set_status, "Token actualizado. Pulsa S para reiniciar el servicio.")
+            if self.view_key == CONFIG_VIEW_KEY:
+                self.call_from_thread(self.render_config)
+        except Exception as error:
+            self.call_from_thread(self.set_status, f"Error actualizando token: {error}")
+
     def start_edit(self) -> None:
-        if self.view_key == SUMMARY_VIEW_KEY:
-            self.set_status("El resumen no tiene campos editables.")
+        if self.view_key in (SUMMARY_VIEW_KEY, BACKUPS_VIEW_KEY, CONFIG_VIEW_KEY):
+            self.set_status("Esta vista no tiene campos editables.")
             return
         if self.selected_id is None or not self.selected_row:
             self.set_status("Selecciona una fila antes de editar.")
@@ -1355,6 +1442,29 @@ def parse_env_file(path: Path) -> dict[str, str]:
         value = value.strip().strip('"').strip("'")
         result[key.strip()] = value
     return result
+
+
+def update_env_file_value(path: Path, key: str, value: str) -> None:
+    lines = path.read_text("utf-8").splitlines() if path.exists() else []
+    pattern = re.compile(rf"^(\s*(?:export\s+)?{re.escape(key)}\s*=\s*).*$")
+    serialized = f'{key}="{value}"'
+    updated = False
+    output: list[str] = []
+
+    for line in lines:
+        if pattern.match(line):
+            output.append(serialized)
+            updated = True
+        else:
+            output.append(line)
+
+    if not updated:
+        if output and output[-1] != "":
+            output.append("")
+        output.append(serialized)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(output).rstrip() + "\n", "utf-8")
 
 
 def unique_columns(columns: tuple[str, ...]) -> tuple[str, ...]:

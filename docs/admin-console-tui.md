@@ -1,10 +1,20 @@
-# Admin Console TUI
+# Admin Console Textual
 
-La consola de administracion es una TUI local basada en Textual para operar el servicio, revisar configuracion y gestionar contenido persistido en PostgreSQL.
+La consola de administracion oficial del proyecto es la TUI Python/Textual lanzada por:
+
+```bash
+./scripts/admin-console.sh
+```
+
+El mantenimiento futuro de la consola debe hacerse sobre:
+
+- `scripts/admin-console.sh`: launcher, entorno virtual y argumentos.
+- `scripts/admin-console-textual.py`: aplicacion Textual.
+- `requirements-admin-console.txt`: dependencias Python.
 
 ## Arranque
 
-Desde una terminal interactiva:
+Desde el repo:
 
 ```bash
 ./scripts/admin-console.sh
@@ -16,23 +26,21 @@ Desde npm:
 npm run admin:console
 ```
 
-Desde SSH fuerza pseudo-terminal:
+Desde SSH:
 
 ```bash
 ssh -t usuario@host 'cd /home/cawa/telegrambot/gameclubtelegrambot && npm run admin:console'
 ```
 
-Opciones del launcher:
+Opciones soportadas:
 
 ```bash
-./scripts/admin-console.sh --service-name gameclubtelegrambot.service --poll-ms 8000
-./scripts/admin-console.sh --config config/runtime.local.json --env config/.env
+./scripts/admin-console.sh --service-name gameclubtelegrambot.service
+./scripts/admin-console.sh --config /etc/gameclubtelegrambot/runtime.json --env /etc/gameclubtelegrambot/.env
 ./scripts/admin-console.sh --operator-id 123456789
 ```
 
-La TUI requiere `stdin` y `stdout` interactivos. Si se ejecuta desde cron, pipe o una sesion SSH sin `-t`, el launcher termina con un mensaje explicito.
-
-El launcher crea un entorno Python local en `.venv-admin-console` e instala `requirements-admin-console.txt` la primera vez. En Debian/Ubuntu puede requerir:
+El launcher requiere una terminal interactiva. Si falta el entorno Python local, crea `.venv-admin-console` e instala `requirements-admin-console.txt`. En Debian/Ubuntu puede hacer falta:
 
 ```bash
 sudo apt-get install -y python3-venv python3-pip
@@ -40,88 +48,109 @@ sudo apt-get install -y python3-venv python3-pip
 
 ## Vistas
 
-- `1 Resumen`: estado general de servicio, DB, usuarios y contenido.
-- `2 Config`: rutas y contenido cargado de runtime JSON y `.env`.
-- `3 Contingut`: contadores de catalogo, storage, agenda, sala y compras.
-- `4 Usuaris`: usuarios pendientes, con acciones rapidas de aprobacion/bloqueo/revocacion.
-- `5 Admins`: administradores actuales.
-- `6 Recursos`: navegador y editor de tablas soportadas.
-- `7 Missatges`: actividad reciente de audit log y mensajes de storage.
-- `8 DB`: resumen de conexion y tablas.
-- `9 Logs`: logs recientes de systemd para el servicio configurado.
+La vista activa se cambia desde el selector `Vista` del lateral:
+
+- `Resumen`: estado del servicio, base de datos y contadores principales.
+- `Config`: rutas runtime, bot activo, accion de cambio de token y recordatorio de backup.
+- `Backups`: lista de backups completos disponibles.
+- Recursos de base de datos: usuarios, catalogo, mesas, agenda, sala, noticias, compras, LFG, storage y auditoria.
+
+La TUI usa una tabla central para listar datos y un panel de detalle para la fila o vista seleccionada.
+
+## Cambiar De Bot
+
+Para aplicar un token nuevo de BotFather:
+
+1. Abre `./scripts/admin-console.sh`.
+2. En el selector `Vista`, elige `Config`.
+3. Pulsa `t` o el boton `Cambiar token bot`.
+4. Pega el token nuevo.
+5. Confirma.
+6. Pulsa `S` o el boton `Restart servicio`.
+
+La consola actualiza solo `GAMECLUB_TELEGRAM_TOKEN` en el `.env` runtime resuelto. No escribe el token en `runtime.json`.
+
+## Backups
+
+La vista `Backups` opera sobre el directorio resuelto por este orden:
+
+1. `GAMECLUB_BACKUP_DIR`, si existe.
+2. `/var/backups/gameclubtelegrambot`, si existe.
+3. `<repo>/backups`.
+
+Acciones:
+
+- `b` o `Crear backup`: crea un backup completo.
+- `R` o `Restaurar backup`: restaura el zip seleccionado.
+- `Eliminar backup`: borra el zip seleccionado.
+
+El backup completo cubre:
+
+- `runtime.json`
+- runtime `.env`, guardado dentro del zip como `config/runtime.env`
+- `/etc/default/gameclubtelegrambot`, guardado como `config/default.env`
+- dump PostgreSQL
+- unidad systemd y regla polkit si existen
+
+En instalaciones Debian, `/var/backups/gameclubtelegrambot` debe quedar como:
+
+```text
+gameclubbot:gameclubbot-operators 2770
+```
+
+El bit setgid mantiene los nuevos backups dentro del grupo operador. No uses `chmod 777`: el servicio de backup recrea permisos controlados.
 
 ## Teclas
 
-- Click en la columna izquierda: cambiar de vista.
-- Click en un tipo de recurso: cambiar la tabla gestionada.
-- Click en una fila: seleccionar y cargar detalle.
-- Rueda del raton sobre listas o detalle: scroll.
 - `q`: salir.
-- `1` a `9`: cambiar de vista.
-- `r`: refrescar datos.
-- `Tab`: foco principal de la vista.
-- `PageUp` / `PageDown`: scroll del panel de detalle.
-- `g` / `G`: ir al inicio/final del detalle.
-- `?`: ayuda contextual.
-- `s`: iniciar servicio systemd.
-- `x`: parar servicio systemd.
-- `S`: reiniciar servicio systemd.
-
-En `Usuaris` y `Admins`:
-
-- `o`: aprobar usuario.
-- `p`: devolver a pending.
-- `b`: bloquear.
-- `v`: revocar.
-- `a`: alternar admin.
-
-En `Recursos`:
-
-- `c`: siguiente tipo de recurso.
-- `C`: tipo de recurso anterior.
-- `/`: filtrar por texto.
-- `Enter`: cargar detalle de la fila seleccionada.
-- `e`: editar un campo permitido.
-- `d`: desactivar, cancelar, archivar o marcar como eliminado cuando la tabla tiene semantica de borrado blando.
-- `D`: borrar definitivamente la fila de PostgreSQL.
+- `r`: refrescar.
+- `e`: editar campo en recursos editables.
+- `space`: seleccionar o deseleccionar una fila para acciones por lote.
+- `c`: limpiar seleccion.
+- `d`: borrado blando cuando el recurso lo soporta.
+- `D`: borrado definitivo.
+- `b`: crear backup.
+- `R`: restaurar backup seleccionado.
+- `t`: cambiar token del bot.
+- `s`: iniciar servicio.
+- `x`: parar servicio.
+- `S`: reiniciar servicio.
 
 ## Recursos Gestionables
 
-La vista `Recursos` permite listar, buscar, ver detalle, editar campos permitidos y borrar filas de estas areas:
+La consola permite listar, buscar, ver detalle, editar campos permitidos y borrar filas de recursos whitelisteados. No ejecuta SQL libre desde la entrada del operador.
 
-- Usuarios y permisos basicos: `users`.
-- Catalogo: `catalog_families`, `catalog_groups`, `catalog_items`, `catalog_media`, `catalog_loans`.
-- Mesas y agenda: `club_tables`, `schedule_events`, `schedule_event_participants`, `venue_events`.
-- Noticias: `news_groups`.
-- Compras de grupo: `group_purchases`, `group_purchase_fields`, `group_purchase_messages`.
-- LFG: `lfg_player_ads`, `lfg_group_ads`.
-- Storage: `storage_categories`, `storage_entries`, `storage_entry_messages`.
-- Auditoria: `audit_log` como lectura.
+Areas principales:
 
-Los campos editables estan whitelisteados por recurso. No se expone edicion libre de SQL desde la TUI.
-
-## Borrado
-
-`d` intenta usar el borrado blando del dominio cuando existe:
-
-- Catalogo: marca `lifecycle_status` como `inactive`.
-- Actividades y ocupaciones de sala: marca `lifecycle_status` como `cancelled`.
-- Storage: archiva categorias o marca entradas como `deleted`.
-- Prestamos: marca `returned_at`.
-- LFG: marca anuncios como `cancelled`.
-
-`D` ejecuta `delete from ...` sobre la fila seleccionada. Esto puede fallar si hay claves foraneas dependientes y debe usarse solo cuando se quiere eliminar la fila de base de datos.
+- Usuarios: aprobacion, bloqueo, revocacion y admin.
+- Catalogo: familias, grupos, items, media y prestamos.
+- Mesas y agenda: mesas, actividades, participantes y ocupaciones de sala.
+- Noticias: grupos habilitados.
+- Compras: compras, campos y mensajes.
+- LFG: anuncios de jugadores y grupos.
+- Storage: categorias, entradas y mensajes.
+- Auditoria: lectura.
 
 ## Seguridad Operativa
 
-- El gestor usa la configuracion runtime normal del bot (`GAMECLUB_CONFIG_PATH` y `GAMECLUB_ENV_PATH`).
-- Las acciones de servicio usan `systemctl` y `journalctl` sobre `GAMECLUB_SERVICE_NAME`.
-- Las acciones de usuario y algunos borrados blandos registran el operador con `GAMECLUB_ADMIN_CONSOLE_OPERATOR_ID`.
-- La edicion de recursos usa una lista cerrada de tablas y columnas; no acepta nombres de tabla o columna desde entrada libre.
+- La consola usa `GAMECLUB_CONFIG_PATH` y `GAMECLUB_ENV_PATH`, o las rutas pasadas por `--config` y `--env`.
+- Las acciones de servicio llaman a `systemctl` sobre `GAMECLUB_SERVICE_NAME`.
+- Las acciones de backup llaman a `scripts/backup-cli.sh`.
+- Las acciones de usuario registran `GAMECLUB_ADMIN_CONSOLE_OPERATOR_ID` cuando aplica.
+- Los secretos no deben mostrarse completos en pantalla ni escribirse en `runtime.json`.
 
-## Limitaciones
+## Mantenimiento
 
-- La TUI no sustituye las validaciones de negocio complejas de los flujos de Telegram. Permite operacion directa para mantenimiento.
-- El editor de campos trabaja con valores escalares, fechas y JSON. Para estructuras grandes es preferible editar mediante herramientas especializadas o flujos del bot.
-- El borrado definitivo puede quedar bloqueado por integridad referencial de PostgreSQL.
-- Las tablas con clave compuesta sin identificador unico simple, como algunas relaciones de suscripcion o participantes, no se editan todavia desde el gestor generico para evitar actualizaciones ambiguas.
+Al extender la consola:
+
+- Mantener la implementacion en Python/Textual.
+- Actualizar esta documentacion si cambia una vista, tecla o flujo operativo.
+- Preferir botones laterales para operaciones frecuentes y teclas para acciones repetidas.
+- Mantener una lista cerrada de tablas y campos editables.
+- Validar cambios con:
+
+```bash
+python3 -m py_compile scripts/admin-console-textual.py
+bash -n scripts/admin-console.sh
+npm run lint
+```
