@@ -170,6 +170,23 @@ export function createDatabaseStorageRepository({
       }
       return loadEntryDetail(database, updatedEntryRow);
     },
+    async updateEntryCategory(input) {
+      const now = new Date();
+      const updatedRows = await database
+        .update(storageEntries)
+        .set({
+          categoryId: input.categoryId,
+          updatedAt: now,
+        })
+        .where(eq(storageEntries.id, input.entryId))
+        .returning();
+
+      const updatedEntryRow = updatedRows[0];
+      if (!updatedEntryRow) {
+        throw new Error(`Storage entry ${input.entryId} not found`);
+      }
+      return loadEntryDetail(database, updatedEntryRow);
+    },
     async appendEntryMessages(input) {
       return database.transaction(async (tx) => {
         const entryRows = await tx.select().from(storageEntries).where(eq(storageEntries.id, input.entryId));

@@ -2,6 +2,7 @@ import { createDatabaseStorageRepository } from '../storage/storage-catalog-stor
 import {
   createStorageCategory,
   createStorageEntry,
+  moveStorageEntryCategory,
   parseStorageCaptionMetadata,
   setStorageCategoryLifecycleStatus,
   updateStorageEntryMetadata,
@@ -211,6 +212,12 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
     ) {
       return selectCreateCategoryParent(context, categoryId, language);
     }
+    if (
+      context.runtime.session.current?.flowKey === storageEditEntryFlowKey &&
+      context.runtime.session.current.stepKey === 'edit-entry-move-category'
+    ) {
+      return selectStorageEntryMoveCategory(context, categoryId, language);
+    }
     return sendStorageCategoryEntryList(context, categoryId, language);
   }
 
@@ -244,6 +251,64 @@ async function startStorageEntryMetadataEdit(
     },
   });
   await context.reply(texts.askEditAction, buildEditEntryActionOptions(language));
+  return true;
+}
+
+async function selectStorageEntryMoveCategory(
+  context: StorageFlowContext,
+  categoryId: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  const texts = createTelegramI18n(language).storage;
+  if (!session || session.flowKey !== storageEditEntryFlowKey || session.stepKey !== 'edit-entry-move-category') {
+    await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  const categories = await listUploadableCategories(context);
+  const selected = categories.find((category) => category.id === categoryId);
+  if (!selected) {
+    await context.reply(texts.invalidCategory, {
+      ...buildSingleCancelOptions(),
+      parseMode: 'HTML',
+    });
+    return true;
+  }
+
+  const previousCategoryId = asNumber(session.data.categoryId);
+  const updated = await moveStorageEntryCategory({
+    repository: resolveRepository(context),
+    entryId: asNumber(session.data.entryId),
+    categoryId: selected.id,
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'storage.entry.category_moved',
+    targetType: 'storage-entry',
+    targetId: updated.entry.id,
+    summary: 'Categoria actualitzada a entrada de storage',
+    details: {
+      previousCategoryId,
+      nextCategoryId: updated.category.id,
+    },
+  });
+  await context.runtime.session.advance({
+    stepKey: 'edit-entry-action',
+    data: {
+      ...session.data,
+      categoryId: updated.category.id,
+      currentDescription: updated.entry.description,
+      currentTags: updated.entry.tags,
+    },
+  });
+  await context.reply(
+    `${texts.entryCategoryMoved
+      .replace('{id}', String(updated.entry.id))
+      .replace('{category}', updated.category.displayName)}\n\n${texts.askEditAction}`,
+    buildEditEntryActionOptions(language),
+  );
   return true;
 }
 
@@ -599,7 +664,7 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
       },
     });
     await context.reply(
-      `${escapeHtml(texts.askUploadCategory)}\n${formatStorageCategoryListMessage({ categories, language, labelMode: 'full-path' })}`,
+      `${escapeHtml(texts.askUploadCategory)}\n${formatStorageCategoryListMessage({ categories, language })}`,
       { ...buildCategoryChoiceOptions(categories, language), parseMode: 'HTML' },
     );
     return true;
@@ -1325,6 +1390,27 @@ async function handleActiveEditEntryFlow(context: StorageFlowContext, text: stri
       return true;
     }
 
+    if (text === texts.moveCategory) {
+      const categories = await listUploadableCategories(context);
+      if (categories.length === 0) {
+        await context.reply(texts.noCategoriesForAction, buildEditEntryActionOptions(language));
+        return true;
+      }
+
+      await context.runtime.session.advance({
+        stepKey: 'edit-entry-move-category',
+        data: {
+          ...session.data,
+          categories: categories.map((category) => ({ id: category.id, displayName: category.displayName })),
+        },
+      });
+      await context.reply(formatMoveEntryCategoryPrompt(categories, language), {
+        ...buildSingleCancelOptions(),
+        parseMode: 'HTML',
+      });
+      return true;
+    }
+
     if (text === texts.finishEdit) {
       await context.runtime.session.cancel();
       await context.reply(texts.selectMenu, buildStorageMenuOptions(language, context));
@@ -1333,6 +1419,20 @@ async function handleActiveEditEntryFlow(context: StorageFlowContext, text: stri
 
     await context.reply(texts.invalidEditAction, buildEditEntryActionOptions(language));
     return true;
+  }
+
+  if (session.stepKey === 'edit-entry-move-category') {
+    const categories = asCategoryChoices(session.data.categories);
+    const selected = categories.find((category) => category.displayName === text);
+    if (!selected) {
+      await context.reply(texts.invalidCategory, {
+        ...buildSingleCancelOptions(),
+        parseMode: 'HTML',
+      });
+      return true;
+    }
+
+    return selectStorageEntryMoveCategory(context, selected.id, language);
   }
 
   if (session.stepKey === 'edit-entry-description') {
@@ -1606,7 +1706,7 @@ async function handleActiveUploadFlow(context: StorageFlowContext, text: string,
     if (!selected) {
       const uploadableCategories = await listUploadableCategories(context);
       await context.reply(
-        `${escapeHtml(texts.invalidCategory)}\n${formatStorageCategoryListMessage({ categories: uploadableCategories, language, labelMode: 'full-path' })}`,
+        `${escapeHtml(texts.invalidCategory)}\n${formatStorageCategoryListMessage({ categories: uploadableCategories, language })}`,
         { ...buildCategoryChoiceOptions(uploadableCategories, language), parseMode: 'HTML' },
       );
       return true;
@@ -2425,6 +2525,7 @@ function buildEditEntryActionOptions(language: 'ca' | 'es' | 'en'): TelegramRepl
   return {
     replyKeyboard: [
       [secondaryButton(texts.uploadModifyDescription), successButton(texts.addImages)],
+      [secondaryButton(texts.moveCategory)],
       [successButton(texts.finishEdit)],
       [dangerButton('/cancel')],
     ],
@@ -2881,6 +2982,11 @@ function formatCreateCategoryParentPrompt(categories: StorageCategoryRecord[], l
     return escapeHtml(texts.askCategoryParent);
   }
   return `${escapeHtml(texts.askCategoryParent)}\n${formatStorageCategoryListMessage({ categories, language })}`;
+}
+
+function formatMoveEntryCategoryPrompt(categories: StorageCategoryRecord[], language: 'ca' | 'es' | 'en'): string {
+  const texts = createTelegramI18n(language).storage;
+  return `${escapeHtml(texts.askMoveCategory)}\n${formatStorageCategoryListMessage({ categories, language })}`;
 }
 
 function formatStorageCategoryLinks(

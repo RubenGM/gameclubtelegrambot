@@ -152,6 +152,24 @@ function createRepository(initialCategories: StorageCategoryRecord[] = []): Stor
       entries.set(input.entryId, detail);
       return detail;
     },
+    async updateEntryCategory(input) {
+      const existing = entries.get(input.entryId);
+      const category = categories.get(input.categoryId);
+      if (!existing || !category) {
+        throw new Error(`Storage entry ${input.entryId} or category ${input.categoryId} not found`);
+      }
+      const detail = {
+        ...existing,
+        category,
+        entry: {
+          ...existing.entry,
+          categoryId: input.categoryId,
+          updatedAt: '2026-04-21T13:45:00.000Z',
+        },
+      };
+      entries.set(input.entryId, detail);
+      return detail;
+    },
     async updateEntryLifecycleStatus(input) {
       const existing = entries.get(input.entryId);
       if (!existing) {

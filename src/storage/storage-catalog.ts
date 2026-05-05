@@ -110,6 +110,10 @@ export interface StorageCategoryRepository {
     description: string | null;
     tags: string[];
   }): Promise<StorageEntryDetailRecord>;
+  updateEntryCategory(input: {
+    entryId: number;
+    categoryId: number;
+  }): Promise<StorageEntryDetailRecord>;
   updateEntryLifecycleStatus(input: {
     entryId: number;
     lifecycleStatus: StorageEntryLifecycleStatus;
@@ -250,6 +254,34 @@ export async function updateStorageEntryMetadata({
     entryId: detail.entry.id,
     description: normalizeOptionalText(description),
     tags: normalizeTags(tags ?? []),
+  });
+}
+
+export async function moveStorageEntryCategory({
+  repository,
+  entryId,
+  categoryId,
+}: {
+  repository: StorageCategoryRepository;
+  entryId: number;
+  categoryId: number;
+}): Promise<StorageEntryDetailRecord> {
+  const detail = await repository.getEntryDetail(normalizePositiveInteger(entryId, 'entry'));
+  if (!detail) {
+    throw new Error(`Storage entry ${entryId} not found`);
+  }
+  if (detail.entry.lifecycleStatus !== 'active') {
+    throw new Error(`Storage entry ${entryId} is not active`);
+  }
+
+  const category = await loadCategoryOrThrow(repository, categoryId);
+  if (category.lifecycleStatus !== 'active') {
+    throw new Error(`Storage category ${categoryId} is archived`);
+  }
+
+  return repository.updateEntryCategory({
+    entryId: detail.entry.id,
+    categoryId: category.id,
   });
 }
 
