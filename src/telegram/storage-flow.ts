@@ -28,11 +28,14 @@ import { buildGlobalNavigationRow, buildPersistentReplyKeyboard } from './submen
 const storageUploadFlowKey = 'storage-upload';
 const storageEntryStartPayloadPrefix = 'storage_entry_';
 const storageCategoryStartPayloadPrefix = 'storage_category_';
+const storageSelectCategoryStartPayloadPrefix = 'storage_select_category_';
 const storageEditCategoryStartPayloadPrefix = 'storage_edit_category_';
 const storageEditEntryStartPayloadPrefix = 'storage_edit_entry_';
 export const storageCallbackPrefixes = {
   editEntry: 'storage:edit_entry:',
   deleteEntry: 'storage:delete_entry:',
+  categoryPage: 'storage:category_page:',
+  categoryGoToPage: 'storage:category_goto:',
 } as const;
 const storageListPageSize = 20;
 const storageCategoryListPageSize = 50;
@@ -182,8 +185,8 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
     return sendStorageEditableEntryList(context, editCategoryId, language);
   }
 
-  const categoryId = parseStartPayload(text, storageCategoryStartPayloadPrefix);
-  if (categoryId !== null) {
+  const selectedCategoryId = parseStartPayload(text, storageSelectCategoryStartPayloadPrefix);
+  if (selectedCategoryId !== null) {
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
     if (
       context.runtime.session.current?.flowKey === storageUploadFlowKey &&
@@ -195,14 +198,21 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
       context.runtime.session.current?.flowKey === storageCreateCategoryFlowKey &&
       context.runtime.session.current.stepKey === 'create-category-parent'
     ) {
-      return selectCreateCategoryParent(context, categoryId, language);
+      return selectCreateCategoryParent(context, selectedCategoryId, language);
     }
     if (
       context.runtime.session.current?.flowKey === storageEditEntryFlowKey &&
       context.runtime.session.current.stepKey === 'edit-entry-move-category'
     ) {
-      return selectStorageEntryMoveCategory(context, categoryId, language);
+      return selectStorageEntryMoveCategory(context, selectedCategoryId, language);
     }
+    await context.reply(createTelegramI18n(language).storage.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  const categoryId = parseStartPayload(text, storageCategoryStartPayloadPrefix);
+  if (categoryId !== null) {
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
     return sendStorageCategoryEntryList(context, categoryId, language);
   }
 
@@ -322,6 +332,30 @@ export async function handleTelegramStorageCallback(context: StorageFlowContext)
     return deleteStorageEntryFromDetailAction(context, entryId, language);
   }
 
+  if (callbackData.startsWith(storageCallbackPrefixes.categoryPage)) {
+    const page = parseCategoryPageCallback(callbackData, storageCallbackPrefixes.categoryPage);
+    if (!page) {
+      await context.reply(createTelegramI18n(language).storage.invalidNumber, buildStorageMenuOptions(language, context));
+      return true;
+    }
+    return sendStorageCategoryEntryList(context, page.categoryId, language, page.page);
+  }
+
+  if (callbackData.startsWith(storageCallbackPrefixes.categoryGoToPage)) {
+    const categoryId = parseCallbackEntityId(callbackData, storageCallbackPrefixes.categoryGoToPage);
+    if (categoryId === null) {
+      await context.reply(createTelegramI18n(language).storage.invalidCategory, buildStorageMenuOptions(language, context));
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: storageListFlowKey,
+      stepKey: 'category-page-input',
+      data: { categoryId },
+    });
+    await context.reply(createTelegramI18n(language).storage.askListPage, buildSingleCancelOptions());
+    return true;
+  }
+
   return false;
 }
 
@@ -369,6 +403,7 @@ async function sendStorageCategoryEntryList(
   context: StorageFlowContext,
   categoryId: number,
   language: 'ca' | 'es' | 'en',
+  page = 1,
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).storage;
   const categories = await listReadableCategories(context);
@@ -392,10 +427,42 @@ async function sendStorageCategoryEntryList(
       details,
       allCategories: categories,
       language,
+      page,
     }),
-    { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
+    buildStorageCategoryEntryListOptions({
+      context,
+      categoryId: category.id,
+      page,
+      totalItems: details.length,
+      language,
+    }),
   );
   return true;
+}
+
+function buildStorageCategoryEntryListOptions({
+  context,
+  categoryId,
+  page,
+  totalItems,
+  language,
+}: {
+  context: StorageFlowContext;
+  categoryId: number;
+  page: number;
+  totalItems: number;
+  language: 'ca' | 'es' | 'en';
+}): TelegramReplyOptions {
+  const paginationOptions = buildStorageCategoryPaginationOptions({
+    categoryId,
+    page,
+    totalItems,
+    language,
+  });
+  if (paginationOptions.inlineKeyboard) {
+    return { ...paginationOptions, parseMode: 'HTML' };
+  }
+  return { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' };
 }
 
 export async function handleTelegramStorageText(context: StorageFlowContext): Promise<boolean> {
@@ -411,7 +478,7 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   if (
     context.runtime.session.current?.flowKey === storageUploadFlowKey &&
     context.runtime.session.current.stepKey === 'upload-category' &&
-    parseStartPayload(text, storageCategoryStartPayloadPrefix) !== null
+    parseStartPayload(text, storageSelectCategoryStartPayloadPrefix) !== null
   ) {
     return handleActiveUploadFlow(context, text, language);
   }
@@ -649,7 +716,7 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
       },
     });
     await context.reply(
-      `${escapeHtml(texts.askUploadCategory)}\n${formatStorageCategoryListMessage({ categories, language })}`,
+      `${escapeHtml(texts.askUploadCategory)}\n${formatStorageCategoryListMessage({ categories, language, linkMode: 'select' })}`,
       { ...buildCategoryChoiceOptions(categories, language), parseMode: 'HTML' },
     );
     return true;
@@ -1117,11 +1184,25 @@ async function handleActiveViewAccessFlow(context: StorageFlowContext, text: str
 
 async function handleActiveListFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
   const session = context.runtime.session.current;
-  if (!session || session.flowKey !== storageListFlowKey || session.stepKey !== 'list-category') {
+  if (!session || session.flowKey !== storageListFlowKey) {
     return false;
   }
 
   const texts = createTelegramI18n(language).storage;
+  if (session.stepKey === 'category-page-input') {
+    const page = parsePositiveInteger(text);
+    if (page === null) {
+      await context.reply(texts.invalidNumber, buildSingleCancelOptions());
+      return true;
+    }
+    await context.runtime.session.cancel();
+    return sendStorageCategoryEntryList(context, asNumber(session.data.categoryId), language, page);
+  }
+
+  if (session.stepKey !== 'list-category') {
+    return false;
+  }
+
   const categories = asCategoryChoices(session.data.categories);
   const selected = categories.find((category) => category.displayName === text);
   if (!selected) {
@@ -1684,14 +1765,14 @@ async function handleActiveUploadFlow(context: StorageFlowContext, text: string,
   const texts = createTelegramI18n(language).storage;
   if (session.stepKey === 'upload-category') {
     const categories = asCategoryChoices(session.data.categories);
-    const selectedCategoryId = parseStartPayload(text, storageCategoryStartPayloadPrefix);
+    const selectedCategoryId = parseStartPayload(text, storageSelectCategoryStartPayloadPrefix);
     const selected = selectedCategoryId === null
       ? categories.find((category) => category.displayName === text)
       : categories.find((category) => category.id === selectedCategoryId);
     if (!selected) {
       const uploadableCategories = await listUploadableCategories(context);
       await context.reply(
-        `${escapeHtml(texts.invalidCategory)}\n${formatStorageCategoryListMessage({ categories: uploadableCategories, language })}`,
+        `${escapeHtml(texts.invalidCategory)}\n${formatStorageCategoryListMessage({ categories: uploadableCategories, language, linkMode: 'select' })}`,
         { ...buildCategoryChoiceOptions(uploadableCategories, language), parseMode: 'HTML' },
       );
       return true;
@@ -2473,6 +2554,45 @@ function buildStorageEntryChoiceOptions(details: StorageEntryDetailRecord[]): Te
   };
 }
 
+function buildStorageCategoryPaginationOptions({
+  categoryId,
+  page,
+  totalItems,
+  language,
+}: {
+  categoryId: number;
+  page: number;
+  totalItems: number;
+  language: 'ca' | 'es' | 'en';
+}): TelegramReplyOptions {
+  const totalPages = calculateStorageListTotalPages(totalItems);
+  if (totalPages <= 1) {
+    return {};
+  }
+
+  const texts = createTelegramI18n(language).storage;
+  const currentPage = clampStorageListPage(page, totalItems);
+  const row = [];
+  if (currentPage > 1) {
+    row.push({
+      text: texts.paginationPrevious,
+      callbackData: `${storageCallbackPrefixes.categoryPage}${categoryId}:${currentPage - 1}`,
+    });
+  }
+  row.push({
+    text: texts.paginationGoToPage,
+    callbackData: `${storageCallbackPrefixes.categoryGoToPage}${categoryId}`,
+  });
+  if (currentPage < totalPages) {
+    row.push({
+      text: texts.paginationNext,
+      callbackData: `${storageCallbackPrefixes.categoryPage}${categoryId}:${currentPage + 1}`,
+    });
+  }
+
+  return { inlineKeyboard: [row] };
+}
+
 function formatStorageEntryChoiceLabel(detail: StorageEntryDetailRecord): string {
   return `#${detail.entry.id} - ${detail.entry.description ?? detail.messages[0]?.originalFileName ?? detail.category.displayName}`;
 }
@@ -2930,12 +3050,14 @@ function formatStorageCategoryDetailMessage({
   details,
   allCategories,
   language,
+  page,
 }: {
   category: StorageCategoryRecord;
   childCategories: StorageCategoryRecord[];
   details: StorageEntryDetailRecord[];
   allCategories: StorageCategoryRecord[];
   language: 'ca' | 'es' | 'en';
+  page: number;
 }): string {
   const texts = createTelegramI18n(language).storage;
   const lines = [
@@ -2948,16 +3070,26 @@ function formatStorageCategoryDetailMessage({
 
   if (details.length > 0) {
     const sortedDetails = sortStorageEntryDetailsAlphabetically(details);
+    const currentPage = clampStorageListPage(page, sortedDetails.length);
+    const offset = (currentPage - 1) * storageListPageSize;
+    const visibleDetails = sortedDetails.slice(offset, offset + storageListPageSize);
     lines.push(
       '',
       escapeHtml(texts.categoryEntriesHeader),
-      ...sortedDetails.slice(0, storageListPageSize).map((detail) => formatStorageSummaryEntry(detail, language, {
+      ...visibleDetails.map((detail) => formatStorageSummaryEntry(detail, language, {
         hideAttachmentCount: true,
         linkTarget: 'description',
       })),
     );
-    if (details.length > storageListPageSize) {
-      lines.push(escapeHtml(formatStorageListLimitedFooter(details.length, storageListPageSize, language)));
+    if (sortedDetails.length > storageListPageSize) {
+      lines.push(escapeHtml(formatStorageListPageFooter({
+        total: sortedDetails.length,
+        shownFrom: offset + 1,
+        shownTo: offset + visibleDetails.length,
+        page: currentPage,
+        totalPages: calculateStorageListTotalPages(sortedDetails.length),
+        language,
+      })));
     }
   }
 
@@ -2968,16 +3100,18 @@ function formatStorageCategoryListMessage({
   categories,
   language,
   labelMode = 'local',
+  linkMode = 'detail',
 }: {
   categories: StorageCategoryRecord[];
   language: 'ca' | 'es' | 'en';
   labelMode?: 'local' | 'full-path';
+  linkMode?: 'detail' | 'edit' | 'select';
 }): string {
   const texts = createTelegramI18n(language).storage;
   const visibleCategories = categories.slice(0, storageCategoryListPageSize);
   const lines = [
     escapeHtml(texts.categoriesHeader),
-    ...formatStorageCategoryLinks(visibleCategories, language, categories, { labelMode }),
+    ...formatStorageCategoryLinks(visibleCategories, language, categories, { labelMode, linkMode }),
   ];
   if (categories.length > visibleCategories.length) {
     lines.push(formatStorageCategoryLimitedFooter(categories.length, visibleCategories.length, language));
@@ -2990,26 +3124,28 @@ function formatCreateCategoryParentPrompt(categories: StorageCategoryRecord[], l
   if (categories.length === 0) {
     return escapeHtml(texts.askCategoryParent);
   }
-  return `${escapeHtml(texts.askCategoryParent)}\n${formatStorageCategoryListMessage({ categories, language })}`;
+  return `${escapeHtml(texts.askCategoryParent)}\n${formatStorageCategoryListMessage({ categories, language, linkMode: 'select' })}`;
 }
 
 function formatMoveEntryCategoryPrompt(categories: StorageCategoryRecord[], language: 'ca' | 'es' | 'en'): string {
   const texts = createTelegramI18n(language).storage;
-  return `${escapeHtml(texts.askMoveCategory)}\n${formatStorageCategoryListMessage({ categories, language })}`;
+  return `${escapeHtml(texts.askMoveCategory)}\n${formatStorageCategoryListMessage({ categories, language, linkMode: 'select' })}`;
 }
 
 function formatStorageCategoryLinks(
   categories: StorageCategoryRecord[],
   language: 'ca' | 'es' | 'en',
   allCategories: StorageCategoryRecord[] = categories,
-  { linkMode = 'detail', labelMode = 'local' }: { linkMode?: 'detail' | 'edit'; labelMode?: 'local' | 'full-path' } = {},
+  { linkMode = 'detail', labelMode = 'local' }: { linkMode?: 'detail' | 'edit' | 'select'; labelMode?: 'local' | 'full-path' } = {},
 ): string[] {
   return orderStorageCategoriesForTree(categories, allCategories).map((category) => {
     const depth = resolveStorageCategoryDepth(category, allCategories);
     const prefix = `${'  '.repeat(depth)}- `;
     const href = linkMode === 'edit'
       ? buildTelegramStartUrl(`${storageEditCategoryStartPayloadPrefix}${category.id}`)
-      : buildStorageCategoryDeepLink(category.id);
+      : linkMode === 'select'
+        ? buildTelegramStartUrl(`${storageSelectCategoryStartPayloadPrefix}${category.id}`)
+        : buildStorageCategoryDeepLink(category.id);
     const label = labelMode === 'full-path' ? formatStorageCategoryPath(category, allCategories) : category.displayName;
     return `${prefix}<a href="${escapeHtml(href)}"><b>${escapeHtml(label)}</b></a>`;
   });
@@ -3182,6 +3318,47 @@ function formatStorageListLimitedFooter(total: number, shown: number, language: 
   return createTelegramI18n(language).storage.listLimitedFooter
     .replace('{shown}', String(shown))
     .replace('{total}', String(total));
+}
+
+function formatStorageListPageFooter({
+  total,
+  shownFrom,
+  shownTo,
+  page,
+  totalPages,
+  language,
+}: {
+  total: number;
+  shownFrom: number;
+  shownTo: number;
+  page: number;
+  totalPages: number;
+  language: 'ca' | 'es' | 'en';
+}): string {
+  return createTelegramI18n(language).storage.listPageFooter
+    .replace('{from}', String(shownFrom))
+    .replace('{to}', String(shownTo))
+    .replace('{total}', String(total))
+    .replace('{page}', String(page))
+    .replace('{pages}', String(totalPages));
+}
+
+function calculateStorageListTotalPages(totalItems: number): number {
+  return Math.max(1, Math.ceil(totalItems / storageListPageSize));
+}
+
+function clampStorageListPage(page: number, totalItems: number): number {
+  return Math.min(Math.max(1, page), calculateStorageListTotalPages(totalItems));
+}
+
+function parseCategoryPageCallback(callbackData: string, prefix: string): { categoryId: number; page: number } | null {
+  const [categoryIdValue, pageValue] = callbackData.slice(prefix.length).split(':');
+  const categoryId = Number(categoryIdValue);
+  const page = Number(pageValue);
+  if (!Number.isInteger(categoryId) || categoryId <= 0 || !Number.isInteger(page) || page <= 0) {
+    return null;
+  }
+  return { categoryId, page };
 }
 
 function formatStorageEntryDetail(
