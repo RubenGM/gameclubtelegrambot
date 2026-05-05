@@ -405,7 +405,7 @@ class AdminConsoleTextualApp(App[None]):
         height: 1fr;
     }
     #sidebar {
-        width: 26;
+        width: 31;
         border-right: solid #2b3340;
         padding: 1;
         background: #151922;
@@ -439,6 +439,20 @@ class AdminConsoleTextualApp(App[None]):
         margin-top: 1;
     }
     #actions Button {
+        margin-right: 1;
+    }
+    #user-actions {
+        height: auto;
+        margin-top: 1;
+        margin-bottom: 1;
+        padding-bottom: 1;
+        border-bottom: solid #2b3340;
+    }
+    .user-action-row {
+        height: 3;
+    }
+    #user-actions Button {
+        width: 13;
         margin-right: 1;
     }
     #status {
@@ -483,6 +497,17 @@ class AdminConsoleTextualApp(App[None]):
                         value=self.resource.key,
                         id="resource-select",
                     )
+                    with Vertical(id="user-actions"):
+                        yield Label("Usuarios")
+                        with Horizontal(classes="user-action-row"):
+                            yield Button("Aprobar", id="user-approve", variant="success", disabled=True)
+                            yield Button("Pend.", id="user-pending", disabled=True)
+                        with Horizontal(classes="user-action-row"):
+                            yield Button("Bloquear", id="user-block", variant="warning", disabled=True)
+                            yield Button("Revocar", id="user-revoke", variant="error", disabled=True)
+                        with Horizontal(classes="user-action-row"):
+                            yield Button("Admin", id="user-toggle-admin", disabled=True)
+                            yield Button("Aprob.", id="user-toggle-approved", disabled=True)
                     yield Button("Refrescar", id="refresh", variant="primary")
                     yield Button("Editar", id="edit")
                     yield Button("Desactivar / archivar", id="soft-delete", variant="warning")
@@ -528,6 +553,7 @@ class AdminConsoleTextualApp(App[None]):
         self.resource = next(resource for resource in RESOURCES if resource.key == event.value)
         self.selected_id = None
         self.selected_row = None
+        self.update_user_action_state()
         self.refresh_rows()
 
     @on(Input.Submitted, "#search")
@@ -566,11 +592,36 @@ class AdminConsoleTextualApp(App[None]):
     def service_restart_clicked(self) -> None:
         self.run_service("restart")
 
+    @on(Button.Pressed, "#user-approve")
+    def user_approve_clicked(self) -> None:
+        self.update_user_status("approved")
+
+    @on(Button.Pressed, "#user-pending")
+    def user_pending_clicked(self) -> None:
+        self.update_user_status("pending")
+
+    @on(Button.Pressed, "#user-block")
+    def user_block_clicked(self) -> None:
+        self.update_user_status("blocked")
+
+    @on(Button.Pressed, "#user-revoke")
+    def user_revoke_clicked(self) -> None:
+        self.update_user_status("revoked")
+
+    @on(Button.Pressed, "#user-toggle-admin")
+    def user_toggle_admin_clicked(self) -> None:
+        self.toggle_user_boolean("is_admin")
+
+    @on(Button.Pressed, "#user-toggle-approved")
+    def user_toggle_approved_clicked(self) -> None:
+        self.toggle_user_boolean("is_approved")
+
     @on(DataTable.RowSelected)
     def row_selected(self, event: DataTable.RowSelected) -> None:
         if event.row_key.value is None:
             return
         self.selected_id = event.row_key.value
+        self.update_user_action_state()
         self.load_detail()
 
     def refresh_all(self) -> None:
@@ -610,6 +661,7 @@ class AdminConsoleTextualApp(App[None]):
             row_id = row.get(self.resource.id_column)
             table.add_row(*(format_cell(row.get(column)) for column in self.resource.list_columns), key=str(row_id))
         self.query_one("#detail", Static).update("Selecciona una fila para ver el detalle.")
+        self.update_user_action_state()
 
     @work(thread=True)
     def load_detail(self) -> None:
@@ -619,6 +671,7 @@ class AdminConsoleTextualApp(App[None]):
             row = self.fetch_detail(self.resource, self.selected_id)
             self.selected_row = row
             self.call_from_thread(self.render_detail, row)
+            self.call_from_thread(self.update_user_action_state)
         except Exception as error:
             self.call_from_thread(self.set_status, f"Error cargando detalle: {error}")
 
@@ -639,6 +692,7 @@ class AdminConsoleTextualApp(App[None]):
         if not self.resource.editable_fields:
             lines.append("<ninguno>")
         self.query_one("#detail", Static).update("\n".join(lines))
+        self.update_user_action_state()
 
     def start_edit(self) -> None:
         if self.selected_id is None or not self.selected_row:
@@ -697,6 +751,35 @@ class AdminConsoleTextualApp(App[None]):
             self.call_from_thread(self.set_status, f"Error borrando: {error}")
 
     @work(thread=True)
+    def update_user_status(self, status: str) -> None:
+        if self.resource.key != "users" or self.selected_id is None:
+            self.call_from_thread(self.set_status, "Selecciona un usuario primero.")
+            return
+        try:
+            self.set_user_status(self.selected_id, status)
+            self.call_from_thread(self.set_status, f"Usuario actualizado a {status}.")
+            self.call_from_thread(self.refresh_rows)
+            self.call_from_thread(self.load_detail)
+            self.call_from_thread(self.refresh_summary)
+        except Exception as error:
+            self.call_from_thread(self.set_status, f"Error actualizando usuario: {error}")
+
+    @work(thread=True)
+    def toggle_user_boolean(self, column: str) -> None:
+        if self.resource.key != "users" or self.selected_id is None:
+            self.call_from_thread(self.set_status, "Selecciona un usuario primero.")
+            return
+        try:
+            next_value = not bool(self.selected_row.get(column)) if self.selected_row else True
+            self.set_user_boolean(self.selected_id, column, next_value)
+            self.call_from_thread(self.set_status, f"{column} actualizado a {next_value}.")
+            self.call_from_thread(self.refresh_rows)
+            self.call_from_thread(self.load_detail)
+            self.call_from_thread(self.refresh_summary)
+        except Exception as error:
+            self.call_from_thread(self.set_status, f"Error actualizando usuario: {error}")
+
+    @work(thread=True)
     def run_service(self, action: str) -> None:
         try:
             run_command(["systemctl", action, self.service_name])
@@ -707,6 +790,18 @@ class AdminConsoleTextualApp(App[None]):
 
     def set_status(self, message: str) -> None:
         self.query_one("#status", Static).update(message)
+
+    def update_user_action_state(self) -> None:
+        enabled = self.resource.key == "users" and self.selected_id is not None
+        for button_id in (
+            "#user-approve",
+            "#user-pending",
+            "#user-block",
+            "#user-revoke",
+            "#user-toggle-admin",
+            "#user-toggle-approved",
+        ):
+            self.query_one(button_id, Button).disabled = not enabled
 
     def connection(self) -> psycopg.Connection[Any]:
         database = self.config["database"]
@@ -764,6 +859,77 @@ class AdminConsoleTextualApp(App[None]):
                     f'update "{resource.table}" set {", ".join(assignments)} where "{resource.id_column}" = %s',
                     params,
                 )
+
+    def set_user_status(self, row_id: str | int, status: str) -> None:
+        if status not in ("pending", "approved", "blocked", "revoked"):
+            raise ValueError(f"status no soportado: {status}")
+        normalized_id = normalize_id(row_id)
+        with self.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('select status from "users" where "telegram_user_id" = %s', [normalized_id])
+                existing = cursor.fetchone()
+                if existing is None:
+                    raise RuntimeError("usuario no encontrado")
+                previous_status = str(existing[0])
+                cursor.execute(
+                    """
+                    update "users"
+                       set "status" = %s,
+                           "is_approved" = %s,
+                           "updated_at" = now(),
+                           "approved_at" = case when %s = 'approved' then now() else "approved_at" end,
+                           "blocked_at" = case when %s in ('blocked', 'revoked') then now() else null end,
+                           "revoked_at" = case when %s = 'revoked' then now() else null end,
+                           "status_reason" = %s
+                     where "telegram_user_id" = %s
+                    """,
+                    [
+                        status,
+                        status == "approved",
+                        status,
+                        status,
+                        status,
+                        f"admin-console-textual {status}",
+                        normalized_id,
+                    ],
+                )
+                cursor.execute(
+                    """
+                    insert into "user_status_audit_log"
+                        ("subject_telegram_user_id", "previous_status", "next_status", "changed_by_telegram_user_id", "reason")
+                    values (%s, %s, %s, %s, %s)
+                    """,
+                    [normalized_id, previous_status, status, self.operator_id, f"admin-console-textual {status}"],
+                )
+
+    def set_user_boolean(self, row_id: str | int, column: str, value: bool) -> None:
+        if column not in ("is_admin", "is_approved"):
+            raise ValueError(f"campo booleano no soportado: {column}")
+        normalized_id = normalize_id(row_id)
+        with self.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(f'select "{column}" from "users" where "telegram_user_id" = %s', [normalized_id])
+                existing = cursor.fetchone()
+                if existing is None:
+                    raise RuntimeError("usuario no encontrado")
+                previous_value = bool(existing[0])
+                cursor.execute(f'update "users" set "{column}" = %s, "updated_at" = now() where "telegram_user_id" = %s', [value, normalized_id])
+                if column == "is_admin":
+                    cursor.execute(
+                        """
+                        insert into "user_permission_audit_log"
+                            ("subject_telegram_user_id", "permission_key", "scope_type", "resource_type", "resource_id",
+                             "previous_effect", "next_effect", "changed_by_telegram_user_id", "reason")
+                        values (%s, 'admin', 'global', null, null, null, %s, %s, %s)
+                        """,
+                        [
+                            normalized_id,
+                            "allow" if previous_value else None,
+                            "allow" if value else None,
+                            self.operator_id,
+                            "admin-console-textual toggle admin",
+                        ],
+                    )
 
     def delete_resource(self, resource: ResourceDef, row_id: str | int, hard_delete: bool) -> None:
         with self.connection() as conn:
