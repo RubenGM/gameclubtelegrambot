@@ -24,6 +24,9 @@ Commands:
   list [--output-dir PATH] [--latest]
       List gameclub-backup zip files, newest first.
 
+  delete <backup-zip|archive-name> [--output-dir PATH]
+      Delete a backup archive from the backup directory.
+
   status [--output-dir PATH]
       Show backup directory status, dependency state and latest backup.
 
@@ -34,6 +37,7 @@ Examples:
   ./scripts/backup-cli.sh backup --output-dir /var/backups/gameclub
   ./scripts/backup-cli.sh restore /var/backups/gameclub/gameclub-backup-20260419-155001.zip
   ./scripts/backup-cli.sh list --output-dir /var/backups/gameclub
+  ./scripts/backup-cli.sh delete gameclub-backup-20260419-155001.zip --output-dir /var/backups/gameclub
   ./scripts/backup-cli.sh status
 EOF
 }
@@ -239,6 +243,78 @@ run_list() {
   done
 }
 
+run_delete() {
+  local output_dir="$DEFAULT_BACKUP_DIR"
+  local archive=""
+  local archive_path=""
+  local output_dir_real archive_real archive_dir_real
+  local arg
+
+  if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
+    archive="$1"
+    shift
+  fi
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    shift
+
+    case "$arg" in
+      --output-dir)
+        require_value "$arg" "${1-}"
+        output_dir="$1"
+        shift
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        printf 'Unknown option: %s\n' "$arg" >&2
+        usage
+        exit 1
+        ;;
+    esac
+  done
+
+  if [ -z "$archive" ]; then
+    printf 'Missing backup archive. Usage: ./scripts/backup-cli.sh delete <backup-zip|archive-name>\n' >&2
+    exit 1
+  fi
+
+  if [[ "$archive" = */* ]]; then
+    archive_path="$archive"
+  else
+    archive_path="$output_dir/$archive"
+  fi
+
+  if [ ! -f "$archive_path" ]; then
+    printf 'Backup archive not found: %s\n' "$archive_path" >&2
+    exit 1
+  fi
+
+  case "$(basename "$archive_path")" in
+    gameclub-backup-*.zip)
+      ;;
+    *)
+      printf 'Refusing to delete a file that does not look like a gameclub backup: %s\n' "$archive_path" >&2
+      exit 1
+      ;;
+  esac
+
+  output_dir_real="$(realpath -m "$output_dir")"
+  archive_real="$(realpath -m "$archive_path")"
+  archive_dir_real="$(dirname "$archive_real")"
+
+  if [ "$archive_dir_real" != "$output_dir_real" ]; then
+    printf 'Refusing to delete backup outside %s: %s\n' "$output_dir_real" "$archive_real" >&2
+    exit 1
+  fi
+
+  rm -f -- "$archive_real"
+  printf 'Deleted backup: %s\n' "$archive_real"
+}
+
 run_status() {
   local output_dir="$DEFAULT_BACKUP_DIR"
   local arg
@@ -302,6 +378,9 @@ main() {
       ;;
     list)
       run_list "$@"
+      ;;
+    delete|remove|rm)
+      run_delete "$@"
       ;;
     status)
       run_status "$@"

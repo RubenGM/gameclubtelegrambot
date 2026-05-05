@@ -10,6 +10,8 @@ CONFIG_TARGET="$CONFIG_DIR/runtime.json"
 RUNTIME_ENV_TARGET="$CONFIG_DIR/.env"
 ENV_TARGET="/etc/default/gameclubtelegrambot"
 SERVICE_NAME="gameclubtelegrambot.service"
+BACKUP_SERVICE_NAME="gameclubtelegrambot-backup.service"
+BACKUP_TIMER_NAME="gameclubtelegrambot-backup.timer"
 SERVICE_USER="gameclubbot"
 SERVICE_GROUP="gameclubbot"
 OPERATOR_GROUP="gameclubbot-operators"
@@ -258,10 +260,11 @@ apply_runtime_migrations() {
 }
 
 install_service_assets() {
-  local service_tmp
+  local service_tmp backup_service_tmp
 
   service_tmp="$(mktemp)"
-  trap 'rm -f "$service_tmp"' RETURN
+  backup_service_tmp="$(mktemp)"
+  trap 'rm -f "$service_tmp" "$backup_service_tmp"' RETURN
 
   sed \
     -e "s|^User=.*|User=$SERVICE_USER|" \
@@ -273,9 +276,19 @@ install_service_assets() {
     "$ROOT_DIR/deploy/systemd/gameclubtelegrambot.service" > "$service_tmp"
 
   run_root_cmd install -m 0644 "$service_tmp" "/etc/systemd/system/$SERVICE_NAME"
+
+  sed \
+    -e "s|^WorkingDirectory=.*|WorkingDirectory=$APP_ROOT|" \
+    -e "s|^ExecStart=/opt/gameclubtelegrambot/scripts/backup-cli.sh .*|ExecStart=$APP_ROOT/scripts/backup-cli.sh backup --output-dir /var/backups/gameclubtelegrambot --app-root $APP_ROOT --service-name $SERVICE_NAME|" \
+    "$ROOT_DIR/deploy/systemd/gameclubtelegrambot-backup.service" > "$backup_service_tmp"
+
+  run_root_cmd install -m 0644 "$backup_service_tmp" "/etc/systemd/system/$BACKUP_SERVICE_NAME"
+  run_root_cmd install -m 0644 "$ROOT_DIR/deploy/systemd/gameclubtelegrambot-backup.timer" "/etc/systemd/system/$BACKUP_TIMER_NAME"
+  run_root_cmd install -d -m 0750 -o root -g "$SERVICE_GROUP" /var/backups/gameclubtelegrambot
   run_root_cmd install -d -m 0755 /etc/polkit-1/rules.d
   run_root_cmd install -m 0644 "$ROOT_DIR/deploy/polkit/rules.d/50-gameclubtelegrambot.rules" /etc/polkit-1/rules.d/50-gameclubtelegrambot.rules
   run_root_cmd systemctl daemon-reload
+  run_root_cmd systemctl enable --now "$BACKUP_TIMER_NAME"
 
   if [ "$START_SERVICE" -eq 1 ]; then
     run_root_cmd systemctl enable --now "$SERVICE_NAME"
@@ -283,7 +296,7 @@ install_service_assets() {
     log 'S omet l arrencada del servei per petició de l operador.'
   fi
 
-  rm -f "$service_tmp"
+  rm -f "$service_tmp" "$backup_service_tmp"
   trap - RETURN
 }
 

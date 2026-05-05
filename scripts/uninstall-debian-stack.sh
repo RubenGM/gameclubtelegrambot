@@ -2,6 +2,8 @@
 set -euo pipefail
 
 SERVICE_NAME="gameclubtelegrambot.service"
+BACKUP_SERVICE_NAME="gameclubtelegrambot-backup.service"
+BACKUP_TIMER_NAME="gameclubtelegrambot-backup.timer"
 POLKIT_RULE_PATH="/etc/polkit-1/rules.d/50-gameclubtelegrambot.rules"
 AUTOSTART_FILE_NAME="gameclubtelegrambot-tray.desktop"
 OPERATOR_USER="${SUDO_USER:-$USER}"
@@ -64,6 +66,14 @@ systemd_unit_path() {
   printf '/etc/systemd/system/%s\n' "$SERVICE_NAME"
 }
 
+backup_service_unit_path() {
+  printf '/etc/systemd/system/%s\n' "$BACKUP_SERVICE_NAME"
+}
+
+backup_timer_unit_path() {
+  printf '/etc/systemd/system/%s\n' "$BACKUP_TIMER_NAME"
+}
+
 service_known_to_systemd() {
   local unit_listing
   unit_listing="$(systemctl list-unit-files --no-legend "$SERVICE_NAME" 2>/dev/null || true)"
@@ -95,6 +105,21 @@ remove_systemd_unit() {
   fi
 
   log "Systemd unit file is already absent: $unit_path"
+}
+
+remove_backup_units() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    run_root_cmd systemctl disable --now "$BACKUP_TIMER_NAME"
+    run_root_cmd rm -f "$(backup_service_unit_path)" "$(backup_timer_unit_path)"
+    return 0
+  fi
+
+  if systemctl list-unit-files --no-legend "$BACKUP_TIMER_NAME" 2>/dev/null | grep -q .; then
+    log "Stopping and disabling $BACKUP_TIMER_NAME"
+    run_root_cmd systemctl disable --now "$BACKUP_TIMER_NAME"
+  fi
+
+  run_root_cmd rm -f "$(backup_service_unit_path)" "$(backup_timer_unit_path)"
 }
 
 remove_polkit_rule() {
@@ -195,12 +220,14 @@ fi
 
 disable_and_stop_service
 remove_systemd_unit
+remove_backup_units
 remove_polkit_rule
 remove_operator_autostart
 reload_systemd
 
 log 'Uninstall completed.'
 log "Removed service unit: $(systemd_unit_path)"
+log "Removed backup units: $(backup_service_unit_path), $(backup_timer_unit_path)"
 log "Removed polkit rule: $POLKIT_RULE_PATH"
 if [ "$REMOVE_AUTOSTART" -eq 1 ]; then
   log "Removed tray autostart for operator user: $OPERATOR_USER"

@@ -80,8 +80,13 @@ També hi ha un wrapper shell senzill per a operacions des de terminal:
 ./scripts/backup-cli.sh status
 ./scripts/backup-cli.sh backup --output-dir /var/backups/gameclub
 ./scripts/backup-cli.sh list --output-dir /var/backups/gameclub
+./scripts/backup-cli.sh delete gameclub-backup-YYYYMMDD-HHMMSS.zip --output-dir /var/backups/gameclub
 ./scripts/backup-cli.sh restore /var/backups/gameclub/gameclub-backup-YYYYMMDD-HHMMSS.zip
 ```
+
+La consola de administracion `./scripts/admin-console.sh` incluye la vista `Backups` para ver, crear, eliminar y restaurar estos archivos.
+
+En instalaciones Debian hechas con `./scripts/install-debian-stack.sh`, se instala tambien `gameclubtelegrambot-backup.timer`. Este timer ejecuta cada noche `gameclubtelegrambot-backup.service` y guarda backups completos en `/var/backups/gameclubtelegrambot`. Los adjuntos no se descargan ni se duplican: el backup cubre configuracion y base de datos.
 
 Accions disponibles a la v1:
 

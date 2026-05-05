@@ -1,0 +1,17 @@
+[Unit]
+Description=Game Club Telegram Bot nightly backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/gameclubtelegrambot
+EnvironmentFile=-/etc/default/gameclubtelegrambot
+Environment=GAMECLUB_BACKUP_DIR=/var/backups/gameclubtelegrambot
+ExecStartPre=/usr/bin/install -d -m 0750 -o root -g gameclubbot /var/backups/gameclubtelegrambot
+ExecStart=/opt/gameclubtelegrambot/scripts/backup-cli.sh backup --output-dir /var/backups/gameclubtelegrambot --app-root /opt/gameclubtelegrambot --service-name gameclubtelegrambot.service
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=yes
+ProtectHome=yes

@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import subprocess
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -290,7 +291,12 @@ RESOURCES: tuple[ResourceDef, ...] = (
 )
 
 SUMMARY_VIEW_KEY = "__summary__"
-RESOURCE_OPTIONS = (("Resumen", SUMMARY_VIEW_KEY), *((resource.label, resource.key) for resource in RESOURCES))
+BACKUPS_VIEW_KEY = "__backups__"
+RESOURCE_OPTIONS = (
+    ("Resumen", SUMMARY_VIEW_KEY),
+    ("Backups", BACKUPS_VIEW_KEY),
+    *((resource.label, resource.key) for resource in RESOURCES),
+)
 
 
 class TextInputScreen(ModalScreen[str | None]):
@@ -412,6 +418,7 @@ class AdminConsoleTextualApp(App[None]):
         border-right: solid #2b3340;
         padding: 1;
         background: #151922;
+        overflow-y: auto;
     }
     #workspace {
         width: 1fr;
@@ -472,6 +479,8 @@ class AdminConsoleTextualApp(App[None]):
         ("c", "clear_selection", "Limpiar sel."),
         ("d", "soft_delete", "Desactivar"),
         ("D", "hard_delete", "Borrar"),
+        ("b", "backup_create", "Backup"),
+        ("R", "backup_restore", "Restaurar"),
         ("s", "service_start", "Start"),
         ("x", "service_stop", "Stop"),
         ("S", "service_restart", "Restart"),
@@ -484,10 +493,14 @@ class AdminConsoleTextualApp(App[None]):
         self.service_name = service_name
         self.operator_id = operator_id
         self.config = load_runtime_config(config_path, env_path)
+        self.app_root = Path(__file__).resolve().parent.parent
+        self.backup_dir = resolve_backup_dir(self.app_root)
+        self.backup_cli = self.app_root / "scripts" / "backup-cli.sh"
         self.view_key = SUMMARY_VIEW_KEY
         self.resource = RESOURCES[0]
         self.selected_id: str | int | None = None
         self.selected_row: dict[str, Any] | None = None
+        self.selected_backup: dict[str, Any] | None = None
         self.selected_ids: set[str] = set()
         self.visible_row_ids: list[str] = []
 
@@ -525,6 +538,10 @@ class AdminConsoleTextualApp(App[None]):
                     yield Button("Start servicio", id="service-start")
                     yield Button("Stop servicio", id="service-stop")
                     yield Button("Restart servicio", id="service-restart")
+                    yield Label("Backups")
+                    yield Button("Crear backup", id="backup-create", variant="success")
+                    yield Button("Restaurar backup", id="backup-restore", variant="warning", disabled=True)
+                    yield Button("Eliminar backup", id="backup-delete", variant="error", disabled=True)
                 with Vertical(id="workspace"):
                     with Horizontal(id="search-row"):
                         yield Input(placeholder="Buscar en el recurso seleccionado", id="search")
@@ -555,6 +572,12 @@ class AdminConsoleTextualApp(App[None]):
     def action_hard_delete(self) -> None:
         self.start_delete(True)
 
+    def action_backup_create(self) -> None:
+        self.start_backup_create()
+
+    def action_backup_restore(self) -> None:
+        self.start_backup_restore()
+
     def action_service_start(self) -> None:
         self.run_service("start")
 
@@ -573,8 +596,20 @@ class AdminConsoleTextualApp(App[None]):
             self.view_key = SUMMARY_VIEW_KEY
             self.selected_id = None
             self.selected_row = None
+            self.selected_backup = None
             self.clear_selection(show_status=False)
             self.update_user_action_state()
+            self.update_backup_action_state()
+            self.refresh_rows()
+            return
+        if event.value == BACKUPS_VIEW_KEY:
+            self.view_key = BACKUPS_VIEW_KEY
+            self.selected_id = None
+            self.selected_row = None
+            self.selected_backup = None
+            self.clear_selection(show_status=False)
+            self.update_user_action_state()
+            self.update_backup_action_state()
             self.refresh_rows()
             return
         resource = next((resource for resource in RESOURCES if resource.key == event.value), None)
@@ -586,8 +621,10 @@ class AdminConsoleTextualApp(App[None]):
         self.resource = resource
         self.selected_id = None
         self.selected_row = None
+        self.selected_backup = None
         self.clear_selection(show_status=False)
         self.update_user_action_state()
+        self.update_backup_action_state()
         self.refresh_rows()
 
     @on(Input.Submitted, "#search")
@@ -628,6 +665,18 @@ class AdminConsoleTextualApp(App[None]):
     def service_restart_clicked(self) -> None:
         self.run_service("restart")
 
+    @on(Button.Pressed, "#backup-create")
+    def backup_create_clicked(self) -> None:
+        self.start_backup_create()
+
+    @on(Button.Pressed, "#backup-restore")
+    def backup_restore_clicked(self) -> None:
+        self.start_backup_restore()
+
+    @on(Button.Pressed, "#backup-delete")
+    def backup_delete_clicked(self) -> None:
+        self.start_backup_delete()
+
     @on(Button.Pressed, "#user-approve")
     def user_approve_clicked(self) -> None:
         self.update_user_status("approved")
@@ -654,6 +703,17 @@ class AdminConsoleTextualApp(App[None]):
 
     @on(DataTable.RowSelected)
     def row_selected(self, event: DataTable.RowSelected) -> None:
+        if self.view_key == BACKUPS_VIEW_KEY:
+            if event.row_key.value is None:
+                return
+            backup = next((backup for backup in self.list_backups() if backup["file_name"] == event.row_key.value), None)
+            self.selected_backup = backup
+            self.selected_id = None
+            self.selected_row = None
+            if backup is not None:
+                self.render_backup_detail(backup)
+            self.update_backup_action_state()
+            return
         if self.view_key == SUMMARY_VIEW_KEY:
             return
         if event.row_key.value is None:
@@ -689,6 +749,11 @@ class AdminConsoleTextualApp(App[None]):
                 self.call_from_thread(self.render_current_state, summary)
                 self.call_from_thread(self.set_status, "Resumen actualizado.")
                 return
+            if self.view_key == BACKUPS_VIEW_KEY:
+                backups = self.list_backups()
+                self.call_from_thread(self.render_backups, backups)
+                self.call_from_thread(self.set_status, f"{len(backups)} backups cargados.")
+                return
             rows = self.fetch_rows(self.resource, self.query_one("#search", Input).value.strip())
             self.call_from_thread(self.render_rows, rows)
             self.call_from_thread(self.set_status, f"{len(rows)} filas cargadas de {self.resource.label}.")
@@ -711,6 +776,28 @@ class AdminConsoleTextualApp(App[None]):
             table.add_row(selection_mark, *(format_cell(row.get(column)) for column in self.resource.list_columns), key=row_key)
         self.query_one("#detail", Static).update("Selecciona una fila para ver el detalle.")
         self.update_user_action_state()
+        self.update_backup_action_state()
+
+    def render_backups(self, backups: list[dict[str, Any]]) -> None:
+        table = self.query_one(DataTable)
+        table.clear(columns=True)
+        table.cursor_type = "row"
+        self.visible_row_ids = []
+        self.selected_ids.clear()
+        table.add_column("Archivo")
+        table.add_column("Tamano")
+        table.add_column("Creado UTC")
+        for backup in backups:
+            table.add_row(
+                backup["file_name"],
+                format_bytes(backup["size_bytes"]),
+                backup["modified_at"],
+                key=backup["file_name"],
+            )
+        self.selected_backup = None
+        self.query_one("#detail", Static).update("Selecciona un backup para restaurarlo o eliminarlo.")
+        self.update_user_action_state()
+        self.update_backup_action_state()
 
     def render_current_state(self, summary: dict[str, Any]) -> None:
         table = self.query_one(DataTable)
@@ -737,8 +824,10 @@ class AdminConsoleTextualApp(App[None]):
         lines.extend(f"- {label}: {summary['counts'].get(table_name, 0)}" for label, table_name in summary["tables"])
         self.selected_id = None
         self.selected_row = None
+        self.selected_backup = None
         self.query_one("#detail", Static).update("\n".join(lines))
         self.update_user_action_state()
+        self.update_backup_action_state()
 
     @work(thread=True)
     def load_detail(self) -> None:
@@ -770,6 +859,23 @@ class AdminConsoleTextualApp(App[None]):
             lines.append("<ninguno>")
         self.query_one("#detail", Static).update("\n".join(lines))
         self.update_user_action_state()
+        self.update_backup_action_state()
+
+    def render_backup_detail(self, backup: dict[str, Any]) -> None:
+        lines = [
+            backup["file_name"],
+            "",
+            f"Ruta: {backup['file_path']}",
+            f"Tamano: {format_bytes(backup['size_bytes'])}",
+            f"Creado UTC: {backup['modified_at']}",
+            "",
+            "Acciones:",
+            "- Crear backup genera una nueva copia completa.",
+            "- Restaurar aplica el backup seleccionado.",
+            "- Eliminar borra solo el archivo zip seleccionado.",
+        ]
+        self.query_one("#detail", Static).update("\n".join(lines))
+        self.update_backup_action_state()
 
     def start_edit(self) -> None:
         if self.view_key == SUMMARY_VIEW_KEY:
@@ -883,6 +989,74 @@ class AdminConsoleTextualApp(App[None]):
         except Exception as error:
             self.call_from_thread(self.set_status, f"Error systemctl {action}: {error}")
 
+    def start_backup_create(self) -> None:
+        self.push_screen(
+            ConfirmScreen(f"Crear un backup completo en {self.backup_dir}?"),
+            self.apply_backup_create,
+        )
+
+    @work(thread=True)
+    def apply_backup_create(self, confirmed: bool) -> None:
+        if not confirmed:
+            return
+        try:
+            output = self.run_backup_command(["backup", "--output-dir", str(self.backup_dir), "--app-root", str(self.app_root)])
+            archive = output.strip().splitlines()[-1] if output.strip() else "backup creado"
+            self.call_from_thread(self.set_status, f"Backup creado: {archive}")
+            self.call_from_thread(self.refresh_rows)
+        except Exception as error:
+            self.call_from_thread(self.set_status, f"Error creando backup: {error}")
+
+    def start_backup_restore(self) -> None:
+        if self.view_key != BACKUPS_VIEW_KEY or self.selected_backup is None:
+            self.set_status("Selecciona un backup antes de restaurar.")
+            return
+        self.push_screen(
+            ConfirmScreen(f"Restaurar {self.selected_backup['file_name']}?"),
+            self.apply_backup_restore,
+        )
+
+    @work(thread=True)
+    def apply_backup_restore(self, confirmed: bool) -> None:
+        if not confirmed or self.selected_backup is None:
+            return
+        try:
+            output = self.run_backup_command([
+                "restore",
+                self.selected_backup["file_path"],
+                "--app-root",
+                str(self.app_root),
+                "--service-name",
+                self.service_name,
+            ])
+            summary = output.strip().splitlines()[-1] if output.strip() else "restore completado"
+            self.call_from_thread(self.set_status, summary)
+            self.call_from_thread(self.refresh_all)
+        except Exception as error:
+            self.call_from_thread(self.set_status, f"Error restaurando backup: {error}")
+
+    def start_backup_delete(self) -> None:
+        if self.view_key != BACKUPS_VIEW_KEY or self.selected_backup is None:
+            self.set_status("Selecciona un backup antes de eliminar.")
+            return
+        self.push_screen(
+            ConfirmScreen(f"Eliminar {self.selected_backup['file_name']}?"),
+            self.apply_backup_delete,
+        )
+
+    @work(thread=True)
+    def apply_backup_delete(self, confirmed: bool) -> None:
+        if not confirmed or self.selected_backup is None:
+            return
+        try:
+            file_name = self.selected_backup["file_name"]
+            self.run_backup_command(["delete", file_name, "--output-dir", str(self.backup_dir)])
+            self.selected_backup = None
+            self.call_from_thread(self.set_status, f"Backup eliminado: {file_name}")
+            self.call_from_thread(self.refresh_rows)
+        except Exception as error:
+            self.call_from_thread(self.set_status, f"Error eliminando backup: {error}")
+
     def set_status(self, message: str) -> None:
         self.query_one("#status", Static).update(message)
 
@@ -935,6 +1109,34 @@ class AdminConsoleTextualApp(App[None]):
             "#user-toggle-approved",
         ):
             self.query_one(button_id, Button).disabled = not enabled
+
+    def update_backup_action_state(self) -> None:
+        backup_selected = self.view_key == BACKUPS_VIEW_KEY and self.selected_backup is not None
+        self.query_one("#backup-create", Button).disabled = self.view_key != BACKUPS_VIEW_KEY
+        self.query_one("#backup-restore", Button).disabled = not backup_selected
+        self.query_one("#backup-delete", Button).disabled = not backup_selected
+
+    def list_backups(self) -> list[dict[str, Any]]:
+        if not self.backup_dir.exists():
+            return []
+        backups: list[dict[str, Any]] = []
+        for path in self.backup_dir.glob("gameclub-backup-*.zip"):
+            if not path.is_file():
+                continue
+            stats = path.stat()
+            modified_at = datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+            backups.append({
+                "file_name": path.name,
+                "file_path": str(path),
+                "size_bytes": stats.st_size,
+                "modified_at": modified_at,
+                "mtime": stats.st_mtime,
+            })
+        backups.sort(key=lambda backup: backup["mtime"], reverse=True)
+        return backups
+
+    def run_backup_command(self, args: list[str]) -> str:
+        return run_command([str(self.backup_cli), *args])
 
     def connection(self) -> psycopg.Connection[Any]:
         database = self.config["database"]
@@ -1188,6 +1390,26 @@ def format_cell(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
+
+
+def format_bytes(bytes_value: int) -> str:
+    if bytes_value >= 1073741824:
+        return f"{bytes_value // 1073741824} GiB"
+    if bytes_value >= 1048576:
+        return f"{bytes_value // 1048576} MiB"
+    if bytes_value >= 1024:
+        return f"{bytes_value // 1024} KiB"
+    return f"{bytes_value} B"
+
+
+def resolve_backup_dir(app_root: Path) -> Path:
+    configured = os.environ.get("GAMECLUB_BACKUP_DIR")
+    if configured:
+        return Path(configured)
+    installed_dir = Path("/var/backups/gameclubtelegrambot")
+    if installed_dir.exists():
+        return installed_dir
+    return app_root / "backups"
 
 
 def table_has_column(conn: psycopg.Connection[Any], table: str, column: str) -> bool:
