@@ -59,6 +59,16 @@ function replyKeyboardLabels(replyKeyboard: TelegramReplyOptions['replyKeyboard'
   );
 }
 
+function formatShortTime(value: string): string {
+  const date = new Date(value);
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${String(date.getHours()).padStart(2, '0')}:${minutes}`;
+}
+
+function formatTimeRange(startsAt: string, endsAt: string): string {
+  return `${formatShortTime(startsAt)}-${formatShortTime(endsAt)}`;
+}
+
 test('createTelegramBoundary reports a connected bot when long polling starts', async () => {
   const events: string[] = [];
   const sessionRecords = new Map<string, ConversationSessionRecord>();
@@ -1812,8 +1822,8 @@ test('createTelegramBoundary appends today at club summary to approved member st
 
   assert.equal(telegram.status.bot, 'connected');
   assert.match(replies[0]?.message ?? '', /<b>Avui al club<\/b>/);
-  assert.match(replies[0]?.message ?? '', /- 16:00 Wingspan/);
-  assert.match(replies[0]?.message ?? '', /- 18:00-21:00 Torneig intern/);
+  assert.match(replies[0]?.message ?? '', new RegExp(`- ${formatShortTime('2026-04-27T16:00:00.000Z')} Wingspan`));
+  assert.match(replies[0]?.message ?? '', new RegExp(`- ${formatTimeRange('2026-04-27T18:00:00.000Z', '2026-04-27T21:00:00.000Z')} Torneig intern`));
   assert.equal(replies[0]?.options?.parseMode, 'HTML');
 });
 

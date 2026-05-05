@@ -1454,7 +1454,7 @@ async function formatScheduleEventView(
   const participantLabels = await formatParticipantLabels(context, attendance.activeParticipantTelegramUserIds);
   const detailLines = [
     formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) }),
-    formatHtmlField(texts.detailsEnd, getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')),
+    formatHtmlField(texts.detailsEnd, formatTimestamp(getScheduleEventEndsAt(event))),
     ...(event.attendanceMode === 'open'
       ? [
           formatHtmlField(texts.detailsOccupiedSeats, `${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`),

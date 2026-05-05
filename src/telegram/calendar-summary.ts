@@ -130,10 +130,11 @@ function formatCalendarEntry(entry: CalendarEntry, language: string): string {
 }
 
 function formatCalendarDayHeader(dayKey: string, language: string): string {
-  const date = new Date(`${dayKey}T00:00:00.000Z`);
-  const weekday = new Intl.DateTimeFormat(resolveLanguageLocale(language), { weekday: 'long', timeZone: 'UTC' }).format(date);
-  const month = new Intl.DateTimeFormat(resolveLanguageLocale(language), { month: 'long', timeZone: 'UTC' }).format(date);
-  return `${capitalizeFirstLetter(weekday)} ${date.getUTCDate()} ${month}`;
+  const date = parseDayKey(dayKey);
+  const locale = resolveLanguageLocale(language);
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(date);
+  const month = new Intl.DateTimeFormat(locale, { month: 'long' }).format(date);
+  return `${capitalizeFirstLetter(weekday)} ${date.getDate()} ${month}`;
 }
 
 function formatTimeRange(startsAt: string, endsAt: string): string {
@@ -142,9 +143,14 @@ function formatTimeRange(startsAt: string, endsAt: string): string {
 
 function formatShortTime(value: string): string {
   const date = new Date(value);
-  const hours = String(date.getUTCHours()).padStart(2, '0');
-  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
   return minutes === '00' ? `${Number(hours)}h` : `${hours}:${minutes}`;
+}
+
+function parseDayKey(dayKey: string): Date {
+  const [yearText, monthText, dayText] = dayKey.split('-');
+  return new Date(Number(yearText), Number(monthText) - 1, Number(dayText));
 }
 
 async function loadTableName(

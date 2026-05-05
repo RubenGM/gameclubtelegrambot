@@ -65,6 +65,17 @@ function createContext({
   return { context, replies };
 }
 
+function formatCalendarTime(value: string): string {
+  const date = new Date(value);
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return minutes === '00' ? `${Number(hours)}h` : `${hours}:${minutes}`;
+}
+
+function formatCalendarRange(startsAt: string, endsAt: string): string {
+  return `${formatCalendarTime(startsAt)}-${formatCalendarTime(endsAt)}`;
+}
+
 test('handleTelegramCalendarText shows upcoming activities and venue events grouped by day', async () => {
   const scheduleRepository: ScheduleRepository = {
     async createEvent() { throw new Error('not implemented'); },
@@ -179,11 +190,24 @@ test('handleTelegramCalendarText shows upcoming activities and venue events grou
   assert.equal(handled, true);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
   assert.match(replies.at(-1)?.message ?? '', /<b>Dissabte 4 abril<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /10h-12h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_1"><b>Final de "La Copa"<\/b><\/a> · 2p · Taula Taula de l entrada/);
+  assert.match(
+    replies.at(-1)?.message ?? '',
+    new RegExp(
+      `- ${formatCalendarRange('2026-04-04T10:00:00.000Z', '2026-04-04T12:00:00.000Z')} <a href="https:\\/\\/t\\.me\\/cawa_management_bot\\?start=schedule_event_1"><b>Final de "La Copa"<\\/b><\\/a> · 2p · Taula Taula de l entrada`,
+    ),
+  );
   assert.match(replies.at(-1)?.message ?? '', /<i>Partida final del torneig<\/i>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Diumenge 5 abril<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /14h-18h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_2"><b>Juegos de mesa<\/b><\/a> · 7p · Taula Taula gran/);
-  assert.match(replies.at(-1)?.message ?? '', /18h-20h L5A/);
+  assert.match(
+    replies.at(-1)?.message ?? '',
+    new RegExp(
+      `- ${formatCalendarRange('2026-04-05T14:00:00.000Z', '2026-04-05T18:00:00.000Z')} <a href="https:\\/\\/t\\.me\\/cawa_management_bot\\?start=schedule_event_2"><b>Juegos de mesa<\/b><\\/a> · 7p · Taula Taula gran`,
+    ),
+  );
+  assert.match(
+    replies.at(-1)?.message ?? '',
+    new RegExp(`- ${formatCalendarRange('2026-04-05T18:00:00.000Z', '2026-04-05T20:00:00.000Z')} L5A`),
+  );
   assert.match(replies.at(-1)?.message ?? '', /<i>Campanya oberta<\/i>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Dimecres 8 abril<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /Tot el dia Jornada oberta JdT Vermut Edition/);

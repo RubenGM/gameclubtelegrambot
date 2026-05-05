@@ -27,6 +27,16 @@ function dangerButton(text: string) {
   return { text, semanticRole: 'danger' as const };
 }
 
+function formatCalendarTime(value: string): string {
+  const date = new Date(value);
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return minutes === '00' ? `${Number(date.getHours())}h` : `${String(date.getHours()).padStart(2, '0')}:${minutes}`;
+}
+
+function formatCalendarRange(startsAt: string, endsAt: string): string {
+  return `${formatCalendarTime(startsAt)}-${formatCalendarTime(endsAt)}`;
+}
+
 type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'> &
   Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'>>;
 
@@ -1199,7 +1209,13 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
   assert.equal(groupMessages[0]?.chatId, -200);
   assert.equal(groupMessages[0]?.options?.parseMode, 'HTML');
   assert.match(groupMessages[0]?.message ?? '', /Calendari actualitzat:/);
-  assert.match(groupMessages[0]?.message ?? '', /14h-17h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_1"><b>Dune Imperium<\/b><\/a> · Mesa abierta · 5p \(5 libres\) · Mesa TV/);
+  const event = await scheduleRepository.findEventById(1);
+  assert.match(
+    groupMessages[0]?.message ?? '',
+    new RegExp(
+      `- ${formatCalendarRange(event?.startsAt ?? '2026-04-05T16:00:00.000Z', event ? new Date(new Date(event.startsAt).getTime() + event.durationMinutes * 60000).toISOString() : '2026-04-05T19:00:00.000Z')} <a href="https:\\/\\/t\\.me\\/cawa_management_bot\\?start=schedule_event_1"><b>Dune Imperium<\\/b><\\/a> · Mesa abierta · 5p \\(5 libres\\) · Mesa TV`,
+    ),
+  );
   assert.match(groupMessages[0]?.message ?? '', /ha creado la actividad Dune Imperium del Diumenge 5 abril/i);
 });
 

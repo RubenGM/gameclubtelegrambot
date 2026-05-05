@@ -71,5 +71,5 @@ const todayAtClubTexts: Record<BotLanguage, { title: string; activities: string;
 
 function formatShortTime(value: string): string {
   const date = new Date(value);
-  return `${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }

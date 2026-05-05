@@ -5,6 +5,11 @@ import type { ScheduleEventRecord, ScheduleRepository } from '../schedule/schedu
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import { buildTodayAtClubSummary } from './today-at-club-summary.js';
 
+function formatTime(value: string): string {
+  const date = new Date(value);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
 test('buildTodayAtClubSummary lists activities that start today', async () => {
   const summary = await buildTodayAtClubSummary({
     language: 'ca',
@@ -18,7 +23,7 @@ test('buildTodayAtClubSummary lists activities that start today', async () => {
 
   assert.match(summary, /<b>Avui al club<\/b>/);
   assert.match(summary, /<b>Activitats:<\/b>/);
-  assert.match(summary, /- 16:00 Wingspan/);
+  assert.match(summary, new RegExp(`- ${formatTime('2026-04-27T16:00:00.000Z')} Wingspan`));
   assert.doesNotMatch(summary, /Demà/);
 });
 
@@ -34,7 +39,7 @@ test('buildTodayAtClubSummary lists venue events that overlap today', async () =
   });
 
   assert.match(summary, /<b>Local:<\/b>/);
-  assert.match(summary, /- 22:00-10:00 Torneig intern/);
+  assert.match(summary, new RegExp(`- ${formatTime('2026-04-26T22:00:00.000Z')}-${formatTime('2026-04-27T10:00:00.000Z')} Torneig intern`));
   assert.doesNotMatch(summary, /Demà/);
 });
 

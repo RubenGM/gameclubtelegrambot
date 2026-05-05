@@ -1,5 +1,5 @@
 import { formatCalendarMessage, loadUpcomingCalendarEntries } from './calendar-summary.js';
-import { escapeHtml, formatDayHeading } from './schedule-presentation.js';
+import { escapeHtml, formatDayHeading, formatTimestamp } from './schedule-presentation.js';
 import { detectScheduleConflicts, getScheduleEventEndsAt, type ScheduleEventRecord, type ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { ClubTableRepository } from '../tables/table-catalog.js';
 import type { VenueEventRepository } from '../venue-events/venue-event-catalog.js';
@@ -36,7 +36,7 @@ export async function notifyScheduleConflicts({
   const subjectEvent = await loadEvent(eventId);
   const overlappingEvents = await Promise.all(conflicts.overlappingEventIds.map((id) => loadEvent(id)));
   const overlapSummary = overlappingEvents
-    .map((event) => `${event.title} (${event.startsAt.slice(0, 16).replace('T', ' ')} - ${getScheduleEventEndsAt(event).slice(0, 16).replace('T', ' ')})`)
+    .map((event) => `${event.title} (${formatTimestamp(event.startsAt)} - ${formatTimestamp(getScheduleEventEndsAt(event))})`)
     .join('\n- ');
 
   await Promise.all(
@@ -45,7 +45,7 @@ export async function notifyScheduleConflicts({
         telegramUserId,
         [
           'S ha detectat un possible conflicte amb les teves reserves del club.',
-          `Nova activitat o canvi: ${subjectEvent.title} (${subjectEvent.startsAt.slice(0, 16).replace('T', ' ')} - ${getScheduleEventEndsAt(subjectEvent).slice(0, 16).replace('T', ' ')})`,
+          `Nova activitat o canvi: ${subjectEvent.title} (${formatTimestamp(subjectEvent.startsAt)} - ${formatTimestamp(getScheduleEventEndsAt(subjectEvent))})`,
           `Altres activitats afectades:\n- ${overlapSummary}`,
           'El bot no ha bloquejat la reserva. Si us plau, coordina-t hi manualment amb la resta de persones implicades.',
         ].join('\n'),
