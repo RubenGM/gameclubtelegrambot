@@ -1,6 +1,6 @@
 # Admin Console TUI
 
-La consola de administracion es una TUI local para operar el servicio, revisar configuracion y gestionar contenido persistido en PostgreSQL.
+La consola de administracion es una TUI local basada en `terminal-kit` para operar el servicio, revisar configuracion y gestionar contenido persistido en PostgreSQL.
 
 ## Arranque
 
@@ -46,6 +46,10 @@ La TUI requiere `stdin` y `stdout` interactivos. Si se ejecuta desde cron, pipe 
 
 ## Teclas
 
+- Click en la columna izquierda: cambiar de vista.
+- Click en un tipo de recurso: cambiar la tabla gestionada.
+- Click en una fila: seleccionar y cargar detalle.
+- Rueda del raton sobre listas o detalle: scroll.
 - `q`: salir.
 - `1` a `9`: cambiar de vista.
 - `r`: refrescar datos.
