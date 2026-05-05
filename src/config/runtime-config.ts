@@ -56,6 +56,15 @@ export const runtimeConfigSchema = z.object({
   adminElevation: z.object({
     passwordHash: z.string().trim().min(1),
   }),
+  httpServer: z
+    .object({
+      enabled: z.boolean().default(true),
+      host: z.string().trim().min(1).default('127.0.0.1'),
+      port: z.number().int().min(1).max(65535).default(8787),
+      feedbackFile: z.string().trim().min(1).default('data/feedback.jsonl'),
+      sessionSecret: z.string().trim().min(16).optional(),
+    })
+    .optional(),
   bootstrap: z.object({
     firstAdmin: z.object({
       telegramUserId: z.number().int().positive(),

@@ -17,6 +17,7 @@ import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-s
 import { createDatabaseScheduleEventReminderRepository } from '../schedule/schedule-reminder-store.js';
 import { sendDueScheduleEventReminders } from '../schedule/schedule-reminders.js';
 import { createScheduleReminderWorker, type ScheduleReminderWorker } from '../schedule/schedule-reminder-worker.js';
+import { createAdminHttpServer, type AdminHttpServer } from '../http/admin-http-server.js';
 
 export interface LoggerLike {
   info(bindings: object, message: string): void;
@@ -35,6 +36,9 @@ export interface CreateAppOptions {
     services: InfrastructureRuntimeServices;
     telegram: TelegramBoundary;
   }) => ScheduleReminderWorker;
+  startAdminHttpServer?: (options: {
+    services: InfrastructureRuntimeServices;
+  }) => AdminHttpServer;
 }
 
 export interface App {
@@ -89,10 +93,20 @@ export function createApp({
         });
       },
     }),
+  startAdminHttpServer = ({ services }) =>
+    createAdminHttpServer({
+      config,
+      services,
+      logger: {
+        info: logger.info.bind(logger),
+        error: logger.error?.bind(logger) ?? (() => {}),
+      },
+    }),
 }: CreateAppOptions): App {
   let infrastructure: InfrastructureBoundary | undefined;
   let telegram: TelegramBoundary | undefined;
   let scheduleReminders: ScheduleReminderWorker | undefined;
+  let adminHttpServer: AdminHttpServer | undefined;
   const fatalRuntimeErrorHandlers = new Set<TelegramFatalRuntimeErrorHandler>();
   const emitFatalRuntimeError = (error: unknown) => {
     for (const handler of fatalRuntimeErrorHandlers) {
@@ -121,6 +135,8 @@ export function createApp({
         telegram = startedTelegram;
         scheduleReminders = startScheduleReminders({ services: startedInfrastructure.services, telegram });
         await scheduleReminders.start();
+        adminHttpServer = startAdminHttpServer({ services: startedInfrastructure.services });
+        await adminHttpServer.start();
         await notifyFirstAdminReady({
           config,
           logger,
@@ -158,6 +174,9 @@ export function createApp({
 
       if (telegram) {
         try {
+          if (adminHttpServer) {
+            await adminHttpServer.stop();
+          }
           if (scheduleReminders) {
             await scheduleReminders.stop();
           }
@@ -177,6 +196,7 @@ export function createApp({
 
       telegram = undefined;
       scheduleReminders = undefined;
+      adminHttpServer = undefined;
       infrastructure = undefined;
 
       if (shutdownErrors[0]) {
