@@ -5,6 +5,7 @@ import { groupPurchaseTexts } from './i18n-group-purchases.js';
 import { lfgTexts } from './i18n-lfg.js';
 import { scheduleTexts } from './i18n-schedule.js';
 import { storageTexts } from './i18n-storage.js';
+import { listNewsGroupCategories, newsGroupCategoryLines } from '../news/news-group-catalog.js';
 
 export const supportedBotLanguages = ['ca', 'es', 'en'] as const;
 
@@ -173,6 +174,10 @@ const tableAdminTexts = {
     confirmEditPrompt: 'To save the changes, choose the confirmation button or cancel the flow.',
   },
 } as const;
+
+function buildNewsGroupAvailableCategoryLines(language: BotLanguage): string {
+  return newsGroupCategoryLines(listNewsGroupCategories(), language).join('\n');
+}
 
 const venueEventAdminTexts = {
   ca: {
@@ -423,6 +428,11 @@ const newsGroupTexts = {
     modeOff: 'Mode news: desactivat',
     statusEnabled: 'Mode news activat.',
     statusDisabled: 'Mode news desactivat.',
+    buttonEnable: '✅ Habilitar avisos',
+    buttonDisable: '🚫 Deshabilitar avisos',
+    buttonSubscribe: '🔔 Subscriure',
+    buttonUnsubscribe: '🔕 Desubscriure',
+    buttonRefresh: '🔄 Refrescar',
     subscriptions: 'Categories subscrites: {list}',
     noSubscriptions: 'Categories subscrites: cap',
     commands: 'Comandes: /news estat, /news ajuda, /news activar, /news desactivar, /news subscriure <categoria>, /news desubscriure <categoria>',
@@ -438,17 +448,13 @@ const newsGroupTexts = {
       "- /news desubscriure <categoria>: elimina una categoria d'aquest grup.",
       '',
       'Categories disponibles:',
-      '- events: activitats i calendari del club.',
-      '- lfg:players: jugadors buscant grup.',
-      '- lfg:groups: grups buscant jugadors.',
-      '- catalog-loans:board-game: préstecs i retorns de jocs de taula.',
-      '- catalog-loans:book: préstecs i retorns de llibres.',
-      '- catalog-loans:rpg-book: préstecs i retorns de llibres de rol.',
+      ...buildNewsGroupAvailableCategoryLines('ca').split('\n'),
     ].join('\n'),
     adminOnly: 'Només els administradors del bot poden gestionar les news del grup.',
     categorySubscribed: 'Categoria "{category}" subscrita.',
     categoryRemoved: 'Categoria "{category}" eliminada.',
     categoryNotSubscribed: 'La categoria "{category}" no estava subscrita.',
+    categoryUnknown: 'Categoria desconeguda: "{category}".',
     categoryRequired: "Has d'indicar una categoria amb /news subscriure <categoria>.",
   },
   es: {
@@ -456,6 +462,11 @@ const newsGroupTexts = {
     modeOff: 'Modo news: desactivado',
     statusEnabled: 'Modo news activado.',
     statusDisabled: 'Modo news desactivado.',
+    buttonEnable: '✅ Habilitar avisos',
+    buttonDisable: '🚫 Deshabilitar avisos',
+    buttonSubscribe: '🔔 Suscribir',
+    buttonUnsubscribe: '🔕 Desuscribir',
+    buttonRefresh: '🔄 Refrescar',
     subscriptions: 'Categorías suscritas: {list}',
     noSubscriptions: 'Categorías suscritas: ninguna',
     commands: 'Comandos: /news estado, /news ayuda, /news activar, /news desactivar, /news suscribir <categoría>, /news desuscribir <categoría>',
@@ -471,17 +482,13 @@ const newsGroupTexts = {
       '- /news desuscribir <categoría>: elimina una categoría de este grupo.',
       '',
       'Categorías disponibles:',
-      '- events: actividades y calendario del club.',
-      '- lfg:players: jugadores buscando grupo.',
-      '- lfg:groups: grupos buscando jugadores.',
-      '- catalog-loans:board-game: préstamos y devoluciones de juegos de mesa.',
-      '- catalog-loans:book: préstamos y devoluciones de libros.',
-      '- catalog-loans:rpg-book: préstamos y devoluciones de libros de rol.',
+      ...buildNewsGroupAvailableCategoryLines('es').split('\n'),
     ].join('\n'),
     adminOnly: 'Sólo los administradores del bot pueden gestionar las news del grupo.',
     categorySubscribed: 'Categoría "{category}" suscrita.',
     categoryRemoved: 'Categoría "{category}" eliminada.',
     categoryNotSubscribed: 'La categoría "{category}" no estaba suscrita.',
+    categoryUnknown: 'Categoría desconocida: "{category}".',
     categoryRequired: 'Debes indicar una categoría con /news suscribir <categoría>.',
   },
   en: {
@@ -489,6 +496,11 @@ const newsGroupTexts = {
     modeOff: 'News mode: off',
     statusEnabled: 'News mode enabled.',
     statusDisabled: 'News mode disabled.',
+    buttonEnable: '✅ Enable notifications',
+    buttonDisable: '🚫 Disable notifications',
+    buttonSubscribe: '🔔 Subscribe',
+    buttonUnsubscribe: '🔕 Unsubscribe',
+    buttonRefresh: '🔄 Refresh',
     subscriptions: 'Subscribed categories: {list}',
     noSubscriptions: 'Subscribed categories: none',
     commands: 'Commands: /news status, /news help, /news enable, /news disable, /news subscribe <category>, /news unsubscribe <category>',
@@ -504,17 +516,13 @@ const newsGroupTexts = {
       '- /news unsubscribe <category>: removes a category from this group.',
       '',
       'Available categories:',
-      '- events: club activities and calendar.',
-      '- lfg:players: players looking for a group.',
-      '- lfg:groups: groups looking for players.',
-      '- catalog-loans:board-game: board game loans and returns.',
-      '- catalog-loans:book: book loans and returns.',
-      '- catalog-loans:rpg-book: RPG book loans and returns.',
+      ...buildNewsGroupAvailableCategoryLines('en').split('\n'),
     ].join('\n'),
     adminOnly: 'Only bot administrators can manage group news settings.',
     categorySubscribed: 'Category "{category}" subscribed.',
     categoryRemoved: 'Category "{category}" removed.',
     categoryNotSubscribed: 'The category "{category}" was not subscribed.',
+    categoryUnknown: 'Unknown category: "{category}".',
     categoryRequired: 'You must provide a category with /news subscribe <category>.',
   },
 } as const;

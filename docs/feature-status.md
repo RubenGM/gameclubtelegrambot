@@ -23,7 +23,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario.                                                           |
 | Catálogo                                     | 🟡 Operativo con huecos | CRUD, familias, búsqueda, media por URL, importación desde Wikipedia/Open Library y BGG asistida.                                        |
 | Préstamos                                    | 🟠 Operativo parcial | Flujo principal funcional; falta worker de recordatorios.                                                                                |
-| Grupos de noticias                           | 🟠 Operativo parcial | `/news` para activar/desactivar y suscripciones; queda por pulir UX de botones.                                                        |
+| Grupos de noticias                           | 🟢 Operativo         | `/news` acepta comandos y botones para activar/desactivar y gestionar suscripciones por categoría, con publicación por categoría desde agenda, LFG y préstecs. |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas y procesos de carga (DM y topic).                                              |
 | Backups y operación TUI                      | 🟢 Operativo         | CLI/TUI de backup/restore, estado de servicio y gestión de configuración Debian.                                                         |
@@ -175,18 +175,19 @@ Pendiente:
 
 ## Grupos de noticias
 
-Estado: `operativo parcial`.
+Estado: `operativo`.
 
 Implementado:
 
 - `/news status`, `/news enable`, `/news disable`, `/news subscribe <categoria>` y `/news unsubscribe <categoria>` en grupos.
 - Persistencia de grupos habilitados y suscripciones por categoria.
-- Usado por agenda, prestamos y compras conjuntas para publicar novedades.
+- Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
+- Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG y préstecs.
+- Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem).
 
 Pendiente:
 
-- UX con botones para administrar suscripciones sin recordar comandos (`FUNCTIONAL_RECOMMENDATIONS.md`, F-011).
-- Catalogo central visible de categorias de noticias disponibles.
+- Ninguna bloquejadora.
 
 ## Compras conjuntas
 
@@ -277,7 +278,7 @@ Pendiente:
 | Revision de entradas `missing_source` | Storage | Media | El bot ya marca fuentes perdidas al fallar `copyMessage`; falta una vista admin especifica para revisarlas o restaurarlas. |
 | Recordatorios de prestamos | Prestamos | Media | El modelo tiene fecha prevista, pero no hay worker equivalente a agenda/compras. |
 | UI de permisos general | Admin/permisos | Media | El motor existe, pero falta administracion transversal desde el bot. |
-| `/news` con botones | Grupos de noticias | Media | La feature funciona por comandos, pero la UX no es consistente con el resto del bot. |
+| `/news` con botones | Grupos de noticias | Baja | La secció està activa i operativa; revisar si cal refinament de copy o labels en futures iteracions. |
 | Dashboard admin | Admin | Media | Hay datos suficientes, falta una vista agregada. |
 | Perfil de usuario / mi espacio | Usuario | Media | Evitaria que el usuario tenga que entrar por agenda, prestamos y compras por separado. |
 

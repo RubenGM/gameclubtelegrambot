@@ -4,6 +4,7 @@ import { detectScheduleConflicts, getScheduleEventEndsAt, type ScheduleEventReco
 import type { ClubTableRepository } from '../tables/table-catalog.js';
 import type { VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
+import { eventsNewsGroupCategory } from '../news/news-group-catalog.js';
 
 export interface ScheduleCalendarChange {
   action: 'created' | 'updated' | 'deleted';
@@ -79,7 +80,7 @@ export async function publishCalendarSnapshotToNewsGroups({
     return;
   }
 
-  const groups = await newsGroupRepository.listGroups({ includeDisabled: false });
+  const groups = await newsGroupRepository.listSubscribedGroupsByCategory(eventsNewsGroupCategory);
   if (groups.length === 0) {
     return;
   }

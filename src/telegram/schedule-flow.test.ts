@@ -460,7 +460,10 @@ function createContext({
   return { context, replies, privateMessages, groupMessages, getCurrentSession: () => currentSession };
 }
 
-function createNewsGroupRepository(initialGroups: NewsGroupRecord[] = []): NewsGroupRepository {
+function createNewsGroupRepository(
+  initialGroups: NewsGroupRecord[] = [],
+  subscribedGroupsByCategory: Map<string, Set<number>> = new Map(),
+): NewsGroupRepository {
   const groups = new Map(initialGroups.map((group) => [group.chatId, group]));
 
   return {
@@ -493,8 +496,19 @@ function createNewsGroupRepository(initialGroups: NewsGroupRecord[] = []): NewsG
     async deleteSubscription() {
       return false;
     },
-    async listSubscribedGroupsByCategory() {
-      return [];
+    async listSubscribedGroupsByCategory(categoryKey) {
+      const subscriptions = subscribedGroupsByCategory.get(categoryKey);
+      return Array.from(groups.values()).filter((group) => {
+        if (!group.isEnabled) {
+          return false;
+        }
+
+        if (!subscriptions) {
+          return true;
+        }
+
+        return subscriptions.has(group.chatId);
+      });
     },
     async isNewsEnabledGroup(chatId) {
       return groups.get(chatId)?.isEnabled === true;
@@ -1217,6 +1231,74 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
     ),
   );
   assert.match(groupMessages[0]?.message ?? '', /ha creado la actividad Dune Imperium del Diumenge 5 abril/i);
+});
+
+test('handleTelegramScheduleText publishes the updated calendar only to groups subscribed to agenda category', async () => {
+  const tableRepository = createTableRepository([
+    {
+      id: 7,
+      displayName: 'Mesa TV',
+      description: null,
+      recommendedCapacity: 6,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const scheduleRepository = createScheduleRepository();
+  const newsGroupRepository = createNewsGroupRepository(
+    [
+      {
+        chatId: -200,
+        isEnabled: true,
+        metadata: null,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        enabledAt: '2026-04-04T10:00:00.000Z',
+        disabledAt: null,
+      },
+      {
+        chatId: -201,
+        isEnabled: true,
+        metadata: null,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        enabledAt: '2026-04-04T10:00:00.000Z',
+        disabledAt: null,
+      },
+    ],
+    new Map([
+      ['events', new Set([-200])],
+    ]),
+  );
+  const { context, groupMessages } = createContext({ scheduleRepository, tableRepository, newsGroupRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Dune Imperium';
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.durationMinutes;
+  await handleTelegramScheduleText(context);
+  context.messageText = '180';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.attendanceOpen;
+  await handleTelegramScheduleText(context);
+  context.messageText = '5';
+  await handleTelegramScheduleText(context);
+  context.messageText = '0';
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Mesa TV';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.confirmCreate;
+  await handleTelegramScheduleText(context);
+
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.chatId, -200);
 });
 
 test('handleTelegramScheduleText still publishes the calendar when the private confirmation reply fails', async () => {

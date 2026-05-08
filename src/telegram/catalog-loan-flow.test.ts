@@ -5,6 +5,7 @@ import type { CatalogItemRecord, CatalogLoanRecord, CatalogLoanRepository, Catal
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { NewsGroupRecord, NewsGroupRepository } from '../news/news-group-catalog.js';
 import {
   catalogLoanCallbackPrefixes,
   buildLoanDetailButtons,
@@ -110,16 +111,20 @@ function createContext({
   catalogRepository,
   catalogLoanRepository,
   loanSession = null,
+  newsGroupRepository = createNewsGroupRepository(),
 }: {
   catalogRepository: CatalogRepository;
   catalogLoanRepository: CatalogLoanRepository;
   loanSession?: ConversationSessionRecord | null;
+  newsGroupRepository?: NewsGroupRepository;
 }): {
   context: TelegramCommandHandlerContext;
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
+  groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }>;
 } {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   let current = loanSession;
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
 
   return {
     context: {
@@ -131,6 +136,9 @@ function createContext({
           publicName: 'Game Club Bot',
           clubName: 'Game Club',
           sendPrivateMessage: async () => {},
+          sendGroupMessage: async (chatId: number, message: string, options?: TelegramReplyOptions) => {
+            groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
+          },
         },
         services: { database: { db: undefined as never } } as never,
         chat: { kind: 'private', chatId: 1 },
@@ -174,12 +182,87 @@ function createContext({
             return true;
           },
         },
-      },
+        },
       catalogRepository,
       catalogLoanRepository,
+      newsGroupRepository,
     } as unknown as TelegramCommandHandlerContext,
     replies,
+    groupMessages,
   };
+}
+
+function createNewsGroupRepository(
+  initialGroups: NewsGroupRecord[] = [],
+  subscribedGroupsByCategory: Map<string, Set<number>> = new Map(),
+): NewsGroupRepository {
+  const groups = new Map(initialGroups.map((group) => [group.chatId, group]));
+
+  return {
+    async findGroupByChatId(chatId) {
+      return groups.get(chatId) ?? null;
+    },
+    async listGroups({ includeDisabled } = {}) {
+      return Array.from(groups.values()).filter((group) => includeDisabled || group.isEnabled);
+    },
+    async upsertGroup(input) {
+      const now = '2026-04-04T10:00:00.000Z';
+      const next = {
+        chatId: input.chatId,
+        isEnabled: input.isEnabled,
+        metadata: input.metadata ?? null,
+        createdAt: groups.get(input.chatId)?.createdAt ?? now,
+        updatedAt: now,
+        enabledAt: input.isEnabled ? now : null,
+        disabledAt: input.isEnabled ? null : now,
+      };
+      groups.set(next.chatId, next);
+      return next;
+    },
+    async listSubscriptionsByChatId(chatId) {
+      return Array.from(subscriptionsForChat(chatId, subscribedGroupsByCategory)).map((categoryKey) => ({
+        chatId,
+        categoryKey,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      }));
+    },
+    async upsertSubscription(input) {
+      const next = new Set(subscribedGroupsByCategory.get(input.categoryKey) ?? []);
+      next.add(input.chatId);
+      subscribedGroupsByCategory.set(input.categoryKey, next);
+      return {
+        chatId: input.chatId,
+        categoryKey: input.categoryKey,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      };
+    },
+    async deleteSubscription(input) {
+      const subscriptions = new Set(subscribedGroupsByCategory.get(input.categoryKey) ?? []);
+      const deleted = subscriptions.delete(input.chatId);
+      if (subscriptions.size === 0) {
+        subscribedGroupsByCategory.delete(input.categoryKey);
+      } else {
+        subscribedGroupsByCategory.set(input.categoryKey, subscriptions);
+      }
+      return deleted;
+    },
+    async listSubscribedGroupsByCategory(categoryKey) {
+      const chatIds = subscribedGroupsByCategory.get(categoryKey) ?? new Set<number>();
+      return Array.from(groups.values()).filter((group) => group.isEnabled && chatIds.has(group.chatId));
+    },
+    async isNewsEnabledGroup(chatId) {
+      return groups.get(chatId)?.isEnabled === true;
+    },
+  };
+
+  function subscriptionsForChat(chatId: number, map: Map<string, Set<number>>): string[] {
+    return Array.from(map.entries())
+      .filter(([, chatIds]) => chatIds.has(chatId))
+      .map(([categoryKey]) => categoryKey)
+      .sort((left, right) => left.localeCompare(right));
+  }
 }
 
 test('catalog loan callbacks create, list and return loans', async () => {
@@ -339,4 +422,88 @@ test('catalog loan edit flow updates notes and due date', async () => {
   await handleTelegramCatalogLoanText(context);
 
   assert.match(replies[0]?.message ?? '', /Préstec actualitzat\./);
+});
+
+test('catalog-loan notifications are sent only to subscribed news categories', async () => {
+  const catalogRepository = createCatalogRepository([
+    {
+      id: 1,
+      familyId: null,
+      groupId: null,
+      itemType: 'board-game',
+      displayName: 'Game 1',
+      originalName: null,
+      description: null,
+      language: null,
+      publisher: null,
+      publicationYear: null,
+      playerCountMin: null,
+      playerCountMax: null,
+      recommendedAge: null,
+      playTimeMinutes: null,
+      externalRefs: null,
+      metadata: null,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const catalogLoanRepository = createLoanRepository();
+  const newsGroupRepository = createNewsGroupRepository(
+    [
+      {
+        chatId: -200,
+        isEnabled: true,
+        metadata: null,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        enabledAt: '2026-04-04T10:00:00.000Z',
+        disabledAt: null,
+      },
+      {
+        chatId: -201,
+        isEnabled: true,
+        metadata: null,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        enabledAt: '2026-04-04T10:00:00.000Z',
+        disabledAt: null,
+      },
+      {
+        chatId: -202,
+        isEnabled: false,
+        metadata: null,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        enabledAt: null,
+        disabledAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+    new Map([
+      ['catalog-loans:book', new Set([-201])],
+    ]),
+  );
+  const { context, groupMessages } = createContext({
+    catalogRepository,
+    catalogLoanRepository,
+    newsGroupRepository,
+  });
+  context.from = { id: 7, first_name: 'Anna', username: 'anna' };
+
+  context.callbackData = `${catalogLoanCallbackPrefixes.create}1`;
+  await handleTelegramCatalogLoanCallback(context);
+
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages.at(-1)?.chatId, -200);
+  assert.match(groupMessages.at(-1)?.message ?? '', /Anna ha pres prestat Game 1\./);
+
+  context.callbackData = `${catalogLoanCallbackPrefixes.return}1`;
+  await handleTelegramCatalogLoanCallback(context);
+
+  assert.equal(groupMessages.length, 2);
+  assert.equal(groupMessages.at(-1)?.chatId, -200);
+  assert.match(groupMessages.at(-1)?.message ?? '', /Anna ha retornat Game 1\./);
+  assert.notEqual(groupMessages.at(-1)?.chatId, -201);
+  assert.notEqual(groupMessages.at(-1)?.chatId, -202);
 });

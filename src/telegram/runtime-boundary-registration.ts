@@ -65,7 +65,11 @@ import {
   handleTelegramLfgText,
   lfgCallbackPrefixes,
 } from './lfg-flow.js';
-import { handleTelegramNewsGroupText } from './news-group-flow.js';
+import {
+  handleTelegramNewsGroupCallback,
+  handleTelegramNewsGroupText,
+  newsGroupCallbackPrefixes,
+} from './news-group-flow.js';
 import { buildTodayAtClubSummary } from './today-at-club-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import {
@@ -144,6 +148,7 @@ export function registerHandlers({
   registerScheduleCallbacks({ bot });
   registerGroupPurchaseCallbacks({ bot });
   registerLfgCallbacks({ bot });
+  registerNewsGroupCallbacks({ bot });
   registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
   registerCatalogReadCallbacks({ bot });
@@ -267,6 +272,18 @@ function registerLfgCallbacks({
   for (const prefix of Object.values(lfgCallbackPrefixes)) {
     bot.onCallback(prefix, async (context) => {
       await handleTelegramLfgCallback(context);
+    });
+  }
+}
+
+function registerNewsGroupCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(newsGroupCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramNewsGroupCallback(context);
     });
   }
 }

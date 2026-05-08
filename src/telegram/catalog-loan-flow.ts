@@ -1,8 +1,9 @@
-import type { CatalogItemRecord, CatalogItemType, CatalogLoanRecord, CatalogLoanRepository, CatalogRepository } from '../catalog/catalog-model.js';
+import type { CatalogItemRecord, CatalogLoanRecord, CatalogLoanRepository, CatalogRepository } from '../catalog/catalog-model.js';
 export type { CatalogLoanRecord } from '../catalog/catalog-model.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
+import { catalogLoanNewsCategoryByItemType, type NewsGroupRepository } from '../news/news-group-catalog.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import { escapeHtml, formatHtmlField, formatMemberCatalogItemDetails } from './catalog-presentation.js';
@@ -14,11 +15,6 @@ import { formatMembershipDisplayName, resolveTelegramDisplayName } from '../memb
 const loanEditFlowKey = 'catalog-loan-edit';
 const catalogAdminEditCallbackPrefix = 'catalog_admin:edit:';
 const catalogAdminDeactivateCallbackPrefix = 'catalog_admin:deactivate:';
-const loanNewsCategoryByItemType: Partial<Record<CatalogItemType, string>> = {
-  'board-game': 'catalog-loans:board-game',
-  book: 'catalog-loans:book',
-  'rpg-book': 'catalog-loans:rpg-book',
-};
 
 export const catalogLoanCallbackPrefixes = {
   openMyLoans: 'catalog_loan:my_loans',
@@ -31,6 +27,7 @@ export type TelegramCatalogLoanContext = TelegramCommandHandlerContext & {
   catalogRepository?: CatalogRepository;
   catalogLoanRepository?: CatalogLoanRepository;
   membershipRepository?: MembershipAccessRepository;
+  newsGroupRepository?: NewsGroupRepository;
 };
 
 type LoanDisplayContext = {
@@ -387,6 +384,13 @@ function resolveCatalogRepository(context: TelegramCatalogLoanContext): CatalogR
   return createDatabaseCatalogRepository({ database: context.runtime.services.database.db as never });
 }
 
+function resolveNewsGroupRepository(context: TelegramCatalogLoanContext): NewsGroupRepository {
+  return (
+    context.newsGroupRepository ??
+    createDatabaseNewsGroupRepository({ database: context.runtime.services.database.db as never })
+  );
+}
+
 async function resolveCatalogItem(context: TelegramCatalogLoanContext, itemId: number) {
   const repository = resolveCatalogRepository(context);
   return repository ? repository.findItemById(itemId) : null;
@@ -511,14 +515,12 @@ async function publishCatalogLoanNewsGroups(
     return;
   }
 
-  const categoryKey = loanNewsCategoryByItemType[input.item.itemType];
+  const categoryKey = catalogLoanNewsCategoryByItemType[input.item.itemType as keyof typeof catalogLoanNewsCategoryByItemType];
   if (!categoryKey) {
     return;
   }
 
-  const repository = createDatabaseNewsGroupRepository({
-    database: context.runtime.services.database.db as never,
-  });
+  const repository = resolveNewsGroupRepository(context);
   const groups = await repository.listSubscribedGroupsByCategory(categoryKey);
   if (groups.length === 0) {
     return;

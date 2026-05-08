@@ -10,7 +10,11 @@ import {
   type LfgRepository,
 } from '../lfg/lfg-catalog.js';
 import { createDatabaseLfgRepository } from '../lfg/lfg-catalog-store.js';
-import type { NewsGroupRepository } from '../news/news-group-catalog.js';
+import {
+  lfgGroupNewsCategory,
+  lfgPlayerNewsCategory,
+  type NewsGroupRepository,
+} from '../news/news-group-catalog.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
@@ -39,8 +43,6 @@ import {
 
 const playerFlowKey = 'lfg-player-ad';
 const groupFlowKey = 'lfg-group-ad';
-const lfgPlayerNewsCategory = 'lfg:players';
-const lfgGroupNewsCategory = 'lfg:groups';
 
 interface LfgPlayerAdDraft {
   adId?: number;

@@ -8,6 +8,177 @@ export interface NewsGroupRecord {
   disabledAt: string | null;
 }
 
+type CatalogLoanCategoryItemType = 'board-game' | 'book' | 'rpg-book';
+
+export type NewsGroupCategoryKey =
+  | 'events'
+  | 'lfg:players'
+  | 'lfg:groups'
+  | 'catalog-loans:board-game'
+  | 'catalog-loans:book'
+  | 'catalog-loans:rpg-book';
+
+export type NewsGroupCatalogLocale = 'ca' | 'es' | 'en';
+
+export interface NewsGroupCategoryDescriptor {
+  key: NewsGroupCategoryKey;
+  aliases: readonly string[];
+  label: Record<NewsGroupCatalogLocale, string>;
+  description: Record<NewsGroupCatalogLocale, string>;
+  defaultSubscribed: boolean;
+}
+
+export const newsGroupCategories: readonly NewsGroupCategoryDescriptor[] = [
+  {
+    key: 'events',
+    aliases: ['events', 'event', 'activitats', 'agenda', 'calendar'],
+    label: {
+      ca: 'events',
+      es: 'events',
+      en: 'events',
+    },
+    description: {
+      ca: 'activitats i calendari del club',
+      es: 'actividades y calendario del club',
+      en: 'club activities and calendar',
+    },
+    defaultSubscribed: true,
+  },
+  {
+    key: 'lfg:players',
+    aliases: ['lfg:players', 'lfg players', 'players', 'jugadors', 'jugador'],
+    label: {
+      ca: 'lfg:players',
+      es: 'lfg:players',
+      en: 'lfg:players',
+    },
+    description: {
+      ca: 'jugadors buscant grup',
+      es: 'jugadores buscando grupo',
+      en: 'players looking for a group',
+    },
+    defaultSubscribed: false,
+  },
+  {
+    key: 'lfg:groups',
+    aliases: ['lfg:groups', 'lfg groups', 'groups', 'grups', 'grup'],
+    label: {
+      ca: 'lfg:groups',
+      es: 'lfg:groups',
+      en: 'lfg:groups',
+    },
+    description: {
+      ca: 'grups buscant jugadors',
+      es: 'grupos buscando jugadores',
+      en: 'groups looking for players',
+    },
+    defaultSubscribed: false,
+  },
+  {
+    key: 'catalog-loans:board-game',
+    aliases: ['catalog-loans:board-game', 'loans board-game', 'board-game', 'board game', 'taulers'],
+    label: {
+      ca: 'catalog-loans:board-game',
+      es: 'catalog-loans:board-game',
+      en: 'catalog-loans:board-game',
+    },
+    description: {
+      ca: 'préstecs i retorns de jocs de taula',
+      es: 'préstamos y devoluciones de juegos de mesa',
+      en: 'board game loans and returns',
+    },
+    defaultSubscribed: false,
+  },
+  {
+    key: 'catalog-loans:book',
+    aliases: ['catalog-loans:book', 'loans book', 'book', 'llibres', 'llibre'],
+    label: {
+      ca: 'catalog-loans:book',
+      es: 'catalog-loans:book',
+      en: 'catalog-loans:book',
+    },
+    description: {
+      ca: 'préstecs i retorns de llibres',
+      es: 'préstamos y devoluciones de libros',
+      en: 'book loans and returns',
+    },
+    defaultSubscribed: false,
+  },
+  {
+    key: 'catalog-loans:rpg-book',
+    aliases: ['catalog-loans:rpg-book', 'loans rpg-book', 'rpg-book', 'rpg', 'llibres de rol', 'llibre de rol'],
+    label: {
+      ca: 'catalog-loans:rpg-book',
+      es: 'catalog-loans:rpg-book',
+      en: 'catalog-loans:rpg-book',
+    },
+    description: {
+      ca: 'préstecs i retorns de llibres de rol',
+      es: 'préstamos y devoluciones de libros de rol',
+      en: 'RPG book loans and returns',
+    },
+    defaultSubscribed: false,
+  },
+] as const;
+
+const newsGroupCategoryAliasMap = new Map<string, NewsGroupCategoryDescriptor>();
+for (const category of newsGroupCategories) {
+  newsGroupCategoryAliasMap.set(category.key, category);
+  for (const alias of category.aliases) {
+    newsGroupCategoryAliasMap.set(alias.trim().toLowerCase(), category);
+  }
+}
+
+export const newsGroupCategoryDefaults = newsGroupCategories.filter((category) => category.defaultSubscribed);
+export const lfgPlayerNewsCategory = 'lfg:players' as const;
+export const lfgGroupNewsCategory = 'lfg:groups' as const;
+export const eventsNewsGroupCategory = 'events' as const;
+
+export const catalogLoanNewsCategoryByItemType: Partial<Record<CatalogLoanCategoryItemType, NewsGroupCategoryKey>> = {
+  'board-game': 'catalog-loans:board-game',
+  book: 'catalog-loans:book',
+  'rpg-book': 'catalog-loans:rpg-book',
+};
+
+export function listNewsGroupCategories(): readonly NewsGroupCategoryDescriptor[] {
+  return newsGroupCategories;
+}
+
+export function resolveNewsGroupCategory(categoryKey: string): NewsGroupCategoryDescriptor | undefined {
+  return newsGroupCategoryAliasMap.get(categoryKey.trim().toLowerCase());
+}
+
+export function normalizeNewsGroupCategoryKey(categoryKey: string): string {
+  const resolved = resolveNewsGroupCategory(categoryKey);
+  return resolved ? resolved.key : categoryKey.trim().toLowerCase();
+}
+
+export function isValidNewsGroupCategoryKey(categoryKey: string): categoryKey is NewsGroupCategoryKey {
+  return resolveNewsGroupCategory(categoryKey) !== undefined;
+}
+
+export function newsGroupCategoryLines(
+  categories: readonly NewsGroupCategoryDescriptor[],
+  language: NewsGroupCatalogLocale,
+): string[] {
+  return categories.map((category) => `- ${newsGroupCategoryLabel(category, language)}: ${newsGroupCategoryDescription(category, language)}`);
+}
+
+export function newsGroupCategoryLabelList(
+  categories: readonly NewsGroupCategoryDescriptor[],
+  language: NewsGroupCatalogLocale,
+): string {
+  return categories.map((category) => newsGroupCategoryLabel(category, language)).join(', ');
+}
+
+export function newsGroupCategoryLabel(category: NewsGroupCategoryDescriptor, language: NewsGroupCatalogLocale): string {
+  return category.label[language] ?? category.label.en;
+}
+
+export function newsGroupCategoryDescription(category: NewsGroupCategoryDescriptor, language: NewsGroupCatalogLocale): string {
+  return category.description[language] ?? category.description.en;
+}
+
 export interface NewsGroupSubscriptionRecord {
   chatId: number;
   categoryKey: string;

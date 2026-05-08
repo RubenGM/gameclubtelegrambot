@@ -7,7 +7,12 @@ import type {
   NewsGroupRepository,
   NewsGroupSubscriptionRecord,
 } from '../news/news-group-catalog.js';
-import { handleTelegramNewsGroupText, type TelegramNewsGroupContext } from './news-group-flow.js';
+import {
+  handleTelegramNewsGroupCallback,
+  handleTelegramNewsGroupText,
+  newsGroupCallbackPrefixes,
+  type TelegramNewsGroupContext,
+} from './news-group-flow.js';
 
 function createRepository(initialGroup: NewsGroupRecord | null = null): NewsGroupRepository {
   const groups = new Map<number, NewsGroupRecord>();
@@ -92,7 +97,6 @@ function createContext({
   let currentSession: ConversationSessionRecord | null = null;
 
   const context: TelegramNewsGroupContext = {
-    messageText: undefined,
     reply: async (message) => {
       replies.push(message);
     },
@@ -251,5 +255,51 @@ test('handleTelegramNewsGroupText accepts Spanish command aliases', async () => 
   context.messageText = '/news desuscribir lfg:groups';
   assert.equal(await handleTelegramNewsGroupText(context), true);
   assert.match(replies.at(-1) ?? '', /Categoria "lfg:groups" eliminada\./);
+  assert.deepEqual(await repository.listSubscriptionsByChatId(-200), []);
+});
+
+test('handleTelegramNewsGroupCallback toggles and refreshes the status with inline actions', async () => {
+  const { context, replies, repository } = createContext();
+
+  context.callbackData = newsGroupCallbackPrefixes.toggle;
+  assert.equal(await handleTelegramNewsGroupCallback(context), true);
+  assert.match(replies.at(-1) ?? '', /Mode news: activat/);
+  assert.equal((await repository.findGroupByChatId(-200))?.isEnabled, true);
+
+  context.callbackData = newsGroupCallbackPrefixes.refresh;
+  assert.equal(await handleTelegramNewsGroupCallback(context), true);
+  assert.match(replies.at(-1) ?? '', /Mode news: activat/);
+  assert.equal((await repository.findGroupByChatId(-200))?.isEnabled, true);
+});
+
+test('handleTelegramNewsGroupCallback subscribes and unsubscribes a category directly', async () => {
+  const { context, replies, repository } = createContext();
+
+  context.callbackData = `${newsGroupCallbackPrefixes.subscribe}lfg:groups`;
+  assert.equal(await handleTelegramNewsGroupCallback(context), true);
+  assert.match(replies.at(-1) ?? '', /Categoria "lfg:groups" subscrita\./);
+  assert.deepEqual((await repository.listSubscriptionsByChatId(-200)).map((entry) => entry.categoryKey), ['lfg:groups']);
+
+  context.callbackData = `${newsGroupCallbackPrefixes.unsubscribe}lfg:groups`;
+  assert.equal(await handleTelegramNewsGroupCallback(context), true);
+  assert.match(replies.at(-1) ?? '', /Categoria "lfg:groups" eliminada\./);
+  assert.deepEqual(await repository.listSubscriptionsByChatId(-200), []);
+});
+
+test('handleTelegramNewsGroupCallback is admin-only', async () => {
+  const { context, replies, repository } = createContext({ isAdmin: false, hasNewsPermission: true });
+
+  context.callbackData = newsGroupCallbackPrefixes.toggle;
+  assert.equal(await handleTelegramNewsGroupCallback(context), true);
+  assert.match(replies.at(-1) ?? '', /Només els administradors del bot/);
+  assert.equal(await repository.findGroupByChatId(-200), null);
+});
+
+test('handleTelegramNewsGroupCallback ignores invalid categories', async () => {
+  const { context, replies, repository } = createContext();
+
+  context.callbackData = `${newsGroupCallbackPrefixes.subscribe}no_existe`;
+  assert.equal(await handleTelegramNewsGroupCallback(context), true);
+  assert.match(replies.at(-1) ?? '', /Categoria desconeguda: "no_existe"\./);
   assert.deepEqual(await repository.listSubscriptionsByChatId(-200), []);
 });
