@@ -12,6 +12,10 @@ import type {
   StorageEntryRecord,
 } from '../storage/storage-catalog.js';
 import type { StorageCategoryAccessRepository } from '../storage/storage-category-access-store.js';
+import type {
+  StorageCategorySubscriptionRecord,
+  StorageCategorySubscriptionRepository,
+} from '../storage/storage-category-subscription-store.js';
 import {
   __resetStorageTopicMediaGroupsForTests,
   __flushStorageTopicMediaGroupForTests,
@@ -227,6 +231,50 @@ function createRepository(initialCategories: StorageCategoryRecord[] = [createCa
   };
 }
 
+function createSubscriptionRepository(initialSubscriptions: StorageCategorySubscriptionRecord[] = []): StorageCategorySubscriptionRepository & {
+  __subscriptions: StorageCategorySubscriptionRecord[];
+} {
+  const subscriptions = [...initialSubscriptions];
+  return {
+    __subscriptions: subscriptions,
+    async listSubscriptionsByUser(telegramUserId) {
+      return subscriptions.filter((subscription) => subscription.telegramUserId === telegramUserId);
+    },
+    async upsertSubscription(input) {
+      const existing = subscriptions.find(
+        (subscription) => subscription.telegramUserId === input.telegramUserId && subscription.categoryId === input.categoryId,
+      );
+      if (existing) {
+        existing.includeSubcategories = input.includeSubcategories;
+        existing.updatedAt = '2026-04-21T13:00:00.000Z';
+        return existing;
+      }
+      const subscription = {
+        telegramUserId: input.telegramUserId,
+        categoryId: input.categoryId,
+        includeSubcategories: input.includeSubcategories,
+        createdAt: '2026-04-21T12:00:00.000Z',
+        updatedAt: '2026-04-21T12:00:00.000Z',
+      } satisfies StorageCategorySubscriptionRecord;
+      subscriptions.push(subscription);
+      return subscription;
+    },
+    async deleteSubscription(input) {
+      const index = subscriptions.findIndex(
+        (subscription) => subscription.telegramUserId === input.telegramUserId && subscription.categoryId === input.categoryId,
+      );
+      if (index === -1) {
+        return false;
+      }
+      subscriptions.splice(index, 1);
+      return true;
+    },
+    async listSubscriptionsForEntryCategory(categoryId) {
+      return subscriptions.filter((subscription) => subscription.categoryId === categoryId || subscription.includeSubcategories);
+    },
+  };
+}
+
 function createContext(
   repository: StorageCategoryRepository,
   {
@@ -238,6 +286,7 @@ function createContext(
     actorTelegramUserId = 42,
     actorStatus = 'approved',
     storageCategoryAccessRepository,
+    storageCategorySubscriptionRepository,
     failCopyMessageAtCall,
     supportsForwardMessage = true,
     failForwardMessageAtCall,
@@ -254,6 +303,7 @@ function createContext(
     actorTelegramUserId?: number;
     actorStatus?: 'pending' | 'approved' | 'blocked' | 'revoked';
     storageCategoryAccessRepository?: StorageCategoryAccessRepository;
+    storageCategorySubscriptionRepository?: StorageCategorySubscriptionRepository;
     failCopyMessageAtCall?: number;
     supportsForwardMessage?: boolean;
     failForwardMessageAtCall?: number;
@@ -269,6 +319,7 @@ function createContext(
   forwardedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }>;
   mediaGroups: Array<{ chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }>;
   deletedMessages: Array<{ chatId: number; messageId: number }>;
+  privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }>;
   getCurrentSession: () => ConversationSessionRecord | null;
 } {
   configureTelegramDeepLinks({ botUsername: 'cawatest_bot' });
@@ -277,10 +328,12 @@ function createContext(
   const forwardedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }> = [];
   const mediaGroups: Array<{ chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }> = [];
   const deletedMessages: Array<{ chatId: number; messageId: number }> = [];
+  const privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }> = [];
   let currentSession: ConversationSessionRecord | null = null;
   let copiedMessageId = 900;
   let copyMessageCalls = 0;
   let forwardMessageCalls = 0;
+  const resolvedStorageCategorySubscriptionRepository = storageCategorySubscriptionRepository ?? createSubscriptionRepository();
 
   const context = {
     from: { id: actorTelegramUserId, username: 'ada' },
@@ -356,7 +409,9 @@ function createContext(
           }
           return { ...createdTopic, chatId, name };
         },
-        sendPrivateMessage: async () => {},
+        sendPrivateMessage: async (telegramUserId: number, message: string, options?: TelegramReplyOptions) => {
+          privateMessages.push(options ? { telegramUserId, message, options } : { telegramUserId, message });
+        },
         copyMessage: async ({ fromChatId, messageId, toChatId, messageThreadId }: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }) => {
           copyMessageCalls += 1;
           if (failCopyMessageAtCall && copyMessageCalls === failCopyMessageAtCall) {
@@ -399,6 +454,7 @@ function createContext(
     },
     storageRepository: repository,
     ...(storageCategoryAccessRepository ? { storageCategoryAccessRepository } : {}),
+    storageCategorySubscriptionRepository: resolvedStorageCategorySubscriptionRepository,
   } as unknown as TelegramCommandHandlerContext & Record<string, unknown>;
 
   return {
@@ -408,6 +464,7 @@ function createContext(
     forwardedMessages,
     mediaGroups,
     deletedMessages,
+    privateMessages,
     getCurrentSession: () => currentSession,
   };
 }
@@ -445,6 +502,99 @@ test('handleTelegramStorageText lists only categories the user can read', async 
   assert.equal(handled, true);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
   assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>');
+});
+
+test('handleTelegramStorageText subscribes a user to a storage category with subcategories', async () => {
+  const repository = createRepository([
+    createCategory({ id: 7, displayName: 'Manuales' }),
+    createCategory({ id: 8, displayName: 'Reglamentos', parentCategoryId: 7 }),
+  ]);
+  const subscriptionRepository = createSubscriptionRepository();
+  const { context, replies, getCurrentSession } = createContext(repository, {
+    canReadCategoryIds: [7, 8],
+    storageCategorySubscriptionRepository: subscriptionRepository,
+  });
+
+  context.messageText = 'Suscribir categoría';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  assert.equal(getCurrentSession()?.flowKey, 'storage-subscribe');
+
+  context.messageText = 'Manuales';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  assert.equal(getCurrentSession()?.stepKey, 'subscribe-scope');
+
+  context.messageText = 'Categoría y subcategorías';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+
+  assert.deepEqual(subscriptionRepository.__subscriptions.map(({ telegramUserId, categoryId, includeSubcategories }) => ({
+    telegramUserId,
+    categoryId,
+    includeSubcategories,
+  })), [{ telegramUserId: 42, categoryId: 7, includeSubcategories: true }]);
+  assert.equal(replies.at(-1)?.message, 'Suscripción guardada a Manuales y subcategorías.');
+  assert.equal(getCurrentSession(), null);
+});
+
+test('persisting a private storage upload notifies subscribers with open and unsubscribe actions', async () => {
+  const repository = createRepository();
+  const subscriptionRepository = createSubscriptionRepository([
+    {
+      telegramUserId: 100,
+      categoryId: 7,
+      includeSubcategories: false,
+      createdAt: '2026-04-21T12:00:00.000Z',
+      updatedAt: '2026-04-21T12:00:00.000Z',
+    },
+  ]);
+  const { context, privateMessages } = createContext(repository, {
+    storageCategorySubscriptionRepository: subscriptionRepository,
+  });
+
+  context.messageText = 'Subir archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Manuales';
+  await handleTelegramStorageText(context as never);
+  context.messageMedia = {
+    attachmentKind: 'document',
+    messageId: 55,
+    fileId: 'file-1',
+    fileUniqueId: 'unique-1',
+    originalFileName: 'manual.pdf',
+  };
+  assert.equal(await handleTelegramStorageMessage(context as never), true);
+  context.messageText = 'Terminar adjuntos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Aceptar';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+
+  assert.equal(privateMessages.length, 1);
+  assert.equal(privateMessages[0]?.telegramUserId, 100);
+  assert.match(privateMessages[0]?.message ?? '', /Nuevo archivo en storage/);
+  assert.deepEqual(privateMessages[0]?.options?.inlineKeyboard?.[0], [
+    { text: 'Abrir entrada', url: 'https://t.me/cawatest_bot?start=storage_entry_1' },
+    { text: 'Desuscribir', callbackData: `${storageCallbackPrefixes.unsubscribeCategory}7` },
+  ]);
+});
+
+test('handleTelegramStorageCallback unsubscribes from notification messages', async () => {
+  const subscriptionRepository = createSubscriptionRepository([
+    {
+      telegramUserId: 42,
+      categoryId: 7,
+      includeSubcategories: true,
+      createdAt: '2026-04-21T12:00:00.000Z',
+      updatedAt: '2026-04-21T12:00:00.000Z',
+    },
+  ]);
+  const { context, replies } = createContext(createRepository(), {
+    storageCategorySubscriptionRepository: subscriptionRepository,
+  });
+
+  context.callbackData = `${storageCallbackPrefixes.unsubscribeCategory}7`;
+  assert.equal(await handleTelegramStorageCallback(context as never), true);
+
+  assert.equal(subscriptionRepository.__subscriptions.length, 0);
+  assert.equal(replies.at(-1)?.message, 'Suscripción eliminada de Manuales.');
 });
 
 test('handleTelegramStorageText renders category navigation links with local labels', async () => {
@@ -1952,6 +2102,9 @@ test('handleTelegramStorageText edits storage entry metadata', async () => {
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => typeof button === 'string' ? button : button.text), [
     'Listar categorías',
     'Buscar archivos',
+    'Mis suscripciones',
+    'Suscribir categoría',
+    'Desuscribir categoría',
     'Subir archivos',
     'Añadir imágenes',
     'Editar detalles',

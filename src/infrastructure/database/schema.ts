@@ -598,3 +598,26 @@ export const storageEntryMessages = pgTable(
     fileLookup: index('storage_entry_messages_telegram_file_unique_id_idx').on(table.telegramFileUniqueId),
   }),
 );
+
+export const storageCategorySubscriptions = pgTable(
+  'storage_category_subscriptions',
+  {
+    telegramUserId: bigint('telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    categoryId: bigint('category_id', { mode: 'number' })
+      .notNull()
+      .references(() => storageCategories.id, { onDelete: 'cascade' }),
+    includeSubcategories: boolean('include_subcategories').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueSubscription: uniqueIndex('storage_category_subscriptions_unique_subscription').on(
+      table.telegramUserId,
+      table.categoryId,
+    ),
+    categoryLookup: index('storage_category_subscriptions_category_id_idx').on(table.categoryId),
+    userLookup: index('storage_category_subscriptions_telegram_user_id_idx').on(table.telegramUserId),
+  }),
+);

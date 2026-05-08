@@ -26,4 +26,48 @@ When making a code change that must be validated in the running bot, always run:
 ./startup.sh
 ```
 
+## Índice de features del bot de Telegram
+
+`docs/feature-status.md` es el inventario operativo del bot de Telegram.
+Es el documento único de referencia para:
+
+- Qué features están disponibles por módulo.
+- Estado de cada feature (`operativo`, `parcial`, `pendiente`, `técnico`).
+- Riesgos abiertos, limitaciones y pruebas relacionadas.
+- Cobertura por secciones del dominio (agenda, catálogo, storage, compras, etc.).
+
+Debe actualizarse **siempre** que se añada, modifique o elimine una feature visible o técnica del bot de Telegram, incluso si el cambio solo afecta texto, permisos o onboarding.
+
+Al terminar cualquier cambio funcional, ejecuta:
+
+```bash
+./scripts/feature-status-audit.sh
+```
+
+El comando muestra el estado del inventario y recuerda los bloques mínimos que deben revisarse
+antes de validar cambios productivos.
+
 before testing behavior in Telegram.
+
+## Fuente única del estado de features
+
+El único archivo que se mantiene manualmente es:
+
+- `docs/feature-status.md` (en este repositorio).
+
+La ruta en `/opt/gameclubtelegrambot/docs/feature-status.md` se considera una copia de despliegue y no se edita manualmente.
+Cuando corresponda actualizarla, vuelve a ejecutar `./startup.sh` para que se regenere desde `docs/feature-status.md`.
+
+## Formato obligatorio del inventario de features
+
+El bloque `Resumen ejecutivo` de `docs/feature-status.md` debe mantenerse en formato de tabla de texto ancho fijo, dentro de un bloque de código Markdown:
+
+```text
++----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
+| Feature                                      | Estado               | Lectura actual                                                                                                                       |
++----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
+...
++----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
+```
+
+No mezclar este bloque con tabla Markdown simple (`| ... | ... |`), porque la intención es tener lectura humana consistente y columnas visualmente alineadas.

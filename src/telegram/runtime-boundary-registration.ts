@@ -1,4 +1,6 @@
 import { APP_VERSION } from '../app-version.js';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
@@ -119,6 +121,7 @@ const membershipRevokeSelectPrefix = 'membership_revoke:select:';
 const membershipRevokeConfirmCallback = 'membership_revoke:confirm';
 const membershipRevokeCancelCallback = 'membership_revoke:cancel';
 const activeHelpSections = new Map<string, TelegramHelpSection>();
+const featureStatusDocumentPath = resolve(process.cwd(), 'docs', 'feature-status.md');
 
 export function registerHandlers({
   bot,
@@ -638,6 +641,33 @@ function createDefaultCommands({
           version: APP_VERSION,
         });
         await context.reply(startReply.message, startReply.options);
+      },
+    },
+    {
+      command: 'status',
+      contexts: ['private'],
+      access: 'admin',
+      descriptionByLanguage: {
+        ca: 'Envia l estat actual de les funcionalitats',
+        es: 'Envía el estado actual de las funcionalidades',
+        en: 'Send the current feature status report',
+      },
+      handle: async (context) => {
+        if (!existsSync(featureStatusDocumentPath)) {
+          await context.reply('No encuentro el archivo de estado del proyecto en docs/feature-status.md.');
+          return;
+        }
+
+        if (!context.runtime.bot.sendDocument) {
+          await context.reply('No se ha podido adjuntar el estado en este momento.');
+          return;
+        }
+
+        await context.runtime.bot.sendDocument({
+          chatId: context.runtime.actor.telegramUserId,
+          filePath: featureStatusDocumentPath,
+          caption: 'Estado de funcionalidades',
+        });
       },
     },
     {

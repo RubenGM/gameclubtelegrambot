@@ -16,6 +16,10 @@ import {
   type StorageCategoryAccessRepository,
   type StorageCategoryAccessUserRecord,
 } from '../storage/storage-category-access-store.js';
+import {
+  createDatabaseStorageCategorySubscriptionRepository,
+  type StorageCategorySubscriptionRepository,
+} from '../storage/storage-category-subscription-store.js';
 import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { TelegramInteractionError, type TelegramCommandHandlerContext } from './command-registry.js';
@@ -34,6 +38,7 @@ const storageEditEntryStartPayloadPrefix = 'storage_edit_entry_';
 export const storageCallbackPrefixes = {
   editEntry: 'storage:edit_entry:',
   deleteEntry: 'storage:delete_entry:',
+  unsubscribeCategory: 'storage:unsubscribe_category:',
   categoryPage: 'storage:category_page:',
   categoryGoToPage: 'storage:category_goto:',
 } as const;
@@ -50,6 +55,8 @@ const storageDeleteEntryFlowKey = 'storage-delete-entry';
 const storageGrantAccessFlowKey = 'storage-grant-access';
 const storageRevokeAccessFlowKey = 'storage-revoke-access';
 const storageViewAccessFlowKey = 'storage-view-access';
+const storageSubscribeFlowKey = 'storage-subscribe';
+const storageUnsubscribeFlowKey = 'storage-unsubscribe';
 const storageTopicMediaGroupWindowMs = 1500;
 const storageLargeAttachmentForwardThresholdBytes = 50 * 1024 * 1024;
 const storageMaxAttachmentSizeBytes = 2 * 1024 * 1024 * 1024;
@@ -57,6 +64,9 @@ const storageChatRequestId = 41101;
 
 type PendingTopicMediaGroup = {
   repository: StorageCategoryRepository;
+  subscriptionRepository: StorageCategorySubscriptionRepository;
+  bot: StorageFlowContext['runtime']['bot'];
+  language: 'ca' | 'es' | 'en';
   categoryId: number;
   createdByTelegramUserId: number;
   messages: Array<{
@@ -104,6 +114,7 @@ type StorageUserChoice = {
 type StorageFlowContext = TelegramCommandHandlerContext & {
   storageRepository?: StorageCategoryRepository | undefined;
   storageCategoryAccessRepository?: StorageCategoryAccessRepository | undefined;
+  storageCategorySubscriptionRepository?: StorageCategorySubscriptionRepository | undefined;
   messageMedia?: TelegramCommandHandlerContext['messageMedia'];
   sharedChat?: TelegramCommandHandlerContext['sharedChat'];
   messageThreadId?: number | undefined;
@@ -210,6 +221,12 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
       context.runtime.session.current.stepKey === 'edit-entry-move-category'
     ) {
       return selectStorageEntryMoveCategory(context, selectedCategoryId, language);
+    }
+    if (
+      context.runtime.session.current?.flowKey === storageSubscribeFlowKey &&
+      context.runtime.session.current.stepKey === 'subscribe-category'
+    ) {
+      return selectStorageSubscriptionCategory(context, selectedCategoryId, language);
     }
     await context.reply(createTelegramI18n(language).storage.invalidCategory, buildStorageMenuOptions(language, context));
     return true;
@@ -335,6 +352,27 @@ export async function handleTelegramStorageCallback(context: StorageFlowContext)
       return true;
     }
     return deleteStorageEntryFromDetailAction(context, entryId, language);
+  }
+
+  if (callbackData.startsWith(storageCallbackPrefixes.unsubscribeCategory)) {
+    const categoryId = parseCallbackEntityId(callbackData, storageCallbackPrefixes.unsubscribeCategory);
+    const texts = createTelegramI18n(language).storage;
+    if (categoryId === null) {
+      await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+      return true;
+    }
+    const category = await resolveRepository(context).findCategoryById(categoryId);
+    const removed = await resolveSubscriptionRepository(context).deleteSubscription({
+      telegramUserId: context.runtime.actor.telegramUserId,
+      categoryId,
+    });
+    await context.reply(
+      removed
+        ? texts.subscriptionRemoved.replace('{category}', category?.displayName ?? String(categoryId))
+        : texts.subscriptionNotFound.replace('{category}', category?.displayName ?? String(categoryId)),
+      buildStorageMenuOptions(language, context),
+    );
+    return true;
   }
 
   if (callbackData.startsWith(storageCallbackPrefixes.categoryPage)) {
@@ -527,6 +565,12 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   if (context.runtime.session.current?.flowKey === storageViewAccessFlowKey) {
     return handleActiveViewAccessFlow(context, text, language);
   }
+  if (context.runtime.session.current?.flowKey === storageSubscribeFlowKey) {
+    return handleActiveSubscribeFlow(context, text, language);
+  }
+  if (context.runtime.session.current?.flowKey === storageUnsubscribeFlowKey) {
+    return handleActiveUnsubscribeFlow(context, text, language);
+  }
 
   if (text === '/storage' || text === texts.openMenu || text === actionMenuTexts.storage) {
     await handleTelegramStorageCommand(context);
@@ -564,6 +608,48 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
         : `${escapeHtml(texts.askSearchScope)}\n${formatStorageCategoryListMessage({ categories, language, linkMode: 'select' })}`,
       categories.length === 0 ? buildSingleCancelOptions() : { ...buildSingleCancelOptions(), parseMode: 'HTML' },
     );
+    return true;
+  }
+
+  if (text === texts.mySubscriptions) {
+    await sendStorageSubscriptionSummary(context, language);
+    return true;
+  }
+
+  if (text === texts.subscribeCategory) {
+    const categories = await listReadableCategories(context);
+    if (categories.length === 0) {
+      await context.reply(texts.noReadableCategories, buildStorageMenuOptions(language, context));
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: storageSubscribeFlowKey,
+      stepKey: 'subscribe-category',
+      data: {
+        categories: categories.map((category) => ({ id: category.id, displayName: category.displayName })),
+      },
+    });
+    await context.reply(
+      `${escapeHtml(texts.askSubscribeCategory)}\n${formatStorageCategoryListMessage({ categories, language, linkMode: 'select' })}`,
+      { ...buildCategoryChoiceOptions(categories, language), parseMode: 'HTML' },
+    );
+    return true;
+  }
+
+  if (text === texts.unsubscribeCategory) {
+    const categories = await listSubscribedReadableCategories(context);
+    if (categories.length === 0) {
+      await context.reply(texts.noStorageSubscriptions, buildStorageMenuOptions(language, context));
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: storageUnsubscribeFlowKey,
+      stepKey: 'unsubscribe-category',
+      data: {
+        categories: categories.map((category) => ({ id: category.id, displayName: category.displayName })),
+      },
+    });
+    await context.reply(texts.askUnsubscribeCategory, buildCategoryChoiceOptions(categories, language));
     return true;
   }
 
@@ -723,6 +809,118 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   }
 
   return false;
+}
+
+async function handleActiveSubscribeFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== storageSubscribeFlowKey) {
+    return false;
+  }
+
+  const texts = createTelegramI18n(language).storage;
+  if (session.stepKey === 'subscribe-category') {
+    const categories = asCategoryChoices(session.data.categories);
+    const selected = categories.find((category) => category.displayName === text);
+    return selectStorageSubscriptionCategory(context, selected?.id ?? NaN, language);
+  }
+
+  if (session.stepKey === 'subscribe-scope') {
+    const categoryId = asNumber(session.data.categoryId);
+    if (text !== texts.subscribeScopeCategoryOnly && text !== texts.subscribeScopeWithSubcategories) {
+      await context.reply(texts.invalidSubscriptionScope, buildStorageSubscriptionScopeOptions(language));
+      return true;
+    }
+    const includeSubcategories = text === texts.subscribeScopeWithSubcategories;
+    const category = await resolveRepository(context).findCategoryById(categoryId);
+    if (!category || category.lifecycleStatus !== 'active') {
+      await context.runtime.session.cancel();
+      await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+      return true;
+    }
+    await resolveSubscriptionRepository(context).upsertSubscription({
+      telegramUserId: context.runtime.actor.telegramUserId,
+      categoryId,
+      includeSubcategories,
+    });
+    await context.runtime.session.cancel();
+    await context.reply(
+      (includeSubcategories ? texts.subscriptionSavedWithSubcategories : texts.subscriptionSavedCategoryOnly)
+        .replace('{category}', category.displayName),
+      buildStorageMenuOptions(language, context),
+    );
+    return true;
+  }
+
+  return false;
+}
+
+async function selectStorageSubscriptionCategory(
+  context: StorageFlowContext,
+  categoryId: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).storage;
+  const categories = await listReadableCategories(context);
+  const selected = categories.find((category) => category.id === categoryId);
+  if (!selected) {
+    await context.reply(texts.invalidCategory, buildCategoryChoiceOptions(categories, language));
+    return true;
+  }
+
+  await context.runtime.session.advance({
+    stepKey: 'subscribe-scope',
+    data: { categoryId: selected.id, categoryDisplayName: selected.displayName },
+  });
+  await context.reply(texts.askSubscriptionScope.replace('{category}', selected.displayName), buildStorageSubscriptionScopeOptions(language));
+  return true;
+}
+
+async function handleActiveUnsubscribeFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== storageUnsubscribeFlowKey) {
+    return false;
+  }
+
+  const texts = createTelegramI18n(language).storage;
+  const categories = await listSubscribedReadableCategories(context);
+  const selected = categories.find((category) => category.displayName === text);
+  if (!selected) {
+    await context.reply(texts.invalidCategory, buildCategoryChoiceOptions(categories, language));
+    return true;
+  }
+
+  const removed = await resolveSubscriptionRepository(context).deleteSubscription({
+    telegramUserId: context.runtime.actor.telegramUserId,
+    categoryId: selected.id,
+  });
+  await context.runtime.session.cancel();
+  await context.reply(
+    removed ? texts.subscriptionRemoved.replace('{category}', selected.displayName) : texts.subscriptionNotFound.replace('{category}', selected.displayName),
+    buildStorageMenuOptions(language, context),
+  );
+  return true;
+}
+
+async function sendStorageSubscriptionSummary(context: StorageFlowContext, language: 'ca' | 'es' | 'en'): Promise<void> {
+  const texts = createTelegramI18n(language).storage;
+  const subscriptions = await resolveSubscriptionRepository(context).listSubscriptionsByUser(context.runtime.actor.telegramUserId);
+  if (subscriptions.length === 0) {
+    await context.reply(texts.noStorageSubscriptions, buildStorageMenuOptions(language, context));
+    return;
+  }
+
+  const categories = await resolveRepository(context).listCategories();
+  const byId = new Map(categories.map((category) => [category.id, category]));
+  const lines = [escapeHtml(texts.storageSubscriptionsHeader)];
+  for (const subscription of subscriptions) {
+    const category = byId.get(subscription.categoryId);
+    if (!category) {
+      continue;
+    }
+    const scope = subscription.includeSubcategories ? texts.subscriptionScopeWithSubcategoriesLabel : texts.subscriptionScopeCategoryOnlyLabel;
+    lines.push(`- <b>${escapeHtml(formatStorageCategoryPath(category, categories))}</b> · ${escapeHtml(scope)}`);
+  }
+  await context.reply(lines.join('\n'), { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' });
 }
 
 async function handleActiveCreateCategoryFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
@@ -1306,11 +1504,7 @@ async function sendStorageEntryDetail(
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).storage;
   const detail = loadedDetail ?? await resolveRepository(context).getEntryDetail(entryId);
-  if (
-    !detail ||
-    detail.entry.lifecycleStatus !== 'active' ||
-    !context.runtime.authorization.can('storage.entry.read', { type: 'storage-category', id: String(detail.category.id) })
-  ) {
+  if (!detail || detail.entry.lifecycleStatus !== 'active') {
     await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
     return true;
   }
@@ -1354,11 +1548,7 @@ async function handleActiveAddImagesFlow(context: StorageFlowContext, text: stri
     }
 
     const detail = await resolveRepository(context).getEntryDetail(entryId);
-    if (
-      !detail ||
-      detail.entry.lifecycleStatus !== 'active' ||
-      !context.runtime.authorization.can('storage.entry.upload', { type: 'storage-category', id: String(detail.category.id) })
-    ) {
+    if (!detail || detail.entry.lifecycleStatus !== 'active' || !canEditStorageEntry(context, detail)) {
       await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
       return true;
     }
@@ -1439,11 +1629,7 @@ async function handleActiveEditEntryFlow(context: StorageFlowContext, text: stri
     }
 
     const detail = await resolveRepository(context).getEntryDetail(entryId);
-    if (
-      !detail ||
-      detail.entry.lifecycleStatus !== 'active' ||
-      !context.runtime.authorization.can('storage.entry.upload', { type: 'storage-category', id: String(detail.category.id) })
-    ) {
+    if (!detail || detail.entry.lifecycleStatus !== 'active' || !canEditStorageEntry(context, detail)) {
       await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
       return true;
     }
@@ -2075,13 +2261,12 @@ async function handleTopicUpload(context: StorageFlowContext): Promise<boolean> 
     return false;
   }
 
-  if (!context.runtime.authorization.can('storage.entry.upload', { type: 'storage-category', id: String(category.id) })) {
-    return false;
-  }
-
   if (media.mediaGroupId) {
     queueStorageTopicMediaGroupMessage({
       repository,
+      subscriptionRepository: resolveSubscriptionRepository(context),
+      bot: context.runtime.bot,
+      language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
       categoryId: category.id,
       createdByTelegramUserId: context.runtime.actor.telegramUserId,
       storageChatId: context.runtime.chat.chatId,
@@ -2100,7 +2285,7 @@ async function handleTopicUpload(context: StorageFlowContext): Promise<boolean> 
   }
 
   const metadata = parseStorageCaptionMetadata(context.messageMedia?.caption ?? null);
-  await createStorageEntry({
+  const detail = await createStorageEntry({
     repository,
     categoryId: category.id,
     createdByTelegramUserId: context.runtime.actor.telegramUserId,
@@ -2124,6 +2309,7 @@ async function handleTopicUpload(context: StorageFlowContext): Promise<boolean> 
       },
     ],
   });
+  await notifyStorageEntrySubscribers(context, detail);
   return true;
 }
 
@@ -2191,7 +2377,7 @@ async function persistPrivateUpload({
       });
     }
 
-    return await createStorageEntry({
+    const detail = await createStorageEntry({
       repository,
       categoryId,
       createdByTelegramUserId: context.runtime.actor.telegramUserId,
@@ -2200,6 +2386,8 @@ async function persistPrivateUpload({
       tags,
       messages: copiedMessages,
     });
+    await notifyStorageEntrySubscribers(context, detail);
+    return detail;
   } catch (error) {
     await cleanupCopiedStorageMessages(context, copiedMessages);
     throw new TelegramInteractionError(texts.saveFailed, { cancelSession: true });
@@ -2316,8 +2504,52 @@ function isOversizedStorageAttachment(fileSizeBytes: number | null): boolean {
   return fileSizeBytes !== null && fileSizeBytes > storageMaxAttachmentSizeBytes;
 }
 
+async function notifyStorageEntrySubscribers(context: StorageFlowContext, detail: StorageEntryDetailRecord): Promise<void> {
+  await notifyStorageEntrySubscribersWithRuntime({
+    bot: context.runtime.bot,
+    subscriptionRepository: resolveSubscriptionRepository(context),
+    detail,
+    language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+  });
+}
+
+async function notifyStorageEntrySubscribersWithRuntime({
+  bot,
+  subscriptionRepository,
+  detail,
+  language,
+}: {
+  bot: StorageFlowContext['runtime']['bot'];
+  subscriptionRepository: StorageCategorySubscriptionRepository;
+  detail: StorageEntryDetailRecord;
+  language: 'ca' | 'es' | 'en';
+}): Promise<void> {
+  const subscriptions = await subscriptionRepository.listSubscriptionsForEntryCategory(detail.category.id);
+  const recipients = subscriptions.map((subscription) => subscription.telegramUserId);
+  await Promise.all(recipients.map(async (telegramUserId) => {
+    try {
+      await bot.sendPrivateMessage(telegramUserId, formatStorageEntryNotification(detail, language), {
+        parseMode: 'HTML',
+        inlineKeyboard: [[
+          { text: createTelegramI18n(language).storage.openEntryButton, url: buildTelegramStartUrl(`${storageEntryStartPayloadPrefix}${detail.entry.id}`) },
+          { text: createTelegramI18n(language).storage.unsubscribeButton, callbackData: `${storageCallbackPrefixes.unsubscribeCategory}${detail.category.id}` },
+        ]],
+      });
+    } catch (error) {
+      console.error('Storage subscription notification failed', {
+        telegramUserId,
+        entryId: detail.entry.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }));
+}
+
 function queueStorageTopicMediaGroupMessage({
   repository,
+  subscriptionRepository,
+  bot,
+  language,
   categoryId,
   createdByTelegramUserId,
   storageChatId,
@@ -2333,6 +2565,9 @@ function queueStorageTopicMediaGroupMessage({
   mediaGroupId,
 }: {
   repository: StorageCategoryRepository;
+  subscriptionRepository: StorageCategorySubscriptionRepository;
+  bot: StorageFlowContext['runtime']['bot'];
+  language: 'ca' | 'es' | 'en';
   categoryId: number;
   createdByTelegramUserId: number;
   storageChatId: number;
@@ -2356,6 +2591,9 @@ function queueStorageTopicMediaGroupMessage({
 
   const pending = existing ?? {
     repository,
+    subscriptionRepository,
+    bot,
+    language,
     categoryId,
     createdByTelegramUserId,
     messages: [],
@@ -2404,7 +2642,7 @@ async function flushStorageTopicMediaGroupByKey(key: string): Promise<void> {
   const captionSource = sortedMessages.find((message) => Boolean(message.caption))?.caption ?? null;
   const metadata = parseStorageCaptionMetadata(captionSource);
 
-  await createStorageEntry({
+  const detail = await createStorageEntry({
     repository: pending.repository,
     categoryId: pending.categoryId,
     createdByTelegramUserId: pending.createdByTelegramUserId,
@@ -2415,6 +2653,12 @@ async function flushStorageTopicMediaGroupByKey(key: string): Promise<void> {
       ...message,
       sortOrder: index,
     })),
+  });
+  await notifyStorageEntrySubscribersWithRuntime({
+    bot: pending.bot,
+    subscriptionRepository: pending.subscriptionRepository,
+    detail,
+    language: pending.language,
   });
 }
 
@@ -2476,29 +2720,31 @@ async function cleanupCopiedStorageMessages(
 }
 
 async function listReadableCategories(context: StorageFlowContext): Promise<StorageCategoryRecord[]> {
-  const categories = await resolveRepository(context).listCategories();
-  return categories.filter(
-    (category) =>
-      category.lifecycleStatus === 'active' &&
-      context.runtime.authorization.can('storage.entry.read', { type: 'storage-category', id: String(category.id) }),
-  );
+  return listActiveCategories(context);
 }
 
 async function listUploadableCategories(context: StorageFlowContext): Promise<StorageCategoryRecord[]> {
+  return listActiveCategories(context);
+}
+
+async function listActiveCategories(context: StorageFlowContext): Promise<StorageCategoryRecord[]> {
   const categories = await resolveRepository(context).listCategories();
-  return categories.filter(
-    (category) =>
-      category.lifecycleStatus === 'active' &&
-      context.runtime.authorization.can('storage.entry.upload', { type: 'storage-category', id: String(category.id) }),
-  );
+  return categories.filter((category) => category.lifecycleStatus === 'active');
+}
+
+async function listSubscribedReadableCategories(context: StorageFlowContext): Promise<StorageCategoryRecord[]> {
+  const [categories, subscriptions] = await Promise.all([
+    listReadableCategories(context),
+    resolveSubscriptionRepository(context).listSubscriptionsByUser(context.runtime.actor.telegramUserId),
+  ]);
+  const subscribedIds = new Set(subscriptions.map((subscription) => subscription.categoryId));
+  return categories.filter((category) => subscribedIds.has(category.id));
 }
 
 async function listEditableEntryDetails(context: StorageFlowContext, categoryId: number): Promise<StorageEntryDetailRecord[]> {
   const details = await resolveRepository(context).listEntryDetailsByCategory(categoryId);
   return details.filter(
-    (detail) =>
-      detail.entry.lifecycleStatus === 'active' &&
-      context.runtime.authorization.can('storage.entry.upload', { type: 'storage-category', id: String(detail.category.id) }),
+    (detail) => detail.entry.lifecycleStatus === 'active' && canEditStorageEntry(context, detail),
   );
 }
 
@@ -2510,6 +2756,10 @@ function resolveStorageCategoryAccessRepository(context: StorageFlowContext): St
   return context.storageCategoryAccessRepository ?? createDatabaseStorageCategoryAccessRepository({ database: context.runtime.services.database.db });
 }
 
+function resolveSubscriptionRepository(context: StorageFlowContext): StorageCategorySubscriptionRepository {
+  return context.storageCategorySubscriptionRepository ?? createDatabaseStorageCategorySubscriptionRepository({ database: context.runtime.services.database.db });
+}
+
 function resolveAuditRepository(context: StorageFlowContext) {
   return createDatabaseAuditLogRepository({ database: context.runtime.services.database.db as never });
 }
@@ -2519,6 +2769,8 @@ function buildStorageMenuOptions(language: 'ca' | 'es' | 'en', context?: Storage
   const rows: Array<Array<string | TelegramReplyButton>> = [
     [primaryButton(texts.listCategories)],
     [secondaryButton(texts.searchFiles)],
+    [secondaryButton(texts.mySubscriptions)],
+    [successButton(texts.subscribeCategory), dangerButton(texts.unsubscribeCategory)],
     [successButton(texts.upload), successButton(texts.addImages)],
     [secondaryButton(texts.editEntry)],
   ];
@@ -2641,6 +2893,19 @@ function buildUploadPreviewOptions(language: 'ca' | 'es' | 'en'): TelegramReplyO
     replyKeyboard: [
       [successButton(texts.uploadAccept)],
       [secondaryButton(texts.uploadModifyDescription), successButton(texts.addImages)],
+      [dangerButton('/cancel')],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function buildStorageSubscriptionScopeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).storage;
+  return {
+    replyKeyboard: [
+      [successButton(texts.subscribeScopeCategoryOnly)],
+      [secondaryButton(texts.subscribeScopeWithSubcategories)],
       [dangerButton('/cancel')],
     ],
     resizeKeyboard: true,
@@ -3378,6 +3643,17 @@ function formatStorageSearchResultEntry(detail: StorageEntryDetailRecord, langua
   const url = escapeHtml(buildTelegramStartUrl(`${storageEntryStartPayloadPrefix}${detail.entry.id}`));
   const tags = detail.entry.tags.length > 0 ? ` · ${detail.entry.tags.map((tag) => `#${tag}`).join(', ')}` : '';
   return `- <a href="${url}">${escapeHtml(description)}</a>${escapeHtml(tags)}`;
+}
+
+function formatStorageEntryNotification(detail: StorageEntryDetailRecord, language: 'ca' | 'es' | 'en'): string {
+  const texts = createTelegramI18n(language).storage;
+  const description = detail.entry.description ?? texts.entryNoDescription;
+  const url = buildTelegramStartUrl(`${storageEntryStartPayloadPrefix}${detail.entry.id}`);
+  return [
+    `<b>${escapeHtml(texts.newStorageEntryNotification)}</b>`,
+    `${escapeHtml(texts.uploadPreviewCategory)}: ${escapeHtml(detail.category.displayName)}`,
+    `${escapeHtml(texts.entryFieldDescription)}: <a href="${escapeHtml(url)}">${escapeHtml(description)}</a>`,
+  ].join('\n');
 }
 
 function formatStorageSummaryEntry(

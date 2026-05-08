@@ -1,4 +1,4 @@
-import { Bot, type Context } from 'grammy';
+import { Bot, InputFile, type Context } from 'grammy';
 
 import type { AuthorizationService } from '../authorization/service.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
@@ -147,6 +147,7 @@ export interface TelegramRuntime {
     copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+    sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
@@ -179,6 +180,7 @@ export interface TelegramBotLike {
   copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+  sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
   deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   startPolling(): Promise<void>;
   stopPolling(): Promise<void>;
@@ -466,6 +468,9 @@ function createGrammyTelegramBot({
         ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
       });
       return (result as Array<{ message_id: number }>).map((message) => ({ messageId: Number(message.message_id) }));
+    },
+    async sendDocument({ chatId, filePath, caption }) {
+      await bot.api.sendDocument(chatId, new InputFile(filePath), caption ? { caption } : undefined);
     },
     async deleteMessage({ chatId, messageId }) {
       await bot.api.raw.deleteMessage({

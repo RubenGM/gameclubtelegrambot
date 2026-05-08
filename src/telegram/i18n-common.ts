@@ -20,6 +20,13 @@ export const commonTexts = {
       "Per fer servir {publicName}, has d'escriure'm en xat privat. En els grups només et puc orientar. Prem el botó per obrir el privat i envia'm allà qualsevol missatge, per exemple /start.",
     startOpenPrivateButton: 'Obrir xat privat',
     helpHeader: 'Què pots fer ara:',
+    helpMainMenuOverview: 'Menú principal: aquí tens què fa cada secció.',
+    helpSectionHeader: 'Detalls del menú actual:',
+    helpSectionScheduleDetail: 'Amb les activitats pots veure-les, apuntar-te-hi o sortir-ne, crear-ne de noves, editar-ne les teves i cancel·lar-les.',
+    helpSectionCatalogDetail: 'Al catàleg pots buscar, filtrar i consultar ítems, veure el seu estat de préstec i crear activitats a partir d’un element.',
+    helpSectionStorageDetail: 'A l’emmagatzematge pots veure categories, cercar arxius, obrir entrades per ID i gestionar fitxers.',
+    helpSectionGroupPurchasesDetail: 'A les compres conjuntes pots veure compres obertes, crear-ne de noves, apuntar-te-hi i gestionar participants i confirmacions.',
+    helpSectionLfgDetail: 'Al menú de LFG pots veure jugadors o grups buscant-se, publicar una nova cerca i gestionar els teus anuncis.',
     helpFooterPrivate: "Escriu-me en privat per obrir el menú principal del club. Des d'aquí només et puc orientar i deixar-te canviar l'idioma.",
     helpPendingApproval:
       "Encara no tens l'accés aprovat. La teva sol·licitud està pendent de revisió. Quan un administrador l'aprovi, podràs fer servir activitats, calendari, catàleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t'has registrat al bot.",
@@ -33,11 +40,21 @@ export const commonTexts = {
     helpLfgAction: 'troba grup o jugadors per jugar.',
     helpReviewAccessAction: 'revisa i resol les sol·licituds pendents.',
     helpManageUsersAction: 'administra usuaris aprovats i expulsions.',
-    helpContextSchedule: 'Activitats ara: pots veure activitats, crear-ne de noves, editar les teves activitats i apuntar-te o sortir de les que tinguin places.',
-    helpContextCatalog: 'Catàleg ara: pots explorar jocs i llibres, cercar material, consultar préstecs i crear activitats des de la fitxa d’un joc.',
-    helpContextGroupPurchases: 'Compres conjuntes ara: pots veure compres obertes, crear-ne una i gestionar la teva participació o confirmació.',
-    helpContextLfg: 'LFG ara: pots veure jugadors que busquen grup, anuncis de grups que busquen jugadors i publicar o resoldre els teus anuncis.',
-    helpContextStorage: 'Emmagatzematge ara: pots veure categories, cercar arxius, obrir entrades per ID i pujar adjunts si tens permís.',
+    helpContextSchedule:
+      'Ara pots veure activitats, crear-ne de noves, editar les teves activitats i apuntar-te o sortir de les que tinguin places. També pots consultar el calendari complet de la setmana i revisar els assistents confirmats.',
+    helpContextCatalog:
+      'Aquí pots explorar jocs i llibres, cercar material pel nom o categoria, consultar préstecs, i des de la fitxa d’un joc crear activitats per planificar partides.',
+    helpContextGroupPurchases:
+      'Aquí pots veure compres obertes, obrir-ne de noves, convidar participants i comprovar estat i confirmació de pagaments o assistència.',
+    helpContextLfg:
+      'Aquí pots veure jugadors que busquen grup, veure anuncis de grups que busquen jugadors i publicar o tancar els teus propis anuncis de joc.',
+    helpContextStorage:
+      'Aquí pots veure categories, cercar arxius, obrir entrades per ID i pujar adjunts si tens permís o permís especial de l’administrador.',
+    welcomeIntro: 'Hola, soc el bot de {publicName}. Em pots usar per mirar activitats, gestionar taules, fer compres conjuntes o trobar companys per jugar.',
+    welcomePrivateChatLinkText: 'obrir el xat privat',
+    welcomePendingPrompt: 'Per començar, toca {accessRequestLink} i després espera a ser acceptat.',
+    welcomeApprovedPrompt: 'Per començar, toca {startChatLink} i obre el menú principal.',
+    welcomeAccessLinkText: 'demana accés',
     helpMenuHint: 'Toca un botó del menú per continuar.',
     noPendingRequests: 'No hi ha cap sol·licitud pendent ara mateix.',
     pendingRequestsHeader: 'Sol·licituds pendents:',
@@ -74,6 +91,13 @@ export const commonTexts = {
       'Para usar {publicName}, tienes que escribirme por chat privado. En los grupos solo puedo orientarte. Pulsa el botón para abrir el privado y envíame allí cualquier mensaje, por ejemplo /start.',
     startOpenPrivateButton: 'Abrir chat privado',
     helpHeader: 'Qué puedes hacer ahora:',
+    helpMainMenuOverview: 'Menú principal: aquí tienes qué hace cada sección.',
+    helpSectionHeader: 'Detalles del menú actual:',
+    helpSectionScheduleDetail: 'En actividades puedes verlas, apuntarte o salir de ellas, crear nuevas, editar las tuyas y cancelarlas.',
+    helpSectionCatalogDetail: 'En el catálogo puedes buscar, filtrar y consultar elementos, ver su estado de préstamo y crear actividades desde un elemento.',
+    helpSectionStorageDetail: 'En el almacenamiento puedes ver categorías, buscar archivos, abrir entradas por ID y gestionar archivos.',
+    helpSectionGroupPurchasesDetail: 'En compras conjuntas puedes ver compras abiertas, crear nuevas, apuntarte y gestionar participantes y confirmaciones.',
+    helpSectionLfgDetail: 'En el LFG puedes ver jugadores o grupos buscando juego, publicar una nueva búsqueda y gestionar tus anuncios.',
     helpFooterPrivate: 'Escríbeme en privado para abrir el menú principal del club. Desde aquí solo puedo orientarte y dejarte cambiar el idioma.',
     helpPendingApproval:
       'Todavía no tienes el acceso aprobado. Tu solicitud está pendiente de revisión. Cuando un administrador la apruebe, ya podrás usar actividades, calendario, catálogo y mesas. Si quieres agilizarlo, avisa a un administrador y dile que ya te has registrado en el bot.',
@@ -87,11 +111,21 @@ export const commonTexts = {
     helpLfgAction: 'encuentra grupo o jugadores para jugar.',
     helpReviewAccessAction: 'revisa y resuelve las solicitudes pendientes.',
     helpManageUsersAction: 'administra usuarios aprobados y expulsiones.',
-    helpContextSchedule: 'Actividades ahora: puedes ver actividades, crear nuevas, editar tus actividades y apuntarte o salir de las que tengan plazas.',
-    helpContextCatalog: 'Catálogo ahora: puedes explorar juegos y libros, buscar material, consultar préstamos y crear actividades desde la ficha de un juego.',
-    helpContextGroupPurchases: 'Compras conjuntas ahora: puedes ver compras abiertas, crear una y gestionar tu participación o confirmación.',
-    helpContextLfg: 'LFG ahora: puedes ver jugadores que buscan grupo, anuncios de grupos que buscan jugadores y publicar o resolver tus anuncios.',
-    helpContextStorage: 'Almacenamiento ahora: puedes ver categorías, buscar archivos, abrir entradas por ID y subir adjuntos si tienes permiso.',
+    helpContextSchedule:
+      'Aquí puedes ver actividades, crear nuevas, editar las tuyas y apuntarte o salir de las que tengan plazas. También puedes revisar el calendario semanal y comprobar los asistentes.',
+    helpContextCatalog:
+      'Aquí puedes explorar juegos y libros, buscar material por nombre o categoría, consultar préstamos y crear actividades desde la ficha de un juego.',
+    helpContextGroupPurchases:
+      'Aquí puedes ver compras abiertas, crear una, invitar participantes y revisar el estado y confirmación de cada compra.',
+    helpContextLfg:
+      'Aquí puedes ver jugadores que buscan grupo, anuncios de grupos que buscan jugadores y publicar o cerrar tus propios anuncios.',
+    helpContextStorage:
+      'Aquí puedes ver categorías, buscar archivos, abrir entradas por ID y subir adjuntos si tienes permisos o aprobación de administración.',
+    welcomeIntro: 'Hola, soy el bot de {publicName}. Me puedes usar para mirar actividades, gestionar mesas, hacer pedidos conjuntos o encontrar gente para jugar.',
+    welcomePrivateChatLinkText: 'abrir chat privado',
+    welcomePendingPrompt: 'Para comenzar, toca {accessRequestLink} y espera a ser aceptado.',
+    welcomeApprovedPrompt: 'Para empezar, toca {startChatLink} y abre el menú principal.',
+    welcomeAccessLinkText: 'pide acceso',
     helpMenuHint: 'Toca un botón del menú para continuar.',
     noPendingRequests: 'No hay ninguna solicitud pendiente ahora mismo.',
     pendingRequestsHeader: 'Solicitudes pendientes:',
@@ -128,6 +162,13 @@ export const commonTexts = {
       'To use {publicName}, you need to message me in private chat. In groups I can only point you in the right direction. Press the button to open the private chat and send me any message there, for example /start.',
     startOpenPrivateButton: 'Open private chat',
     helpHeader: 'What you can do now:',
+    helpMainMenuOverview: 'Main menu: here is what each section is for.',
+    helpSectionHeader: 'Current menu details:',
+    helpSectionScheduleDetail: 'In activities you can view them, join or leave, create new ones, edit yours, and cancel them.',
+    helpSectionCatalogDetail: 'In catalog you can search, filter and review items, check loan status, and create activities from an item.',
+    helpSectionStorageDetail: 'In storage you can browse categories, search files, open entries by ID, and upload files.',
+    helpSectionGroupPurchasesDetail: 'In group purchases you can view open purchases, create new ones, join them, and manage participants and confirmations.',
+    helpSectionLfgDetail: 'In LFG you can see players or groups looking for matches, post a new search, and manage your ads.',
     helpFooterPrivate: 'Message me in private to open the main club menu. From here I can only guide you and let you change the language.',
     helpPendingApproval:
       'Your access is still pending approval. Ask a club administrator to approve your request so you can use activities, calendar, catalog, and tables.',
@@ -141,11 +182,21 @@ export const commonTexts = {
     helpLfgAction: 'find a group or players to play.',
     helpReviewAccessAction: 'review and resolve pending access requests.',
     helpManageUsersAction: 'manage approved users and expulsions.',
-    helpContextSchedule: 'Activities now: you can view activities, create new ones, edit your activities, and join or leave activities with available seats.',
-    helpContextCatalog: 'Catalog now: you can browse games and books, search material, check loans, and create activities from a game detail.',
-    helpContextGroupPurchases: 'Shared orders now: you can view open orders, create one, and manage your participation or confirmation.',
-    helpContextLfg: 'LFG now: you can view players looking for a group, groups looking for players, and publish or resolve your ads.',
-    helpContextStorage: 'Storage now: you can view categories, search files, open entries by ID, and upload attachments if you have permission.',
+    helpContextSchedule:
+      'You can now view activities, create new ones, edit your own activities, and join or leave sessions with free seats. You can also review the weekly calendar and existing participants.',
+    helpContextCatalog:
+      'You can browse games and books, search by title or category, review loan status, and create activities from a game detail.',
+    helpContextGroupPurchases:
+      'You can browse open shared purchases, create new ones, invite participants, and track order status and confirmations.',
+    helpContextLfg:
+      'You can see players looking for a group, groups looking for players, and publish or close your own ads.',
+    helpContextStorage:
+      'You can browse categories, search files, open entries by ID, and upload attachments if you have permission.',
+    welcomeIntro: 'Hi, I am the {publicName} bot. You can use me to check activities, manage tables, create shared purchases, or find people to play games.',
+    welcomePrivateChatLinkText: 'open private chat',
+    welcomePendingPrompt: 'To start, tap {accessRequestLink} and wait until your request is approved.',
+    welcomeApprovedPrompt: 'To start, tap {startChatLink} and open the main menu.',
+    welcomeAccessLinkText: 'request access',
     helpMenuHint: 'Tap a menu button to continue.',
     noPendingRequests: 'There are no pending requests right now.',
     pendingRequestsHeader: 'Pending requests:',

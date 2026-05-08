@@ -209,6 +209,7 @@ function createRuntimeContextMiddleware({
         ...(bot.copyMessage ? { copyMessage: bot.copyMessage.bind(bot) } : {}),
         ...(bot.forwardMessage ? { forwardMessage: bot.forwardMessage.bind(bot) } : {}),
         ...(bot.sendMediaGroup ? { sendMediaGroup: bot.sendMediaGroup.bind(bot) } : {}),
+        ...(bot.sendDocument ? { sendDocument: bot.sendDocument.bind(bot) } : {}),
         ...(bot.deleteMessage ? { deleteMessage: bot.deleteMessage.bind(bot) } : {}),
       },
       services,

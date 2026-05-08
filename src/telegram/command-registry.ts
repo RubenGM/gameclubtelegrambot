@@ -17,7 +17,17 @@ export class TelegramInteractionError extends Error {
 }
 
 export type TelegramCommandAccess = 'public' | 'approved' | 'admin';
-export type TelegramHelpSection = 'schedule' | 'catalog' | 'group_purchases' | 'storage' | 'lfg';
+export type TelegramHelpSection =
+  | 'active-flow'
+  | 'private-admin-default'
+  | 'private-approved-default'
+  | 'private-pending-default'
+  | 'default-shared'
+  | 'schedule'
+  | 'catalog'
+  | 'group_purchases'
+  | 'storage'
+  | 'lfg';
 
 export interface TelegramCommandRuntime {
   bot: {
@@ -34,6 +44,7 @@ export interface TelegramCommandRuntime {
     copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+    sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
@@ -159,7 +170,7 @@ export function renderTelegramHelpMessage({
     return lines.join('\n');
   }
 
-  const contextualHelp = section ? helpTextForSection(section, i18n.common) : undefined;
+  const contextualHelp = section ? helpTextForSection(section, i18n) : undefined;
   if (contextualHelp) {
     lines.push(contextualHelp);
     lines.push('');
@@ -195,25 +206,91 @@ export function renderTelegramHelpMessage({
 
 function helpTextForSection(
   section: TelegramHelpSection,
-  common: ReturnType<typeof createTelegramI18n>['common'],
-): string {
+  i18n: ReturnType<typeof createTelegramI18n>,
+): string | undefined {
+  const { common, actionMenu } = i18n;
+
+  if (section === 'private-admin-default') {
+    return [
+      common.helpMainMenuOverview,
+      `${actionMenu.reviewAccess}: ${common.helpReviewAccessAction}`,
+      `${actionMenu.manageUsers}: ${common.helpManageUsersAction}`,
+      `${actionMenu.schedule}: ${common.helpScheduleAction}`,
+      `${actionMenu.tables}: ${common.helpTablesAction}`,
+      `${actionMenu.catalog}: ${common.helpCatalogAction}`,
+      `${actionMenu.storage}: ${common.helpStorageAction}`,
+      `${actionMenu.groupPurchases}: ${common.helpGroupPurchasesAction}`,
+      `${actionMenu.lfg}: ${common.helpLfgAction}`,
+      `${actionMenu.language}: ${common.helpLanguageAction}`,
+    ].join('\n');
+  }
+
+  if (section === 'private-approved-default') {
+    return [
+      common.helpMainMenuOverview,
+      `${actionMenu.schedule}: ${common.helpScheduleAction}`,
+      `${actionMenu.tablesRead}: ${common.helpTablesAction}`,
+      `${actionMenu.catalog}: ${common.helpCatalogAction}`,
+      `${actionMenu.storage}: ${common.helpStorageAction}`,
+      `${actionMenu.groupPurchases}: ${common.helpGroupPurchasesAction}`,
+      `${actionMenu.lfg}: ${common.helpLfgAction}`,
+      `${actionMenu.language}: ${common.helpLanguageAction}`,
+    ].join('\n');
+  }
+
+  if (section === 'private-pending-default') {
+    return [
+      common.helpMainMenuOverview,
+      `${actionMenu.access}: ${common.helpAccessAction}`,
+      `${actionMenu.language}: ${common.helpLanguageAction}`,
+    ].join('\n');
+  }
+
+  if (section === 'default-shared') {
+    return `${actionMenu.language}: ${common.helpLanguageAction}`;
+  }
+
   if (section === 'schedule') {
-    return common.helpContextSchedule;
+    return [
+      `${common.helpSectionHeader} ${actionMenu.schedule}`,
+      common.helpContextSchedule,
+      common.helpSectionScheduleDetail,
+    ].join('\n');
   }
 
   if (section === 'catalog') {
-    return common.helpContextCatalog;
+    return [
+      `${common.helpSectionHeader} ${actionMenu.catalog}`,
+      common.helpContextCatalog,
+      common.helpSectionCatalogDetail,
+    ].join('\n');
   }
 
   if (section === 'group_purchases') {
-    return common.helpContextGroupPurchases;
+    return [
+      `${common.helpSectionHeader} ${actionMenu.groupPurchases}`,
+      common.helpContextGroupPurchases,
+      common.helpSectionGroupPurchasesDetail,
+    ].join('\n');
   }
 
   if (section === 'lfg') {
-    return common.helpContextLfg;
+    return [
+      `${common.helpSectionHeader} ${actionMenu.lfg}`,
+      common.helpContextLfg,
+      common.helpSectionLfgDetail,
+    ].join('\n');
   }
 
-  return common.helpContextStorage;
+  if (section === 'storage') {
+    return [
+      `${common.helpSectionHeader} ${actionMenu.storage}`,
+      common.helpContextStorage,
+      common.helpSectionStorageDetail,
+    ].join('\n');
+  }
+
+  return undefined;
 }
 
 function hasRequiredAccess(

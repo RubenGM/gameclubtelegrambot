@@ -1,6 +1,6 @@
 # Estado real de features
 
-Ultima revision: 2026-05-04.
+Ultima revision: 2026-05-08.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -11,21 +11,28 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 
 ## Resumen ejecutivo
 
-| Area | Estado | Lectura actual |
-| --- | --- | --- |
-| Runtime, configuracion y despliegue | tecnico operativo | Base solida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, systemd/tray y backups. |
-| Acceso, usuarios y admins | operativo | Solicitud/aprobacion/rechazo/revocacion, elevacion admin y avisos privados a admins. |
-| Idioma, menus y ayuda | operativo | Idiomas `ca`, `es`, `en`, menu por rol/contexto y ayuda contextual por seccion activa. |
-| Mesas | operativo | CRUD admin y consulta de mesas activas. |
-| Agenda de actividades | operativo | Crear/listar/editar/cancelar, apuntarse/salir, mesas, plazas, conflictos, recordatorios y publicacion a grupos de noticias. |
-| Eventos del local | operativo | CRUD/cancelacion admin e impacto visible en agenda y resumen diario. |
-| Catalogo | operativo con integraciones parciales | CRUD, familias/grupos, busqueda, media por URL, importacion asistida desde Wikipedia/Open Library y coleccion BGG. BGG por busqueda individual no es la fuente principal actual. |
-| Prestamos | operativo parcial | Prestamo/devolucion/edicion de notas y fecha prevista. Falta worker de recordatorios de prestamos. |
-| Grupos de noticias | operativo parcial | Comandos `/news` para activar/desactivar y suscribirse. Falta UX con botones. |
-| Compras conjuntas | operativo | Crear/listar/unirse/confirmar/gestionar participantes, mensajes, publicacion y recordatorios de deadline. |
-| Storage/archivos | operativo | Indice funcional de adjuntos en Telegram con categorias, permisos, busqueda, DM upload, topic upload, alta guiada de categorias, seleccion simple de usuarios para accesos y marcado de fuentes perdidas. |
-| Backups y operacion TUI | tecnico operativo | CLI y TUI para backup/restore, estado del servicio y dependencias Debian. |
-| Analytics UX | tecnico parcial | Hay reporte/TUI de menu UX; mejoras avanzadas siguen en backlog. |
+```text
++----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
+| Feature                                      | Estado               | Lectura actual                                                                                                                       |
++----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
+| Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, systemd/tray y copias de seguridad.                           |
+| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, elevación de admins, avisos privados de incidencias y comando `/status` para adjuntar informe de estado. |
+| Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto y ayuda contextual por sección activa.                                                          |
+| Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
+| Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
+| Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario.                                                           |
+| Catálogo                                     | 🟡 Operativo con huecos | CRUD, familias, búsqueda, media por URL, importación desde Wikipedia/Open Library y BGG asistida.                                        |
+| Préstamos                                    | 🟠 Operativo parcial | Flujo principal funcional; falta worker de recordatorios.                                                                                |
+| Grupos de noticias                           | 🟠 Operativo parcial | `/news` para activar/desactivar y suscripciones; queda por pulir UX de botones.                                                        |
+| Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
+| Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas y procesos de carga (DM y topic).                                              |
+| Backups y operación TUI                      | 🟢 Operativo         | CLI/TUI de backup/restore, estado de servicio y gestión de configuración Debian.                                                         |
+| Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo, con mejoras de analítica avanzada pendientes.                                                             |
++----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
+```
+
+
+Leyenda: 🟢 operativo, 🟠 parcial, 🟡 técnico.
 
 ## Runtime y operacion
 
