@@ -118,6 +118,7 @@ import {
   asLookupCandidate,
   asLookupCandidates,
   asStringArray,
+  parseCommaSeparatedItemNames,
   parseItemId,
   parseLookupCandidateInput,
   parseOptionalJsonObject,
@@ -141,6 +142,7 @@ import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
 const createFlowKey = 'catalog-admin-create';
+const bulkCreateFlowKey = 'catalog-admin-bulk-create';
 const editFlowKey = 'catalog-admin-edit';
 const deactivateFlowKey = 'catalog-admin-deactivate';
 const mediaFlowKey = 'catalog-admin-media';
@@ -148,6 +150,19 @@ const mediaDeleteFlowKey = 'catalog-admin-media-delete';
 const browseFlowKey = 'catalog-admin-browse';
 const bggCollectionImportFlowKey = 'catalog-admin-bgg-collection-import';
 const catalogAdminStartPayloadPrefix = 'catalog_admin_item_';
+const bulkCreateRateLimitMs = 700;
+const bulkCreateItemLimit = 100;
+
+type BulkCreateStatus = 'added' | 'alreadyExists' | 'noMatch' | 'ambiguous' | 'error';
+
+type BulkCreateSummaryItem = {
+  input: string;
+  status: BulkCreateStatus;
+  title?: string;
+  itemId?: number;
+  candidates?: string[];
+  reason?: string;
+};
 
 export const catalogAdminCallbackPrefixes = {
   browseMenu: 'catalog_admin:browse_menu',
@@ -212,6 +227,19 @@ export const catalogAdminLabels = {
   refineLookupByAuthor: 'Refinar amb autor',
   keepTypedTitle: 'Quedar-me amb el meu titol',
   useApiTitle: 'Fer servir el titol de la API',
+  bulkCreate: 'Afegir múltiples',
+  askBulkNames: 'Escriu els noms separats per coma. Si usen coma literal, no els separis de moment.',
+  bulkCreateAcknowledged: 'Gràcies! Ara processaré els resultats en segon pla. Quan acabi t\'enviaré un resum per aquí.',
+  bulkCreateSummaryHeader: 'Resum de la càrrega múltiple:',
+  bulkCreateSummaryAdded: 'Creats',
+  bulkCreateSummaryAlreadyExists: 'Ja existia',
+  bulkCreateSummaryNoMatch: 'Sense coincidència clara',
+  bulkCreateSummaryAmbiguous: 'Ambigus',
+  bulkCreateSummaryError: 'Errors',
+  bulkCreateSummaryManualFallback: 'Pots fer la resta manualment un a un amb aquesta opció: Crear item.',
+  bulkCreateManualButton: 'Afegir manualment',
+  bulkCreateComplete: 'Completar',
+  bulkCreateCompleted: 'Procés completat.',
   start: 'Inici',
   cancel: '/cancel',
 } as const;
@@ -236,7 +264,7 @@ export interface TelegramCatalogAdminContext {
       publicName: string;
       clubName: string;
       language?: string;
-      sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+      sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     };
   };
   catalogRepository?: CatalogRepository;
@@ -262,8 +290,19 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
   const i18n = createTelegramI18n(language);
   const texts = i18n.catalogAdmin;
 
+  if (text === texts.bulkCreateComplete || text === catalogAdminLabels.bulkCreateComplete) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.bulkCreateCompleted, buildCatalogAdminMenuOptions(language));
+    return true;
+  }
+
   if (text === i18n.actionMenu.catalog || text === catalogAdminLabels.openMenu || text === '/catalog') {
     await showCatalogBrowseMenu(context);
+    return true;
+  }
+  if (text === texts.bulkCreate || text === catalogAdminLabels.bulkCreate || text === '/catalog_bulk') {
+    await context.runtime.session.start({ flowKey: bulkCreateFlowKey, stepKey: 'bulk-item-type', data: {} });
+    await context.reply(texts.askItemType, buildTypeOptions(language));
     return true;
   }
   if (text === texts.create || text === catalogAdminLabels.create || text === '/catalog_create') {
@@ -487,7 +526,14 @@ function canAdministerCatalog(context: TelegramCatalogAdminContext): boolean {
 }
 
 function isCatalogAdminSession(flowKey: string | undefined): boolean {
-  return flowKey === createFlowKey || flowKey === editFlowKey || flowKey === deactivateFlowKey || flowKey === mediaFlowKey || flowKey === mediaDeleteFlowKey || flowKey === browseFlowKey || flowKey === bggCollectionImportFlowKey;
+  return flowKey === createFlowKey
+    || flowKey === bulkCreateFlowKey
+    || flowKey === editFlowKey
+    || flowKey === deactivateFlowKey
+    || flowKey === mediaFlowKey
+    || flowKey === mediaDeleteFlowKey
+    || flowKey === browseFlowKey
+    || flowKey === bggCollectionImportFlowKey;
 }
 
 async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, text: string): Promise<boolean> {
@@ -502,6 +548,9 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
   }
   if (session.flowKey === createFlowKey) {
     return handleCreateSession(context, text, session.stepKey, session.data);
+  }
+  if (session.flowKey === bulkCreateFlowKey) {
+    return handleBulkCreateSession(context, text, session.stepKey, session.data);
   }
   if (session.flowKey === editFlowKey) {
     return handleEditSession(context, text, session.stepKey, session.data);
@@ -550,6 +599,419 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
 
 function isCatalogAdminOnlySession(flowKey: string): boolean {
   return flowKey === editFlowKey || flowKey === deactivateFlowKey || flowKey === mediaFlowKey || flowKey === mediaDeleteFlowKey || flowKey === bggCollectionImportFlowKey;
+}
+
+async function handleBulkCreateSession(
+  context: TelegramCatalogAdminContext,
+  text: string,
+  stepKey: string,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+
+  if (text === texts.bulkCreateManualButton || text === catalogAdminLabels.bulkCreateManualButton) {
+    return handleBulkManualCreateText(context);
+  }
+
+  if (text === texts.bulkCreateComplete || text === catalogAdminLabels.bulkCreateComplete) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.bulkCreateCompleted, buildCatalogAdminMenuOptions(language));
+    return true;
+  }
+
+  if (stepKey === 'bulk-item-type') {
+    const itemType = parseItemTypeLabel(text, language);
+    if (itemType instanceof Error) {
+      await context.reply(texts.invalidType, buildTypeOptions(language));
+      return true;
+    }
+    await context.runtime.session.advance({
+      stepKey: 'bulk-item-names',
+      data: { ...data, itemType },
+    });
+    await context.reply(texts.askBulkNames, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  if (stepKey === 'bulk-item-names') {
+    const itemType = String(data.itemType) as CatalogItemType;
+    const parsedItemNames = parseCommaSeparatedItemNames(text);
+    const itemNames = parsedItemNames.slice(0, bulkCreateItemLimit);
+    if (itemNames.length === 0) {
+      await context.reply(texts.askBulkNames, buildSingleCancelKeyboard(language));
+      return true;
+    }
+
+    const skippedInputCount = parsedItemNames.length - itemNames.length;
+    await context.runtime.session.cancel();
+    await context.reply(texts.bulkCreateAcknowledged);
+    void runCatalogBulkCreateJob({
+      context,
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      language,
+      itemType,
+      itemNames,
+      skippedInputCount,
+    });
+    return true;
+  }
+
+  return false;
+}
+
+async function runCatalogBulkCreateJob({
+  context,
+  actorTelegramUserId,
+  language,
+  itemType,
+  itemNames,
+  skippedInputCount,
+}: {
+  context: TelegramCatalogAdminContext;
+  actorTelegramUserId: number;
+  language: 'ca' | 'es' | 'en';
+  itemType: CatalogItemType;
+  itemNames: string[];
+  skippedInputCount: number;
+}): Promise<void> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const summaryItems: BulkCreateSummaryItem[] = [];
+
+  for (let index = 0; index < itemNames.length; index += 1) {
+    const input = itemNames[index];
+    if (!input) {
+      continue;
+    }
+
+    try {
+      summaryItems.push(await resolveCatalogBulkCreateItem(context, itemType, input));
+    } catch (error) {
+      summaryItems.push({
+        input,
+        status: 'error',
+        reason: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+
+    if (index < itemNames.length - 1) {
+      await sleepMs(bulkCreateRateLimitMs);
+    }
+  }
+
+  const summaryMessage = formatCatalogBulkCreateSummary({
+    itemType,
+    summaryItems,
+    skippedInputCount,
+    language,
+  });
+  const hasManualItems = getBulkManualSummaryItems(summaryItems).length > 0;
+
+  if (hasManualItems) {
+    await context.runtime.session.start({
+      flowKey: bulkCreateFlowKey,
+      stepKey: 'bulk-manual-choice',
+      data: { itemType },
+    });
+  }
+
+  const summaryOptions = buildBulkCreateSummaryOptions(language, hasManualItems);
+
+  try {
+    await context.runtime.bot.sendPrivateMessage(actorTelegramUserId, summaryMessage, summaryOptions);
+  } catch {
+    await context.reply(`${texts.bulkCreateSummaryPrivateFailure}\n\n${summaryMessage}`, summaryOptions);
+  }
+}
+
+async function handleBulkManualCreateText(context: TelegramCatalogAdminContext): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (session?.flowKey !== bulkCreateFlowKey) {
+    return false;
+  }
+
+  const itemType = String(session.data.itemType) as CatalogItemType;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+
+  await context.runtime.session.start({
+    flowKey: createFlowKey,
+    stepKey: 'display-name',
+    data: { itemType },
+  });
+  await context.reply(texts.askDisplayName, buildSingleCancelKeyboard(language));
+  return true;
+}
+
+async function resolveCatalogBulkCreateItem(
+  context: TelegramCatalogAdminContext,
+  itemType: CatalogItemType,
+  input: string,
+): Promise<BulkCreateSummaryItem> {
+  const normalizedInput = normalizeCatalogMatchText(input);
+  const repository = resolveCatalogRepository(context);
+  const existingMatch = (await repository.listItems({ includeDeactivated: false }))
+    .find((candidate) => candidate.itemType === itemType && normalizeCatalogMatchText(candidate.displayName) === normalizedInput);
+  if (existingMatch) {
+    return {
+      input,
+      status: 'alreadyExists',
+      title: existingMatch.displayName,
+      itemId: existingMatch.id,
+    };
+  }
+
+  if (itemType === 'book' || itemType === 'rpg-book') {
+    const lookupResult = await resolveCatalogLookupService(context).search({
+      itemType,
+      query: input,
+    }).catch(() => [] as CatalogLookupCandidate[]);
+
+    if (lookupResult.length === 1) {
+      const candidate = lookupResult[0];
+      if (!candidate) {
+        throw new Error('No valid lookup candidate found');
+      }
+
+      const created = await createCatalogItem({
+        repository,
+        familyId: null,
+        groupId: null,
+        itemType,
+        displayName: candidate.title,
+        originalName: candidate.importedData.originalName,
+        description: candidate.summary,
+        language: candidate.importedData.language,
+        publisher: candidate.importedData.publisher,
+        publicationYear: candidate.importedData.publicationYear,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: candidate.importedData.externalRefs,
+        metadata: candidate.importedData.metadata,
+      });
+
+      await appendAuditEvent({
+        repository: resolveAuditRepository(context),
+        actorTelegramUserId: context.runtime.actor.telegramUserId,
+        actionKey: 'catalog.item.created',
+        targetType: 'catalog-item',
+        targetId: created.id,
+        summary: `Item de cataleg importat: ${created.displayName}`,
+        details: { itemType: created.itemType, familyId: created.familyId, groupId: created.groupId, lifecycleStatus: created.lifecycleStatus },
+      });
+
+      return {
+        input,
+        status: 'added',
+        title: created.displayName,
+        itemId: created.id,
+      };
+    }
+
+    if (lookupResult.length > 1) {
+      return {
+        input,
+        status: 'ambiguous',
+        candidates: lookupResult.map((candidate) => candidate.title),
+      };
+    }
+
+    return {
+      input,
+      status: 'noMatch',
+    };
+  }
+
+  if (itemType === 'board-game') {
+    const result = await resolveWikipediaBoardGameImportService(context).importByTitle(input);
+    if (!result.ok) {
+      if (result.error.type === 'ambiguous') {
+        return {
+          input,
+          status: 'ambiguous',
+          candidates: result.error.candidates ?? [],
+        };
+      }
+
+      if (result.error.type === 'not-found') {
+        return {
+          input,
+          status: 'noMatch',
+        };
+      }
+
+      return {
+        input,
+        status: 'error',
+        reason: result.error.message,
+      };
+    }
+
+    const draft = result.draft;
+    const created = await createCatalogItem({
+      repository,
+      familyId: draft.familyId,
+      groupId: draft.groupId,
+      itemType: draft.itemType,
+      displayName: draft.displayName || input,
+      originalName: draft.originalName,
+      description: draft.description,
+      language: draft.language,
+      publisher: draft.publisher,
+      publicationYear: draft.publicationYear,
+      playerCountMin: draft.playerCountMin,
+      playerCountMax: draft.playerCountMax,
+      recommendedAge: draft.recommendedAge,
+      playTimeMinutes: draft.playTimeMinutes,
+      externalRefs: draft.externalRefs,
+      metadata: draft.metadata,
+    });
+
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'catalog.item.created',
+      targetType: 'catalog-item',
+      targetId: created.id,
+      summary: `Item de cataleg importat: ${created.displayName}`,
+      details: { itemType: created.itemType, familyId: created.familyId, groupId: created.groupId, lifecycleStatus: created.lifecycleStatus },
+    });
+
+    return {
+      input,
+      status: 'added',
+      title: created.displayName,
+      itemId: created.id,
+    };
+  }
+
+  return {
+    input,
+    status: 'noMatch',
+  };
+}
+
+function formatCatalogBulkCreateSummary({
+  itemType,
+  summaryItems,
+  skippedInputCount,
+  language,
+}: {
+  itemType: CatalogItemType;
+  summaryItems: BulkCreateSummaryItem[];
+  skippedInputCount: number;
+  language: 'ca' | 'es' | 'en';
+}): string {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const labels = {
+    itemType,
+    added: summaryItems.filter((entry) => entry.status === 'added'),
+    alreadyExists: summaryItems.filter((entry) => entry.status === 'alreadyExists'),
+    noMatch: summaryItems.filter((entry) => entry.status === 'noMatch'),
+    ambiguous: summaryItems.filter((entry) => entry.status === 'ambiguous'),
+    error: summaryItems.filter((entry) => entry.status === 'error'),
+  };
+  const manualItems = getBulkManualSummaryItems(summaryItems);
+  const totalInputCount = summaryItems.length + skippedInputCount;
+
+  const sections: string[] = [
+    `<b>${texts.bulkCreateSummaryHeader}</b>`,
+    texts.bulkCreateSummaryType.replace('{type}', escapeHtml(catalogItemTypeLabel(itemType, texts))),
+    texts.bulkCreateSummaryProcessed.replace('{count}', String(totalInputCount)),
+  ];
+
+  if (labels.added.length > 0) {
+    sections.push('', `<b>${texts.bulkCreateSummaryAdded} (${labels.added.length})</b>`);
+    sections.push(...labels.added.map((item) => `- ${escapeHtml(item.title ?? item.input)}`));
+  }
+
+  if (labels.alreadyExists.length > 0) {
+    sections.push('', `<b>${texts.bulkCreateSummaryAlreadyExists} (${labels.alreadyExists.length})</b>`);
+    sections.push(...labels.alreadyExists.map((item) => `- ${escapeHtml(item.title ?? item.input)}`));
+  }
+
+  if (manualItems.length > 0) {
+    sections.push('', `<b>${texts.bulkCreateSummaryManualReview} (${manualItems.length})</b>`);
+    sections.push(texts.bulkCreateSummaryManualHint);
+    sections.push(...labels.noMatch.map((item) => `${formatBulkManualSummaryLine(item)} · ${texts.bulkCreateSummaryNoMatch}`));
+    sections.push(...labels.ambiguous.flatMap((item) => formatBulkAmbiguousSummaryLines(item, texts)));
+    sections.push(...labels.error.map((item) => `${formatBulkManualSummaryLine(item)} · ${texts.bulkCreateSummaryError}: ${escapeHtml(item.reason ?? 'error')}`));
+  }
+
+  if (skippedInputCount > 0) {
+    sections.push('');
+    sections.push(`- ${texts.bulkCreateSummarySkipped}`.replace('{count}', String(skippedInputCount)));
+  }
+
+  sections.push('', manualItems.length > 0 ? texts.bulkCreateSummaryManualFallback : texts.bulkCreateSummaryAllDone);
+
+  return sections.join('\n');
+}
+
+function formatBulkManualSummaryLine(item: BulkCreateSummaryItem): string {
+  return `- <code>${escapeHtml(item.input)}</code>`;
+}
+
+function formatBulkAmbiguousSummaryLines(
+  item: BulkCreateSummaryItem,
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+): string[] {
+  const lines = [`${formatBulkManualSummaryLine(item)} · ${texts.bulkCreateSummaryAmbiguous}`];
+  const candidates = item.candidates?.slice(0, 3) ?? [];
+  if (candidates.length > 0) {
+    lines.push(`  ${texts.bulkCreateSummaryCandidateIntro}`);
+    lines.push(...candidates.map((candidate, index) => `  ${index + 1}. ${escapeHtml(candidate)}`));
+  }
+  const hiddenCandidateCount = Math.max(0, (item.candidates?.length ?? 0) - candidates.length);
+  if (hiddenCandidateCount > 0) {
+    lines.push(`  ${texts.bulkCreateSummaryMoreCandidates.replace('{count}', String(hiddenCandidateCount))}`);
+  }
+  return lines;
+}
+
+function getBulkManualSummaryItems(summaryItems: BulkCreateSummaryItem[]): BulkCreateSummaryItem[] {
+  return [
+    ...summaryItems.filter((entry) => entry.status === 'noMatch'),
+    ...summaryItems.filter((entry) => entry.status === 'ambiguous'),
+    ...summaryItems.filter((entry) => entry.status === 'error'),
+  ];
+}
+
+function buildBulkCreateSummaryOptions(language: 'ca' | 'es' | 'en', hasManualItems: boolean): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  return {
+    parseMode: 'HTML',
+    replyKeyboard: [
+      ...(hasManualItems ? [[{ text: texts.bulkCreateManualButton, semanticRole: 'primary' as const }]] : []),
+      [{ text: texts.bulkCreateComplete, semanticRole: 'success' }],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function catalogItemTypeLabel(
+  itemType: CatalogItemType,
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+): string {
+  if (itemType === 'board-game') {
+    return texts.typeBoardGame;
+  }
+  if (itemType === 'book') {
+    return texts.typeBook;
+  }
+  if (itemType === 'rpg-book') {
+    return texts.typeRpgBook;
+  }
+  return texts.typeAccessory;
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function replyAdminOnly(context: TelegramCatalogAdminContext): Promise<void> {

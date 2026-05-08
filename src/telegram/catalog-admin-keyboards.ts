@@ -6,10 +6,10 @@ import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
 export function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
   return buildSubmenuReplyKeyboard({ language, rows: [
-    [texts.create, texts.listBoardGames],
-    [texts.listBooks, texts.listRpgBooks],
-    [texts.listExpansions, texts.searchByName],
-    [texts.importBggCollection],
+    [texts.create, texts.bulkCreate],
+    [texts.listBoardGames, texts.listBooks],
+    [texts.listRpgBooks, texts.listExpansions],
+    [texts.searchByName, texts.importBggCollection],
   ] });
 }
 

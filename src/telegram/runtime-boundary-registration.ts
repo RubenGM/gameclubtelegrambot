@@ -511,6 +511,15 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'catalog_bulk',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Afegeix múltiples ítems al catàleg manualment',
+      handle: async (context) => {
+        await handleTelegramCatalogAdminText({ ...context, messageText: '/catalog_bulk' });
+      },
+    },
+    {
       command: 'review_access',
       contexts: ['private'],
       access: 'admin',

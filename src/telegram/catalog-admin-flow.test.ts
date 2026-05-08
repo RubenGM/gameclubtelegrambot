@@ -289,6 +289,7 @@ function createContext({
   catalogLookupService,
   wikipediaBoardGameImportService,
   boardGameGeekCollectionImportService,
+  sendPrivateMessage,
   isAdmin = true,
   language = 'ca',
 }: {
@@ -299,6 +300,7 @@ function createContext({
   catalogLookupService?: CatalogLookupService;
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
+  sendPrivateMessage?: (telegramUserId: number, message: string, options?: TelegramReplyOptions) => Promise<void>;
   isAdmin?: boolean;
   language?: 'ca' | 'es' | 'en';
 } = {}) {
@@ -352,7 +354,7 @@ function createContext({
       },
       chat: { kind: 'private', chatId: 1 },
       services: { database: { db: undefined as never } },
-      bot: { publicName: 'Game Club Bot', clubName: 'Game Club', language, sendPrivateMessage: async () => {} },
+      bot: { publicName: 'Game Club Bot', clubName: 'Game Club', language, sendPrivateMessage: sendPrivateMessage ?? (async () => {}) },
     },
     catalogRepository: repository,
     catalogLoanRepository,
@@ -373,10 +375,10 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /No hi ha cap item de cataleg disponible ara mateix\./);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
-    ['Crear ítem', catalogAdminLabels.listBoardGames],
-    [catalogAdminLabels.listBooks, catalogAdminLabels.listRpgBooks],
-    [catalogAdminLabels.listExpansions, catalogAdminLabels.searchByName],
-    ['Importar col·lecció BGG'],
+    ['Crear ítem', catalogAdminLabels.bulkCreate],
+    [catalogAdminLabels.listBoardGames, catalogAdminLabels.listBooks],
+    [catalogAdminLabels.listRpgBooks, catalogAdminLabels.listExpansions],
+    [catalogAdminLabels.searchByName, 'Importar col·lecció BGG'],
     [catalogAdminLabels.start, 'Ajuda'],
   ]);
 });
@@ -389,10 +391,10 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
   assert.match(replies.at(-1)?.message ?? '', /No hay ningún ítem de catálogo disponible ahora mismo\./);
 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
-    ['Crear item', 'Listar juegos de mesa'],
-    ['Listar libros', 'Listar libros RPG'],
-    ['Listar expansiones', 'Buscar por nombre'],
-    ['Importar colección BGG'],
+    ['Crear item', 'Añadir múltiples'],
+    ['Listar juegos de mesa', 'Listar libros'],
+    ['Listar libros RPG', 'Listar expansiones'],
+    ['Buscar por nombre', 'Importar colección BGG'],
     ['Inicio', 'Ayuda'],
   ]);
 
@@ -630,6 +632,129 @@ test('handleTelegramCatalogAdminText lets approved non-admin members open the ca
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-create');
   assert.equal(getCurrentSession()?.stepKey, 'item-type');
+});
+
+test('handleTelegramCatalogAdminText starts bulk create flow', async () => {
+  const { context, getCurrentSession } = createContext();
+
+  context.messageText = catalogAdminLabels.bulkCreate;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-bulk-create');
+  assert.equal(getCurrentSession()?.stepKey, 'bulk-item-type');
+});
+
+test('handleTelegramCatalogAdminText runs bulk create and sends summary as private message', async () => {
+  const privateMessages: string[] = [];
+  const privateMessageOptions: Array<TelegramReplyOptions | undefined> = [];
+  const auditRepository = createAuditRepository();
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: title,
+          originalName: title,
+          description: null,
+          language: null,
+          publisher: null,
+          publicationYear: 2024,
+          playerCountMin: null,
+          playerCountMax: null,
+          recommendedAge: null,
+          playTimeMinutes: null,
+          externalRefs: {},
+          metadata: { source: 'wikipedia', wikipediaUrl: null },
+        },
+      };
+    },
+  };
+
+  const { context, replies, getCurrentSession } = createContext({
+    wikipediaBoardGameImportService,
+    auditRepository,
+    sendPrivateMessage: async (_telegramUserId, message, options) => {
+      privateMessages.push(message);
+      privateMessageOptions.push(options);
+    },
+  });
+
+  context.messageText = catalogAdminLabels.bulkCreate;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  context.messageText = catalogAdminLabels.typeBoardGame;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'bulk-item-names');
+
+  context.messageText = 'Root';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /Gràcies!/);
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(privateMessages.length, 1);
+  const summaryMessage = privateMessages[0];
+  assert.ok(summaryMessage);
+  assert.match(summaryMessage, /<b>Resum de la càrrega múltiple<\/b>/);
+  assert.match(summaryMessage, /Creats \(1\)/);
+  assert.match(summaryMessage, /- Root/);
+  assert.doesNotMatch(summaryMessage, /- \.\.\./);
+  assert.deepEqual(privateMessageOptions[0]?.replyKeyboard, [[{ text: catalogAdminLabels.bulkCreateComplete, semanticRole: 'success' }]]);
+  assert.equal(auditRepository.__events.some((event) => event.actionKey === 'catalog.item.created'), true);
+
+  context.messageText = catalogAdminLabels.bulkCreateComplete;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Procés completat/);
+});
+
+test('handleTelegramCatalogAdminText offers unresolved bulk names as copyable text with manual create button', async () => {
+  const privateMessages: string[] = [];
+  const privateMessageOptions: Array<TelegramReplyOptions | undefined> = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle() {
+      return {
+        ok: false,
+        error: { type: 'not-found', message: 'not found' },
+      };
+    },
+  };
+  const { context, replies, getCurrentSession } = createContext({
+    wikipediaBoardGameImportService,
+    sendPrivateMessage: async (_telegramUserId, message, options) => {
+      privateMessages.push(message);
+      privateMessageOptions.push(options);
+    },
+  });
+
+  context.messageText = catalogAdminLabels.bulkCreate;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.typeBoardGame;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Unknown Game';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const summaryMessage = privateMessages[0];
+  assert.ok(summaryMessage);
+  assert.match(summaryMessage, /Per revisar manualment/);
+  assert.match(summaryMessage, /<code>Unknown Game<\/code>/);
+  assert.doesNotMatch(summaryMessage, /- \.\.\./);
+  assert.equal(privateMessageOptions[0]?.parseMode, 'HTML');
+  assert.deepEqual(privateMessageOptions[0]?.replyKeyboard, [
+    [{ text: catalogAdminLabels.bulkCreateManualButton, semanticRole: 'primary' }],
+    [{ text: catalogAdminLabels.bulkCreateComplete, semanticRole: 'success' }],
+  ]);
+  assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-bulk-create');
+  assert.equal(getCurrentSession()?.stepKey, 'bulk-manual-choice');
+
+  context.messageText = catalogAdminLabels.bulkCreateManualButton;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-create');
+  assert.equal(getCurrentSession()?.stepKey, 'display-name');
+  assert.match(replies.at(-1)?.message ?? '', /Escriu el nom de l item/);
 });
 
 test('handleTelegramCatalogAdminText accepts Spanish item type buttons when creating', async () => {

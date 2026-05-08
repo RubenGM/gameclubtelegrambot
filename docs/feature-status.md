@@ -137,6 +137,7 @@ Estado: `operativo con integraciones parciales`.
 Implementado:
 
 - `/catalog` para crear, listar, buscar, inspeccionar, editar y desactivar items.
+- `/catalog_bulk` y el botón de menú "Añadir múltiples" para importar varios items en lote en background (separados por coma) con resumen final.
 - Tipos: juegos de mesa, expansiones, libros, libros RPG y accesorios.
 - Familias y grupos para agrupar lineas, colecciones o expansiones.
 - Campos principales: titulo, original, descripcion, idioma, editorial, año, jugadores, edad, duracion, referencias externas y metadata.

@@ -111,3 +111,19 @@ export function asStringArray(value: unknown): string[] {
 
   return value.filter((entry): entry is string => typeof entry === 'string');
 }
+
+export function parseCommaSeparatedItemNames(text: string): string[] {
+  return text
+    .split(',')
+    .map((entry) => entry.trim().replace(/\s+/g, ' '))
+    .filter((entry) => entry.length > 0);
+}
+
+export function normalizeCatalogMatchText(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
