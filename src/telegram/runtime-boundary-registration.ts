@@ -65,6 +65,7 @@ import {
 } from './lfg-flow.js';
 import { handleTelegramNewsGroupText } from './news-group-flow.js';
 import { buildTodayAtClubSummary } from './today-at-club-summary.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 import {
   groupPurchaseCallbackPrefixes,
   handleTelegramGroupPurchaseCallback,
@@ -521,7 +522,13 @@ function createDefaultCommands({
 
         await context.reply(result.adminMessage);
         if (result.outcome === 'approved') {
-          await context.runtime.bot.sendPrivateMessage(applicantTelegramUserId, result.applicantMessage);
+          await sendPostApprovalWelcomeMessage({
+            context,
+            repository,
+            applicantTelegramUserId,
+            publicName,
+            version: APP_VERSION,
+          });
         }
       },
     },
@@ -563,11 +570,39 @@ function createDefaultCommands({
       },
     },
     {
-      command: 'start',
+      command: 'welcome',
       contexts: ['private', 'group', 'group-news'],
+      access: 'public',
+      description: 'Mostra informació de benvinguda i d\'accés',
+      handle: async (context) => {
+        await handleWelcomeCommand(context, publicName);
+      },
+    },
+    {
+      command: 'bienvenida',
+      contexts: ['private', 'group', 'group-news'],
+      access: 'public',
+      descriptionByLanguage: {
+        ca: 'Mostra informació de benvinguda i d\'accés',
+        es: 'Muestra información de bienvenida y acceso',
+        en: 'Show welcome and access information',
+      },
+      handle: async (context) => {
+        await handleWelcomeCommand(context, publicName);
+      },
+    },
+    {
+      command: 'start',
+      contexts: ['private'],
       access: 'public',
       description: 'Comprova que el bot esta actiu',
       handle: async (context) => {
+        const startPayload = parseStartCommandPayload(context.messageText);
+
+        if (startPayload === 'request_access' && (await handlePrivateAutoMembershipRequest(context))) {
+          return;
+        }
+
         if (await handlePrivateAutoMembershipRequest(context)) {
           return;
         }
@@ -615,7 +650,7 @@ function createDefaultCommands({
           renderTelegramHelpMessage({
             commands: createDefaultCommands({ publicName, adminElevationPasswordHash }),
             context,
-            section: getActiveHelpSection(context),
+            section: resolveHelpSection(context),
           }),
         );
       },
@@ -841,6 +876,51 @@ async function buildStartReply({
   };
 }
 
+async function sendPostApprovalWelcomeMessage({
+  context,
+  repository,
+  applicantTelegramUserId,
+  publicName,
+  version,
+}: {
+  context: TelegramCommandHandlerContext;
+  repository: ReturnType<typeof createDatabaseMembershipAccessRepository>;
+  applicantTelegramUserId: number;
+  publicName: string;
+  version: string;
+}): Promise<void> {
+  const approvedApplicant = await repository.findUserByTelegramUserId(applicantTelegramUserId);
+  if (!approvedApplicant) {
+    return;
+  }
+
+  const syntheticContext: TelegramCommandHandlerContext = {
+    ...context,
+    runtime: {
+      ...context.runtime,
+      actor: {
+        ...context.runtime.actor,
+        telegramUserId: approvedApplicant.telegramUserId,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: approvedApplicant.isAdmin,
+      },
+    },
+  };
+
+  try {
+    const startReply = await buildStartReply({
+      context: syntheticContext,
+      publicName,
+      version,
+    });
+    await context.runtime.bot.sendPrivateMessage(applicantTelegramUserId, startReply.message, startReply.options);
+  } catch {
+    return;
+  }
+}
+
 async function buildTodayAtClubSummaryForStart(
   context: TelegramCommandHandlerContext,
   language: 'ca' | 'es' | 'en',
@@ -878,7 +958,7 @@ function registerMembershipCallbacks({
       renderTelegramHelpMessage({
         commands: createDefaultCommands({ publicName, adminElevationPasswordHash }),
         context,
-        section: getActiveHelpSection(context),
+        section: resolveHelpSection(context),
       }),
     );
   });
@@ -896,7 +976,13 @@ function registerMembershipCallbacks({
 
     await context.reply(result.adminMessage);
     if (result.outcome === 'approved') {
-      await context.runtime.bot.sendPrivateMessage(applicantTelegramUserId, result.applicantMessage);
+      await sendPostApprovalWelcomeMessage({
+        context,
+        repository,
+        applicantTelegramUserId,
+        publicName,
+        version: APP_VERSION,
+      });
     }
   });
 
@@ -1274,7 +1360,7 @@ async function handleTelegramTranslatedActionMenuText(
       renderTelegramHelpMessage({
         commands: createDefaultCommands(commandConfig),
         context,
-        section: getActiveHelpSection(context),
+        section: resolveHelpSection(context),
       }),
     );
     return true;
@@ -1339,6 +1425,76 @@ function setActiveHelpSection(context: TelegramCommandHandlerContext, section: T
 function getActiveHelpSection(context: TelegramCommandHandlerContext): TelegramHelpSection | undefined {
   const key = activeHelpSectionKey(context);
   return key ? activeHelpSections.get(key) : undefined;
+}
+
+function resolveHelpSection(context: TelegramCommandHandlerContext): TelegramHelpSection {
+  const activeSection = getActiveHelpSection(context);
+  if (activeSection) {
+    return activeSection;
+  }
+
+  const menu = resolveCurrentActionMenu(context);
+  if (!menu) {
+    return resolveDefaultHelpSection(context);
+  }
+
+  if (menu.menuId === 'private-admin-default') {
+    return 'private-admin-default';
+  }
+
+  if (menu.menuId === 'private-approved-default') {
+    return 'private-approved-default';
+  }
+
+  if (menu.menuId === 'private-pending-default') {
+    return 'private-pending-default';
+  }
+
+  if (menu.menuId === 'default-shared') {
+    return 'default-shared';
+  }
+
+  return resolveDefaultHelpSection(context);
+}
+
+function resolveDefaultHelpSection(context: TelegramCommandHandlerContext): TelegramHelpSection {
+  if (context.runtime.chat.kind === 'private') {
+    if (context.runtime.actor.isAdmin) {
+      return 'private-admin-default';
+    }
+    if (context.runtime.actor.isApproved) {
+      return 'private-approved-default';
+    }
+    return 'private-pending-default';
+  }
+
+  return 'default-shared';
+}
+
+function parseStartCommandPayload(messageText: string | undefined): string | undefined {
+  return messageText?.trim().split(/\s+/).slice(1).join(' ').trim() || undefined;
+}
+
+async function handleWelcomeCommand(context: TelegramCommandHandlerContext, publicName: string): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const i18n = createTelegramI18n(language);
+  const accessRequestLink = context.runtime.bot.username
+    ? `<a href="${buildTelegramStartUrl('request_access')}">${i18n.common.welcomeAccessLinkText}</a>`
+    : i18n.common.welcomeAccessLinkText;
+  const startChatLink = context.runtime.bot.username
+    ? `<a href="${buildTelegramStartUrl('from_welcome')}">${i18n.common.welcomePrivateChatLinkText}</a>`
+    : i18n.common.welcomePrivateChatLinkText;
+
+  const prompt = context.runtime.actor.isApproved
+    ? i18n.common.welcomeApprovedPrompt.replace('{startChatLink}', startChatLink)
+    : i18n.common.welcomePendingPrompt.replace('{accessRequestLink}', accessRequestLink);
+
+  await context.reply(
+    `${i18n.common.welcomeIntro.replace('{publicName}', publicName)}\n\n${prompt}`,
+    {
+      parseMode: 'HTML',
+    },
+  );
 }
 
 function clearActiveHelpSection(context: TelegramCommandHandlerContext): void {

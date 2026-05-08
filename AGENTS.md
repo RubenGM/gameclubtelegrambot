@@ -17,3 +17,13 @@ Examples:
 
 Prefer this wrapper over calling `journalctl` directly when debugging runtime
 Telegram failures.
+
+## Local validation workflow
+
+When making a code change that must be validated in the running bot, always run:
+
+```bash
+./startup.sh
+```
+
+before testing behavior in Telegram.
