@@ -192,6 +192,33 @@ export const catalogLoans = pgTable(
   }),
 );
 
+export const catalogLoanReminders = pgTable(
+  'catalog_loan_reminders',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    loanId: bigint('loan_id', { mode: 'number' })
+      .notNull()
+      .references(() => catalogLoans.id),
+    borrowerTelegramUserId: bigint('borrower_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    reminderKind: varchar('reminder_kind', { length: 32 }).notNull(),
+    leadHours: integer('lead_hours').notNull().default(0),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueReminder: uniqueIndex('catalog_loan_reminders_unique_delivery').on(
+      table.loanId,
+      table.borrowerTelegramUserId,
+      table.reminderKind,
+      table.leadHours,
+    ),
+    loanLookup: index('catalog_loan_reminders_loan_id_idx').on(table.loanId),
+    borrowerLookup: index('catalog_loan_reminders_borrower_telegram_user_id_idx').on(table.borrowerTelegramUserId),
+  }),
+);
+
 export const scheduleEvents = pgTable('schedule_events', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   title: varchar('title', { length: 255 }).notNull(),

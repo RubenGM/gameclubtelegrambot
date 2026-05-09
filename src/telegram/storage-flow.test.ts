@@ -483,7 +483,7 @@ test('handleTelegramStorageText opens the storage submenu from the command entry
   assert.deepEqual(replies[0]?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
 });
 
-test('handleTelegramStorageText lists only categories the user can read', async () => {
+test('handleTelegramStorageText lists available categories for approved users', async () => {
   const repository = createRepository([
     createCategory({ id: 7, slug: 'manuales', displayName: 'Manuales' }),
     createCategory({ id: 8, slug: 'fotos', displayName: 'Fotos', storageThreadId: 11 }),
@@ -493,7 +493,7 @@ test('handleTelegramStorageText lists only categories the user can read', async 
   await handleTelegramStorageText(context as never);
   assert.equal(
     replies.at(-1)?.message,
-    'Almacenamiento: elige una acción.\n\nCategorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>',
+    'Almacenamiento: elige una acción.\n\nCategorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_8"><b>Fotos</b></a>\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>',
   );
 
   context.messageText = 'Listar categorías';
@@ -501,7 +501,7 @@ test('handleTelegramStorageText lists only categories the user can read', async 
 
   assert.equal(handled, true);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
-  assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>');
+  assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_8"><b>Fotos</b></a>\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a>');
 });
 
 test('handleTelegramStorageText subscribes a user to a storage category with subcategories', async () => {

@@ -90,6 +90,9 @@ function createLoanRepository(initialLoans: CatalogLoanRecord[] = []): CatalogLo
     async listLoansByItem(itemId) {
       return Array.from(loans.values()).filter((loan) => loan.itemId === itemId);
     },
+    async listActiveLoansDueBefore() {
+      return [];
+    },
     async updateLoan(input) {
       const existing = loans.get(input.loanId);
       if (!existing) {

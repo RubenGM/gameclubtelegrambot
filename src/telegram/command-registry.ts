@@ -174,6 +174,10 @@ export function renderTelegramHelpMessage({
   if (contextualHelp) {
     lines.push(contextualHelp);
     lines.push('');
+    if (section === 'private-admin-default' || section === 'private-approved-default') {
+      lines.push(i18n.common.helpMenuHint);
+      return lines.join('\n');
+    }
   }
 
   if (context.runtime.actor.isAdmin) {

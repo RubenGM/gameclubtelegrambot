@@ -1,8 +1,8 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { catalogItems, catalogLoans } from '../infrastructure/database/schema.js';
-import type { CatalogLoanRecord, CatalogLoanRepository } from './catalog-model.js';
+import type { CatalogLoanRecord, CatalogLoanRepository, CatalogLoanWithItemRecord } from './catalog-model.js';
 
 const duplicateActiveLoanMessage = 'Aquest item ja esta prestat.';
 const activeLoanConstraintName = 'catalog_loans_one_active_per_item';
@@ -80,6 +80,32 @@ export function createDatabaseCatalogLoanRepository({
         .where(eq(catalogLoans.itemId, itemId))
         .orderBy(desc(catalogLoans.createdAt), desc(catalogLoans.id));
       return rows.map(mapCatalogLoanRow);
+    },
+    async listActiveLoansDueBefore({ dueAtTo, includeOverdue }) {
+      const now = new Date();
+      const rows = await database
+        .select({
+          loan: catalogLoans,
+          itemDisplayName: catalogItems.displayName,
+          itemLifecycleStatus: catalogItems.lifecycleStatus,
+        })
+        .from(catalogLoans)
+        .innerJoin(catalogItems, eq(catalogLoans.itemId, catalogItems.id))
+        .where(
+          and(
+            isNull(catalogLoans.returnedAt),
+            isNotNull(catalogLoans.dueAt),
+            lte(catalogLoans.dueAt, new Date(dueAtTo)),
+            ...(includeOverdue ? [] : [gte(catalogLoans.dueAt, now)]),
+          ),
+        )
+        .orderBy(asc(catalogLoans.dueAt), asc(catalogLoans.id));
+
+      return rows.map((row) => ({
+        ...mapCatalogLoanRow(row.loan),
+        itemDisplayName: row.itemDisplayName,
+        itemLifecycleStatus: row.itemLifecycleStatus as CatalogLoanWithItemRecord['itemLifecycleStatus'],
+      }));
     },
     async updateLoan(input) {
       const updated = await database

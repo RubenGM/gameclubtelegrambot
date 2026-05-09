@@ -242,6 +242,7 @@ function createLoanRepository(initialLoans: CatalogLoanRecord[] = []): CatalogLo
     },
     async listActiveLoansByBorrower() { return []; },
     async listLoansByItem(itemId) { return Array.from(loans.values()).filter((loan) => loan.itemId === itemId); },
+    async listActiveLoansDueBefore() { return []; },
     async updateLoan() { throw new Error('not implemented'); },
     async closeLoan() { throw new Error('not implemented'); },
   };

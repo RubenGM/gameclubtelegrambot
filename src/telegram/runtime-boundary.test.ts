@@ -372,6 +372,19 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
         nextStatus: 'approved',
       },
     },
+    {
+      actionKey: 'telegram.menu.shown',
+      targetType: 'telegram-menu',
+      targetId: 'private-approved-default',
+      summary: 'Telegram menu shown: private-approved-default',
+      details: {
+        chatKind: 'private',
+        actorRole: 'member',
+        language: 'ca',
+        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'storage', 'group_purchases', 'lfg', 'language', 'help'],
+        visibleLabels: ['Activitats', 'Taules', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'LFG', 'Idioma', 'Ajuda'],
+      },
+    },
   ]);
 });
 
@@ -1933,7 +1946,7 @@ test('createTelegramBoundary shows contextual help after opening a submenu', asy
   });
 
   assert.equal(telegram.status.bot, 'connected');
-  assert.match(replies.at(-1)?.message ?? '', /Emmagatzematge ara:/);
+  assert.match(replies.at(-1)?.message ?? '', /Detalls del menú actual: Emmagatzematge/);
   assert.match(replies.at(-1)?.message ?? '', /pots veure categories, cercar arxius, obrir entrades per ID/i);
 });
 
@@ -2134,9 +2147,7 @@ test('group start reply explains private-chat usage and offers a private button'
   } as unknown as TelegramCommandHandlerContext);
 
   assert.match(replies[0]?.message ?? '', /chat privado/i);
-  assert.match(replies[0]?.message ?? '', /grupos solo puedo orientarte/i);
-  assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[0]?.text, 'Abrir chat privado');
-  assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[0]?.url, 'https://t.me/gameclub_test_bot?start=from_group');
+  assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 });
 
 

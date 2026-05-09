@@ -10,6 +10,9 @@ import {
   type TelegramBoundary,
   type TelegramFatalRuntimeErrorHandler,
 } from '../telegram/runtime-boundary.js';
+import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
+import { createDatabaseCatalogLoanReminderRepository } from '../catalog/catalog-loan-reminder-store.js';
+import { sendDueCatalogLoanReminders } from '../catalog/catalog-loan-reminders.js';
 import { createDatabaseGroupPurchaseRepository } from '../group-purchases/group-purchase-catalog-store.js';
 import { createDatabaseGroupPurchaseReminderRepository } from '../group-purchases/group-purchase-reminder-store.js';
 import { sendDueGroupPurchaseReminders } from '../group-purchases/group-purchase-reminders.js';
@@ -88,6 +91,13 @@ export function createApp({
           groupPurchaseRepository: createDatabaseGroupPurchaseRepository({ database: services.database.db }),
           reminderRepository: createDatabaseGroupPurchaseReminderRepository({ database: services.database.db }),
           leadHours: 24,
+          language: config.bot.language,
+          sendPrivateMessage: telegram.sendPrivateMessage,
+        });
+        await sendDueCatalogLoanReminders({
+          catalogLoanRepository: createDatabaseCatalogLoanRepository({ database: services.database.db }),
+          reminderRepository: createDatabaseCatalogLoanReminderRepository({ database: services.database.db }),
+          leadHours: config.notifications.defaults.eventReminderLeadHours,
           language: config.bot.language,
           sendPrivateMessage: telegram.sendPrivateMessage,
         });

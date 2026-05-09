@@ -213,7 +213,7 @@ test('renderTelegramHelpMessage adds contextual storage help when a section is a
     section: 'storage',
   });
 
-  assert.match(message, /Emmagatzematge ara:/);
+  assert.match(message, /Detalls del menú actual: Emmagatzematge/);
   assert.match(message, /pots veure categories, cercar arxius, obrir entrades per ID i pujar adjunts/i);
   assert.match(message, /Què pots fer ara/);
 });

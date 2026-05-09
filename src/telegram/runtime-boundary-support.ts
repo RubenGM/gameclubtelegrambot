@@ -27,6 +27,7 @@ import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
+import { withTelegramApiRetry } from './telegram-api-retry.js';
 
 export { formatStartMessage, toGrammyReplyOptions } from './runtime-boundary-registration.js';
 
@@ -353,7 +354,7 @@ function createGrammyTelegramBot({
 
         context.messageText = context.msg?.text ?? context.message?.text;
 
-        await handler(createTelegramCommandContext(context, buttonAppearance));
+        await handler(createTelegramCommandContext(context, buttonAppearance, logger));
       });
     },
     onCallback(callbackPrefix, handler) {
@@ -364,7 +365,7 @@ function createGrammyTelegramBot({
 
         context.callbackData = context.callbackQuery.data;
         await runTelegramCallbackHandler({
-          handle: () => handler(createTelegramCommandContext(context, buttonAppearance)),
+          handle: () => handler(createTelegramCommandContext(context, buttonAppearance, logger)),
           acknowledge: () => context.answerCallbackQuery(),
         });
       });
@@ -380,7 +381,7 @@ function createGrammyTelegramBot({
           return;
         }
 
-        await handler(createTelegramCommandContext(context, buttonAppearance));
+        await handler(createTelegramCommandContext(context, buttonAppearance, logger));
       });
     },
     onMessage(handler) {
@@ -394,7 +395,7 @@ function createGrammyTelegramBot({
         context.messageMedia = extractTelegramMessageMedia(context.msg ?? context.message);
         context.sharedChat = extractTelegramSharedChat(context.msg ?? context.message);
 
-        await handler(createTelegramCommandContext(context, buttonAppearance));
+        await handler(createTelegramCommandContext(context, buttonAppearance, logger));
       });
     },
     async getMe() {
@@ -434,49 +435,63 @@ function createGrammyTelegramBot({
       };
     },
     async sendPrivateMessage(telegramUserId, message, options) {
-      await bot.api.sendMessage(telegramUserId, message, options ? toGrammyReplyOptions(options, buttonAppearance) : undefined);
+      await withTelegramApiRetry({ operation: 'sendPrivateMessage', logger }, () =>
+        bot.api.sendMessage(telegramUserId, message, options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
+      );
     },
     async sendGroupMessage(chatId, message, options) {
-      await bot.api.sendMessage(chatId, message, options ? toGrammyReplyOptions(options, buttonAppearance) : undefined);
+      await withTelegramApiRetry({ operation: 'sendGroupMessage', logger }, () =>
+        bot.api.sendMessage(chatId, message, options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
+      );
     },
     async copyMessage({ fromChatId, messageId, toChatId, messageThreadId }) {
-      const result = await bot.api.raw.copyMessage({
-        from_chat_id: fromChatId,
-        message_id: messageId,
-        chat_id: toChatId,
-        ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
-      });
+      const result = await withTelegramApiRetry({ operation: 'copyMessage', logger }, () =>
+        bot.api.raw.copyMessage({
+          from_chat_id: fromChatId,
+          message_id: messageId,
+          chat_id: toChatId,
+          ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+        }),
+      );
       return {
         messageId: Number((result as { message_id: number }).message_id),
       };
     },
     async forwardMessage({ fromChatId, messageId, toChatId, messageThreadId }) {
-      const result = await bot.api.raw.forwardMessage({
-        from_chat_id: fromChatId,
-        message_id: messageId,
-        chat_id: toChatId,
-        ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
-      });
+      const result = await withTelegramApiRetry({ operation: 'forwardMessage', logger }, () =>
+        bot.api.raw.forwardMessage({
+          from_chat_id: fromChatId,
+          message_id: messageId,
+          chat_id: toChatId,
+          ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+        }),
+      );
       return {
         messageId: Number((result as { message_id: number }).message_id),
       };
     },
     async sendMediaGroup({ chatId, media, messageThreadId }) {
-      const result = await bot.api.raw.sendMediaGroup({
-        chat_id: chatId,
-        media,
-        ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
-      });
+      const result = await withTelegramApiRetry({ operation: 'sendMediaGroup', logger }, () =>
+        bot.api.raw.sendMediaGroup({
+          chat_id: chatId,
+          media,
+          ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+        }),
+      );
       return (result as Array<{ message_id: number }>).map((message) => ({ messageId: Number(message.message_id) }));
     },
     async sendDocument({ chatId, filePath, caption }) {
-      await bot.api.sendDocument(chatId, new InputFile(filePath), caption ? { caption } : undefined);
+      await withTelegramApiRetry({ operation: 'sendDocument', logger }, () =>
+        bot.api.sendDocument(chatId, new InputFile(filePath), caption ? { caption } : undefined),
+      );
     },
     async deleteMessage({ chatId, messageId }) {
-      await bot.api.raw.deleteMessage({
-        chat_id: chatId,
-        message_id: messageId,
-      });
+      await withTelegramApiRetry({ operation: 'deleteMessage', logger }, () =>
+        bot.api.raw.deleteMessage({
+          chat_id: chatId,
+          message_id: messageId,
+        }),
+      );
     },
     async startPolling() {
       await bot.init();
@@ -645,12 +660,15 @@ function createTelegramCommandContext(
     reply(message: string, options?: Record<string, unknown>): Promise<unknown>;
   },
   buttonAppearance?: TelegramButtonAppearanceConfig,
+  logger?: TelegramLogger,
 ): TelegramCommandHandlerContext {
   return {
     ...context,
     ...(context.from ? { from: context.from } : {}),
     reply(message: string, options?: TelegramReplyOptions) {
-      return context.reply(message, toGrammyReplyOptions(options, buttonAppearance));
+      return withTelegramApiRetry({ operation: 'reply', ...(logger ? { logger } : {}) }, () =>
+        context.reply(message, toGrammyReplyOptions(options, buttonAppearance)),
+      );
     },
   } as unknown as TelegramCommandHandlerContext;
 }

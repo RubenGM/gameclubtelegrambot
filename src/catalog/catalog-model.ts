@@ -73,6 +73,11 @@ export interface CatalogLoanRecord {
   updatedAt: string;
 }
 
+export interface CatalogLoanWithItemRecord extends CatalogLoanRecord {
+  itemDisplayName: string;
+  itemLifecycleStatus: CatalogItemLifecycleStatus;
+}
+
 export interface CatalogRepository {
   createFamily(input: {
     slug: string;
@@ -164,6 +169,10 @@ export interface CatalogLoanRepository {
   findActiveLoanByItemId(itemId: number): Promise<CatalogLoanRecord | null>;
   listActiveLoansByBorrower(borrowerTelegramUserId: number): Promise<CatalogLoanRecord[]>;
   listLoansByItem(itemId: number): Promise<CatalogLoanRecord[]>;
+  listActiveLoansDueBefore(input: {
+    dueAtTo: string;
+    includeOverdue: boolean;
+  }): Promise<CatalogLoanWithItemRecord[]>;
   updateLoan(input: {
     loanId: number;
     dueAt: string | null;

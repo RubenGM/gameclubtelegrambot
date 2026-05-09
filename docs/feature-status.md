@@ -1,6 +1,6 @@
 # Estado real de features
 
-Ultima revision: 2026-05-08.
+Ultima revision: 2026-05-09.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -15,14 +15,14 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 | Feature                                      | Estado               | Lectura actual                                                                                                                       |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
-| Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, systemd/tray y copias de seguridad.                           |
+| Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, reintentos Telegram, systemd/tray y copias de seguridad.       |
 | Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, elevación de admins, avisos privados de incidencias y comando `/status` para adjuntar informe de estado. |
 | Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto y ayuda contextual por sección activa.                                                          |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario.                                                           |
 | Catálogo                                     | 🟡 Operativo con huecos | CRUD, familias, búsqueda, media por URL, importación desde Wikipedia/Open Library y BGG asistida.                                        |
-| Préstamos                                    | 🟠 Operativo parcial | Flujo principal funcional; falta worker de recordatorios.                                                                                |
+| Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados de fecha prevista y vencimiento.                                                     |
 | Grupos de noticias                           | 🟢 Operativo         | `/news` acepta comandos y botones para activar/desactivar y gestionar suscripciones por categoría, con publicación por categoría desde agenda, LFG y préstecs. |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas y procesos de carga (DM y topic).                                              |
@@ -44,6 +44,7 @@ Implementado:
 - Configuracion runtime validada con `zod` y editor/wizard en `src/config/*` y `src/bootstrap/*`.
 - PostgreSQL con Drizzle, schema central y migraciones en `src/infrastructure/database/schema.ts`.
 - Long polling con `allowed_updates` limitado a `message` y `callback_query` en `src/telegram/runtime-boundary-support.ts`.
+- Capa intermedia de reintentos para envios y operaciones Telegram en `src/telegram/telegram-api-retry.ts`, usada desde el boundary runtime.
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
 
 Riesgos o pendientes:
@@ -158,7 +159,7 @@ Riesgos o pendientes:
 
 ## Prestamos
 
-Estado: `operativo parcial`.
+Estado: `operativo`.
 
 Implementado:
 
@@ -166,12 +167,12 @@ Implementado:
 - Devolver prestamo desde botones.
 - Consultar prestamos activos propios.
 - Editar notas y fecha prevista de devolucion.
+- Enviar recordatorios privados cuando se acerca o vence la fecha prevista de devolucion.
 - Publicar eventos de prestamo/devolucion a grupos de noticias por categoria.
 - Restriccion persistente de un prestamo activo por item.
 
 Pendiente:
 
-- Recordatorios de prestamos cuando se acerca o vence la fecha prevista (`FUNCTIONAL_RECOMMENDATIONS.md`, F-010).
 - Flujo admin dedicado para ver todos los prestamos activos como dashboard.
 
 ## Grupos de noticias
@@ -277,7 +278,6 @@ Pendiente:
 | Pendiente | Area | Prioridad sugerida | Motivo |
 | --- | --- | --- | --- |
 | Revision de entradas `missing_source` | Storage | Media | El bot ya marca fuentes perdidas al fallar `copyMessage`; falta una vista admin especifica para revisarlas o restaurarlas. |
-| Recordatorios de prestamos | Prestamos | Media | El modelo tiene fecha prevista, pero no hay worker equivalente a agenda/compras. |
 | UI de permisos general | Admin/permisos | Media | El motor existe, pero falta administracion transversal desde el bot. |
 | `/news` con botones | Grupos de noticias | Baja | La secció està activa i operativa; revisar si cal refinament de copy o labels en futures iteracions. |
 | Dashboard admin | Admin | Media | Hay datos suficientes, falta una vista agregada. |

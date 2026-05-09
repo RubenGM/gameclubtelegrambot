@@ -76,6 +76,9 @@ function createLoanRepository(initialLoans: CatalogLoanRecord[] = []): CatalogLo
     async listLoansByItem(itemId) {
       return Array.from(loans.values()).filter((loan) => loan.itemId === itemId);
     },
+    async listActiveLoansDueBefore() {
+      return [];
+    },
     async updateLoan(input) {
       const existing = loans.get(input.loanId);
       if (!existing) {
@@ -481,6 +484,7 @@ test('catalog-loan notifications are sent only to subscribed news categories', a
       },
     ],
     new Map([
+      ['catalog-loans:board-game', new Set([-200])],
       ['catalog-loans:book', new Set([-201])],
     ]),
   );
