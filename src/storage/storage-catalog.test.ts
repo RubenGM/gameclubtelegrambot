@@ -53,6 +53,19 @@ function createRepository(initialCategories: StorageCategoryRecord[] = []): Stor
       categories.set(updated.id, updated);
       return updated;
     },
+    async updateCategoryMetadata(input) {
+      const existing = categories.get(input.categoryId);
+      if (!existing) {
+        throw new Error(`Storage category ${input.categoryId} not found`);
+      }
+      const updated: StorageCategoryRecord = {
+        ...existing,
+        displayName: input.displayName,
+        updatedAt: '2026-04-21T11:30:00.000Z',
+      };
+      categories.set(updated.id, updated);
+      return updated;
+    },
     async findCategoryById(categoryId) {
       return categories.get(categoryId) ?? null;
     },

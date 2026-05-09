@@ -90,6 +90,10 @@ export interface StorageCategoryRepository {
     categoryId: number;
     lifecycleStatus: StorageCategoryLifecycleStatus;
   }): Promise<StorageCategoryRecord>;
+  updateCategoryMetadata(input: {
+    categoryId: number;
+    displayName: string;
+  }): Promise<StorageCategoryRecord>;
   findCategoryById(categoryId: number): Promise<StorageCategoryRecord | null>;
   findCategoryByStorageThread(storageChatId: number, storageThreadId: number): Promise<StorageCategoryRecord | null>;
   listCategories(): Promise<StorageCategoryRecord[]>;

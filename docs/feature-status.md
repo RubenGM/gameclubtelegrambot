@@ -218,8 +218,8 @@ Implementado:
 - `/storage` para usuarios aprobados en privado.
 - Categorias con `storageChatId` y `storageThreadId` como ubicacion canonica.
 - Alta guiada de categorias: el admin comparte el supergrupo, el bot valida chat/permisos, crea el topic y guarda los ids automaticamente.
-- Listado de categorias, listado de entradas por categoria, busqueda y apertura de entrada por id.
-- Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot copia al topic canonico antes de indexar.
+- Listado incremental de categorias principales/subcategorias con resumen agregado de subcategorias y archivos, breadcrumbs clicables por padre, acciones contextuales y listado de entradas por categoria.
+- Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot copia al topic canonico antes de indexar y refrescar la categoria.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
 - Soporte de `document`, `photo`, `video` y `audio`.
 - Albums por `media_group_id` agrupados en una sola entrada mediante ventana corta en memoria.
