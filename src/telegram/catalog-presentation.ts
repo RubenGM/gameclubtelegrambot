@@ -69,8 +69,6 @@ export function formatCatalogDescriptionLine(
 }
 
 export function formatMemberCatalogOverview({
-  families,
-  groups,
   items,
   language = 'ca',
 }: {
@@ -81,25 +79,8 @@ export function formatMemberCatalogOverview({
 }): string {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
   const lines: string[] = [texts.catalogRead.available];
-  const itemCountByFamily = new Map<number, number>();
-  const itemCountByGroup = new Map<number, number>();
 
-  for (const item of items) {
-    if (item.familyId !== null) {
-      itemCountByFamily.set(item.familyId, (itemCountByFamily.get(item.familyId) ?? 0) + 1);
-    }
-    if (item.groupId !== null) {
-      itemCountByGroup.set(item.groupId, (itemCountByGroup.get(item.groupId) ?? 0) + 1);
-    }
-  }
-
-  for (const family of families) {
-    const groupCount = groups.filter((group) => group.familyId === family.id).length;
-    const itemCount = itemCountByFamily.get(family.id) ?? 0;
-      lines.push(`- ${escapeHtml(family.displayName)} · ${itemCount} ${texts.catalogRead.itemCount(itemCount)} · ${groupCount} ${texts.catalogRead.groupCount(groupCount)}`);
-  }
-
-  lines.push(`- ${texts.catalogRead.itemsWithoutFamilyGroup}: ${items.filter((item) => item.familyId === null && item.groupId === null).length}`);
+  lines.push(`- Items: ${items.length}`);
   lines.push(escapeHtml(texts.catalogRead.searchHint));
   return lines.join('\n');
 }
@@ -118,18 +99,14 @@ export function formatMemberCatalogFamilyDetails({
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
   const familyGroups = groups.filter((group) => group.familyId === family.id);
   const familyItems = items.filter((item) => item.familyId === family.id && item.groupId === null);
+  const nestedItemCount = items.filter((item) => item.familyId === family.id).length;
 
   return [
     `<b>${escapeHtml(family.displayName)}</b>`,
     formatHtmlField(texts.catalogAdmin.description, escapeHtml(family.description ?? texts.catalogAdmin.noDescription)),
-    `<b>${texts.catalogAdmin.groups}:</b>`,
-    ...(familyGroups.length > 0
-      ? familyGroups.map((group) => `- ${escapeHtml(group.displayName)} · ${groupItemsLabel(items, group.id)}`)
-      : [`- ${texts.catalogAdmin.noGroupAssigned}`]),
-    `<b>${texts.catalogAdmin.itemsWithoutGroup}:</b>`,
-    ...(familyItems.length > 0
-      ? familyItems.map((item) => `- ${escapeHtml(item.displayName)} · ${renderCatalogItemType(item.itemType, language)}`)
-      : [`- ${texts.catalogAdmin.noItemWithoutGroup}`]),
+    formatHtmlField(texts.catalogAdmin.groups, `${familyGroups.length} ${texts.catalogRead.groupCount(familyGroups.length)}`),
+    formatHtmlField(texts.catalogAdmin.items, `${nestedItemCount} ${texts.catalogRead.itemCount(nestedItemCount)}`),
+    formatHtmlField(texts.catalogAdmin.itemsWithoutGroup, `${familyItems.length} ${texts.catalogRead.itemCount(familyItems.length)}`),
   ].join('\n');
 }
 
@@ -151,10 +128,7 @@ export function formatMemberCatalogGroupDetails({
     `<b>${escapeHtml(group.displayName)}</b>`,
     formatHtmlField(texts.catalogAdmin.family, escapeHtml(family?.displayName ?? texts.catalogAdmin.noFamily)),
     formatHtmlField(texts.catalogAdmin.description, escapeHtml(group.description ?? texts.catalogAdmin.noDescription)),
-    `<b>${texts.catalogAdmin.items}:</b>`,
-    ...(groupItems.length > 0
-      ? groupItems.map((item) => `- ${escapeHtml(item.displayName)} · ${renderCatalogItemType(item.itemType, language)}`)
-      : [`- ${texts.catalogAdmin.noItemAssigned}`]),
+    formatHtmlField(texts.catalogAdmin.items, `${groupItems.length} ${texts.catalogRead.itemCount(groupItems.length)}`),
   ].join('\n');
 }
 
@@ -206,9 +180,4 @@ export function formatMemberCatalogItemDetails({
     ...detailLines,
     ...mediaLines,
   ].join('\n');
-}
-
-function groupItemsLabel(items: CatalogItemRecord[], groupId: number): string {
-  const count = items.filter((item) => item.groupId === groupId).length;
-  return `${count} item${count === 1 ? '' : 's'}`;
 }

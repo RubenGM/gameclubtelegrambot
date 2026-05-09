@@ -4,6 +4,7 @@ export type CatalogAdminCallbackPrefixes = {
   browseMenu: string;
   browseSearch: string;
   browseFamily: string;
+  browseLetters: string;
   inspect: string;
   inspectGroup: string;
   edit: string;
@@ -17,6 +18,7 @@ export type CatalogAdminCallbackRoute =
   | { kind: 'browse-menu' }
   | { kind: 'browse-search' }
   | { kind: 'browse-family'; familyId: number }
+  | { kind: 'browse-letters'; initials: string }
   | { kind: 'inspect-item'; itemId: number }
   | { kind: 'inspect-group'; groupId: number }
   | { kind: 'edit-item'; itemId: number }
@@ -37,6 +39,9 @@ export function parseCatalogAdminCallbackRoute(
   }
   if (callbackData.startsWith(prefixes.browseFamily)) {
     return { kind: 'browse-family', familyId: parseItemId(callbackData, prefixes.browseFamily) };
+  }
+  if (callbackData.startsWith(prefixes.browseLetters)) {
+    return { kind: 'browse-letters', initials: decodeURIComponent(callbackData.slice(prefixes.browseLetters.length)).trim() };
   }
   if (callbackData.startsWith(prefixes.inspect)) {
     return { kind: 'inspect-item', itemId: parseItemId(callbackData, prefixes.inspect) };

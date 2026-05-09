@@ -167,6 +167,7 @@ type BulkCreateSummaryItem = {
 export const catalogAdminCallbackPrefixes = {
   browseMenu: 'catalog_admin:browse_menu',
   browseFamily: 'catalog_admin:browse_family:',
+  browseLetters: 'catalog_admin:browse_letters:',
   browseSearch: 'catalog_admin:browse_search',
   inspect: 'catalog_admin:inspect:',
   inspectGroup: 'catalog_admin:inspect_group:',
@@ -364,6 +365,12 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
 }
 
 export async function handleTelegramCatalogAdminStartText(context: TelegramCatalogAdminContext): Promise<boolean> {
+  const letterPayload = parseCatalogAdminLetterStartPayload(context.messageText);
+  if (letterPayload !== null && context.runtime.chat.kind === 'private' && canAccessCatalog(context)) {
+    await showCatalogLettersBrowse(context, letterPayload);
+    return true;
+  }
+
   const payload = parseCatalogAdminStartPayload(context.messageText);
   if (payload === null || context.runtime.chat.kind !== 'private' || !canAccessCatalog(context)) {
     return false;
@@ -404,6 +411,10 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
   }
   if (route.kind === 'browse-family') {
     await showCatalogFamilyBrowse(context, route.familyId);
+    return true;
+  }
+  if (route.kind === 'browse-letters') {
+    await showCatalogLettersBrowse(context, route.initials);
     return true;
   }
 
@@ -1209,6 +1220,51 @@ async function showCatalogFamilyBrowse(context: TelegramCatalogAdminContext, fam
   });
 }
 
+async function showCatalogLettersBrowse(context: TelegramCatalogAdminContext, initials: string): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const normalizedInitials = normalizeCatalogInitials(initials);
+  const initialSet = new Set(normalizedInitials.split(''));
+  const repository = resolveCatalogRepository(context);
+  const items = (await listCatalogItems({ repository, includeDeactivated: false }))
+    .filter((item) => item.itemType !== 'expansion')
+    .filter((item) => initialSet.has(getCatalogAdminItemInitial(item)));
+
+  if (items.length === 0) {
+    await context.reply(`No he trobat cap item per a ${normalizedInitials}.`, {
+      inlineKeyboard: [[{ text: texts.browseBack, callbackData: catalogAdminCallbackPrefixes.browseMenu }]],
+    });
+    return;
+  }
+
+  const loanRepository = resolveCatalogLoanRepository(context);
+  const activeLoans = await loadActiveLoansByItemMap(loanRepository, items);
+  const itemLines = await Promise.all(items
+    .slice()
+    .sort((left, right) => left.displayName.localeCompare(right.displayName))
+    .map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)));
+
+  await context.reply([`<b>${formatCatalogInitialsLabel(normalizedInitials)}</b>`, ...itemLines].join('\n'), {
+    parseMode: 'HTML',
+    inlineKeyboard: [
+      [{ text: texts.browseBack, callbackData: catalogAdminCallbackPrefixes.browseMenu }],
+    ],
+  });
+}
+
+function normalizeCatalogInitials(value: string): string {
+  return Array.from(new Set(value.trim().toUpperCase().replace(/[^A-Z#]/g, '').split(''))).join('');
+}
+
+function getCatalogAdminItemInitial(item: CatalogItemRecord): string {
+  const first = item.displayName.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').at(0)?.toUpperCase() ?? '#';
+  return /^[A-Z]$/.test(first) ? first : '#';
+}
+
+function formatCatalogInitialsLabel(initials: string): string {
+  return initials.split('').join(' ');
+}
+
 async function handleBrowseSession(context: TelegramCatalogAdminContext, text: string, stepKey: string, data: Record<string, unknown>): Promise<boolean> {
   const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
   if (stepKey !== 'search-query') {
@@ -1267,7 +1323,7 @@ async function replyWithCatalogList(
   const inlineKeyboard = buildCatalogAdminSelectionKeyboard({
     items,
     mode,
-    inspectKeyboard: await buildGroupedInspectKeyboard(context, items),
+    inspectKeyboard: [],
     editPrefix: catalogAdminCallbackPrefixes.edit,
     deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
   });
@@ -1473,6 +1529,7 @@ async function formatCatalogItemList(
     groups,
     items,
     itemLines,
+    browseLettersPrefix: catalogAdminCallbackPrefixes.browseLetters,
   });
 }
 
@@ -1557,6 +1614,26 @@ function buildCatalogAdminItemDeepLink(itemId: number): string {
 
 function parseCatalogAdminStartPayload(messageText: string | undefined): number | null {
   return parseCatalogAdminStartPayloadValue(messageText, catalogAdminStartPayloadPrefix);
+}
+
+function parseCatalogAdminLetterStartPayload(messageText: string | undefined): string | null {
+  const payload = messageText?.trim().split(/\s+/).slice(1).join(' ');
+  const prefix = 'catalog_admin_letters_';
+  if (!payload || !payload.startsWith(prefix)) {
+    return null;
+  }
+
+  const value = deserializeCatalogInitialsStartPayload(payload.slice(prefix.length));
+  return value ? value : null;
+}
+
+function deserializeCatalogInitialsStartPayload(value: string): string {
+  const decoded = decodeURIComponent(value).trim();
+  if (decoded.startsWith('hash_')) {
+    return normalizeCatalogInitials(`#${decoded.slice('hash_'.length)}`);
+  }
+
+  return normalizeCatalogInitials(decoded);
 }
 
 async function formatDraftSummary(context: TelegramCatalogAdminContext, data: Record<string, unknown>): Promise<string> {

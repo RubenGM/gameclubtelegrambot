@@ -33,6 +33,7 @@ export const catalogReadCallbackPrefixes = {
   pagePrev: 'catalog_read:page:prev',
   back: 'catalog_read:back',
   myLoans: 'catalog_read:my_loans',
+  inspectLetter: 'catalog_read:letter:',
   inspectFamily: 'catalog_read:family:',
   inspectGroup: 'catalog_read:group:',
   inspectItem: 'catalog_read:item:',
@@ -42,12 +43,13 @@ export type TelegramCatalogReadContext = TelegramCatalogLoanContext & {
   catalogRepository?: CatalogRepository;
 };
 
-type CatalogReadView = 'overview' | 'search' | 'family' | 'group' | 'item' | 'my-loans';
+type CatalogReadView = 'overview' | 'search' | 'letter' | 'family' | 'group' | 'item' | 'my-loans';
 
 interface CatalogReadState {
   view: CatalogReadView;
   page: number;
   query?: string;
+  initial?: string;
   familyId?: number;
   groupId?: number;
   itemId?: number;
@@ -55,10 +57,11 @@ interface CatalogReadState {
 }
 
 interface CatalogBrowseEntry {
-  kind: 'family' | 'group' | 'item';
+  kind: 'letter' | 'family' | 'group' | 'item';
   id: number;
   label: string;
   subtitle: string;
+  initial?: string;
 }
 
 export async function handleTelegramCatalogReadCommand(context: TelegramCatalogReadContext): Promise<void> {
@@ -93,6 +96,14 @@ export async function handleTelegramCatalogReadText(context: TelegramCatalogRead
 
 export async function handleTelegramCatalogReadStartText(context: TelegramCatalogReadContext): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const initials = parseStartInitial(context.messageText, 'catalog_read_letter_');
+  if (initials !== null && context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved) {
+    const state: CatalogReadState = { view: 'letter', page: 1, initial: initials, returnState: { view: 'overview', page: 1 } };
+    await persistCatalogReadState(context, state);
+    await renderCatalogReadState(context, state, language);
+    return true;
+  }
+
   const itemId = parseStartPayload(context.messageText, 'catalog_read_item_');
   if (itemId === null || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
     return false;
@@ -177,6 +188,15 @@ export async function handleTelegramCatalogReadCallback(context: TelegramCatalog
     return true;
   }
 
+  if (callbackData.startsWith(catalogReadCallbackPrefixes.inspectLetter)) {
+    const initials = parseInitial(callbackData, catalogReadCallbackPrefixes.inspectLetter);
+    const current = readCatalogReadState(context);
+    const nextState: CatalogReadState = { view: 'letter', page: 1, initial: initials, returnState: current ?? { view: 'overview', page: 1 } };
+    await persistCatalogReadState(context, nextState);
+    await renderCatalogReadState(context, nextState, language);
+    return true;
+  }
+
   if (callbackData.startsWith(catalogReadCallbackPrefixes.inspectFamily)) {
     const familyId = parseEntityId(callbackData, catalogReadCallbackPrefixes.inspectFamily);
     const { families, groups, items } = await loadCatalogData(context);
@@ -231,7 +251,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
   const texts = createTelegramI18n(language);
 
   if (state.view === 'overview') {
-    const entries = await buildOverviewEntries(context, { families, items, activeLoansByItemId });
+    const entries = buildOverviewEntries({ items, language });
     const page = paginateEntries(entries, state.page);
     const loanCount = (await loadActiveLoansByBorrower(context, context.runtime.actor.telegramUserId)).length;
     const buttonRows = await buildBrowseButtonRows(context, page.items);
@@ -242,6 +262,18 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
       `${formatMemberCatalogOverview({ families, groups, items, language })}\n\n${formatEntryPage(page.items, page.page, page.totalPages, language)}`,
       { ...buildListNavigationOptions(buttonRows, state, page.totalPages > 1, language), parseMode: 'HTML' },
     );
+    return;
+  }
+
+  if (state.view === 'letter') {
+    const initials = normalizeInitialSet(state.initial ?? '');
+    const results = await buildLetterEntries(context, { items, activeLoansByItemId, initials });
+    const page = paginateEntries(results, state.page);
+    const lines = [
+      formatLetterHeading(initials, results.length, language),
+      formatEntryPage(page.items, page.page, page.totalPages, language),
+    ];
+    await context.reply(lines.join('\n\n'), { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' });
     return;
   }
 
@@ -357,6 +389,10 @@ async function buildBrowseButtonRows(context: TelegramCatalogReadContext, entrie
   const rows: TelegramInlineButton[][] = [];
 
   for (const entry of entries) {
+    if (entry.kind === 'letter') {
+      continue;
+    }
+
     if (entry.kind === 'family') {
       rows.push([{ text: entry.label, callbackData: `${catalogReadCallbackPrefixes.inspectFamily}${entry.id}` }]);
       continue;
@@ -420,12 +456,16 @@ function formatEntryPage(entries: CatalogBrowseEntry[], page: number, totalPages
   }
 
   for (const entry of entries) {
-    lines.push(`- ${formatCatalogBrowseEntryLabel(entry)} · ${escapeHtml(entry.subtitle)}`);
+    lines.push(`- ${formatCatalogBrowseEntryLabel(entry)}${entry.subtitle ? `\n${escapeHtml(entry.subtitle)}` : ''}`);
   }
   return lines.join('\n');
 }
 
 function formatCatalogBrowseEntryLabel(entry: CatalogBrowseEntry): string {
+  if (entry.kind === 'letter') {
+    return `<a href="${buildTelegramStartUrl(`catalog_read_letter_${serializeInitialSetForStartPayload(entry.initial ?? entry.label)}`)}"><b>${escapeHtml(entry.label)}</b></a>`;
+  }
+
   if (entry.kind !== 'item') {
     return escapeHtml(entry.label);
   }
@@ -447,6 +487,16 @@ function parseStartPayload(messageText: string | undefined, prefix: string): num
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
+function parseStartInitial(messageText: string | undefined, prefix: string): string | null {
+  const payload = messageText?.trim().split(/\s+/).slice(1).join(' ');
+  if (!payload || !payload.startsWith(prefix)) {
+    return null;
+  }
+
+  const value = deserializeInitialSetFromStartPayload(payload.slice(prefix.length));
+  return value ? value : null;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -456,22 +506,40 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
-async function buildOverviewEntries(context: TelegramCatalogReadContext, { families, items, activeLoansByItemId }: { families: CatalogFamilyRecord[]; items: CatalogItemRecord[]; activeLoansByItemId: Map<number, CatalogLoanRecord>; }): Promise<CatalogBrowseEntry[]> {
-  const entries: CatalogBrowseEntry[] = families
-    .slice()
-    .sort((left, right) => left.displayName.localeCompare(right.displayName))
-    .map((family) => ({
-      kind: 'family' as const,
-      id: family.id,
-      label: family.displayName,
-      subtitle: `${countFamilyItems(items, family.id)} item${countFamilyItems(items, family.id) === 1 ? '' : 's'}`,
-    }));
+function buildOverviewEntries({ items, language }: { items: CatalogItemRecord[]; language: 'ca' | 'es' | 'en'; }): CatalogBrowseEntry[] {
+  const buckets = new Map<string, CatalogItemRecord[]>();
 
-  for (const item of items.filter((entry) => entry.familyId === null && entry.groupId === null).sort((left, right) => left.displayName.localeCompare(right.displayName))) {
-    entries.push({ kind: 'item', id: item.id, label: item.displayName, subtitle: await formatItemSubtitle(context, item, activeLoansByItemId.get(item.id) ?? null) });
+  for (const item of items) {
+    const initial = getCatalogItemInitial(item);
+    buckets.set(initial, [...(buckets.get(initial) ?? []), item]);
   }
 
-  return entries;
+  const sortedInitials = Array.from(buckets.keys()).sort((left, right) => left.localeCompare(right));
+  return chunkArray(sortedInitials, 3)
+    .map((initials, index) => {
+      const bucketItems = initials.flatMap((initial) => buckets.get(initial) ?? []);
+      const initialSet = initials.join('');
+      return {
+      kind: 'letter' as const,
+      id: index + 1,
+      label: `${formatInitialSetLabel(initialSet)} - ${bucketItems.length} ${articleCountLabel(bucketItems.length, language)}`,
+      subtitle: formatLetterCounts(bucketItems, language).join('\n'),
+      initial: initialSet,
+      };
+    });
+}
+
+async function buildLetterEntries(context: TelegramCatalogReadContext, { items, activeLoansByItemId, initials }: { items: CatalogItemRecord[]; activeLoansByItemId: Map<number, CatalogLoanRecord>; initials: string; }): Promise<CatalogBrowseEntry[]> {
+  const initialSet = new Set(normalizeInitialSet(initials).split(''));
+  return Promise.all(items
+    .filter((item) => initialSet.has(getCatalogItemInitial(item)))
+    .sort((left, right) => left.displayName.localeCompare(right.displayName))
+    .map(async (item) => ({
+      kind: 'item' as const,
+      id: item.id,
+      label: item.displayName,
+      subtitle: await formatItemSubtitle(context, item, activeLoansByItemId.get(item.id) ?? null),
+    })));
 }
 
 async function buildFamilyEntries(context: TelegramCatalogReadContext, { family, groups, items, activeLoansByItemId }: { family: CatalogFamilyRecord; groups: CatalogGroupRecord[]; items: CatalogItemRecord[]; activeLoansByItemId: Map<number, CatalogLoanRecord>; }): Promise<CatalogBrowseEntry[]> {
@@ -603,6 +671,123 @@ function parseEntityId(callbackData: string, prefix: string): number {
   return value;
 }
 
+function parseInitial(callbackData: string, prefix: string): string {
+  const value = decodeURIComponent(callbackData.slice(prefix.length)).trim();
+  if (!value) {
+    throw new Error('No s ha pogut identificar la lletra seleccionada.');
+  }
+
+  return value;
+}
+
+function getCatalogItemInitial(item: CatalogItemRecord): string {
+  const first = item.displayName.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').at(0)?.toUpperCase() ?? '#';
+  return /^[A-Z]$/.test(first) ? first : '#';
+}
+
+function formatLetterHeading(initials: string, count: number, language: 'ca' | 'es' | 'en'): string {
+  const label = formatInitialSetLabel(initials);
+  const title = language === 'es'
+    ? `Artículos en ${label}`
+    : language === 'en'
+      ? `Items in ${label}`
+      : `Articles a ${label}`;
+  return `<b>${escapeHtml(title)}</b> · ${count} ${articleCountLabel(count, language)}`;
+}
+
+function normalizeInitialSet(value: string): string {
+  return Array.from(new Set(value.trim().toUpperCase().replace(/[^A-Z#]/g, '').split(''))).join('');
+}
+
+function serializeInitialSetForStartPayload(value: string): string {
+  const normalized = normalizeInitialSet(value);
+  if (normalized.startsWith('#')) {
+    return `hash_${normalized.slice(1)}`;
+  }
+
+  return normalized;
+}
+
+function deserializeInitialSetFromStartPayload(value: string): string {
+  const decoded = decodeURIComponent(value).trim();
+  if (decoded.startsWith('hash_')) {
+    return normalizeInitialSet(`#${decoded.slice('hash_'.length)}`);
+  }
+
+  return normalizeInitialSet(decoded);
+}
+
+function formatInitialSetLabel(initials: string): string {
+  return normalizeInitialSet(initials).split('').join(' ');
+}
+
+function chunkArray<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function formatLetterCounts(items: CatalogItemRecord[], language: 'ca' | 'es' | 'en'): string[] {
+  const boardGameCount = items.filter((item) => item.itemType === 'board-game' || item.itemType === 'expansion').length;
+  const bookCount = items.filter((item) => item.itemType === 'book' || item.itemType === 'rpg-book').length;
+  const accessoryCount = items.filter((item) => item.itemType === 'accessory').length;
+  const lines: string[] = [];
+
+  if (boardGameCount > 0) {
+    lines.push(`${boardGameCount} ${boardGameCountLabel(boardGameCount, language)}`);
+  }
+  if (bookCount > 0) {
+    lines.push(`${bookCount} ${bookCountLabel(bookCount, language)}`);
+  }
+  if (accessoryCount > 0) {
+    lines.push(`${accessoryCount} ${accessoryCountLabel(accessoryCount, language)}`);
+  }
+
+  return lines;
+}
+
+function articleCountLabel(count: number, language: 'ca' | 'es' | 'en'): string {
+  if (language === 'es') {
+    return count === 1 ? 'artículo' : 'artículos';
+  }
+  if (language === 'en') {
+    return count === 1 ? 'item' : 'items';
+  }
+  return count === 1 ? 'article' : 'articles';
+}
+
+function boardGameCountLabel(count: number, language: 'ca' | 'es' | 'en'): string {
+  if (language === 'es') {
+    return count === 1 ? 'juego de mesa' : 'juegos de mesa';
+  }
+  if (language === 'en') {
+    return count === 1 ? 'board game' : 'board games';
+  }
+  return count === 1 ? 'joc de taula' : 'jocs de taula';
+}
+
+function bookCountLabel(count: number, language: 'ca' | 'es' | 'en'): string {
+  if (language === 'es') {
+    return count === 1 ? 'libro' : 'libros';
+  }
+  if (language === 'en') {
+    return count === 1 ? 'book' : 'books';
+  }
+  return count === 1 ? 'llibre' : 'llibres';
+}
+
+function accessoryCountLabel(count: number, language: 'ca' | 'es' | 'en'): string {
+  if (language === 'es') {
+    return count === 1 ? 'accesorio' : 'accesorios';
+  }
+  if (language === 'en') {
+    return count === 1 ? 'accessory' : 'accessories';
+  }
+  return count === 1 ? 'accessori' : 'accessoris';
+}
+
 function resolveCatalogRepository(context: TelegramCatalogReadContext): CatalogRepository {
   if (context.catalogRepository) {
     return context.catalogRepository;
@@ -631,7 +816,7 @@ async function persistCatalogReadState(context: TelegramCatalogReadContext, stat
 }
 
 function isListView(view: CatalogReadView): boolean {
-  return view === 'overview' || view === 'search' || view === 'family' || view === 'group';
+  return view === 'overview' || view === 'search' || view === 'letter' || view === 'family' || view === 'group';
 }
 
 function familyById(families: CatalogFamilyRecord[], familyId: number): CatalogFamilyRecord | undefined {

@@ -273,15 +273,26 @@ function buildItem(id: number, displayName: string, overrides: Partial<CatalogIt
   };
 }
 
-test('handleTelegramCatalogReadCommand paginates the overview list', async () => {
+test('handleTelegramCatalogReadCommand groups the overview by initial letter', async () => {
   const repository = createRepository({
-    families: [
-      buildFamily(1, 'Alpha'),
-      buildFamily(2, 'Bravo'),
-      buildFamily(3, 'Charlie'),
-      buildFamily(4, 'Delta'),
-      buildFamily(5, 'Echo'),
-      buildFamily(6, 'Foxtrot'),
+    groups: [
+      {
+        id: 9,
+        familyId: null,
+        slug: 'unused',
+        displayName: 'Unused group',
+        description: null,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+    items: [
+      buildItem(1, 'Ark Nova'),
+      buildItem(2, 'Azul'),
+      buildItem(3, 'A Wizard of Earthsea', { itemType: 'book' }),
+      buildItem(4, 'Brass Birmingham'),
+      buildItem(5, 'Carcassonne'),
+      buildItem(6, 'Dune Imperium'),
     ],
   });
   const { context, replies } = createContext(repository);
@@ -289,17 +300,66 @@ test('handleTelegramCatalogReadCommand paginates the overview list', async () =>
 
   await handleTelegramCatalogReadCommand(context);
 
-  assert.match(replies[0]?.message ?? '', /Pàgina 1\/2/);
-  assert.match(replies[0]?.message ?? '', /- Alpha · 0 items/);
-  assert.deepEqual(replies[0]?.options?.inlineKeyboard?.[5]?.[1]?.callbackData, 'catalog_read:page:next');
+  assert.match(replies[0]?.message ?? '', /<b>A B C - 5 articles<\/b>/);
+  assert.match(replies[0]?.message ?? '', /4 jocs de taula/);
+  assert.match(replies[0]?.message ?? '', /1 llibre/);
+  assert.match(replies[0]?.message ?? '', /<b>D - 1 article<\/b>/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Unused group/);
+  assert.match(replies[0]?.message ?? '', /catalog_read_letter_ABC/);
+  assert.ok(!replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === 'catalog_read:letter:ABC'));
 
   replies.length = 0;
-  context.callbackData = catalogReadCallbackPrefixes.pageNext;
+  context.callbackData = `${catalogReadCallbackPrefixes.inspectLetter}ABC`;
 
   await handleTelegramCatalogReadCallback(context);
 
-  assert.match(replies[0]?.message ?? '', /Pàgina 2\/2/);
-  assert.match(replies[0]?.message ?? '', /- Foxtrot · 0 items/);
+  assert.match(replies[0]?.message ?? '', /Articles a A B C/);
+  assert.match(replies[0]?.message ?? '', /Ark Nova/);
+  assert.match(replies[0]?.message ?? '', /Azul/);
+  assert.match(replies[0]?.message ?? '', /Brass Birmingham/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Dune Imperium/);
+  assert.ok(!replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Ark Nova'));
+});
+
+test('handleTelegramCatalogReadCommand serializes number buckets without URL fragments', async () => {
+  const repository = createRepository({
+    items: [
+      buildItem(1, '1960: The Making of the President'),
+      buildItem(2, 'Ark Nova'),
+      buildItem(3, 'Brass Birmingham'),
+    ],
+  });
+  const { context, replies } = createContext(repository);
+  context.messageText = '/catalog_search';
+
+  await handleTelegramCatalogReadCommand(context);
+
+  assert.match(replies[0]?.message ?? '', /catalog_read_letter_hash_AB/);
+
+  replies.length = 0;
+  context.messageText = '/start catalog_read_letter_hash_AB';
+
+  const handled = await handleTelegramCatalogReadStartText(context);
+
+  assert.equal(handled, true);
+  assert.match(replies[0]?.message ?? '', /1960: The Making of the President/);
+  assert.match(replies[0]?.message ?? '', /Ark Nova/);
+  assert.match(replies[0]?.message ?? '', /Brass Birmingham/);
+});
+
+test('handleTelegramCatalogReadCommand keeps the overview message compact for large catalogs', async () => {
+  const repository = createRepository({
+    families: Array.from({ length: 120 }, (_, index) => buildFamily(index + 1, `Family ${String(index + 1).padStart(3, '0')}`)),
+    items: Array.from({ length: 120 }, (_, index) => buildItem(index + 1, `Game ${String(index + 1).padStart(3, '0')}`, { familyId: index + 1 })),
+  });
+  const { context, replies } = createContext(repository);
+  context.messageText = '/catalog_search';
+
+  await handleTelegramCatalogReadCommand(context);
+
+  assert.ok((replies[0]?.message.length ?? 0) < 4096);
+  assert.match(replies[0]?.message ?? '', /<b>G - 120 articles<\/b>/);
+  assert.match(replies[0]?.message ?? '', /120 jocs de taula/);
 });
 
 test('handleTelegramCatalogReadCommand escapes HTML-sensitive labels in the overview', async () => {
@@ -312,9 +372,14 @@ test('handleTelegramCatalogReadCommand escapes HTML-sensitive labels in the over
 
   await handleTelegramCatalogReadCommand(context);
 
-  assert.match(replies[0]?.message ?? '', /Rock &amp; Roll/);
-  assert.match(replies[0]?.message ?? '', /A &lt; B/);
   assert.match(replies[0]?.message ?? '', /&lt;text&gt;/);
+
+  replies.length = 0;
+  context.callbackData = `${catalogReadCallbackPrefixes.inspectLetter}A`;
+
+  await handleTelegramCatalogReadCallback(context);
+
+  assert.match(replies[0]?.message ?? '', /A &lt; B/);
 });
 
 test('handleTelegramCatalogReadCommand paginates searches and exposes loan status', async () => {
@@ -416,9 +481,29 @@ test('handleTelegramCatalogReadStartText opens linked item details from /start',
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
 });
 
+test('handleTelegramCatalogReadStartText opens linked letter listings from /start', async () => {
+  const repository = createRepository({
+    items: [
+      buildItem(1, 'Ark Nova'),
+      buildItem(2, 'Brass Birmingham'),
+    ],
+  });
+  const { context, replies } = createContext(repository);
+  context.messageText = '/start catalog_read_letter_A';
+
+  const handled = await handleTelegramCatalogReadStartText(context);
+
+  assert.equal(handled, true);
+  assert.equal(replies[0]?.options?.parseMode, 'HTML');
+  assert.match(replies[0]?.message ?? '', /Articles a A/);
+  assert.match(replies[0]?.message ?? '', /Ark Nova/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Brass Birmingham/);
+});
+
 test('handleTelegramCatalogReadText opens the catalog from the member keyboard action', async () => {
   const repository = createRepository({
     families: [buildFamily(1, 'Alpha')],
+    items: [buildItem(1, 'Ark Nova', { familyId: 1 })],
   });
   const { context, replies } = createContext(repository);
   context.messageText = 'Catàleg';
@@ -426,6 +511,7 @@ test('handleTelegramCatalogReadText opens the catalog from the member keyboard a
   const handled = await handleTelegramCatalogReadText(context);
 
   assert.equal(handled, true);
-  assert.match(replies[0]?.message ?? '', /Alpha/);
+  assert.match(replies[0]?.message ?? '', /A - 1 article/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Alpha/);
   assert.equal(replies[0]?.options?.inlineKeyboard?.at(-1)?.[0]?.callbackData, catalogReadCallbackPrefixes.overview);
 });

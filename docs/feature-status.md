@@ -144,6 +144,7 @@ Implementado:
 - Campos principales: titulo, original, descripcion, idioma, editorial, año, jugadores, edad, duracion, referencias externas y metadata.
 - Media por URL con tipo `image`, `link` o `document`.
 - `/catalog_search` como consulta para usuarios aprobados.
+- Vista de lectura con indice por rangos de tres iniciales: cada linea agrupa letras clickables, muestra total de articulos y desglose por juegos de mesa, libros y accesorios; los grupos internos no aparecen en la navegacion principal.
 - Creacion de actividad desde item del catalogo y aviso si el item esta prestado.
 
 Integraciones reales:
