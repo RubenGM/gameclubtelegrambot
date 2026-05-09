@@ -492,7 +492,8 @@ test('handleTelegramStorageText opens the storage submenu from the command entry
     'Almacenamiento: elige una acción.\n\nCategorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a> (vacía)',
   );
   assert.equal(replies[0]?.options?.parseMode, 'HTML');
-  assert.equal((replies[0]?.options?.replyKeyboard?.[0]?.[0] as { semanticRole?: string })?.semanticRole, 'primary');
+  assert.deepEqual(replies[0]?.options?.replyKeyboard?.[0], [{ text: 'Manuales', semanticRole: 'secondary' }]);
+  assert.equal((replies[0]?.options?.replyKeyboard?.[1]?.[0] as { semanticRole?: string })?.semanticRole, 'primary');
   assert.deepEqual(replies[0]?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
 });
 
@@ -651,6 +652,22 @@ test('handleTelegramStorageText renders only root category navigation links with
   );
 });
 
+test('handleTelegramStorageText opens a visible category from the reply keyboard name', async () => {
+  const repository = createRepository([
+    createCategory({ id: 7, slug: 'rol', displayName: 'Rol' }),
+    createCategory({ id: 8, slug: 'cyberpunk', displayName: 'Cyberpunk 2020', parentCategoryId: 7, storageThreadId: 11 }),
+  ]);
+  const { context, replies, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7, 8], canUploadCategoryIds: [7, 8] });
+
+  context.messageText = 'Rol';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+
+  assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
+  assert.equal(getCurrentSession()?.data.categoryId, 7);
+  assert.match(replies.at(-1)?.message ?? '', /^<b>Rol<\/b>/);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], [{ text: 'Cyberpunk 2020', semanticRole: 'secondary' }]);
+});
+
 test('handleTelegramStorageText omits zero values in category summaries', async () => {
   const repository = createRepository([
     createCategory({ id: 7, slug: 'adventures', displayName: 'Adventures' }),
@@ -777,7 +794,8 @@ test('handleTelegramStorageText shows clickable parent breadcrumbs and category 
     replies.at(-1)?.message ?? '',
     /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">STL<\/a> \/ <b>Star Wars<\/b>/,
   );
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 3), [
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 4), [
+    [{ text: 'Legion', semanticRole: 'secondary' }],
     [{ text: 'Añadir subcategoría', semanticRole: 'success' }, { text: 'Renombrar categoría', semanticRole: 'secondary' }],
     [{ text: 'Subir archivos', semanticRole: 'success' }],
     [{ text: 'Volver', semanticRole: 'secondary' }],
@@ -1061,6 +1079,38 @@ test('handleTelegramStorageText opens a storage category from a deep link', asyn
     ].join('\n'),
   );
   assert.deepEqual(copiedMessages, []);
+});
+
+test('handleTelegramStorageMessage starts an upload when media arrives in a category view', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, replies, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
+
+  context.messageText = '/start storage_category_7';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
+
+  context.messageMedia = {
+    attachmentKind: 'document',
+    fileId: 'private-file-1',
+    fileUniqueId: 'private-unique-1',
+    caption: null,
+    originalFileName: 'manual.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 2048,
+    mediaGroupId: null,
+    messageId: 77,
+  };
+  delete context.messageText;
+
+  assert.equal(await handleTelegramStorageMessage(context as never), true);
+  const session = getCurrentSession();
+  assert.equal(session?.flowKey, 'storage-upload');
+  assert.equal(session?.stepKey, 'upload-media');
+  assert.equal(session?.data.categoryId, 7);
+  const messages = session?.data.messages;
+  assert.equal(Array.isArray(messages), true);
+  assert.deepEqual((messages as Array<{ fromMessageId: number }>).map((message) => message.fromMessageId), [77]);
+  assert.equal(replies.at(-1)?.message, 'Adjunto añadido al lote actual. Total: 1.');
 });
 
 test('handleTelegramStorageText shows categories directly in the storage menu', async () => {
