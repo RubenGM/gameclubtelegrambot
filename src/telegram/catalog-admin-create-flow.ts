@@ -68,6 +68,7 @@ export async function handleCatalogAdminCreateSession({
   searchCatalogLookupCandidates,
   importWikipediaBoardGameDraft,
   createWikipediaImportedBoardGame,
+  detectDisplayNameFromAttachment,
   importWikipediaErrorMessage,
   formatDraftSummary,
 }: {
@@ -91,6 +92,7 @@ export async function handleCatalogAdminCreateSession({
   searchCatalogLookupCandidates: (input: { itemType: CatalogItemType; displayName: string; author?: string }) => Promise<CatalogLookupCandidate[]>;
   importWikipediaBoardGameDraft: (title: string) => Promise<WikipediaBoardGameImportResult>;
   createWikipediaImportedBoardGame: (baseData: Record<string, unknown>, draft: WikipediaBoardGameCatalogDraft, sourceTitle: string) => Promise<void>;
+  detectDisplayNameFromAttachment?: () => Promise<string | Error | null>;
   importWikipediaErrorMessage: (result: Extract<WikipediaBoardGameImportResult, { ok: false }>) => string;
   formatDraftSummary: (data: Record<string, unknown>) => Promise<string>;
 }): Promise<boolean> {
@@ -217,6 +219,24 @@ export async function handleCatalogAdminCreateSession({
     });
   }
   if (stepKey === 'display-name') {
+    if (!text.trim() && detectDisplayNameFromAttachment) {
+      await reply(texts.coverTitleDetecting, buildSingleCancelKeyboard(language));
+      const detectedDisplayName = await detectDisplayNameFromAttachment();
+      if (detectedDisplayName instanceof Error) {
+        await reply(`${detectedDisplayName.message}\n\n${texts.askDisplayName}`, buildSingleCancelKeyboard(language));
+        return true;
+      }
+      if (detectedDisplayName) {
+        await reply(texts.coverTitleDetected.replace('{name}', detectedDisplayName), buildSingleCancelKeyboard(language));
+        text = detectedDisplayName;
+      }
+    }
+
+    if (!text.trim()) {
+      await reply(texts.askDisplayName, buildSingleCancelKeyboard(language));
+      return true;
+    }
+
     const itemType = String(data.itemType) as CatalogItemType;
     const nextData = { ...data, displayName: text };
     if (itemType === 'board-game') {

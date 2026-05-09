@@ -31,6 +31,7 @@ import {
 import { handleTelegramCalendarText } from './calendar-flow.js';
 import {
   handleTelegramCatalogAdminCallback,
+  handleTelegramCatalogAdminMessage,
   handleTelegramCatalogAdminStartText,
   handleTelegramCatalogAdminText,
   catalogAdminCallbackPrefixes,
@@ -248,6 +249,10 @@ function registerMessageHandlers({
   bot: TelegramBotLike;
 }): void {
   bot.onMessage?.(async (context) => {
+    if (await handleTelegramCatalogAdminMessage(context)) {
+      return;
+    }
+
     await handleTelegramStorageMessage(context);
   });
 }

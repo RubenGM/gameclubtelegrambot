@@ -82,6 +82,40 @@ test('createMiddlewarePipeline reuses the board-game import service across updat
   );
 });
 
+test('createMiddlewarePipeline exposes Telegram file download support in runtime bot', async () => {
+  const downloadCalls: Array<{ fileId: string; destinationPath: string }> = [];
+  const middlewares = createMiddlewarePipeline({
+    config: runtimeConfig,
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub() as never,
+        close: async () => {},
+      },
+    } satisfies InfrastructureRuntimeServices,
+    bot: {
+      ...createBotStub(),
+      async downloadFile(input) {
+        downloadCalls.push(input);
+      },
+    },
+    logger: createLoggerStub(),
+    isNewsEnabledGroup: async () => false,
+    loadActor: async ({ telegramUserId }) => createApprovedActor(telegramUserId),
+    conversationSessionStore: createConversationSessionStoreStub(),
+    languagePreferenceStore: {
+      loadLanguage: async () => null,
+    },
+  });
+
+  const context = createTextContext();
+  await runMiddlewares(middlewares, context);
+
+  await context.runtime?.bot.downloadFile?.({ fileId: 'cover-file', destinationPath: '/tmp/cover.jpg' });
+
+  assert.deepEqual(downloadCalls, [{ fileId: 'cover-file', destinationPath: '/tmp/cover.jpg' }]);
+});
+
 test('createMiddlewarePipeline logs structured update metadata', async () => {
   const infoLogs: Array<{ bindings: object; message: string }> = [];
   const middlewares = createMiddlewarePipeline({

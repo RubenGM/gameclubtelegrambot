@@ -30,6 +30,7 @@ import { escapeHtml } from './schedule-presentation.js';
 import { buildGlobalNavigationRow, buildPersistentReplyKeyboard } from './submenu-keyboards.js';
 
 const storageUploadFlowKey = 'storage-upload';
+const storageRootStartPayload = 'storage_root';
 const storageEntryStartPayloadPrefix = 'storage_entry_';
 const storageCategoryStartPayloadPrefix = 'storage_category_';
 const storageSelectCategoryStartPayloadPrefix = 'storage_select_category_';
@@ -181,6 +182,11 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
   const text = context.messageText?.trim();
   if (!text || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
     return false;
+  }
+
+  if (parseExactStartPayload(text) === storageRootStartPayload) {
+    await handleTelegramStorageCommand(context);
+    return true;
   }
 
   const entryId = parseStartPayload(text, storageEntryStartPayloadPrefix);
@@ -1165,6 +1171,12 @@ async function handleActiveCategoryViewAction(
   const childCategory = categories.find((candidate) => candidate.parentCategoryId === category.id && candidate.displayName === text);
   if (childCategory) {
     return sendStorageCategoryEntryList(context, childCategory.id, language);
+  }
+
+  if (text === texts.openMenu || text === createTelegramI18n(language).actionMenu.storage) {
+    await context.runtime.session.cancel();
+    await handleTelegramStorageCommand(context);
+    return true;
   }
 
   if (text === texts.back) {
@@ -3623,7 +3635,7 @@ function formatStorageCategoryDetailMessage({
 }): string {
   const texts = createTelegramI18n(language).storage;
   const lines = [
-    formatStorageCategoryBreadcrumbs(category, allCategories),
+    formatStorageCategoryBreadcrumbs(category, allCategories, language),
   ];
 
   if (childCategories.length > 0) {
@@ -3781,14 +3793,19 @@ function formatStorageCategoryPath(category: StorageCategoryRecord, allCategorie
   return resolveStorageCategoryPath(category, allCategories).map((segment) => segment.displayName).join(' / ');
 }
 
-function formatStorageCategoryBreadcrumbs(category: StorageCategoryRecord, allCategories: StorageCategoryRecord[]): string {
+function formatStorageCategoryBreadcrumbs(
+  category: StorageCategoryRecord,
+  allCategories: StorageCategoryRecord[],
+  language: 'ca' | 'es' | 'en',
+): string {
   const path = resolveStorageCategoryPath(category, allCategories);
-  return path.map((segment, index) => {
+  const rootLink = `<a href="${escapeHtml(buildTelegramStartUrl(storageRootStartPayload))}">${escapeHtml(createTelegramI18n(language).storage.openMenu)}</a>`;
+  return [rootLink, ...path.map((segment, index) => {
     if (index === path.length - 1) {
       return `<b>${escapeHtml(segment.displayName)}</b>`;
     }
     return `<a href="${escapeHtml(buildStorageCategoryDeepLink(segment.id))}">${escapeHtml(segment.displayName)}</a>`;
-  }).join(' / ');
+  })].join(' / ');
 }
 
 function resolveStorageCategoryPath(category: StorageCategoryRecord, allCategories: StorageCategoryRecord[]): StorageCategoryRecord[] {
@@ -4195,6 +4212,14 @@ function parseStartPayload(messageText: string, prefix: string): number | null {
   }
 
   return parsePositiveInteger(payload.slice(prefix.length));
+}
+
+function parseExactStartPayload(messageText: string): string | null {
+  const [command, payload] = messageText.trim().split(/\s+/, 2);
+  if (command !== '/start' || !payload) {
+    return null;
+  }
+  return payload;
 }
 
 function parseSignedInteger(value: string): number | null {

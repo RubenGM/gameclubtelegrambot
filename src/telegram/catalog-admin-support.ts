@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { appendAuditEvent, type AuditLogRepository } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import {
@@ -37,6 +41,7 @@ import type {
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createBoardGameGeekCollectionImportService, createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import { buildOpencodeRunArgs, runOpencodeImageQueryCapture } from '../scripts/opencode-image-query.js';
 import { buildLoanItemButton, formatLoanAvailabilityLines, resolveLoanBorrowerDisplayName, type TelegramCatalogLoanContext } from './catalog-loan-flow.js';
 import { buildDateOptions } from './schedule-keyboards.js';
 import {
@@ -178,6 +183,8 @@ export const catalogAdminCallbackPrefixes = {
   deleteMedia: 'catalog_admin:delete_media:',
 } as const;
 
+const catalogCoverTitleModel = process.env.GAMECLUB_COVER_TITLE_MODEL?.trim() || 'openai/gpt-5.4-mini';
+
 export const catalogAdminLabels = {
   openMenu: 'Cataleg',
   create: 'Crear item',
@@ -248,6 +255,12 @@ export const catalogAdminLabels = {
 export interface TelegramCatalogAdminContext {
   messageText?: string | undefined;
   callbackData?: string | undefined;
+  messageMedia?: {
+    attachmentKind: string;
+    fileId?: string | null;
+    originalFileName?: string | null;
+    mimeType?: string | null;
+  } | undefined;
   reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: {
     actor: TelegramActor;
@@ -266,6 +279,7 @@ export interface TelegramCatalogAdminContext {
       clubName: string;
       language?: string;
       sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+      downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
     };
   };
   catalogRepository?: CatalogRepository;
@@ -275,6 +289,7 @@ export interface TelegramCatalogAdminContext {
   catalogLookupService?: CatalogLookupService;
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
+  coverTitleResolver?: (input: { imagePath: string; question: string; model: string }) => Promise<string>;
 }
 
 export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdminContext): Promise<boolean> {
@@ -362,6 +377,19 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
     return true;
   }
   return false;
+}
+
+export async function handleTelegramCatalogAdminMessage(context: TelegramCatalogAdminContext): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || !canAccessCatalog(context)) {
+    return false;
+  }
+
+  const session = context.runtime.session.current;
+  if (session?.flowKey !== createFlowKey || session.stepKey !== 'display-name' || !context.messageMedia) {
+    return false;
+  }
+
+  return handleCreateSession(context, '', session.stepKey, session.data);
 }
 
 export async function handleTelegramCatalogAdminStartText(context: TelegramCatalogAdminContext): Promise<boolean> {
@@ -1074,9 +1102,134 @@ async function handleCreateSession(
     searchCatalogLookupCandidates: (input) => searchCatalogLookupCandidates(context, input),
     importWikipediaBoardGameDraft: (title) => importWikipediaBoardGameDraft(context, title),
     createWikipediaImportedBoardGame: (baseData, draft, sourceTitle) => createWikipediaImportedBoardGame(context, baseData, draft, sourceTitle),
+    detectDisplayNameFromAttachment: () => detectDisplayNameFromAttachment(context),
     importWikipediaErrorMessage,
     formatDraftSummary: (draftData) => formatDraftSummary(context, draftData),
   });
+}
+
+async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminContext): Promise<string | Error | null> {
+  const media = context.messageMedia;
+  if (!media) {
+    return null;
+  }
+
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+
+  if (!media.fileId) {
+    return new Error(texts.coverTitleMissingFile);
+  }
+  if (media.attachmentKind !== 'photo' && !media.mimeType?.startsWith('image/')) {
+    return new Error(texts.coverTitleUnsupportedAttachment);
+  }
+  if (!context.runtime.bot.downloadFile) {
+    return new Error(texts.coverTitleUnavailable);
+  }
+
+  const tempDir = await mkdtemp(join(tmpdir(), 'gameclub-cover-'));
+  const imagePath = join(tempDir, `cover${extensionForMedia(media)}`);
+  const debugDir = process.env.GAMECLUB_COVER_DEBUG_DIR?.trim() || join(tmpdir(), 'gameclub-cover-debug');
+  const shouldKeepDebugFile = true;
+  const effectiveImagePath = shouldKeepDebugFile
+    ? join(debugDir!, `cover-${Date.now()}${extensionForMedia(media)}`)
+    : imagePath;
+
+  try {
+    await mkdir(debugDir, { recursive: true });
+    await context.runtime.bot.downloadFile({ fileId: media.fileId, destinationPath: effectiveImagePath });
+    const downloaded = await stat(effectiveImagePath);
+    console.info(JSON.stringify({
+      event: 'catalog.cover-title.downloaded',
+      attachmentKind: media.attachmentKind,
+      mimeType: media.mimeType ?? null,
+      originalFileName: media.originalFileName ?? null,
+      fileSizeBytes: downloaded.size,
+      imagePath: effectiveImagePath,
+      debugFileKept: shouldKeepDebugFile,
+    }));
+    console.info(JSON.stringify({
+      event: 'catalog.cover-title.opencode-command',
+      command: 'opencode',
+      args: buildOpencodeRunArgs({
+        imagePath: effectiveImagePath,
+        question: texts.coverTitleQuestion,
+        model: catalogCoverTitleModel,
+      }),
+    }));
+    const resolver = context.coverTitleResolver ?? ((input) => runOpencodeImageQueryCapture({
+      imagePath: input.imagePath,
+      question: input.question,
+      model: input.model,
+      opencodeBin: 'opencode',
+    }));
+    const detected = await resolver({
+      imagePath: effectiveImagePath,
+      question: texts.coverTitleQuestion,
+      model: catalogCoverTitleModel,
+    });
+    const normalized = normalizeDetectedCoverTitle(detected);
+    console.info(JSON.stringify({
+      event: 'catalog.cover-title.detected',
+      model: catalogCoverTitleModel,
+      rawPreview: detected.slice(0, 500),
+      normalized,
+    }));
+    return normalized || new Error(texts.coverTitleNoResult);
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'catalog.cover-title.failed',
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    return new Error(error instanceof Error ? error.message : texts.coverTitleNoResult);
+  } finally {
+    if (!shouldKeepDebugFile) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }
+}
+
+function extensionForMedia(media: NonNullable<TelegramCatalogAdminContext['messageMedia']>): string {
+  if (media.attachmentKind === 'photo') {
+    return '.jpg';
+  }
+
+  const original = media.originalFileName?.trim();
+  const match = original?.match(/\.[A-Za-z0-9]{1,8}$/);
+  if (match) {
+    return match[0].toLowerCase();
+  }
+
+  if (media.mimeType === 'image/png') {
+    return '.png';
+  }
+  if (media.mimeType === 'image/webp') {
+    return '.webp';
+  }
+  if (media.mimeType === 'image/gif') {
+    return '.gif';
+  }
+  return '.jpg';
+}
+
+function normalizeDetectedCoverTitle(value: string): string {
+  if (/ProviderModelNotFoundError|Model not found|Error:/i.test(value)) {
+    return '';
+  }
+
+  const cleanedLines = value
+    .replace(/\u001b\[[0-9;]*m/g, '')
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('>') && !/^sqlite-migration:/i.test(line) && !/^database migration/i.test(line));
+
+  const candidate = cleanedLines.at(-1) ?? '';
+  return candidate
+    .replace(/^nombre(?: completo)?\s*:\s*/i, '')
+    .replace(/^t[ií]tulo\s*:\s*/i, '')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim();
 }
 
 async function handleEditSession(

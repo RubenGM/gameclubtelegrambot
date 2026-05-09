@@ -1,3 +1,6 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+
 import { Bot, InputFile, type Context } from 'grammy';
 
 import type { AuthorizationService } from '../authorization/service.js';
@@ -149,6 +152,7 @@ export interface TelegramRuntime {
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
+    downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
@@ -182,6 +186,7 @@ export interface TelegramBotLike {
   forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
   sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
+  downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
   deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   startPolling(): Promise<void>;
   stopPolling(): Promise<void>;
@@ -484,6 +489,22 @@ function createGrammyTelegramBot({
       await withTelegramApiRetry({ operation: 'sendDocument', logger }, () =>
         bot.api.sendDocument(chatId, new InputFile(filePath), caption ? { caption } : undefined),
       );
+    },
+    async downloadFile({ fileId, destinationPath }) {
+      const file = await withTelegramApiRetry({ operation: 'getFile', logger }, () =>
+        bot.api.raw.getFile({ file_id: fileId }),
+      ) as { file_path?: string };
+      if (!file.file_path) {
+        throw new Error('Telegram did not return a downloadable file path');
+      }
+
+      const response = await fetch(`https://api.telegram.org/file/bot${token}/${file.file_path}`);
+      if (!response.ok) {
+        throw new Error(`Telegram file download failed with status ${response.status}`);
+      }
+
+      await mkdir(dirname(destinationPath), { recursive: true });
+      await writeFile(destinationPath, Buffer.from(await response.arrayBuffer()));
     },
     async deleteMessage({ chatId, messageId }) {
       await withTelegramApiRetry({ operation: 'deleteMessage', logger }, () =>

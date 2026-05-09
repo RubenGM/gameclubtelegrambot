@@ -664,8 +664,12 @@ test('handleTelegramStorageText opens a visible category from the reply keyboard
 
   assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
   assert.equal(getCurrentSession()?.data.categoryId, 7);
-  assert.match(replies.at(-1)?.message ?? '', /^<b>Rol<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_root">Almacenamiento<\/a> \/ <b>Rol<\/b>/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], [{ text: 'Cyberpunk 2020', semanticRole: 'secondary' }]);
+
+  context.messageText = '/start storage_root';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  assert.match(replies.at(-1)?.message ?? '', /^Almacenamiento: elige una acción\./);
 });
 
 test('handleTelegramStorageText omits zero values in category summaries', async () => {
@@ -764,7 +768,7 @@ test('handleTelegramStorageText renders child category summaries and direct file
   assert.equal(
     replies.at(-1)?.message,
     [
-      '<b>STL</b>',
+      '<a href="https://t.me/cawatest_bot?start=storage_root">Almacenamiento</a> / <b>STL</b>',
       '',
       'Subcategorías:',
       '- <a href="https://t.me/cawatest_bot?start=storage_category_8"><b>Star Wars</b></a> (1 subcategoría, 1 archivo)',
@@ -792,7 +796,7 @@ test('handleTelegramStorageText shows clickable parent breadcrumbs and category 
 
   assert.match(
     replies.at(-1)?.message ?? '',
-    /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">STL<\/a> \/ <b>Star Wars<\/b>/,
+    /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_root">Almacenamiento<\/a> \/ <a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">STL<\/a> \/ <b>Star Wars<\/b>/,
   );
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 4), [
     [{ text: 'Legion', semanticRole: 'secondary' }],
@@ -811,7 +815,7 @@ test('handleTelegramStorageText shows clickable parent breadcrumbs and category 
   assert.equal(replies.at(-2)?.message, 'Categoría renombrada a Star Wars RPG.');
   assert.match(
     replies.at(-1)?.message ?? '',
-    /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">STL<\/a> \/ <b>Star Wars RPG<\/b>/,
+    /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_root">Almacenamiento<\/a> \/ <a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">STL<\/a> \/ <b>Star Wars RPG<\/b>/,
   );
 });
 
@@ -912,7 +916,7 @@ test('handleTelegramStorageText lists recent entries as clickable text links wit
   assert.equal(
     replies.at(-1)?.message,
     [
-      '<b>Manuales</b>',
+      '<a href="https://t.me/cawatest_bot?start=storage_root">Almacenamiento</a> / <b>Manuales</b>',
       '',
       'Entradas:',
       '- <a href="https://t.me/cawatest_bot?start=storage_entry_1">Manual de campana</a> · #rol, #pdf',
@@ -956,7 +960,7 @@ test('handleTelegramStorageText lists category entries alphabetically by linked 
   assert.equal(
     replies.at(-1)?.message,
     [
-      '<b>Manuales</b>',
+      '<a href="https://t.me/cawatest_bot?start=storage_root">Almacenamiento</a> / <b>Manuales</b>',
       '',
       'Entradas:',
       '- <a href="https://t.me/cawatest_bot?start=storage_entry_2">Alpha manual</a>',
@@ -1072,7 +1076,7 @@ test('handleTelegramStorageText opens a storage category from a deep link', asyn
   assert.equal(
     replies[0]?.message,
     [
-      '<b>Manuales</b>',
+      '<a href="https://t.me/cawatest_bot?start=storage_root">Almacenamiento</a> / <b>Manuales</b>',
       '',
       'Entradas:',
       '- <a href="https://t.me/cawatest_bot?start=storage_entry_1">Manual de campana</a> · #rol, #pdf',
@@ -1273,7 +1277,7 @@ test('handleTelegramStorageMessage lets admins create a storage category with gu
   assert.equal(
     replies.at(-1)?.message,
     [
-      '<b>Manuales</b>',
+      '<a href="https://t.me/cawatest_bot?start=storage_root">Almacenamiento</a> / <b>Manuales</b>',
       '',
       'No hay ninguna entrada indexada en esta categoría.',
     ].join('\n'),
@@ -1316,7 +1320,7 @@ test('handleTelegramStorageText keeps manual category creation as a fallback', a
   assert.equal(
     replies.at(-1)?.message,
     [
-      '<b>Manuales</b>',
+      '<a href="https://t.me/cawatest_bot?start=storage_root">Almacenamiento</a> / <b>Manuales</b>',
       '',
       'No hay ninguna entrada indexada en esta categoría.',
     ].join('\n'),
@@ -1354,7 +1358,7 @@ test('handleTelegramStorageText lets admins create a storage subcategory', async
   assert.equal(
     replies.at(-1)?.message,
     [
-      '<a href="https://t.me/cawatest_bot?start=storage_category_7">Manuales</a> / <b>Monstruos</b>',
+      '<a href="https://t.me/cawatest_bot?start=storage_root">Almacenamiento</a> / <a href="https://t.me/cawatest_bot?start=storage_category_7">Manuales</a> / <b>Monstruos</b>',
       '',
       'No hay ninguna entrada indexada en esta categoría.',
     ].join('\n'),
@@ -1724,7 +1728,7 @@ test('handleTelegramStorageText hides logically deleted entries from normal list
   assert.equal(
     replies.at(-1)?.message,
     [
-      '<b>Manuales</b>',
+      '<a href="https://t.me/cawatest_bot?start=storage_root">Almacenamiento</a> / <b>Manuales</b>',
       '',
       'No hay ninguna entrada indexada en esta categoría.',
     ].join('\n'),

@@ -21,13 +21,13 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario.                                                           |
-| Catálogo                                     | 🟡 Operativo con huecos | CRUD, familias, búsqueda, media por URL, importación desde Wikipedia/Open Library y BGG asistida.                                        |
+| Catálogo                                     | 🟡 Operativo con huecos | CRUD, familias, búsqueda, media por URL, importación desde Wikipedia/Open Library, BGG asistida y detección de título por portada.          |
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados de fecha prevista y vencimiento.                                                     |
 | Grupos de noticias                           | 🟢 Operativo         | `/news` acepta comandos y botones para activar/desactivar y gestionar suscripciones por categoría, con publicación por categoría desde agenda, LFG y préstecs. |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas y procesos de carga (DM y topic).                                              |
 | Backups y operación TUI                      | 🟢 Operativo         | CLI/TUI de backup/restore, estado de servicio y gestión de configuración Debian.                                                         |
-| Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo, con mejoras de analítica avanzada pendientes.                                                             |
+| Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 ```
 
@@ -46,6 +46,7 @@ Implementado:
 - Long polling con `allowed_updates` limitado a `message` y `callback_query` en `src/telegram/runtime-boundary-support.ts`.
 - Capa intermedia de reintentos para envios y operaciones Telegram en `src/telegram/telegram-api-retry.ts`, usada desde el boundary runtime.
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
+- Herramienta `npm run opencode:image` para enviar una imagen a OpenCode con pregunta y modelo configurables; usa `openai/gpt-5.4-mini` por defecto y esta pensada como paso previo a búsquedas BGG, no como fuente de metadatos.
 
 Riesgos o pendientes:
 
@@ -143,6 +144,7 @@ Implementado:
 - Familias y grupos para agrupar lineas, colecciones o expansiones.
 - Campos principales: titulo, original, descripcion, idioma, editorial, año, jugadores, edad, duracion, referencias externas y metadata.
 - Media por URL con tipo `image`, `link` o `document`.
+- En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; OpenCode sugiere el titulo y luego continúa la busqueda normal en API.
 - `/catalog_search` como consulta para usuarios aprobados.
 - Vista de lectura con indice por rangos de tres iniciales: cada linea agrupa letras clickables, muestra total de articulos y desglose por juegos de mesa, libros y accesorios; los grupos internos no aparecen en la navegacion principal.
 - Creacion de actividad desde item del catalogo y aviso si el item esta prestado.
@@ -152,6 +154,7 @@ Integraciones reales:
 - Juegos de mesa: importacion asistida desde Wikipedia en el flujo de alta.
 - Libros y RPG: lookup HTTP hacia servicios externos desde `catalog-lookup-service`.
 - BoardGameGeek: hay importacion de coleccion BGG en `catalog-admin-support.ts` y servicio en `wikipedia-boardgame-import-service.ts`; no es la fuente principal del alta individual de juegos, que actualmente intenta Wikipedia primero.
+- OpenCode: solo se usa para leer el titulo visible desde la portada; los metadatos completos siguen viniendo de APIs catalogadas como BGG/Open Library/Wikipedia.
 
 Riesgos o pendientes:
 

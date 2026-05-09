@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
 
 import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log.js';
 import type { CatalogLookupCandidate, CatalogLookupService } from '../catalog/catalog-lookup-service.js';
@@ -22,6 +23,7 @@ import {
   catalogAdminCallbackPrefixes,
   catalogAdminLabels,
   handleTelegramCatalogAdminCallback,
+  handleTelegramCatalogAdminMessage,
   handleTelegramCatalogAdminStartText,
   handleTelegramCatalogAdminText,
   type TelegramCatalogAdminContext,
@@ -290,6 +292,7 @@ function createContext({
   catalogLookupService,
   wikipediaBoardGameImportService,
   boardGameGeekCollectionImportService,
+  coverTitleResolver,
   sendPrivateMessage,
   isAdmin = true,
   language = 'ca',
@@ -301,6 +304,7 @@ function createContext({
   catalogLookupService?: CatalogLookupService;
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
+  coverTitleResolver?: (input: { imagePath: string; question: string; model: string }) => Promise<string>;
   sendPrivateMessage?: (telegramUserId: number, message: string, options?: TelegramReplyOptions) => Promise<void>;
   isAdmin?: boolean;
   language?: 'ca' | 'es' | 'en';
@@ -355,7 +359,15 @@ function createContext({
       },
       chat: { kind: 'private', chatId: 1 },
       services: { database: { db: undefined as never } },
-      bot: { publicName: 'Game Club Bot', clubName: 'Game Club', language, sendPrivateMessage: sendPrivateMessage ?? (async () => {}) },
+      bot: {
+        publicName: 'Game Club Bot',
+        clubName: 'Game Club',
+        language,
+        sendPrivateMessage: sendPrivateMessage ?? (async () => {}),
+        downloadFile: async ({ destinationPath }) => {
+          await writeFile(destinationPath, 'fake image');
+        },
+      },
     },
     catalogRepository: repository,
     catalogLoanRepository,
@@ -364,6 +376,7 @@ function createContext({
     ...(catalogLookupService ? { catalogLookupService } : {}),
     ...(wikipediaBoardGameImportService ? { wikipediaBoardGameImportService } : {}),
     ...(boardGameGeekCollectionImportService ? { boardGameGeekCollectionImportService } : {}),
+    ...(coverTitleResolver ? { coverTitleResolver } : {}),
   };
 
   return { context, replies, getCurrentSession: () => currentSession };
@@ -881,6 +894,72 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
   assert.equal(created?.groupId, null);
   assert.equal(created?.publisher, 'Devir');
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.updated');
+});
+
+test('handleTelegramCatalogAdminMessage detects a catalog title from a cover image while creating', async () => {
+  const repository = createRepository();
+  const auditRepository = createAuditRepository();
+  const importCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: title,
+          originalName: title,
+          description: `${title} description`,
+          language: null,
+          publisher: null,
+          publicationYear: null,
+          playerCountMin: null,
+          playerCountMax: null,
+          recommendedAge: null,
+          playTimeMinutes: null,
+          externalRefs: {},
+          metadata: { source: 'boardgamegeek' },
+        },
+      };
+    },
+  };
+  const resolverCalls: Array<{ imagePath: string; question: string; model: string }> = [];
+  const { context, replies, getCurrentSession } = createContext({
+    repository,
+    auditRepository,
+    wikipediaBoardGameImportService,
+    coverTitleResolver: async (input) => {
+      resolverCalls.push(input);
+      return '> build · gpt-5.4-mini\n\nNombre: "Root"';
+    },
+  });
+
+  context.messageText = catalogAdminLabels.create;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.typeBoardGame;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = undefined;
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'telegram-photo-file-id',
+    originalFileName: null,
+    mimeType: null,
+  };
+
+  assert.equal(await handleTelegramCatalogAdminMessage(context), true);
+
+  assert.equal(resolverCalls.length, 1);
+  assert.match(resolverCalls[0]?.imagePath ?? '', /cover-\d+\.jpg$/);
+  assert.match(resolverCalls[0]?.question ?? '', /nombre completo visible/i);
+  assert.equal(resolverCalls[0]?.model, 'openai/gpt-5.4-mini');
+  assert.deepEqual(importCalls, ['Root']);
+  assert.ok(replies.some((reply) => /detectar el nom de la portada/.test(reply.message)));
+  assert.ok(replies.some((reply) => /Nom detectat: Root/.test(reply.message)));
+  assert.ok(replies.some((reply) => /He importat dades externes per Root/.test(reply.message)));
+  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  assert.equal((await repository.findItemById(1))?.displayName, 'Root');
 });
 
 test('handleTelegramCatalogAdminText localizes the wikipedia import handoff', async () => {
