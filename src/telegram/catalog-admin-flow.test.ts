@@ -28,6 +28,7 @@ import {
   handleTelegramCatalogAdminText,
   type TelegramCatalogAdminContext,
 } from './catalog-admin-flow.js';
+import { catalogLoanCallbackPrefixes } from './catalog-loan-flow.js';
 
 function successButton(text: string) {
   return { text, semanticRole: 'success' as const };
@@ -243,6 +244,7 @@ function createLoanRepository(initialLoans: CatalogLoanRecord[] = []): CatalogLo
       return Array.from(loans.values()).find((loan) => loan.itemId === itemId && loan.returnedAt === null) ?? null;
     },
     async listActiveLoansByBorrower() { return []; },
+    async listActiveLoansWithItems() { return []; },
     async listLoansByItem(itemId) { return Array.from(loans.values()).filter((loan) => loan.itemId === itemId); },
     async listActiveLoansDueBefore() { return []; },
     async updateLoan() { throw new Error('not implemented'); },
@@ -390,6 +392,7 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   assert.match(replies.at(-1)?.message ?? '', /No hi ha cap item de cataleg disponible ara mateix\./);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Crear ítem', catalogAdminLabels.bulkCreate],
+    ['Préstecs actius'],
     [catalogAdminLabels.listBoardGames, catalogAdminLabels.listBooks],
     [catalogAdminLabels.listRpgBooks, catalogAdminLabels.listExpansions],
     [catalogAdminLabels.searchByName, 'Importar col·lecció BGG'],
@@ -406,6 +409,7 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Crear item', 'Añadir múltiples'],
+    ['Préstamos activos'],
     ['Listar juegos de mesa', 'Listar libros'],
     ['Listar libros RPG', 'Listar expansiones'],
     ['Buscar por nombre', 'Importar colección BGG'],
@@ -2010,6 +2014,10 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   assert.match(replies.at(-1)?.message ?? '', /A D - 3 artículos/);
   assert.match(replies.at(-1)?.message ?? '', /3 juegos de mesa/);
   assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
+  assert.equal(
+    replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.callbackData === catalogLoanCallbackPrefixes.adminDashboard)?.text,
+    'Préstecs actius',
+  );
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}AD`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);

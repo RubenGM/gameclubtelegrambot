@@ -11,6 +11,7 @@ import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramInlineButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { formatMembershipDisplayName, resolveTelegramDisplayName } from '../membership/display-name.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 
 const loanEditFlowKey = 'catalog-loan-edit';
 const catalogAdminEditCallbackPrefix = 'catalog_admin:edit:';
@@ -18,10 +19,14 @@ const catalogAdminDeactivateCallbackPrefix = 'catalog_admin:deactivate:';
 
 export const catalogLoanCallbackPrefixes = {
   openMyLoans: 'catalog_loan:my_loans',
+  adminDashboard: 'catalog_loan:admin_dashboard',
+  adminDashboardPage: 'catalog_loan:admin_dashboard:',
   create: 'catalog_loan:create:',
   return: 'catalog_loan:return:',
   edit: 'catalog_loan:edit:',
 } as const;
+
+const adminLoanDashboardPageSize = 5;
 
 export type TelegramCatalogLoanContext = TelegramCommandHandlerContext & {
   catalogRepository?: CatalogRepository;
@@ -44,6 +49,29 @@ type LoanDisplayContext = {
   membershipRepository?: MembershipAccessRepository | undefined;
 };
 
+type LoanRepositoryContext = {
+  catalogLoanRepository?: CatalogLoanRepository;
+  runtime: {
+    services: {
+      database: {
+        db: unknown;
+      };
+    };
+  };
+};
+
+type AdminLoanDashboardContext = LoanRepositoryContext & {
+  reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
+  runtime: LoanRepositoryContext['runtime'] & {
+    actor: {
+      isAdmin: boolean;
+    };
+    bot: {
+      language?: string;
+    };
+  };
+};
+
 export async function handleTelegramCatalogLoanCallback(context: TelegramCatalogLoanContext): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).catalogLoan;
@@ -54,6 +82,16 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
 
   if (callbackData === catalogLoanCallbackPrefixes.openMyLoans) {
     await showMyLoans(context);
+    return true;
+  }
+
+  if (callbackData === catalogLoanCallbackPrefixes.adminDashboard) {
+    await showAdminLoanDashboard(context, 1);
+    return true;
+  }
+
+  if (callbackData.startsWith(catalogLoanCallbackPrefixes.adminDashboardPage)) {
+    await showAdminLoanDashboard(context, parseDashboardPage(callbackData));
     return true;
   }
 
@@ -259,11 +297,13 @@ export function buildLoanDetailButtons({
   itemId,
   language = 'ca',
   deleteCallbackData,
+  includeAdminDashboard = false,
 }: {
   loan: CatalogLoanRecord | null;
   itemId: number;
   language?: 'ca' | 'es' | 'en';
   deleteCallbackData?: string;
+  includeAdminDashboard?: boolean;
 }): TelegramInlineButton[][] {
   const texts = createTelegramI18n(language).catalogLoan;
   const rows: TelegramInlineButton[][] = [];
@@ -278,6 +318,9 @@ export function buildLoanDetailButtons({
   }
 
   rows.push([{ text: texts.veurePrestecs, callbackData: catalogLoanCallbackPrefixes.openMyLoans }]);
+  if (includeAdminDashboard) {
+    rows.push([{ text: texts.adminDashboard, callbackData: catalogLoanCallbackPrefixes.adminDashboard }]);
+  }
   return rows;
 }
 
@@ -306,6 +349,42 @@ export async function showMyLoans(context: TelegramCatalogLoanContext): Promise<
   await context.reply(lines.join('\n'), {
     inlineKeyboard: rows,
   });
+}
+
+export async function showAdminLoanDashboard(context: AdminLoanDashboardContext, requestedPage = 1): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogLoan;
+  if (!context.runtime.actor.isAdmin) {
+    await context.reply(texts.adminDashboardNoPermission);
+    return;
+  }
+
+  const loans = sortDashboardLoans(await resolveLoanRepository(context).listActiveLoansWithItems(), new Date());
+  if (loans.length === 0) {
+    await context.reply(texts.adminDashboardEmpty);
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(loans.length / adminLoanDashboardPageSize));
+  const page = Math.min(Math.max(1, requestedPage), totalPages);
+  const pageLoans = loans.slice((page - 1) * adminLoanDashboardPageSize, page * adminLoanDashboardPageSize);
+  const lines = [
+    texts.adminDashboardHeader
+      .replace('{count}', String(loans.length))
+      .replace('{page}', String(page))
+      .replace('{totalPages}', String(totalPages)),
+    '',
+  ];
+
+  pageLoans.forEach((loan, index) => {
+    lines.push(formatAdminLoanLine(loan, (page - 1) * adminLoanDashboardPageSize + index + 1, language, new Date()));
+  });
+
+  const inlineKeyboard = buildAdminLoanDashboardNavigation(page, totalPages, language);
+  await context.reply(
+    lines.join('\n\n'),
+    inlineKeyboard.length > 0 ? { inlineKeyboard, parseMode: 'HTML' } : { parseMode: 'HTML' },
+  );
 }
 
 function buildSingleCancelKeyboard(): TelegramReplyOptions {
@@ -346,6 +425,7 @@ async function replyWithItemDetail(
     itemId,
     language,
     ...(context.runtime.actor.isAdmin ? { deleteCallbackData: `${catalogAdminDeactivateCallbackPrefix}${itemId}` } : {}),
+    includeAdminDashboard: context.runtime.actor.isAdmin,
   });
 
   if (context.runtime.actor.isAdmin) {
@@ -368,7 +448,7 @@ async function replyWithItemDetail(
   );
 }
 
-function resolveLoanRepository(context: TelegramCatalogLoanContext): CatalogLoanRepository {
+function resolveLoanRepository(context: LoanRepositoryContext): CatalogLoanRepository {
   if (context.catalogLoanRepository) {
     return context.catalogLoanRepository;
   }
@@ -400,6 +480,14 @@ function parseEntityId(callbackData: string, prefix: string): number {
   const value = Number(callbackData.slice(prefix.length));
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error('No s ha pogut identificar l element seleccionat.');
+  }
+  return value;
+}
+
+function parseDashboardPage(callbackData: string): number {
+  const value = Number(callbackData.slice(catalogLoanCallbackPrefixes.adminDashboardPage.length));
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error('No s ha pogut identificar la pagina seleccionada.');
   }
   return value;
 }
@@ -500,6 +588,69 @@ function resolveMembershipRepository(context: LoanDisplayContext): MembershipAcc
 
 function formatLoanDate(value: string): string {
   return value.slice(0, 10).split('-').reverse().join('/');
+}
+
+function sortDashboardLoans<T extends CatalogLoanRecord>(loans: T[], now: Date): T[] {
+  return [...loans].sort((left, right) => {
+    const leftDue = left.dueAt ? new Date(left.dueAt).getTime() : null;
+    const rightDue = right.dueAt ? new Date(right.dueAt).getTime() : null;
+    const leftOverdue = leftDue !== null && leftDue < now.getTime();
+    const rightOverdue = rightDue !== null && rightDue < now.getTime();
+    if (leftOverdue !== rightOverdue) {
+      return leftOverdue ? -1 : 1;
+    }
+    if (leftDue !== null && rightDue !== null && leftDue !== rightDue) {
+      return leftDue - rightDue;
+    }
+    if (leftDue !== null && rightDue === null) {
+      return -1;
+    }
+    if (leftDue === null && rightDue !== null) {
+      return 1;
+    }
+    const createdComparison = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+    return createdComparison || left.id - right.id;
+  });
+}
+
+function formatAdminLoanLine(
+  loan: CatalogLoanRecord & { itemDisplayName: string },
+  position: number,
+  language: 'ca' | 'es' | 'en',
+  now: Date,
+): string {
+  const texts = createTelegramI18n(language).catalogLoan;
+  const dueText = loan.dueAt
+    ? `${formatLoanDate(loan.dueAt)}${new Date(loan.dueAt).getTime() < now.getTime() ? ` (${texts.adminDashboardOverdue})` : ''}`
+    : texts.adminDashboardNoDueDate;
+  const itemLink = escapeHtml(buildTelegramStartUrl(`catalog_read_item_${loan.itemId}`));
+  const borrowerLink = escapeHtml(buildTelegramStartUrl(`manage_user_${loan.borrowerTelegramUserId}`));
+  return [
+    `${position}. <a href="${itemLink}"><b>${escapeHtml(loan.itemDisplayName)}</b></a>`,
+    `${texts.adminDashboardBorrower}: <a href="${borrowerLink}">${escapeHtml(loan.borrowerDisplayName)}</a>`,
+    `${texts.adminDashboardLoanedAt}: ${formatLoanDate(loan.createdAt)}`,
+    `${texts.adminDashboardDueAt}: ${dueText}`,
+  ].join('\n');
+}
+
+function buildAdminLoanDashboardNavigation(
+  page: number,
+  totalPages: number,
+  language: 'ca' | 'es' | 'en',
+): TelegramInlineButton[][] {
+  const texts = createTelegramI18n(language).catalogLoan;
+  const rows: TelegramInlineButton[][] = [];
+  const navigation: TelegramInlineButton[] = [];
+  if (page > 1) {
+    navigation.push({ text: texts.adminDashboardPrev, callbackData: `${catalogLoanCallbackPrefixes.adminDashboardPage}${page - 1}` });
+  }
+  if (page < totalPages) {
+    navigation.push({ text: texts.adminDashboardNext, callbackData: `${catalogLoanCallbackPrefixes.adminDashboardPage}${page + 1}` });
+  }
+  if (navigation.length > 0) {
+    rows.push(navigation);
+  }
+  return rows;
 }
 
 async function publishCatalogLoanNewsGroups(

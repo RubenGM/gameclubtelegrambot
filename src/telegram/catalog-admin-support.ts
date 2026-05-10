@@ -42,7 +42,14 @@ import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createBoardGameGeekCollectionImportService, createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { buildOpencodeRunArgs, runOpencodeImageQueryCapture } from '../scripts/opencode-image-query.js';
-import { buildLoanItemButton, formatLoanAvailabilityLines, resolveLoanBorrowerDisplayName, type TelegramCatalogLoanContext } from './catalog-loan-flow.js';
+import {
+  buildLoanItemButton,
+  catalogLoanCallbackPrefixes,
+  formatLoanAvailabilityLines,
+  resolveLoanBorrowerDisplayName,
+  showAdminLoanDashboard,
+  type TelegramCatalogLoanContext,
+} from './catalog-loan-flow.js';
 import { buildDateOptions } from './schedule-keyboards.js';
 import {
   buildCatalogAdminMenuOptions,
@@ -319,6 +326,10 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
   if (text === texts.bulkCreate || text === catalogAdminLabels.bulkCreate || text === '/catalog_bulk') {
     await context.runtime.session.start({ flowKey: bulkCreateFlowKey, stepKey: 'bulk-item-type', data: {} });
     await context.reply(texts.askItemType, buildTypeOptions(language));
+    return true;
+  }
+  if (text === i18n.catalogLoan.adminDashboard || text === '/loan_admin' || text === '/loans_admin') {
+    await showAdminLoanDashboard(context);
     return true;
   }
   if (text === texts.create || text === catalogAdminLabels.create || text === '/catalog_create') {
@@ -1480,6 +1491,9 @@ async function replyWithCatalogList(
     editPrefix: catalogAdminCallbackPrefixes.edit,
     deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
   });
+  if (mode === 'list' && context.runtime.actor.isAdmin) {
+    inlineKeyboard.unshift([{ text: createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogLoan.adminDashboard, callbackData: catalogLoanCallbackPrefixes.adminDashboard }]);
+  }
   await context.reply(
     mode === 'list' ? await formatCatalogItemList(context, items, itemTypeFilter !== undefined) : mode === 'edit' ? texts.chooseItemToEdit : texts.chooseItemToDeactivate,
     mode === 'list'

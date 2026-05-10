@@ -255,6 +255,9 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
     const page = paginateEntries(entries, state.page);
     const loanCount = (await loadActiveLoansByBorrower(context, context.runtime.actor.telegramUserId)).length;
     const buttonRows = await buildBrowseButtonRows(context, page.items);
+    if (context.runtime.actor.isAdmin) {
+      buttonRows.unshift([{ text: texts.catalogLoan.adminDashboard, callbackData: catalogLoanCallbackPrefixes.adminDashboard }]);
+    }
     if (loanCount > 0) {
       buttonRows.unshift([{ text: texts.catalogRead.myLoans, callbackData: catalogReadCallbackPrefixes.myLoans }]);
     }

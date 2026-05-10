@@ -87,6 +87,15 @@ function createLoanRepository(initialLoans: CatalogLoanRecord[] = []): CatalogLo
     async listActiveLoansByBorrower(borrowerTelegramUserId) {
       return Array.from(loans.values()).filter((loan) => loan.borrowerTelegramUserId === borrowerTelegramUserId && loan.returnedAt === null);
     },
+    async listActiveLoansWithItems() {
+      return Array.from(loans.values())
+        .filter((loan) => loan.returnedAt === null)
+        .map((loan) => ({
+          ...loan,
+          itemDisplayName: `Item ${loan.itemId}`,
+          itemLifecycleStatus: 'active',
+        }));
+    },
     async listLoansByItem(itemId) {
       return Array.from(loans.values()).filter((loan) => loan.itemId === itemId);
     },

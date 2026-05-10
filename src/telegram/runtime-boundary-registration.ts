@@ -534,6 +534,15 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'loan_admin',
+      contexts: ['private'],
+      access: 'admin',
+      description: 'Mostra el dashboard de préstecs actius',
+      handle: async (context) => {
+        await handleTelegramCatalogAdminText({ ...context, messageText: '/loan_admin' });
+      },
+    },
+    {
       command: 'review_access',
       contexts: ['private'],
       access: 'admin',
@@ -1276,6 +1285,12 @@ function registerCatalogReadCallbacks({
     await handleTelegramCatalogReadCallback(context);
   });
   bot.onCallback(catalogLoanCallbackPrefixes.openMyLoans, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
+  bot.onCallback(catalogLoanCallbackPrefixes.adminDashboard, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
+  bot.onCallback(catalogLoanCallbackPrefixes.adminDashboardPage, async (context) => {
     await handleTelegramCatalogLoanCallback(context);
   });
   bot.onCallback(catalogLoanCallbackPrefixes.create, async (context) => {

@@ -36,7 +36,10 @@ function createCatalogRepository(items: CatalogItemRecord[]): CatalogRepository 
   };
 }
 
-function createLoanRepository(initialLoans: CatalogLoanRecord[] = []): CatalogLoanRepository {
+function createLoanRepository(
+  initialLoans: CatalogLoanRecord[] = [],
+  itemNames: Map<number, { displayName: string; lifecycleStatus?: 'active' | 'deactivated' }> = new Map(),
+): CatalogLoanRepository {
   const loans = new Map(initialLoans.map((loan) => [loan.id, loan]));
   let nextLoanId = Math.max(0, ...initialLoans.map((loan) => loan.id)) + 1;
 
@@ -72,6 +75,18 @@ function createLoanRepository(initialLoans: CatalogLoanRecord[] = []): CatalogLo
     },
     async listActiveLoansByBorrower(borrowerTelegramUserId) {
       return Array.from(loans.values()).filter((loan) => loan.borrowerTelegramUserId === borrowerTelegramUserId && loan.returnedAt === null);
+    },
+    async listActiveLoansWithItems() {
+      return Array.from(loans.values())
+        .filter((loan) => loan.returnedAt === null)
+        .map((loan) => {
+          const item = itemNames.get(loan.itemId);
+          return {
+            ...loan,
+            itemDisplayName: item?.displayName ?? `Item ${loan.itemId}`,
+            itemLifecycleStatus: item?.lifecycleStatus ?? 'active',
+          };
+        });
     },
     async listLoansByItem(itemId) {
       return Array.from(loans.values()).filter((loan) => loan.itemId === itemId);
@@ -115,11 +130,15 @@ function createContext({
   catalogLoanRepository,
   loanSession = null,
   newsGroupRepository = createNewsGroupRepository(),
+  isAdmin = false,
+  language = 'ca',
 }: {
   catalogRepository: CatalogRepository;
   catalogLoanRepository: CatalogLoanRepository;
   loanSession?: ConversationSessionRecord | null;
   newsGroupRepository?: NewsGroupRepository;
+  isAdmin?: boolean;
+  language?: 'ca' | 'es' | 'en';
 }): {
   context: TelegramCommandHandlerContext;
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
@@ -138,6 +157,7 @@ function createContext({
         bot: {
           publicName: 'Game Club Bot',
           clubName: 'Game Club',
+          language,
           sendPrivateMessage: async () => {},
           sendGroupMessage: async (chatId: number, message: string, options?: TelegramReplyOptions) => {
             groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
@@ -150,7 +170,7 @@ function createContext({
           status: 'approved',
           isApproved: true,
           isBlocked: false,
-          isAdmin: false,
+          isAdmin,
           permissions: [],
         },
         authorization: {
@@ -354,6 +374,15 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
   assert.equal(borrowedRows[0]?.[0]?.text, 'Return');
   assert.equal(borrowedRows[1]?.[0]?.text, 'Delete item');
   assert.equal(borrowedRows[2]?.[0]?.text, 'View loans');
+  const adminRows = buildLoanDetailButtons({
+    loan,
+    itemId: 11,
+    deleteCallbackData: 'catalog_admin:deactivate:11',
+    language: 'es',
+    includeAdminDashboard: true,
+  });
+  assert.equal(adminRows[3]?.[0]?.text, 'Préstamos activos');
+  assert.equal(adminRows[3]?.[0]?.callbackData, catalogLoanCallbackPrefixes.adminDashboard);
   assert.equal(buildLoanItemButton(null, 11, 'Game 1', 'catalog_read:item:', 'es')[1]?.text, 'Tomar prestado');
   const spanishRows = buildLoanDetailButtons({
     loan: null,
@@ -365,6 +394,152 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
   assert.equal(spanishRows[0]?.[0]?.text, 'Tomar prestado');
   assert.equal(spanishRows[1]?.[0]?.text, 'Eliminar ítem');
   assert.equal(spanishRows[2]?.[0]?.text, 'Ver préstamos');
+});
+
+test('admin loan dashboard lists active loans with actions and paging', async () => {
+  const catalogRepository = createCatalogRepository([]);
+  const catalogLoanRepository = createLoanRepository(
+    [
+      {
+        id: 1,
+        itemId: 1,
+        borrowerTelegramUserId: 11,
+        borrowerDisplayName: 'Ana Gomez',
+        loanedByTelegramUserId: 7,
+        dueAt: '2026-04-01T00:00:00.000Z',
+        notes: null,
+        returnedAt: null,
+        returnedByTelegramUserId: null,
+        createdAt: '2026-03-20T10:00:00.000Z',
+        updatedAt: '2026-03-20T10:00:00.000Z',
+      },
+      {
+        id: 2,
+        itemId: 2,
+        borrowerTelegramUserId: 12,
+        borrowerDisplayName: 'Marta',
+        loanedByTelegramUserId: 7,
+        dueAt: null,
+        notes: null,
+        returnedAt: null,
+        returnedByTelegramUserId: null,
+        createdAt: '2026-03-21T10:00:00.000Z',
+        updatedAt: '2026-03-21T10:00:00.000Z',
+      },
+      {
+        id: 3,
+        itemId: 3,
+        borrowerTelegramUserId: 13,
+        borrowerDisplayName: 'Loaned returned',
+        loanedByTelegramUserId: 7,
+        dueAt: '2026-03-31T00:00:00.000Z',
+        notes: null,
+        returnedAt: '2026-04-03T10:00:00.000Z',
+        returnedByTelegramUserId: 7,
+        createdAt: '2026-03-19T10:00:00.000Z',
+        updatedAt: '2026-04-03T10:00:00.000Z',
+      },
+    ],
+    new Map([
+      [1, { displayName: 'Catan' }],
+      [2, { displayName: 'Dune', lifecycleStatus: 'deactivated' }],
+      [3, { displayName: 'Returned Game' }],
+    ]),
+  );
+  const { context, replies } = createContext({
+    catalogRepository,
+    catalogLoanRepository,
+    isAdmin: true,
+    language: 'es',
+  });
+  context.callbackData = catalogLoanCallbackPrefixes.adminDashboard;
+
+  await handleTelegramCatalogLoanCallback(context);
+
+  assert.match(replies[0]?.message ?? '', /Préstamos activos: 2 \(página 1\/1\)/);
+  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_item_1"><b>Catan<\/b><\/a>/);
+  assert.match(replies[0]?.message ?? '', /Socio: <a href="https:\/\/t\.me\/cawa_management_bot\?start=manage_user_11">Ana Gomez<\/a>/);
+  assert.match(replies[0]?.message ?? '', /Devolución: 01\/04\/2026 \(vencido\)/);
+  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_item_2"><b>Dune<\/b><\/a>/);
+  assert.match(replies[0]?.message ?? '', /Socio: <a href="https:\/\/t\.me\/cawa_management_bot\?start=manage_user_12">Marta<\/a>/);
+  assert.match(replies[0]?.message ?? '', /Devolución: sin fecha/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Returned Game/);
+  assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
+});
+
+test('admin loan dashboard rejects non-admins and handles empty state', async () => {
+  const catalogRepository = createCatalogRepository([]);
+  const catalogLoanRepository = createLoanRepository();
+  const nonAdmin = createContext({
+    catalogRepository,
+    catalogLoanRepository,
+    language: 'es',
+  });
+  nonAdmin.context.callbackData = catalogLoanCallbackPrefixes.adminDashboard;
+
+  await handleTelegramCatalogLoanCallback(nonAdmin.context);
+
+  assert.equal(nonAdmin.replies[0]?.message, 'Solo los admins pueden ver todos los préstamos activos.');
+
+  const admin = createContext({
+    catalogRepository,
+    catalogLoanRepository,
+    isAdmin: true,
+    language: 'es',
+  });
+  admin.context.callbackData = catalogLoanCallbackPrefixes.adminDashboard;
+
+  await handleTelegramCatalogLoanCallback(admin.context);
+
+  assert.equal(admin.replies[0]?.message, 'No hay ningún préstamo activo.');
+});
+
+test('admin loan dashboard paginates active loans', async () => {
+  const catalogRepository = createCatalogRepository([]);
+  const loans: CatalogLoanRecord[] = Array.from({ length: 6 }, (_, index) => ({
+    id: index + 1,
+    itemId: index + 1,
+    borrowerTelegramUserId: 20 + index,
+    borrowerDisplayName: `Member ${index + 1}`,
+    loanedByTelegramUserId: 7,
+    dueAt: `2026-04-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+    notes: null,
+    returnedAt: null,
+    returnedByTelegramUserId: null,
+    createdAt: `2026-03-${String(index + 1).padStart(2, '0')}T10:00:00.000Z`,
+    updatedAt: `2026-03-${String(index + 1).padStart(2, '0')}T10:00:00.000Z`,
+  }));
+  const catalogLoanRepository = createLoanRepository(
+    loans,
+    new Map(loans.map((loan) => [loan.itemId, { displayName: `Game ${loan.itemId}` }])),
+  );
+  const { context, replies } = createContext({
+    catalogRepository,
+    catalogLoanRepository,
+    isAdmin: true,
+    language: 'en',
+  });
+  context.callbackData = catalogLoanCallbackPrefixes.adminDashboard;
+
+  await handleTelegramCatalogLoanCallback(context);
+
+  assert.match(replies[0]?.message ?? '', /Active loans: 6 \(page 1\/2\)/);
+  assert.match(replies[0]?.message ?? '', /Game 5/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Game 6/);
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard?.at(-1), [
+    { text: 'Next', callbackData: 'catalog_loan:admin_dashboard:2' },
+  ]);
+
+  replies.length = 0;
+  context.callbackData = `${catalogLoanCallbackPrefixes.adminDashboardPage}2`;
+
+  await handleTelegramCatalogLoanCallback(context);
+
+  assert.match(replies[0]?.message ?? '', /Active loans: 6 \(page 2\/2\)/);
+  assert.match(replies[0]?.message ?? '', /Game 6/);
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard?.at(-1), [
+    { text: 'Previous', callbackData: 'catalog_loan:admin_dashboard:1' },
+  ]);
 });
 
 test('catalog loan edit flow updates notes and due date', async () => {

@@ -168,6 +168,7 @@ export interface CatalogLoanRepository {
   findLoanById(loanId: number): Promise<CatalogLoanRecord | null>;
   findActiveLoanByItemId(itemId: number): Promise<CatalogLoanRecord | null>;
   listActiveLoansByBorrower(borrowerTelegramUserId: number): Promise<CatalogLoanRecord[]>;
+  listActiveLoansWithItems(): Promise<CatalogLoanWithItemRecord[]>;
   listActiveLoansWithItemsByBorrower?(borrowerTelegramUserId: number): Promise<CatalogLoanWithItemRecord[]>;
   listLoansByItem(itemId: number): Promise<CatalogLoanRecord[]>;
   listActiveLoansDueBefore(input: {

@@ -22,7 +22,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario.                                                           |
 | Catálogo                                     | 🟡 Operativo con huecos | CRUD, familias, búsqueda, media por URL, importación desde Wikipedia/Open Library, BGG asistida y detección de título por portada.          |
-| Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados de fecha prevista y vencimiento.                                                     |
+| Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
 | Grupos de noticias                           | 🟢 Operativo         | `/news` acepta comandos y botones para activar/desactivar y gestionar suscripciones por categoría, con publicación por categoría desde agenda, LFG y préstecs. |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas y procesos de carga (DM y topic).                                              |
@@ -173,6 +173,7 @@ Implementado:
 - Crear prestamo desde botones del detalle/listado de catalogo.
 - Devolver prestamo desde botones.
 - Consultar prestamos activos propios.
+- Consultar todos los prestamos activos desde dashboard admin accesible por `/loan_admin` y por el menu de catalogo, con item y prestatario enlazados, fecha prevista y estado vencido.
 - Editar notas y fecha prevista de devolucion.
 - Enviar recordatorios privados cuando se acerca o vence la fecha prevista de devolucion.
 - Publicar eventos de prestamo/devolucion a grupos de noticias por categoria.
@@ -180,7 +181,7 @@ Implementado:
 
 Pendiente:
 
-- Flujo admin dedicado para ver todos los prestamos activos como dashboard.
+- Ninguna bloquejadora.
 
 ## Grupos de noticias
 
@@ -287,7 +288,6 @@ Pendiente:
 | Revision de entradas `missing_source` | Storage | Media | El bot ya marca fuentes perdidas al fallar `copyMessage`; falta una vista admin especifica para revisarlas o restaurarlas. |
 | UI de permisos general | Admin/permisos | Media | El motor existe, pero falta administracion transversal desde el bot. |
 | `/news` con botones | Grupos de noticias | Baja | La secció està activa i operativa; revisar si cal refinament de copy o labels en futures iteracions. |
-| Dashboard admin | Admin | Media | Hay datos suficientes, falta una vista agregada. |
 | Perfil de usuario / mi espacio | Usuario | Media | Evitaria que el usuario tenga que entrar por agenda, prestamos y compras por separado. |
 
 ## Tests relevantes por area

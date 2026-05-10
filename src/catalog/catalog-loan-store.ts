@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { catalogItems, catalogLoans } from '../infrastructure/database/schema.js';
@@ -72,6 +72,23 @@ export function createDatabaseCatalogLoanRepository({
         .where(and(eq(catalogLoans.borrowerTelegramUserId, borrowerTelegramUserId), isNull(catalogLoans.returnedAt)))
         .orderBy(desc(catalogLoans.createdAt), desc(catalogLoans.id));
       return rows.map(mapCatalogLoanRow);
+    },
+    async listActiveLoansWithItems() {
+      const rows = await database
+        .select({
+          loan: catalogLoans,
+          itemDisplayName: catalogItems.displayName,
+          itemLifecycleStatus: catalogItems.lifecycleStatus,
+        })
+        .from(catalogLoans)
+        .innerJoin(catalogItems, eq(catalogLoans.itemId, catalogItems.id))
+        .where(isNull(catalogLoans.returnedAt))
+        .orderBy(sql`${catalogLoans.dueAt} is null`, asc(catalogLoans.dueAt), asc(catalogLoans.createdAt), asc(catalogLoans.id));
+      return rows.map((row) => ({
+        ...mapCatalogLoanRow(row.loan),
+        itemDisplayName: row.itemDisplayName,
+        itemLifecycleStatus: row.itemLifecycleStatus as CatalogLoanWithItemRecord['itemLifecycleStatus'],
+      }));
     },
     async listActiveLoansWithItemsByBorrower(borrowerTelegramUserId) {
       const rows = await database

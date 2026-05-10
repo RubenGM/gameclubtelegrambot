@@ -171,6 +171,62 @@ test('createDatabaseCatalogLoanRepository keeps duplicate close requests idempot
   assert.equal(loan.notes, 'Handle carefully');
 });
 
+test('createDatabaseCatalogLoanRepository lists active loans joined with item data', async () => {
+  const repository = createDatabaseCatalogLoanRepository({
+    database: {
+      select: (selection: Record<string, unknown>) => {
+        assert.deepEqual(Object.keys(selection), ['loan', 'itemDisplayName', 'itemLifecycleStatus']);
+        return {
+          from: (table: { [key: string]: unknown }) => {
+            if ((table as unknown) !== catalogLoansTable) {
+              throw new Error('unexpected table');
+            }
+            return {
+              innerJoin: (table: { [key: string]: unknown }) => {
+                if ((table as unknown) !== catalogItemsTable) {
+                  throw new Error('unexpected joined table');
+                }
+                return {
+                  where: () => ({
+                    orderBy: async () => [
+                      {
+                        loan: {
+                          id: 10,
+                          itemId: 7,
+                          borrowerTelegramUserId: 101,
+                          borrowerDisplayName: 'Ada',
+                          loanedByTelegramUserId: 102,
+                          dueAt: new Date('2026-04-09T00:00:00.000Z'),
+                          notes: 'Box insert',
+                          returnedAt: null,
+                          returnedByTelegramUserId: null,
+                          createdAt: new Date('2026-04-01T10:00:00.000Z'),
+                          updatedAt: new Date('2026-04-01T10:00:00.000Z'),
+                        },
+                        itemDisplayName: 'Catan',
+                        itemLifecycleStatus: 'deactivated',
+                      },
+                    ],
+                  }),
+                };
+              },
+            };
+          },
+        };
+      },
+    } as never,
+  });
+
+  const loans = await repository.listActiveLoansWithItems();
+
+  assert.equal(loans.length, 1);
+  assert.equal(loans[0]?.id, 10);
+  assert.equal(loans[0]?.itemDisplayName, 'Catan');
+  assert.equal(loans[0]?.itemLifecycleStatus, 'deactivated');
+  assert.equal(loans[0]?.returnedAt, null);
+  assert.equal(loans[0]?.dueAt, '2026-04-09T00:00:00.000Z');
+});
+
 test('createDatabaseCatalogLoanRepository still throws when closing a missing loan', async () => {
   const repository = createDatabaseCatalogLoanRepository({
     database: {
