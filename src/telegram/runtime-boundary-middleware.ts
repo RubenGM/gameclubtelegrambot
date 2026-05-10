@@ -1,5 +1,6 @@
 import { createAuthorizationService } from '../authorization/service.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
+import { createCatalogDescriptionTranslator } from '../catalog/catalog-description-translation.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
@@ -58,16 +59,36 @@ export function createMiddlewarePipeline({
   const boardGameGeekCollectionImportService = createBoardGameGeekCollectionImportService(
     config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {},
   );
+  const descriptionTranslator = createCatalogDescriptionTranslator({
+    ...optionalDeepLConfig(config),
+    ...optionalDeepLTimeout(process.env.GAMECLUB_DEEPL_TIMEOUT_MS),
+    opencodeBin: process.env.GAMECLUB_OPENCODE_BIN?.trim() || 'opencode',
+  });
 
   return [
     createErrorHandlingMiddleware({ logger }),
     createLoggingMiddleware({ logger }),
-    createRuntimeContextMiddleware({ config, services, bot, wikipediaBoardGameImportService, boardGameGeekCollectionImportService }),
+    createRuntimeContextMiddleware({ config, services, bot, wikipediaBoardGameImportService, boardGameGeekCollectionImportService, descriptionTranslator }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
     createActorMiddleware({ services, loadActor }),
     createLanguageMiddleware({ config, languagePreferenceStore }),
     createConversationSessionMiddleware({ store: conversationSessionStore }),
   ];
+}
+
+function optionalDeepLConfig(config: RuntimeConfig): { deeplApiKey?: string; deeplApiUrl?: string } {
+  return {
+    ...(config.translation?.deeplApiKey ? { deeplApiKey: config.translation.deeplApiKey } : {}),
+    ...(config.translation?.deeplApiUrl ? { deeplApiUrl: config.translation.deeplApiUrl } : {}),
+  };
+}
+
+function optionalDeepLTimeout(value: string | undefined): { deeplTimeoutMs?: number } {
+  if (!value?.trim()) {
+    return {};
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? { deeplTimeoutMs: parsed } : {};
 }
 
 function createErrorHandlingMiddleware({
@@ -185,12 +206,14 @@ function createRuntimeContextMiddleware({
   bot,
   wikipediaBoardGameImportService,
   boardGameGeekCollectionImportService,
+  descriptionTranslator,
 }: {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
   bot: TelegramBotLike;
   wikipediaBoardGameImportService: ReturnType<typeof createWikipediaBoardGameImportService>;
   boardGameGeekCollectionImportService: ReturnType<typeof createBoardGameGeekCollectionImportService>;
+  descriptionTranslator: ReturnType<typeof createCatalogDescriptionTranslator>;
 }): TelegramMiddleware {
   return async (context, next) => {
     configureTelegramDeepLinks({ botUsername: await resolveBotUsername(bot) });
@@ -211,11 +234,13 @@ function createRuntimeContextMiddleware({
         ...(bot.sendMediaGroup ? { sendMediaGroup: bot.sendMediaGroup.bind(bot) } : {}),
         ...(bot.sendDocument ? { sendDocument: bot.sendDocument.bind(bot) } : {}),
         ...(bot.downloadFile ? { downloadFile: bot.downloadFile.bind(bot) } : {}),
+        ...(bot.editMessageText ? { editMessageText: bot.editMessageText.bind(bot) } : {}),
         ...(bot.deleteMessage ? { deleteMessage: bot.deleteMessage.bind(bot) } : {}),
       },
       services,
       wikipediaBoardGameImportService,
       boardGameGeekCollectionImportService,
+      descriptionTranslator,
     };
 
     await next();

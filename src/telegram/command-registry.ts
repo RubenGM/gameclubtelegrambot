@@ -5,6 +5,7 @@ import type { TelegramChatContext, TelegramChatContextKind } from './chat-contex
 import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
+import type { TelegramPhotoMediaInput } from './telegram-media.js';
 
 export class TelegramInteractionError extends Error {
   cancelSession: boolean;
@@ -43,7 +44,7 @@ export interface TelegramCommandRuntime {
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
-    sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+    sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };

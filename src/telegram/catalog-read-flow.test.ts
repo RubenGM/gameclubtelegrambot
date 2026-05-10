@@ -7,6 +7,7 @@ import { normalizeDisplayName } from '../membership/display-name.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramPhotoMediaInput } from './telegram-media.js';
 import {
   catalogReadCallbackPrefixes,
   handleTelegramCatalogReadCallback,
@@ -309,13 +310,12 @@ test('handleTelegramCatalogReadCommand groups the overview by initial letter', a
 
   await handleTelegramCatalogReadCommand(context);
 
-  assert.match(replies[0]?.message ?? '', /<b>A B C - 5 articles<\/b>/);
+  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_letter_ABC"><b>A B C - 5 articles<\/b><\/a>/);
   assert.match(replies[0]?.message ?? '', /4 jocs de taula/);
   assert.match(replies[0]?.message ?? '', /1 llibre/);
-  assert.match(replies[0]?.message ?? '', /<b>D - 1 article<\/b>/);
+  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_letter_D"><b>D - 1 article<\/b><\/a>/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Unused group/);
-  assert.match(replies[0]?.message ?? '', /catalog_read_letter_ABC/);
-  assert.ok(!replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === 'catalog_read:letter:ABC'));
+  assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 
   replies.length = 0;
   context.callbackData = `${catalogReadCallbackPrefixes.inspectLetter}ABC`;
@@ -327,7 +327,7 @@ test('handleTelegramCatalogReadCommand groups the overview by initial letter', a
   assert.match(replies[0]?.message ?? '', /Azul/);
   assert.match(replies[0]?.message ?? '', /Brass Birmingham/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Dune Imperium/);
-  assert.ok(!replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Ark Nova'));
+  assert.match(replies[0]?.message ?? '', /catalog_read_item_1/);
 });
 
 test('handleTelegramCatalogReadCommand serializes number buckets without URL fragments', async () => {
@@ -344,6 +344,8 @@ test('handleTelegramCatalogReadCommand serializes number buckets without URL fra
   await handleTelegramCatalogReadCommand(context);
 
   assert.match(replies[0]?.message ?? '', /catalog_read_letter_hash_AB/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /catalog_read_letter_#AB/);
+  assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 
   replies.length = 0;
   context.messageText = '/start catalog_read_letter_hash_AB';
@@ -367,7 +369,7 @@ test('handleTelegramCatalogReadCommand keeps the overview message compact for la
   await handleTelegramCatalogReadCommand(context);
 
   assert.ok((replies[0]?.message.length ?? 0) < 4096);
-  assert.match(replies[0]?.message ?? '', /<b>G - 120 articles<\/b>/);
+  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_letter_G"><b>G - 120 articles<\/b><\/a>/);
   assert.match(replies[0]?.message ?? '', /120 jocs de taula/);
 });
 
@@ -445,7 +447,7 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
   assert.match(replies[0]?.message ?? '', /Resultats per a "Game"/);
   assert.match(replies[0]?.message ?? '', /Pàgina 1\/2/);
   assert.match(replies[0]?.message ?? '', /Prestat a Marta/);
-  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_item_1"><b>Game 1<\/b><\/a>/);
+  assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
   assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[0]?.text, 'Game 1');
   assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[1]?.text, 'Retornar');
 
@@ -512,8 +514,8 @@ test('handleTelegramCatalogReadStartText sends the cover image before linked ite
     ],
   });
   const { context, replies } = createContext(repository);
-  const mediaGroups: Array<{ chatId: number; media: Array<{ type: 'photo'; media: string }> }> = [];
-  (context.runtime.bot as unknown as { sendMediaGroup: (input: { chatId: number; media: Array<{ type: 'photo'; media: string }> }) => Promise<Array<{ messageId: number }>> }).sendMediaGroup = async (input) => {
+  const mediaGroups: Array<{ chatId: number; media: TelegramPhotoMediaInput[] }> = [];
+  (context.runtime.bot as unknown as { sendMediaGroup: (input: { chatId: number; media: TelegramPhotoMediaInput[] }) => Promise<Array<{ messageId: number }>> }).sendMediaGroup = async (input) => {
     mediaGroups.push(input);
     return [{ messageId: 99 }];
   };

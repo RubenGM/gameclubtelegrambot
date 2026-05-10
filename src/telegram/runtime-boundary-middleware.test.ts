@@ -116,6 +116,40 @@ test('createMiddlewarePipeline exposes Telegram file download support in runtime
   assert.deepEqual(downloadCalls, [{ fileId: 'cover-file', destinationPath: '/tmp/cover.jpg' }]);
 });
 
+test('createMiddlewarePipeline exposes Telegram message edit support in runtime bot', async () => {
+  const editCalls: Array<{ chatId: number; messageId: number; text: string }> = [];
+  const middlewares = createMiddlewarePipeline({
+    config: runtimeConfig,
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub() as never,
+        close: async () => {},
+      },
+    } satisfies InfrastructureRuntimeServices,
+    bot: {
+      ...createBotStub(),
+      async editMessageText(input) {
+        editCalls.push(input);
+      },
+    },
+    logger: createLoggerStub(),
+    isNewsEnabledGroup: async () => false,
+    loadActor: async ({ telegramUserId }) => createApprovedActor(telegramUserId),
+    conversationSessionStore: createConversationSessionStoreStub(),
+    languagePreferenceStore: {
+      loadLanguage: async () => null,
+    },
+  });
+
+  const context = createTextContext();
+  await runMiddlewares(middlewares, context);
+
+  await context.runtime?.bot.editMessageText?.({ chatId: 100, messageId: 55, text: 'Progreso' });
+
+  assert.deepEqual(editCalls, [{ chatId: 100, messageId: 55, text: 'Progreso' }]);
+});
+
 test('createMiddlewarePipeline logs structured update metadata', async () => {
   const infoLogs: Array<{ bindings: object; message: string }> = [];
   const middlewares = createMiddlewarePipeline({

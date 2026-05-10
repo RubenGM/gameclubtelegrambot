@@ -661,10 +661,6 @@ function createDefaultCommands({
           return;
         }
 
-        if (await handlePrivateAutoMembershipRequest(context)) {
-          return;
-        }
-
         if (await handleTelegramScheduleStartText({ ...context })) {
           return;
         }
@@ -687,6 +683,10 @@ function createDefaultCommands({
           return;
         }
         if (await handleTelegramVenueEventAdminStartText({ ...context })) {
+          return;
+        }
+
+        if (await handlePrivateAutoMembershipRequest(context)) {
           return;
         }
 
@@ -1241,6 +1241,9 @@ function registerCatalogAdminCallbacks({
   bot.onCallback(catalogAdminCallbackPrefixes.autocorrect, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
+  bot.onCallback(catalogAdminCallbackPrefixes.autocorrectBggCandidate, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
   bot.onCallback(catalogAdminCallbackPrefixes.translateDescription, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
@@ -1288,6 +1291,9 @@ function registerCatalogReadCallbacks({
     await handleTelegramCatalogReadCallback(context);
   });
   bot.onCallback(catalogReadCallbackPrefixes.myLoans, async (context) => {
+    await handleTelegramCatalogReadCallback(context);
+  });
+  bot.onCallback(catalogReadCallbackPrefixes.inspectLetter, async (context) => {
     await handleTelegramCatalogReadCallback(context);
   });
   bot.onCallback(catalogReadCallbackPrefixes.inspectFamily, async (context) => {

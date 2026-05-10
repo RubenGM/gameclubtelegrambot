@@ -328,9 +328,11 @@ async function createCatalogMediaFromDirectInput({
     mediaUrl = url;
     if (storeExternalImage) {
       const stored = await storeExternalImage(url);
-      if (!(stored instanceof Error)) {
-        mediaUrl = stored.catalogMediaUrl;
+      if (stored instanceof Error) {
+        await reply(`${stored.message}\n\n${texts.mediaSourcePrompt}`, buildSingleCancelKeyboard(language));
+        return true;
       }
+      mediaUrl = stored.catalogMediaUrl;
     }
   }
 

@@ -11,7 +11,6 @@ import {
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import {
   buildLoanDetailButtons,
-  buildLoanItemButton,
   catalogLoanCallbackPrefixes,
   formatLoanAvailabilityLines,
   resolveLoanBorrowerDisplayName,
@@ -248,17 +247,9 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
   if (state.view === 'overview') {
     const entries = buildOverviewEntries({ items, language });
     const page = paginateEntries(entries, state.page);
-    const loanCount = (await loadActiveLoansByBorrower(context, context.runtime.actor.telegramUserId)).length;
-    const buttonRows = await buildBrowseButtonRows(context, page.items);
-    if (context.runtime.actor.isAdmin) {
-      buttonRows.unshift([{ text: texts.catalogLoan.adminDashboard, callbackData: catalogLoanCallbackPrefixes.adminDashboard }]);
-    }
-    if (loanCount > 0) {
-      buttonRows.unshift([{ text: texts.catalogRead.myLoans, callbackData: catalogReadCallbackPrefixes.myLoans }]);
-    }
     await context.reply(
       `${formatMemberCatalogOverview({ families, groups, items, language })}\n\n${formatEntryPage(page.items, page.page, page.totalPages, language)}`,
-      { ...buildListNavigationOptions(buttonRows, state, page.totalPages > 1, language), parseMode: 'HTML' },
+      { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' },
     );
     return;
   }
@@ -284,7 +275,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
 
     const page = paginateEntries(results, state.page);
     const lines = [texts.catalogRead.searchResults.replace('{query}', state.query ?? ''), formatEntryPage(page.items, page.page, page.totalPages, language)];
-    await context.reply(lines.join('\n'), { ...buildListNavigationOptions(await buildBrowseButtonRows(context, page.items), state, page.totalPages > 1, language), parseMode: 'HTML' });
+    await context.reply(lines.join('\n'), { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' });
     return;
   }
 
@@ -298,7 +289,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
     const page = paginateEntries(entries, state.page);
     await context.reply(
       `${formatMemberCatalogFamilyDetails({ family, groups, items, language })}\n\n${formatEntryPage(page.items, page.page, page.totalPages, language)}`,
-      { ...buildListNavigationOptions(await buildBrowseButtonRows(context, page.items), state, page.totalPages > 1, language), parseMode: 'HTML' },
+      { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' },
     );
     return;
   }
@@ -313,7 +304,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
     const page = paginateEntries(entries, state.page);
     await context.reply(
       `${formatMemberCatalogGroupDetails({ group, family: group.familyId !== null ? familyById(families, group.familyId) ?? null : null, items, language })}\n\n${formatEntryPage(page.items, page.page, page.totalPages, language)}`,
-      { ...buildListNavigationOptions(await buildBrowseButtonRows(context, page.items), state, page.totalPages > 1, language), parseMode: 'HTML' },
+      { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' },
     );
     return;
   }
@@ -374,14 +365,20 @@ async function replyWithCatalogReadItemDetail(
       language: input.language,
     }),
     {
-      inlineKeyboard: buildLoanDetailButtons({
-        loan: input.loan,
-        itemId: input.item.id,
-        language: input.language,
-        ...(context.runtime.actor.isAdmin
-          ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${input.item.id}` }
-          : {}),
-      }),
+      inlineKeyboard: [
+        [
+          overviewButton(input.language),
+          { text: formatInitialSetLabel(getCatalogItemInitial(input.item)), callbackData: `${catalogReadCallbackPrefixes.inspectLetter}${getCatalogItemInitial(input.item)}` },
+        ],
+        ...buildLoanDetailButtons({
+          loan: input.loan,
+          itemId: input.item.id,
+          language: input.language,
+          ...(context.runtime.actor.isAdmin
+            ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${input.item.id}` }
+            : {}),
+        }),
+      ],
       parseMode: 'HTML',
     },
   );
@@ -396,40 +393,24 @@ function buildCatalogReadItemBreadcrumb(item: CatalogItemRecord, language: 'ca' 
 }
 
 function buildListNavigationOptions(rows: TelegramInlineButton[][], state: CatalogReadState, showPaging: boolean, language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
-  const texts = createTelegramI18n(language);
-  return {
-    inlineKeyboard: [
-      ...rows,
-      ...(showPaging ? [pagingButtons(language)] : []),
-      ...(state.returnState ? [[{ text: language === 'es' ? 'Volver' : language === 'en' ? 'Back' : 'Tornar enrere', callbackData: catalogReadCallbackPrefixes.back }]] : []),
-      [overviewButton(language)],
-    ],
-  };
-}
-
-async function buildBrowseButtonRows(context: TelegramCatalogReadContext, entries: CatalogBrowseEntry[]): Promise<TelegramInlineButton[][]> {
-  const rows: TelegramInlineButton[][] = [];
-
-  for (const entry of entries) {
-    if (entry.kind === 'letter') {
-      continue;
-    }
-
-    if (entry.kind === 'family') {
-      rows.push([{ text: entry.label, callbackData: `${catalogReadCallbackPrefixes.inspectFamily}${entry.id}` }]);
-      continue;
-    }
-
-    if (entry.kind === 'group') {
-      rows.push([{ text: entry.label, callbackData: `${catalogReadCallbackPrefixes.inspectGroup}${entry.id}` }]);
-      continue;
-    }
-
-    const loan = await loadActiveLoanByItemId(context, entry.id);
-    rows.push(buildLoanItemButton(loan, entry.id, entry.label));
+  const navigationRows: TelegramInlineButton[][] = [];
+  if (showPaging) {
+    navigationRows.push(pagingButtons(language));
+  }
+  if (state.returnState) {
+    navigationRows.push([{ text: language === 'es' ? 'Volver' : language === 'en' ? 'Back' : 'Tornar enrere', callbackData: catalogReadCallbackPrefixes.back }]);
+  }
+  if (state.view !== 'overview') {
+    navigationRows.push([overviewButton(language)]);
+  }
+  const inlineKeyboard = [...rows, ...navigationRows];
+  if (inlineKeyboard.length === 0) {
+    return {};
   }
 
-  return rows;
+  return {
+    inlineKeyboard,
+  };
 }
 
 async function buildLoanRows(context: TelegramCatalogReadContext, loans: CatalogLoanRecord[], language: 'ca' | 'es' | 'en'): Promise<TelegramInlineButton[][]> {

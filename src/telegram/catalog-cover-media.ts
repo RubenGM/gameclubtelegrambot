@@ -3,6 +3,7 @@ import { parseCatalogStorageEntryUrl } from '../catalog/catalog-media-storage.js
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseStorageRepository } from '../storage/storage-catalog-store.js';
 import type { StorageCategoryRepository } from '../storage/storage-catalog.js';
+import type { TelegramPhotoMediaInput } from './telegram-media.js';
 
 type CatalogCoverContext = {
   catalogRepository?: CatalogRepository;
@@ -19,7 +20,7 @@ type CatalogCoverContext = {
     bot: {
       copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
       forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
-      sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+      sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     };
   };
 };

@@ -17,10 +17,12 @@ import type { MembershipAccessRepository, MembershipUserRecord } from '../member
 import { normalizeDisplayName } from '../membership/display-name.js';
 import type { WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import type { BoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import type { CatalogMediaExternalImageDownloader } from '../catalog/catalog-media-storage.js';
 import type { StorageCategoryRecord, StorageCategoryRepository, StorageEntryDetailRecord } from '../storage/storage-catalog.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramPhotoMediaInput } from './telegram-media.js';
 import {
   catalogAdminCallbackPrefixes,
   catalogAdminLabels,
@@ -30,7 +32,6 @@ import {
   handleTelegramCatalogAdminText,
   type TelegramCatalogAdminContext,
 } from './catalog-admin-flow.js';
-import { catalogLoanCallbackPrefixes } from './catalog-loan-flow.js';
 
 function successButton(text: string) {
   return { text, semanticRole: 'success' as const };
@@ -413,6 +414,7 @@ function createContext({
   boardGameGeekCollectionImportService,
   coverTitleResolver,
   descriptionTranslator,
+  externalImageDownloader,
   sendPrivateMessage,
   storageRepository,
   storageDefaultChatStore,
@@ -432,6 +434,7 @@ function createContext({
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
   coverTitleResolver?: (input: { imagePath: string; question: string; model: string }) => Promise<string>;
   descriptionTranslator?: (input: { description: string; model: string; targetLanguage: 'es' }) => Promise<string>;
+  externalImageDownloader?: CatalogMediaExternalImageDownloader;
   sendPrivateMessage?: (telegramUserId: number, message: string, options?: TelegramReplyOptions) => Promise<void>;
   storageRepository?: StorageCategoryRepository;
   storageDefaultChatStore?: AppMetadataSessionStorage;
@@ -448,6 +451,7 @@ function createContext({
   const context: TelegramCatalogAdminContext = {
     reply: async (message: string, options?: TelegramReplyOptions) => {
       replies.push({ message, ...(options ? { options } : {}) });
+      return { message_id: replies.length };
     },
     runtime: {
       actor: {
@@ -500,6 +504,12 @@ function createContext({
         downloadFile: async ({ destinationPath }) => {
           await writeFile(destinationPath, 'fake image');
         },
+        editMessageText: async ({ messageId, text, options }) => {
+          const index = messageId - 1;
+          if (replies[index]) {
+            replies[index] = { message: text, ...(options ? { options } : {}) };
+          }
+        },
         ...(createForumTopic ? { createForumTopic } : {}),
         ...(copyMessage ? { copyMessage } : {}),
         ...(forwardMessage ? { forwardMessage } : {}),
@@ -517,6 +527,7 @@ function createContext({
     ...(boardGameGeekCollectionImportService ? { boardGameGeekCollectionImportService } : {}),
     ...(coverTitleResolver ? { coverTitleResolver } : {}),
     ...(descriptionTranslator ? { descriptionTranslator } : {}),
+    ...(externalImageDownloader ? { externalImageDownloader } : {}),
   };
 
   return { context, replies, getCurrentSession: () => currentSession };
@@ -2150,13 +2161,11 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.messageText = catalogAdminLabels.listBoardGames;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
+  assert.match(replies.at(-1)?.message ?? '', /catalog_admin_letters_AD/);
   assert.match(replies.at(-1)?.message ?? '', /A D - 3 artículos/);
   assert.match(replies.at(-1)?.message ?? '', /3 juegos de mesa/);
   assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
-  assert.equal(
-    replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.callbackData === catalogLoanCallbackPrefixes.adminDashboard)?.text,
-    'Préstecs actius',
-  );
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}AD`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -2229,6 +2238,8 @@ test('handleTelegramCatalogAdminCallback shows item details without add media ac
   assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.autocorrect}3`));
   assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.translateDescription}3`));
   assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.createActivity}3`));
+  assert.ok(buttons.some((button) => button.callbackData === catalogAdminCallbackPrefixes.browseMenu));
+  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.browseLetters}R`));
   assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}3`));
   assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:create:3'));
   assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:my_loans'));
@@ -2353,8 +2364,14 @@ test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and 
     ],
   });
   const auditRepository = createAuditRepository();
+  const storageRepository = createStorageRepository();
+  const storageDefaultChatStore = createMemoryMetadataStorage({
+    'storage.default_chat': JSON.stringify({ chatId: -100123 }),
+  });
   const importCalls: string[] = [];
   const translationCalls: string[] = [];
+  const sentMedia: Array<{ chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }> = [];
+  const downloadedImages: string[] = [];
   const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
     async importByTitle(title) {
       importCalls.push(title);
@@ -2382,6 +2399,7 @@ test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and 
             boardGameGeekId: '276025',
             boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/276025',
             imageUrl: 'https://cf.geekdo-images.com/maracaibo.jpg',
+            thumbnailUrl: 'https://cf.geekdo-images.com/maracaibo-small.jpg',
           },
         },
       };
@@ -2390,8 +2408,25 @@ test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and 
   const { context, replies } = createContext({
     repository,
     auditRepository,
+    storageRepository,
+    storageDefaultChatStore,
     wikipediaBoardGameImportService,
     language: 'es',
+    createForumTopic: async ({ chatId, name }) => ({ chatId, name, messageThreadId: 456 }),
+    sendMediaGroup: async (input) => {
+      sentMedia.push(input);
+      return [{ messageId: 777 }];
+    },
+    externalImageDownloader: async (url) => {
+      downloadedImages.push(url);
+      return {
+        filePath: '/tmp/maracaibo.jpg',
+        mimeType: 'image/jpeg',
+        fileSizeBytes: 1234,
+        originalFileName: 'maracaibo.jpg',
+        cleanup: async () => {},
+      };
+    },
     descriptionTranslator: async (input) => {
       translationCalls.push(`${input.model}:${input.description}`);
       return 'Descripción traducida al castellano.';
@@ -2421,19 +2456,257 @@ test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and 
       familyId: null,
       itemId: 236,
       mediaType: 'image',
-      url: 'https://cf.geekdo-images.com/maracaibo.jpg',
+      url: 'storage:entry:1',
       altText: 'Maracaibo',
       sortOrder: 0,
       createdAt: '2026-04-04T10:00:00.000Z',
       updatedAt: '2026-04-04T10:00:00.000Z',
     },
   ]);
-  assert.match(replies[0]?.message ?? '', /actualizando los datos/i);
+  assert.deepEqual(downloadedImages, ['https://cf.geekdo-images.com/maracaibo.jpg']);
+  assert.deepEqual(sentMedia, [
+    {
+      chatId: -100123,
+      messageThreadId: 456,
+      media: [{ type: 'photo', media: { filePath: '/tmp/maracaibo.jpg' }, caption: 'Maracaibo' }],
+    },
+  ]);
+  assert.match(replies[0]?.message ?? '', /Datos autocorregidos/i);
   assert.match(replies.at(-2)?.message ?? '', /Datos autocorregidos/i);
   assert.match(replies.at(-2)?.message ?? '', /Portada: importada como imagen principal \(#1\)/i);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Referencias externas/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Metadata/);
   assert.ok(auditRepository.__events.some((event) => event.actionKey === 'catalog.item.autocorrected' && event.targetId === '236'));
+});
+
+test('handleTelegramCatalogAdminCallback shows BGG candidates when autocorrect is ambiguous', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 13,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Catan',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const importCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      return {
+        ok: false,
+        error: {
+          type: 'ambiguous',
+          message: 'He trobat diverses coincidencies a la API.',
+          candidates: [
+            'CATAN (1995) [API #13]',
+            'Catan: 3D Edition (2021) [API #386660]',
+          ],
+        },
+      };
+    },
+  };
+  const { context, replies } = createContext({
+    repository,
+    wikipediaBoardGameImportService,
+    language: 'es',
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.autocorrect}13`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.deepEqual(importCalls, ['Catan']);
+  assert.match(replies[0]?.message ?? '', /varias coincidencias/i);
+  assert.match(replies[0]?.message ?? '', /CATAN \(1995\) \[API #13\]/);
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard?.slice(0, 2), [
+    [{ text: 'CATAN (1995) [API #13]', callbackData: `${catalogAdminCallbackPrefixes.autocorrectBggCandidate}13:13` }],
+    [{ text: 'Catan: 3D Edition (2021) [API #386660]', callbackData: `${catalogAdminCallbackPrefixes.autocorrectBggCandidate}13:386660` }],
+  ]);
+});
+
+test('handleTelegramCatalogAdminCallback continues autocorrect with selected BGG candidate', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 13,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Catan',
+        originalName: null,
+        description: 'Old description',
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const importCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: 'CATAN',
+          originalName: 'CATAN',
+          description: 'Updated Catan description',
+          language: null,
+          publisher: 'Kosmos',
+          publicationYear: 1995,
+          playerCountMin: 3,
+          playerCountMax: 4,
+          recommendedAge: 10,
+          playTimeMinutes: 120,
+          externalRefs: {
+            boardGameGeekId: '13',
+            boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/13',
+          },
+          metadata: {
+            source: 'boardgamegeek',
+            boardGameGeekId: '13',
+          },
+        },
+      };
+    },
+  };
+  const { context, replies } = createContext({
+    repository,
+    wikipediaBoardGameImportService,
+    language: 'ca',
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.autocorrectBggCandidate}13:13`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.deepEqual(importCalls, ['Catan [API #13]']);
+  const updated = await repository.findItemById(13);
+  assert.equal(updated?.displayName, 'CATAN');
+  assert.equal(updated?.publisher, 'Kosmos');
+  assert.deepEqual(updated?.metadata, { boardGameGeekId: '13', source: 'boardgamegeek' });
+  assert.match(replies.at(-2)?.message ?? '', /Dades autocorregides correctament/);
+  assert.match(replies.at(-2)?.message ?? '', /Durades:/);
+});
+
+test('handleTelegramCatalogAdminCallback autocorrect uses visible title before a stale original name', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 28,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Frosthaven',
+        originalName: 'Gloomhaven',
+        description: null,
+        language: null,
+        publisher: 'Cephalofair Games',
+        publicationYear: 2017,
+        playerCountMin: 1,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: 90,
+        externalRefs: null,
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '174430' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const importCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      if (title.endsWith('[API #174430]')) {
+        return {
+          ok: true,
+          draft: {
+            familyId: null,
+            groupId: null,
+            itemType: 'board-game',
+            displayName: 'Gloomhaven',
+            originalName: 'Gloomhaven',
+            description: 'Wrong game',
+            language: null,
+            publisher: 'Cephalofair Games',
+            publicationYear: 2017,
+            playerCountMin: 1,
+            playerCountMax: 4,
+            recommendedAge: 14,
+            playTimeMinutes: 120,
+            externalRefs: { boardGameGeekId: '174430' },
+            metadata: { source: 'boardgamegeek', boardGameGeekId: '174430' },
+          },
+        };
+      }
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: 'Frosthaven',
+          originalName: 'Frosthaven',
+          description: 'Correct game',
+          language: null,
+          publisher: 'Cephalofair Games',
+          publicationYear: 2022,
+          playerCountMin: 1,
+          playerCountMax: 4,
+          recommendedAge: 14,
+          playTimeMinutes: 120,
+          externalRefs: { boardGameGeekId: '295770' },
+          metadata: { source: 'boardgamegeek', boardGameGeekId: '295770' },
+        },
+      };
+    },
+  };
+  const { context } = createContext({
+    repository,
+    wikipediaBoardGameImportService,
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.autocorrect}28`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.deepEqual(importCalls, ['Frosthaven [API #174430]', 'Frosthaven']);
+  const updated = await repository.findItemById(28);
+  assert.equal(updated?.displayName, 'Frosthaven');
+  assert.equal(updated?.originalName, 'Frosthaven');
+  assert.equal(updated?.publicationYear, 2022);
+  assert.deepEqual(updated?.metadata, { source: 'boardgamegeek', boardGameGeekId: '295770' });
 });
 
 test('handleTelegramCatalogAdminCallback autocorrects a book from Open Library', async () => {
@@ -2464,6 +2737,11 @@ test('handleTelegramCatalogAdminCallback autocorrects a book from Open Library',
     ],
   });
   const lookupCalls: Array<{ itemType: string; query: string }> = [];
+  const storageRepository = createStorageRepository();
+  const storageDefaultChatStore = createMemoryMetadataStorage({
+    'storage.default_chat': JSON.stringify({ chatId: -100123 }),
+  });
+  const sentMedia: Array<{ chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }> = [];
   const catalogLookupService: CatalogLookupService = {
     async search(input) {
       lookupCalls.push({ itemType: input.itemType, query: input.query });
@@ -2495,7 +2773,25 @@ test('handleTelegramCatalogAdminCallback autocorrects a book from Open Library',
       ];
     },
   };
-  const { context, replies } = createContext({ repository, catalogLookupService, language: 'es' });
+  const { context, replies } = createContext({
+    repository,
+    catalogLookupService,
+    storageRepository,
+    storageDefaultChatStore,
+    language: 'es',
+    createForumTopic: async ({ chatId, name }) => ({ chatId, name, messageThreadId: 456 }),
+    sendMediaGroup: async (input) => {
+      sentMedia.push(input);
+      return [{ messageId: 777 }];
+    },
+    externalImageDownloader: async () => ({
+      filePath: '/tmp/dune.jpg',
+      mimeType: 'image/jpeg',
+      fileSizeBytes: 1234,
+      originalFileName: 'dune.jpg',
+      cleanup: async () => {},
+    }),
+  });
 
   context.callbackData = `${catalogAdminCallbackPrefixes.autocorrect}44`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -2510,7 +2806,14 @@ test('handleTelegramCatalogAdminCallback autocorrects a book from Open Library',
     source: 'open-library',
     openLibraryKey: '/works/OL893415W',
   });
-  assert.equal((await repository.listMedia({ itemId: 44 }))[0]?.url, 'https://covers.openlibrary.org/b/id/123-L.jpg');
+  assert.equal((await repository.listMedia({ itemId: 44 }))[0]?.url, 'storage:entry:1');
+  assert.deepEqual(sentMedia, [
+    {
+      chatId: -100123,
+      messageThreadId: 456,
+      media: [{ type: 'photo', media: { filePath: '/tmp/dune.jpg' }, caption: 'Dune' }],
+    },
+  ]);
   assert.match(replies.at(-2)?.message ?? '', /Portada: importada como imagen principal \(#1\)/i);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Referencias externas/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Metadata/);
@@ -2968,7 +3271,8 @@ test('handleTelegramCatalogAdminCallback lets admins add catalog media backed by
   const storageDefaultChatStore = createMemoryMetadataStorage({
     'storage.default_chat': JSON.stringify({ chatId: -100123 }),
   });
-  const sentMedia: Array<{ chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }> = [];
+  const sentMedia: Array<{ chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }> = [];
+  const downloadedImages: string[] = [];
   const { context, replies, getCurrentSession } = createContext({
     repository,
     storageRepository,
@@ -2977,6 +3281,16 @@ test('handleTelegramCatalogAdminCallback lets admins add catalog media backed by
     sendMediaGroup: async (input) => {
       sentMedia.push(input);
       return [{ messageId: 777 }];
+    },
+    externalImageDownloader: async (url) => {
+      downloadedImages.push(url);
+      return {
+        filePath: '/tmp/root-cover.jpg',
+        mimeType: 'image/jpeg',
+        fileSizeBytes: 1234,
+        originalFileName: 'root-cover.jpg',
+        cleanup: async () => {},
+      };
     },
   });
 
@@ -2998,11 +3312,12 @@ test('handleTelegramCatalogAdminCallback lets admins add catalog media backed by
   assert.equal(media[0]?.url, 'storage:entry:1');
   assert.equal(media[0]?.sortOrder, 0);
   assert.equal(storageRepository.__entries[0]?.messages[0]?.storageMessageId, 777);
+  assert.deepEqual(downloadedImages, ['https://example.com/root-cover.jpg']);
   assert.deepEqual(sentMedia, [
     {
       chatId: -100123,
       messageThreadId: 456,
-      media: [{ type: 'photo', media: 'https://example.com/root-cover.jpg', caption: 'Root' }],
+      media: [{ type: 'photo', media: { filePath: '/tmp/root-cover.jpg' }, caption: 'Root' }],
     },
   ]);
 });
@@ -3212,6 +3527,7 @@ test('handleTelegramCatalogAdminText hides deactivated items from the normal cat
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_1"><b>Actiu<\/b><\/a> · <i>Llibre RPG · Disponible<\/i>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 });
 
 test('handleTelegramCatalogAdminText groups standalone items under their family instead of Sense grup', async () => {
@@ -3306,6 +3622,7 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_3"><b>Mort<\/b><\/a>/);
   assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Prestat a Anna · des de 04\/04\/2026<\/i>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}1`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -3445,6 +3762,112 @@ test('handleTelegramCatalogAdminStartText opens an item detail from deep link pa
   assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}2`));
   assert.ok(!buttons.some((button) => button.text === 'Editar préstec'));
   assert.ok(!buttons.some((button) => button.text === 'Veure cataleg'));
+});
+
+test('handleTelegramCatalogAdminStartText opens an initial bucket from deep link payload', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 1,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Jaipur',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 2,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'King of Tokyo',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Love Letter',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 4,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Ark Nova',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies } = createContext({ repository, language: 'es' });
+
+  context.messageText = '/start catalog_admin_letters_JKL';
+  assert.equal(await handleTelegramCatalogAdminStartText(context), true);
+
+  assert.match(replies.at(-1)?.message ?? '', /<b>J K L<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Jaipur<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>King of Tokyo<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Love Letter<\/b>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ark Nova/);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 });
 
 test('handleTelegramCatalogAdminText falls back to minimum-field creation when lookup fails', async () => {

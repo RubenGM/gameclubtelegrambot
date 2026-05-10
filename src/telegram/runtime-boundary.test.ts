@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   createTelegramBoundary,
   formatStartMessage,
+  isTelegramRawCommandMatch,
   runTelegramCallbackHandler,
   TelegramStartupError,
   type TelegramContextLike,
@@ -310,6 +311,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:catalog_read:page:prev',
     'register:callback:catalog_read:back',
     'register:callback:catalog_read:my_loans',
+    'register:callback:catalog_read:letter:',
     'register:callback:catalog_read:family:',
     'register:callback:catalog_read:group:',
     'register:callback:catalog_read:item:',
@@ -328,11 +330,18 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:callback:catalog_admin:edit:',
     'register:callback:catalog_admin:create_activity:',
     'register:callback:catalog_admin:autocorrect:',
+    'register:callback:catalog_admin:autocorrect_bgg:',
     'register:callback:catalog_admin:translate_description:',
     'register:callback:catalog_admin:deactivate:',
     'register:callback:catalog_admin:add_media:',
     'register:callback:catalog_admin:edit_media:',
     'register:callback:catalog_admin:delete_media:',
+    'register:callback:storage:root',
+    'register:callback:storage:view_category:',
+    'register:callback:storage:view_entry:',
+    'register:callback:storage:select_category:',
+    'register:callback:storage:edit_category:',
+    'register:callback:storage:upload_category:',
     'register:callback:storage:edit_entry:',
     'register:callback:storage:delete_entry:',
     'register:callback:storage:unsubscribe_category:',
@@ -670,7 +679,23 @@ test('runTelegramCallbackHandler still acknowledges the callback when the handle
     handlerError,
   );
 
-  assert.deepEqual(calls, ['handle', 'ack']);
+  assert.deepEqual(calls, ['ack', 'handle']);
+});
+
+test('runTelegramCallbackHandler still handles the callback when acknowledgement is stale', async () => {
+  const calls: string[] = [];
+
+  await runTelegramCallbackHandler({
+    acknowledge: async () => {
+      calls.push('ack');
+      throw new Error('query is too old');
+    },
+    handle: async () => {
+      calls.push('handle');
+    },
+  });
+
+  assert.deepEqual(calls, ['ack', 'handle']);
 });
 
 test('createTelegramBoundary throws a predictable error when Telegram startup fails', async () => {
@@ -2091,6 +2116,13 @@ test('toGrammyReplyOptions converts inline url buttons to grammY reply markup', 
       },
     },
   );
+});
+
+test('isTelegramRawCommandMatch accepts start deep-link payloads without bot command entities', async () => {
+  assert.equal(isTelegramRawCommandMatch('/start catalog_admin_letters_JKL', 'start', 'cawa_management_bot'), true);
+  assert.equal(isTelegramRawCommandMatch('/start@cawa_management_bot catalog_admin_letters_JKL', 'start', 'cawa_management_bot'), true);
+  assert.equal(isTelegramRawCommandMatch('/start@other_bot catalog_admin_letters_JKL', 'start', 'cawa_management_bot'), false);
+  assert.equal(isTelegramRawCommandMatch('/status catalog_admin_letters_JKL', 'start', 'cawa_management_bot'), false);
 });
 
 test('group start reply explains private-chat usage and offers a private button', async () => {

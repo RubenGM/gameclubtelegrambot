@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { Bot, InputFile, type Context } from 'grammy';
 
 import type { AuthorizationService } from '../authorization/service.js';
+import type { CatalogDescriptionTranslator } from '../catalog/catalog-description-translation.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import { createAppMetadataTelegramLanguagePreferenceStore } from './language-preference-store.js';
@@ -31,6 +32,7 @@ import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boar
 import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { withTelegramApiRetry } from './telegram-api-retry.js';
+import type { TelegramPhotoMediaInput } from './telegram-media.js';
 
 export { formatStartMessage, toGrammyReplyOptions } from './runtime-boundary-registration.js';
 
@@ -150,14 +152,16 @@ export interface TelegramRuntime {
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
-    sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+    sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
     downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
+    editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
   wikipediaBoardGameImportService: ReturnType<typeof createWikipediaBoardGameImportService>;
   boardGameGeekCollectionImportService: ReturnType<typeof createBoardGameGeekCollectionImportService>;
+  descriptionTranslator?: CatalogDescriptionTranslator;
   chat?: TelegramChatContext;
   actor?: TelegramActor;
   authorization?: AuthorizationService;
@@ -184,9 +188,10 @@ export interface TelegramBotLike {
   sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
-  sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+  sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
   sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
   downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
+  editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
   deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   startPolling(): Promise<void>;
   stopPolling(): Promise<void>;
@@ -352,7 +357,7 @@ function createGrammyTelegramBot({
       bot.use(async (context, next) => middleware(context, next));
     },
     onCommand(command, handler) {
-      bot.command(command, async (context) => {
+      const handleCommand = async (context: Context & TelegramContextLike): Promise<void> => {
         if (!context.runtime?.chat) {
           throw new Error('Telegram command received before chat context resolution');
         }
@@ -360,6 +365,26 @@ function createGrammyTelegramBot({
         context.messageText = context.msg?.text ?? context.message?.text;
 
         await handler(createTelegramCommandContext(context, buttonAppearance, logger));
+      };
+
+      bot.command(command, async (context) => {
+        await handleCommand(context);
+      });
+      bot.on('message:text', async (context, next) => {
+        const messageText = context.msg?.text ?? context.message?.text;
+        if (!isTelegramRawCommandMatch(messageText, command, botUsername)) {
+          await next();
+          return;
+        }
+
+        logger.info(
+          {
+            command,
+            textPreview: messageText ? messageText.slice(0, 120) : undefined,
+          },
+          'Telegram raw command fallback matched',
+        );
+        await handleCommand(context);
       });
     },
     onCallback(callbackPrefix, handler) {
@@ -476,12 +501,27 @@ function createGrammyTelegramBot({
       };
     },
     async sendMediaGroup({ chatId, media, messageThreadId }) {
+      const singlePhoto = media.length === 1 ? media[0] : undefined;
+      if (singlePhoto) {
+        const result = await withTelegramApiRetry({ operation: 'sendPhoto', logger }, () =>
+          bot.api.sendPhoto(
+            chatId,
+            toGrammyPhotoSource(singlePhoto.media),
+            {
+              ...(singlePhoto.caption ? { caption: singlePhoto.caption } : {}),
+              ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+            },
+          ),
+        );
+        return [{ messageId: Number((result as { message_id: number }).message_id) }];
+      }
+
       const result = await withTelegramApiRetry({ operation: 'sendMediaGroup', logger }, () =>
-        bot.api.raw.sendMediaGroup({
-          chat_id: chatId,
-          media,
-          ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
-        }),
+        bot.api.sendMediaGroup(
+          chatId,
+          media.map(toGrammyPhotoMedia),
+          messageThreadId ? { message_thread_id: messageThreadId } : undefined,
+        ),
       );
       return (result as Array<{ message_id: number }>).map((message) => ({ messageId: Number(message.message_id) }));
     },
@@ -505,6 +545,16 @@ function createGrammyTelegramBot({
 
       await mkdir(dirname(destinationPath), { recursive: true });
       await writeFile(destinationPath, Buffer.from(await response.arrayBuffer()));
+    },
+    async editMessageText({ chatId, messageId, text, options }) {
+      await withTelegramApiRetry({ operation: 'editMessageText', logger }, () =>
+        bot.api.raw.editMessageText({
+          chat_id: chatId,
+          message_id: messageId,
+          text,
+          ...(options ? toGrammyReplyOptions(options, buttonAppearance) : {}),
+        }),
+      );
     },
     async deleteMessage({ chatId, messageId }) {
       await withTelegramApiRetry({ operation: 'deleteMessage', logger }, () =>
@@ -542,6 +592,22 @@ function createGrammyTelegramBot({
   };
 }
 
+function toGrammyPhotoSource(input: TelegramPhotoMediaInput['media']): string | InputFile {
+  return typeof input === 'string' ? input : new InputFile(input.filePath);
+}
+
+function toGrammyPhotoMedia(input: TelegramPhotoMediaInput): {
+  type: 'photo';
+  media: string | InputFile;
+  caption?: string;
+} {
+  return {
+    type: 'photo',
+    media: toGrammyPhotoSource(input.media),
+    ...(input.caption ? { caption: input.caption } : {}),
+  };
+}
+
 export async function runTelegramCallbackHandler({
   handle,
   acknowledge,
@@ -550,10 +616,25 @@ export async function runTelegramCallbackHandler({
   acknowledge: () => unknown;
 }): Promise<void> {
   try {
-    await handle();
-  } finally {
     await acknowledge();
+  } catch {
+    // A stale Telegram callback query should not block the actual action.
   }
+  await handle();
+}
+
+export function isTelegramRawCommandMatch(
+  messageText: string | undefined,
+  command: string,
+  botUsername: string | undefined,
+): boolean {
+  const match = /^\/([A-Za-z0-9_]+)(?:@([A-Za-z0-9_]+))?(?=\s|$)/.exec(messageText?.trim() ?? '');
+  if (!match || match[1] !== command) {
+    return false;
+  }
+
+  const targetUsername = match[2];
+  return !targetUsername || (botUsername !== undefined && targetUsername.toLowerCase() === botUsername.toLowerCase());
 }
 
 function escapeRegExp(value: string): string {

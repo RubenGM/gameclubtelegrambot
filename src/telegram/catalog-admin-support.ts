@@ -1,10 +1,13 @@
 import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
 
 import { appendAuditEvent, type AuditLogRepository } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
+import {
+  createCatalogDescriptionTranslator,
+  type CatalogDescriptionTranslator,
+} from '../catalog/catalog-description-translation.js';
 import {
   createHttpCatalogLookupService,
   type CatalogLookupCandidate,
@@ -31,6 +34,8 @@ import {
 import {
   storeCatalogMediaAttachment,
   storeCatalogMediaExternalImage,
+  type CatalogMediaExternalImageDownloader,
+  type CatalogMediaExternalImageProgressStep,
   type CatalogMediaAttachmentInput,
 } from '../catalog/catalog-media-storage.js';
 import type {
@@ -163,6 +168,7 @@ import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
+import type { TelegramPhotoMediaInput } from './telegram-media.js';
 import {
   createDatabaseAppMetadataSessionStorage,
   type AppMetadataSessionStorage,
@@ -208,6 +214,7 @@ export const catalogAdminCallbackPrefixes = {
   edit: 'catalog_admin:edit:',
   createActivity: 'catalog_admin:create_activity:',
   autocorrect: 'catalog_admin:autocorrect:',
+  autocorrectBggCandidate: 'catalog_admin:autocorrect_bgg:',
   translateDescription: 'catalog_admin:translate_description:',
   deactivate: 'catalog_admin:deactivate:',
   addMedia: 'catalog_admin:add_media:',
@@ -322,9 +329,11 @@ export interface TelegramCatalogAdminContext {
       createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
       copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
       forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
-      sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+      sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
       downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
+      editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
     };
+    descriptionTranslator?: CatalogDescriptionTranslator;
   };
   catalogRepository?: CatalogRepository;
   catalogLoanRepository?: CatalogLoanRepository;
@@ -336,7 +345,8 @@ export interface TelegramCatalogAdminContext {
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
   coverTitleResolver?: (input: { imagePath: string; question: string; model: string }) => Promise<string>;
-  descriptionTranslator?: (input: { description: string; model: string; targetLanguage: 'es' }) => Promise<string>;
+  descriptionTranslator?: CatalogDescriptionTranslator;
+  externalImageDownloader?: CatalogMediaExternalImageDownloader;
 }
 
 export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdminContext): Promise<boolean> {
@@ -568,6 +578,15 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     await handleCatalogAdminAutocorrectItem(context, item);
     return true;
   }
+  if (route.kind === 'autocorrect-bgg-candidate') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    const item = await loadItemOrThrow(context, route.itemId);
+    await handleCatalogAdminAutocorrectItem(context, item, { boardGameGeekId: route.boardGameGeekId });
+    return true;
+  }
   if (route.kind === 'translate-description') {
     if (!canAdministerCatalog(context)) {
       await replyAdminOnly(context);
@@ -649,20 +668,33 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
 async function handleCatalogAdminAutocorrectItem(
   context: TelegramCatalogAdminContext,
   item: CatalogItemRecord,
+  options: { boardGameGeekId?: string } = {},
 ): Promise<void> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).catalogAdmin;
   const repository = resolveCatalogRepository(context);
+  const progressState = createAutocorrectProgressState('api');
+  const progress = await startEditableProgress(context, formatAutocorrectProgress(texts, progressState));
 
-  await context.reply(texts.autocorrectingItem);
-
-  const importResult = await importCatalogAutocorrectDraft(context, item);
+  const importResult = await importCatalogAutocorrectDraft(context, item, options);
   if (!importResult.ok) {
-    await context.reply(texts.autocorrectItemFailed.replace('{reason}', importResult.reason));
+    finishAutocorrectProgressStep(progressState);
+    if (importResult.candidates && importResult.candidates.length > 0) {
+      await progress.complete(
+        `${texts.autocorrectAmbiguousTitle}\n\n${formatCatalogAutocorrectCandidates(importResult.candidates)}\n\n${formatAutocorrectDurations(texts, progressState)}`,
+        buildCatalogAutocorrectCandidateOptions({ itemId: item.id, candidates: importResult.candidates, texts }),
+      );
+      return;
+    }
+    await progress.complete(`${texts.autocorrectItemFailed.replace('{reason}', importResult.reason)}\n\n${formatAutocorrectDurations(texts, progressState)}`);
     return;
   }
 
+  await moveAutocorrectProgress(progress, texts, progressState, 'translation');
   const draft = importResult.draft;
+  const translatedDraft = await translateBggDraftDescriptionIfNeeded(context, draft);
+
+  await moveAutocorrectProgress(progress, texts, progressState, 'saving');
   const metadata = cleanCatalogAutocorrectMetadata(draft.metadata, draft.externalRefs);
   const updated = await updateCatalogItem({
     repository,
@@ -672,14 +704,14 @@ async function handleCatalogAdminAutocorrectItem(
     itemType: draft.itemType,
     displayName: draft.displayName || item.displayName,
     originalName: draft.originalName,
-    description: draft.description,
-    language: draft.language,
-    publisher: draft.publisher,
-    publicationYear: draft.publicationYear,
-    playerCountMin: draft.playerCountMin,
-    playerCountMax: draft.playerCountMax,
-    recommendedAge: draft.recommendedAge,
-    playTimeMinutes: draft.playTimeMinutes,
+    description: translatedDraft.description,
+    language: translatedDraft.language,
+    publisher: translatedDraft.publisher,
+    publicationYear: translatedDraft.publicationYear,
+    playerCountMin: translatedDraft.playerCountMin,
+    playerCountMax: translatedDraft.playerCountMax,
+    recommendedAge: translatedDraft.recommendedAge,
+    playTimeMinutes: translatedDraft.playTimeMinutes,
     externalRefs: null,
     metadata,
   });
@@ -694,9 +726,22 @@ async function handleCatalogAdminAutocorrectItem(
     details: { source: metadata?.source ?? importResult.source, query: importResult.query, boardGameGeekId: metadata?.boardGameGeekId ?? readBoardGameGeekId(draft.externalRefs) },
   });
 
-  const coverResult = await tryCreateImportedImageMedia(context, updated, { metadata: draft.metadata, externalRefs: draft.externalRefs });
-  await context.reply(`${texts.autocorrectItemUpdated}\n${formatAutocorrectCoverResult(coverResult, texts)}`);
+  await moveAutocorrectProgress(progress, texts, progressState, 'coverDownload');
+  const coverResult = await tryCreateImportedImageMedia(
+    context,
+    updated,
+    { metadata: draft.metadata, externalRefs: draft.externalRefs },
+    {
+      onExternalImageProgress: async (step) => {
+        await moveAutocorrectProgress(progress, texts, progressState, mapExternalImageProgressStep(step));
+      },
+    },
+  );
+  finishAutocorrectCoverProgress(progressState, coverResult);
+  await moveAutocorrectProgress(progress, texts, progressState, 'detail');
   await replyWithCatalogAdminItemDetail(context, updated, language);
+  finishAutocorrectProgressStep(progressState);
+  await progress.complete(`${texts.autocorrectItemUpdated}\n${formatAutocorrectCoverResult(coverResult, texts)}\n\n${formatAutocorrectDurations(texts, progressState)}`);
 }
 
 async function replyWithCatalogAdminItemDetail(
@@ -727,7 +772,7 @@ async function handleCatalogAdminTranslateDescription(
   await context.reply(texts.translatingDescription);
 
   try {
-    const translator = context.descriptionTranslator ?? translateDescriptionWithOpencode;
+    const translator = resolveCatalogDescriptionTranslator(context);
     const translated = normalizeTranslatedDescription(await translator({
       description,
       model: catalogBggDescriptionTranslationModel,
@@ -796,29 +841,59 @@ async function handleCatalogAdminTranslateDescription(
 }
 
 type CatalogAutocorrectDraft = WikipediaBoardGameCatalogDraft;
+type CatalogAutocorrectCandidate = {
+  boardGameGeekId: string;
+  label: string;
+};
 
 async function importCatalogAutocorrectDraft(
   context: TelegramCatalogAdminContext,
   item: CatalogItemRecord,
+  options: { boardGameGeekId?: string } = {},
 ): Promise<
   | { ok: true; draft: CatalogAutocorrectDraft; source: string; query: string }
-  | { ok: false; reason: string }
+  | { ok: false; reason: string; candidates?: CatalogAutocorrectCandidate[] }
 > {
-  const title = item.originalName ?? item.displayName;
   if (item.itemType === 'board-game' || item.itemType === 'expansion') {
-    const bggId = readBoardGameGeekIdFromItem(item);
+    const title = item.displayName;
+    const bggId = options.boardGameGeekId ?? readBoardGameGeekIdFromItem(item);
     const primaryQuery = bggId ? `${title} [API #${bggId}]` : title;
-    const result = await resolveWikipediaBoardGameImportService(context).importByTitle(primaryQuery);
-    const fallbackResult = !result.ok && bggId
-      ? await resolveWikipediaBoardGameImportService(context).importByTitle(title)
-      : result;
-    if (!fallbackResult.ok) {
-      return { ok: false, reason: fallbackResult.error.message };
+    const service = resolveWikipediaBoardGameImportService(context);
+    const result = await service.importByTitle(primaryQuery);
+    if (result.ok && (options.boardGameGeekId || isCatalogAutocorrectDraftCompatibleWithItem(item, result.draft))) {
+      return { ok: true, draft: result.draft, source: 'boardgamegeek', query: primaryQuery };
     }
-    return { ok: true, draft: await translateBggDraftDescriptionIfNeeded(context, fallbackResult.draft), source: 'boardgamegeek', query: primaryQuery };
+
+    if (result.ok && bggId && !options.boardGameGeekId) {
+      const fallbackResult = await service.importByTitle(title);
+      return mapBoardGameAutocorrectImportResult({
+        item,
+        query: title,
+        result: fallbackResult,
+        allowIncompatibleDraft: false,
+      });
+    }
+
+    if (result.ok) {
+      return {
+        ok: false,
+        reason: formatCatalogAutocorrectMismatchReason(item, result.draft),
+      };
+    }
+
+    const fallbackResult = bggId && !options.boardGameGeekId
+      ? await service.importByTitle(title)
+      : result;
+    return mapBoardGameAutocorrectImportResult({
+      item,
+      query: fallbackResult === result ? primaryQuery : title,
+      result: fallbackResult,
+      allowIncompatibleDraft: Boolean(options.boardGameGeekId),
+    });
   }
 
   if (item.itemType === 'book' || item.itemType === 'rpg-book') {
+    const title = item.originalName ?? item.displayName;
     let candidates: CatalogLookupCandidate[];
     try {
       candidates = await resolveCatalogLookupService(context).search({ itemType: item.itemType, query: title });
@@ -856,6 +931,106 @@ async function importCatalogAutocorrectDraft(
   return { ok: false, reason: 'Este tipo de item no tiene una API de autocorreccion configurada.' };
 }
 
+function mapBoardGameAutocorrectImportResult({
+  item,
+  query,
+  result,
+  allowIncompatibleDraft,
+}: {
+  item: CatalogItemRecord;
+  query: string;
+  result: WikipediaBoardGameImportResult;
+  allowIncompatibleDraft: boolean;
+}):
+  | { ok: true; draft: CatalogAutocorrectDraft; source: string; query: string }
+  | { ok: false; reason: string; candidates?: CatalogAutocorrectCandidate[] } {
+  if (!result.ok) {
+    const candidates = result.error.type === 'ambiguous'
+      ? parseCatalogAutocorrectCandidates(result.error.candidates ?? [])
+      : [];
+    return {
+      ok: false,
+      reason: result.error.message,
+      ...(candidates.length > 0 ? { candidates } : {}),
+    };
+  }
+
+  if (!allowIncompatibleDraft && !isCatalogAutocorrectDraftCompatibleWithItem(item, result.draft)) {
+    return {
+      ok: false,
+      reason: formatCatalogAutocorrectMismatchReason(item, result.draft),
+    };
+  }
+
+  return { ok: true, draft: result.draft, source: 'boardgamegeek', query };
+}
+
+function isCatalogAutocorrectDraftCompatibleWithItem(
+  item: CatalogItemRecord,
+  draft: CatalogAutocorrectDraft,
+): boolean {
+  const itemTitle = normalizeCatalogAutocorrectTitle(item.displayName);
+  const draftTitles = [draft.displayName, draft.originalName]
+    .map((value) => normalizeCatalogAutocorrectTitle(value ?? ''))
+    .filter((value) => value.length > 0);
+
+  return draftTitles.some((draftTitle) => draftTitle === itemTitle);
+}
+
+function formatCatalogAutocorrectMismatchReason(
+  item: CatalogItemRecord,
+  draft: CatalogAutocorrectDraft,
+): string {
+  const returnedTitle = draft.displayName || draft.originalName || 'otro titulo';
+  return `La API ha devuelto "${returnedTitle}" al autocorregir "${item.displayName}". No he actualizado el item para evitar reemplazarlo por otro juego.`;
+}
+
+function normalizeCatalogAutocorrectTitle(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function parseCatalogAutocorrectCandidates(candidateLabels: string[]): CatalogAutocorrectCandidate[] {
+  return candidateLabels.flatMap((label) => {
+    const match = label.match(/\[API #(\d+)\]\s*$/i);
+    const boardGameGeekId = match?.[1];
+    return boardGameGeekId ? [{ boardGameGeekId, label }] : [];
+  });
+}
+
+function formatCatalogAutocorrectCandidates(candidates: CatalogAutocorrectCandidate[]): string {
+  return candidates.map((candidate, index) => `${index + 1}. ${candidate.label}`).join('\n');
+}
+
+function buildCatalogAutocorrectCandidateOptions({
+  itemId,
+  candidates,
+  texts,
+}: {
+  itemId: number;
+  candidates: CatalogAutocorrectCandidate[];
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'];
+}): TelegramReplyOptions {
+  return {
+    inlineKeyboard: [
+      ...candidates.map((candidate) => [{
+        text: truncateInlineButtonText(candidate.label),
+        callbackData: `${catalogAdminCallbackPrefixes.autocorrectBggCandidate}${itemId}:${candidate.boardGameGeekId}`,
+      }]),
+      [{ text: texts.autocorrectAmbiguousBackToDetail, callbackData: `${catalogAdminCallbackPrefixes.inspect}${itemId}` }],
+    ],
+  };
+}
+
+function truncateInlineButtonText(value: string): string {
+  const maxLength = 60;
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 3)}...`;
+}
+
 function formatAutocorrectCoverResult(
   result: CatalogImportedImageMediaResult,
   texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
@@ -870,6 +1045,215 @@ function formatAutocorrectCoverResult(
     case 'failed':
       return texts.autocorrectCoverFailed;
   }
+}
+
+type CatalogAutocorrectProgressStep = 'api' | 'translation' | 'saving' | 'coverDownload' | 'coverUpload' | 'detail';
+type CatalogAutocorrectProgressStatus = 'pending' | 'active' | 'done' | 'skipped';
+
+type CatalogAutocorrectProgressState = {
+  activeStep: CatalogAutocorrectProgressStep | null;
+  activeStartedAt: number | null;
+  durations: Partial<Record<CatalogAutocorrectProgressStep, number>>;
+  skipped: Set<CatalogAutocorrectProgressStep>;
+};
+
+const catalogAutocorrectProgressSteps: CatalogAutocorrectProgressStep[] = [
+  'api',
+  'translation',
+  'saving',
+  'coverDownload',
+  'coverUpload',
+  'detail',
+];
+
+function formatAutocorrectProgress(
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+  state: CatalogAutocorrectProgressState,
+): string {
+  const lines = catalogAutocorrectProgressSteps.map((step) => formatAutocorrectProgressLine(texts, state, step));
+  return `${texts.autocorrectProgressTitle}\n\n${lines.join('\n')}`;
+}
+
+function formatAutocorrectDurations(
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+  state: CatalogAutocorrectProgressState,
+): string {
+  return `${texts.autocorrectProgressDurationsTitle}\n${catalogAutocorrectProgressSteps
+    .map((step) => formatAutocorrectProgressLine(texts, state, step))
+    .join('\n')}`;
+}
+
+function createAutocorrectProgressState(activeStep: CatalogAutocorrectProgressStep): CatalogAutocorrectProgressState {
+  return {
+    activeStep,
+    activeStartedAt: Date.now(),
+    durations: {},
+    skipped: new Set(),
+  };
+}
+
+async function moveAutocorrectProgress(
+  progress: { update(message: string): Promise<void> },
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+  state: CatalogAutocorrectProgressState,
+  nextStep: CatalogAutocorrectProgressStep,
+): Promise<void> {
+  if (state.activeStep === nextStep) {
+    return;
+  }
+  finishAutocorrectProgressStep(state);
+  state.activeStep = nextStep;
+  state.activeStartedAt = Date.now();
+  state.skipped.delete(nextStep);
+  await progress.update(formatAutocorrectProgress(texts, state));
+}
+
+function finishAutocorrectProgressStep(state: CatalogAutocorrectProgressState): void {
+  if (!state.activeStep || state.activeStartedAt === null) {
+    return;
+  }
+  state.durations[state.activeStep] = Date.now() - state.activeStartedAt;
+  state.activeStep = null;
+  state.activeStartedAt = null;
+}
+
+function skipAutocorrectProgressStep(state: CatalogAutocorrectProgressState, step: CatalogAutocorrectProgressStep): void {
+  if (state.activeStep === step) {
+    state.activeStep = null;
+    state.activeStartedAt = null;
+  }
+  delete state.durations[step];
+  state.skipped.add(step);
+}
+
+function finishAutocorrectCoverProgress(
+  state: CatalogAutocorrectProgressState,
+  result: CatalogImportedImageMediaResult,
+): void {
+  if (result.status === 'already-exists' || result.status === 'no-image-url') {
+    skipAutocorrectProgressStep(state, 'coverDownload');
+    skipAutocorrectProgressStep(state, 'coverUpload');
+    return;
+  }
+  if (state.activeStep === 'coverDownload') {
+    finishAutocorrectProgressStep(state);
+    skipAutocorrectProgressStep(state, 'coverUpload');
+    return;
+  }
+  if (state.activeStep === 'coverUpload') {
+    finishAutocorrectProgressStep(state);
+  }
+}
+
+function formatAutocorrectProgressLine(
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+  state: CatalogAutocorrectProgressState,
+  step: CatalogAutocorrectProgressStep,
+): string {
+  const label = resolveAutocorrectProgressStepLabel(texts, step);
+  const status = resolveAutocorrectProgressStepStatus(state, step);
+  const duration = state.durations[step];
+  if (status === 'done') {
+    return `✅ ${label} (${formatAutocorrectDuration(duration ?? 0)})`;
+  }
+  if (status === 'active') {
+    return `⏳ ${label}`;
+  }
+  if (status === 'skipped') {
+    return `⏭️ ${label} (${texts.autocorrectProgressSkipped})`;
+  }
+  return `⬜ ${label}`;
+}
+
+function resolveAutocorrectProgressStepStatus(
+  state: CatalogAutocorrectProgressState,
+  step: CatalogAutocorrectProgressStep,
+): CatalogAutocorrectProgressStatus {
+  if (state.skipped.has(step)) {
+    return 'skipped';
+  }
+  if (state.activeStep === step) {
+    return 'active';
+  }
+  if (typeof state.durations[step] === 'number') {
+    return 'done';
+  }
+  return 'pending';
+}
+
+function resolveAutocorrectProgressStepLabel(
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+  step: CatalogAutocorrectProgressStep,
+): string {
+  switch (step) {
+    case 'api':
+      return texts.autocorrectProgressApi;
+    case 'translation':
+      return texts.autocorrectProgressTranslation;
+    case 'saving':
+      return texts.autocorrectProgressSaving;
+    case 'coverDownload':
+      return texts.autocorrectProgressCoverDownload;
+    case 'coverUpload':
+      return texts.autocorrectProgressCoverUpload;
+    case 'detail':
+      return texts.autocorrectProgressDetail;
+  }
+}
+
+function formatAutocorrectDuration(milliseconds: number): string {
+  return `${Math.max(0, Math.round(milliseconds))} ms`;
+}
+
+function mapExternalImageProgressStep(step: CatalogMediaExternalImageProgressStep): CatalogAutocorrectProgressStep {
+  return step === 'download' ? 'coverDownload' : 'coverUpload';
+}
+
+async function startEditableProgress(
+  context: TelegramCatalogAdminContext,
+  message: string,
+): Promise<{ update(message: string): Promise<void>; complete(message: string, options?: TelegramReplyOptions): Promise<void> }> {
+  const sent = await context.reply(message);
+  const messageId = extractTelegramReplyMessageId(sent);
+  const chatId = context.runtime.chat?.chatId;
+  const editMessageText = context.runtime.bot.editMessageText;
+  let canEdit = Boolean(messageId && chatId && editMessageText);
+
+  const tryEdit = async (nextMessage: string, options?: TelegramReplyOptions): Promise<boolean> => {
+    if (!canEdit || !messageId || !chatId || !editMessageText) {
+      return false;
+    }
+    try {
+      await editMessageText({ chatId, messageId, text: nextMessage, ...(options ? { options } : {}) });
+      return true;
+    } catch (error) {
+      canEdit = false;
+      console.warn(JSON.stringify({
+        event: 'catalog.autocorrect.progress-edit.failed',
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      return false;
+    }
+  };
+  return {
+    update: async (nextMessage) => {
+      await tryEdit(nextMessage);
+    },
+    complete: async (nextMessage, options) => {
+      if (!(await tryEdit(nextMessage, options))) {
+        await context.reply(nextMessage, options);
+      }
+    },
+  };
+}
+
+function extractTelegramReplyMessageId(value: unknown): number | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = (value as Record<string, unknown>).message_id
+    ?? (value as Record<string, unknown>).messageId;
+  return typeof candidate === 'number' && Number.isInteger(candidate) ? candidate : null;
 }
 
 function canAccessCatalog(context: TelegramCatalogAdminContext): boolean {
@@ -1713,16 +2097,14 @@ async function showCatalogLettersBrowse(context: TelegramCatalogAdminContext, in
 
   const loanRepository = resolveCatalogLoanRepository(context);
   const activeLoans = await loadActiveLoansByItemMap(loanRepository, items);
-  const itemLines = await Promise.all(items
+  const sortedItems = items
     .slice()
-    .sort((left, right) => left.displayName.localeCompare(right.displayName))
+    .sort((left, right) => left.displayName.localeCompare(right.displayName));
+  const itemLines = await Promise.all(sortedItems
     .map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)));
 
   await context.reply([`<b>${formatCatalogInitialsLabel(normalizedInitials)}</b>`, ...itemLines].join('\n'), {
     parseMode: 'HTML',
-    inlineKeyboard: [
-      [{ text: texts.browseBack, callbackData: catalogAdminCallbackPrefixes.browseMenu }],
-    ],
   });
 }
 
@@ -1801,13 +2183,10 @@ async function replyWithCatalogList(
     editPrefix: catalogAdminCallbackPrefixes.edit,
     deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
   });
-  if (mode === 'list' && context.runtime.actor.isAdmin) {
-    inlineKeyboard.unshift([{ text: createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogLoan.adminDashboard, callbackData: catalogLoanCallbackPrefixes.adminDashboard }]);
-  }
   await context.reply(
     mode === 'list' ? await formatCatalogItemList(context, items, itemTypeFilter !== undefined) : mode === 'edit' ? texts.chooseItemToEdit : texts.chooseItemToDeactivate,
     mode === 'list'
-      ? { ...buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')), inlineKeyboard, parseMode: 'HTML' }
+      ? { ...buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')), parseMode: 'HTML' }
       : { inlineKeyboard },
   );
 }
@@ -2021,22 +2400,29 @@ async function buildCatalogItemDetailButtons(
 ): Promise<NonNullable<TelegramReplyOptions['inlineKeyboard']>> {
   const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
   const media = await resolveCatalogRepository(context).listMedia({ itemId: item.id });
-  return buildCatalogAdminItemDetailButtons({
-    itemId: item.id,
-    itemType: item.itemType,
-    loan,
-    media,
-    language,
-    canAdminister: canAdministerCatalog(context),
-    editPrefix: catalogAdminCallbackPrefixes.edit,
-    createActivityPrefix: catalogAdminCallbackPrefixes.createActivity,
-    autocorrectPrefix: catalogAdminCallbackPrefixes.autocorrect,
-    translateDescriptionPrefix: catalogAdminCallbackPrefixes.translateDescription,
-    addMediaPrefix: catalogAdminCallbackPrefixes.addMedia,
-    editMediaPrefix: catalogAdminCallbackPrefixes.editMedia,
-    deleteMediaPrefix: catalogAdminCallbackPrefixes.deleteMedia,
-    deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
-  });
+  const initial = getCatalogAdminItemInitial(item);
+  return [
+    [
+      { text: createTelegramI18n(language).catalogAdmin.browseBack, callbackData: catalogAdminCallbackPrefixes.browseMenu },
+      { text: formatCatalogInitialsLabel(initial), callbackData: `${catalogAdminCallbackPrefixes.browseLetters}${initial}` },
+    ],
+    ...buildCatalogAdminItemDetailButtons({
+      itemId: item.id,
+      itemType: item.itemType,
+      loan,
+      media,
+      language,
+      canAdminister: canAdministerCatalog(context),
+      editPrefix: catalogAdminCallbackPrefixes.edit,
+      createActivityPrefix: catalogAdminCallbackPrefixes.createActivity,
+      autocorrectPrefix: catalogAdminCallbackPrefixes.autocorrect,
+      translateDescriptionPrefix: catalogAdminCallbackPrefixes.translateDescription,
+      addMediaPrefix: catalogAdminCallbackPrefixes.addMedia,
+      editMediaPrefix: catalogAdminCallbackPrefixes.editMedia,
+      deleteMediaPrefix: catalogAdminCallbackPrefixes.deleteMedia,
+      deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
+    }),
+  ];
 }
 
 async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string> {
@@ -2469,10 +2855,18 @@ async function storeCatalogExternalImageMedia(
     defaultChatStore: resolveCatalogStorageDefaultChatStore(context),
     bot: context.runtime.bot,
     actorTelegramUserId: context.runtime.actor.telegramUserId,
+    ...(context.externalImageDownloader ? { externalImageDownloader: context.externalImageDownloader } : {}),
   }, {
     itemDisplayName: item.displayName,
     imageUrl: url,
   });
+  if (!result.ok) {
+    console.warn(JSON.stringify({
+      event: 'catalog.external-image-storage.failed',
+      itemId: item.id,
+      reason: result.reason,
+    }));
+  }
   return result.ok ? { catalogMediaUrl: result.catalogMediaUrl } : new Error(`No he podido guardar la imagen en Storage (${result.reason}).`);
 }
 
@@ -2480,6 +2874,9 @@ async function tryCreateImportedImageMedia(
   context: TelegramCatalogAdminContext,
   item: CatalogItemRecord,
   source: { metadata?: Record<string, unknown> | null; externalRefs?: Record<string, unknown> | null },
+  options: {
+    onExternalImageProgress?: (step: CatalogMediaExternalImageProgressStep) => Promise<void> | void;
+  } = {},
 ): Promise<CatalogImportedImageMediaResult> {
   const repository = resolveCatalogRepository(context);
   const existingMedia = await repository.listMedia({ itemId: item.id });
@@ -2493,38 +2890,63 @@ async function tryCreateImportedImageMedia(
     return { status: 'no-image-url' };
   }
 
-  let mediaUrl = imageUrl;
+  const startedAt = Date.now();
+  console.info(JSON.stringify({
+    event: 'catalog.cover-import.started',
+    itemId: item.id,
+    title: item.displayName,
+    ...describeImportedImageUrl(imageUrl),
+  }));
   try {
-    const stored = await storeCatalogExternalImageMediaForItem(context, item, imageUrl);
-    if (!(stored instanceof Error)) {
-      mediaUrl = stored.catalogMediaUrl;
+    const stored = await storeCatalogExternalImageMediaForItem(context, item, imageUrl, options);
+    if (stored instanceof Error) {
+      console.warn(JSON.stringify({
+        event: 'catalog.cover-import.storage.failed',
+        itemId: item.id,
+        elapsedMs: Date.now() - startedAt,
+        error: stored.message,
+      }));
+      return { status: 'failed' };
     }
-  } catch {
-    // La importacion de portada es best-effort y no debe bloquear altas o sincronizaciones.
-  }
-
-  try {
-    const media = await createCatalogMedia({
-      repository,
-      familyId: null,
+    console.info(JSON.stringify({
+      event: 'catalog.cover-import.storage.completed',
       itemId: item.id,
-      mediaType: 'image',
-      url: mediaUrl,
-      altText: item.displayName,
-      sortOrder: 0,
-    });
-    await appendAuditEvent({
-      repository: resolveAuditRepository(context),
-      actorTelegramUserId: context.runtime.actor.telegramUserId,
-      actionKey: 'catalog.media.created',
-      targetType: 'catalog-media',
-      targetId: media.id,
-      summary: `Portada de cataleg importada per l item #${item.id}`,
-      details: { itemId: item.id, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
-    });
-    return { status: 'created', mediaId: media.id, url: media.url };
-  } catch {
-    // La importacion de portada no debe bloquear el alta o sincronizacion del item.
+      status: 'stored',
+      elapsedMs: Date.now() - startedAt,
+    }));
+    const mediaUrl = stored.catalogMediaUrl;
+    try {
+      const media = await createCatalogMedia({
+        repository,
+        familyId: null,
+        itemId: item.id,
+        mediaType: 'image',
+        url: mediaUrl,
+        altText: item.displayName,
+        sortOrder: 0,
+      });
+      await appendAuditEvent({
+        repository: resolveAuditRepository(context),
+        actorTelegramUserId: context.runtime.actor.telegramUserId,
+        actionKey: 'catalog.media.created',
+        targetType: 'catalog-media',
+        targetId: media.id,
+        summary: `Portada de cataleg importada per l item #${item.id}`,
+        details: { itemId: item.id, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
+      });
+      return { status: 'created', mediaId: media.id, url: media.url };
+    } catch {
+      // La importacion de portada no debe bloquear el alta o sincronizacion del item.
+      return { status: 'failed' };
+    }
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: 'catalog.cover-import.storage.failed',
+      itemId: item.id,
+      elapsedMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    // La importacion de portada es best-effort y no debe bloquear altas o sincronizaciones.
     return { status: 'failed' };
   }
 }
@@ -2559,12 +2981,17 @@ async function storeCatalogExternalImageMediaForItem(
   context: TelegramCatalogAdminContext,
   item: CatalogItemRecord,
   url: string,
+  options: {
+    onExternalImageProgress?: (step: CatalogMediaExternalImageProgressStep) => Promise<void> | void;
+  } = {},
 ): Promise<{ catalogMediaUrl: string } | Error> {
   const result = await storeCatalogMediaExternalImage({
     repository: resolveCatalogStorageRepository(context),
     defaultChatStore: resolveCatalogStorageDefaultChatStore(context),
     bot: context.runtime.bot,
     actorTelegramUserId: context.runtime.actor.telegramUserId,
+    ...(context.externalImageDownloader ? { externalImageDownloader: context.externalImageDownloader } : {}),
+    ...(options.onExternalImageProgress ? { onExternalImageProgress: options.onExternalImageProgress } : {}),
   }, {
     itemDisplayName: item.displayName,
     imageUrl: url,
@@ -2583,6 +3010,21 @@ function extractImportedImageUrl(value: Record<string, unknown> | null | undefin
     }
   }
   return null;
+}
+
+function describeImportedImageUrl(url: string): { imageHost: string; imageVariant: string } {
+  let imageHost = 'unknown';
+  try {
+    imageHost = new URL(url).hostname;
+  } catch {
+    imageHost = 'invalid';
+  }
+  const imageVariant = url.includes('__small') || /thumbnail/i.test(url)
+    ? 'thumbnail'
+    : url.includes('__original') || /original/i.test(url)
+      ? 'original'
+      : 'unknown';
+  return { imageHost, imageVariant };
 }
 
 function resolveAuditRepository(context: TelegramCatalogAdminContext): AuditLogRepository {
@@ -2655,7 +3097,7 @@ async function translateBggDraftDescriptionIfNeeded(
   }
 
   try {
-    const translator = context.descriptionTranslator ?? translateDescriptionWithOpencode;
+    const translator = resolveCatalogDescriptionTranslator(context);
     const translated = normalizeTranslatedDescription(await translator({
       description,
       model: catalogBggDescriptionTranslationModel,
@@ -2698,62 +3140,29 @@ function shouldTranslateBggDraftDescription(draft: WikipediaBoardGameCatalogDraf
     || readBoardGameGeekId(metadata) !== null;
 }
 
-async function translateDescriptionWithOpencode({
-  description,
-  model,
-}: {
-  description: string;
-  model: string;
-  targetLanguage: 'es';
-}): Promise<string> {
-  const prompt = [
-    'Traduce al castellano la siguiente descripcion de un juego de mesa.',
-    'Devuelve solo la descripcion traducida, sin explicaciones, sin encabezados y sin markdown.',
-    'Conserva los parrafos y elimina entidades HTML si aparecen.',
-    '',
-    description,
-  ].join('\n');
-
-  return runOpencodeTextPromptCapture({
-    prompt,
-    model,
-    opencodeBin: catalogOpencodeBin,
-  });
+function resolveCatalogDescriptionTranslator(context: TelegramCatalogAdminContext): CatalogDescriptionTranslator {
+  return context.descriptionTranslator
+    ?? context.runtime.descriptionTranslator
+    ?? createCatalogDescriptionTranslator({
+      ...optionalCatalogDeepLConfig(process.env),
+      ...optionalCatalogTranslationTimeout(process.env.GAMECLUB_DEEPL_TIMEOUT_MS),
+      opencodeBin: catalogOpencodeBin,
+    });
 }
 
-function runOpencodeTextPromptCapture({
-  prompt,
-  model,
-  opencodeBin,
-}: {
-  prompt: string;
-  model: string;
-  opencodeBin: string;
-}): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(opencodeBin, ['run', prompt, '--model', model], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+function optionalCatalogDeepLConfig(env: NodeJS.ProcessEnv): { deeplApiKey?: string; deeplApiUrl?: string } {
+  return {
+    ...(env.GAMECLUB_DEEPL_API_KEY?.trim() ? { deeplApiKey: env.GAMECLUB_DEEPL_API_KEY } : {}),
+    ...(env.GAMECLUB_DEEPL_API_URL?.trim() ? { deeplApiUrl: env.GAMECLUB_DEEPL_API_URL } : {}),
+  };
+}
 
-    let stdout = '';
-    let stderr = '';
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve((stdout.trim() || stderr.trim()).trim());
-        return;
-      }
-      reject(new Error(stderr.trim() || stdout.trim() || `opencode exited with code ${code ?? 1}`));
-    });
-  });
+function optionalCatalogTranslationTimeout(value: string | undefined): { deeplTimeoutMs?: number } {
+  if (!value?.trim()) {
+    return {};
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? { deeplTimeoutMs: parsed } : {};
 }
 
 function normalizeTranslatedDescription(value: string): string {

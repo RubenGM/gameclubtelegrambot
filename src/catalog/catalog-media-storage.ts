@@ -1,11 +1,18 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+
 import { createStorageCategory, createStorageEntry, type StorageCategoryRecord, type StorageCategoryRepository, type StorageEntryDetailRecord } from '../storage/storage-catalog.js';
 import type { AppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
+import type { TelegramPhotoMediaInput } from '../telegram/telegram-media.js';
 
 export const catalogMediaStorageCategorySlug = 'catalog-media';
 export const catalogMediaStorageEntryUrlPrefix = 'storage:entry:';
 
 const storageDefaultChatMetadataKey = 'storage.default_chat';
 const catalogMediaStorageCategoryName = 'Imagenes de catalogo';
+const externalImageDownloadTimeoutMs = 30_000;
+const externalImageMaxBytes = 15 * 1024 * 1024;
 
 export type CatalogMediaAttachmentInput = {
   fromChatId: number;
@@ -24,14 +31,27 @@ export type CatalogMediaStorageBot = {
   createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
   copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
-  sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+  sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
 };
+
+export type CatalogMediaExternalImageDownload = {
+  filePath: string;
+  mimeType: string | null;
+  fileSizeBytes: number | null;
+  originalFileName: string | null;
+  cleanup(): Promise<void>;
+};
+
+export type CatalogMediaExternalImageProgressStep = 'download' | 'upload';
+export type CatalogMediaExternalImageDownloader = (url: string) => Promise<CatalogMediaExternalImageDownload>;
 
 export type CatalogMediaStorageContext = {
   repository: StorageCategoryRepository;
   defaultChatStore: AppMetadataSessionStorage;
   bot: CatalogMediaStorageBot;
   actorTelegramUserId: number;
+  externalImageDownloader?: CatalogMediaExternalImageDownloader;
+  onExternalImageProgress?: (step: CatalogMediaExternalImageProgressStep) => Promise<void> | void;
 };
 
 export type CatalogMediaStorageResult =
@@ -114,15 +134,49 @@ export async function storeCatalogMediaExternalImage(
     return { ok: false, reason: 'send-media-unavailable' };
   }
 
-  let sent: Array<{ messageId: number }>;
+  let downloaded: CatalogMediaExternalImageDownload;
+  const downloadStartedAt = Date.now();
   try {
+    await context.onExternalImageProgress?.('download');
+    downloaded = await (context.externalImageDownloader ?? downloadExternalImageToTemp)(normalizedUrl);
+    console.info(JSON.stringify({
+      event: 'catalog.external-image.download.completed',
+      elapsedMs: Date.now() - downloadStartedAt,
+      fileSizeBytes: downloaded.fileSizeBytes,
+      mimeType: downloaded.mimeType,
+    }));
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: 'catalog.external-image.download.failed',
+      elapsedMs: Date.now() - downloadStartedAt,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    return { ok: false, reason: 'download-failed' };
+  }
+
+  let sent: Array<{ messageId: number }>;
+  const uploadStartedAt = Date.now();
+  try {
+    await context.onExternalImageProgress?.('upload');
     sent = await context.bot.sendMediaGroup({
       chatId: category.category.storageChatId,
       messageThreadId: category.category.storageThreadId,
-      media: [{ type: 'photo', media: normalizedUrl, caption: input.itemDisplayName }],
+      media: [{ type: 'photo', media: { filePath: downloaded.filePath }, caption: input.itemDisplayName }],
     });
-  } catch {
+    console.info(JSON.stringify({
+      event: 'catalog.external-image.telegram-upload.completed',
+      elapsedMs: Date.now() - uploadStartedAt,
+      messages: sent.length,
+    }));
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: 'catalog.external-image.telegram-upload.failed',
+      elapsedMs: Date.now() - uploadStartedAt,
+      error: error instanceof Error ? error.message : String(error),
+    }));
     return { ok: false, reason: 'send-media-failed' };
+  } finally {
+    await cleanupExternalImageDownload(downloaded);
   }
 
   const first = sent[0];
@@ -146,9 +200,9 @@ export async function storeCatalogMediaExternalImage(
         telegramFileUniqueId: null,
         attachmentKind: 'photo',
         caption: input.itemDisplayName,
-        originalFileName: null,
-        mimeType: null,
-        fileSizeBytes: null,
+        originalFileName: downloaded.originalFileName,
+        mimeType: downloaded.mimeType,
+        fileSizeBytes: downloaded.fileSizeBytes,
         mediaGroupId: null,
         sortOrder: 0,
       },
@@ -156,6 +210,82 @@ export async function storeCatalogMediaExternalImage(
   });
 
   return { ok: true, detail, catalogMediaUrl: buildCatalogStorageEntryUrl(detail.entry.id) };
+}
+
+async function cleanupExternalImageDownload(downloaded: CatalogMediaExternalImageDownload): Promise<void> {
+  try {
+    await downloaded.cleanup();
+  } catch {
+    // The media has already been handed to Telegram; temp cleanup should not change the catalog result.
+  }
+}
+
+async function downloadExternalImageToTemp(url: string): Promise<CatalogMediaExternalImageDownload> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(externalImageDownloadTimeoutMs) });
+  if (!response.ok) {
+    throw new Error(`External image download failed with status ${response.status}`);
+  }
+
+  const mimeType = normalizeImageMimeType(response.headers.get('content-type'));
+  if (!mimeType) {
+    throw new Error('External URL did not return an image content type');
+  }
+
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > externalImageMaxBytes) {
+    throw new Error('External image is too large');
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > externalImageMaxBytes) {
+    throw new Error('External image is too large');
+  }
+
+  const tempDir = await mkdtemp(join(tmpdir(), 'gameclub-catalog-image-'));
+  const originalFileName = resolveExternalImageFileName(url, mimeType);
+  const filePath = join(tempDir, originalFileName);
+  await writeFile(filePath, bytes);
+
+  return {
+    filePath,
+    mimeType,
+    fileSizeBytes: bytes.length,
+    originalFileName,
+    cleanup: async () => {
+      await rm(tempDir, { recursive: true, force: true });
+    },
+  };
+}
+
+function normalizeImageMimeType(value: string | null): string | null {
+  const mimeType = value?.split(';')[0]?.trim().toLowerCase();
+  return mimeType?.startsWith('image/') ? mimeType : null;
+}
+
+function resolveExternalImageFileName(url: string, mimeType: string): string {
+  let rawName = 'cover';
+  try {
+    const parsed = new URL(url);
+    rawName = basename(parsed.pathname) || rawName;
+  } catch {
+    rawName = 'cover';
+  }
+  const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'cover';
+  if (/\.(jpe?g|png|webp)$/i.test(safeName)) {
+    return safeName;
+  }
+  return `${safeName}${extensionForImageMimeType(mimeType)}`;
+}
+
+function extensionForImageMimeType(mimeType: string): string {
+  switch (mimeType) {
+    case 'image/png':
+      return '.png';
+    case 'image/webp':
+      return '.webp';
+    default:
+      return '.jpg';
+  }
 }
 
 export function buildCatalogStorageEntryUrl(entryId: number): string {

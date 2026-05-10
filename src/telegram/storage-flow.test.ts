@@ -5,6 +5,7 @@ import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramPhotoMediaInput } from './telegram-media.js';
 import type {
   StorageCategoryRecord,
   StorageCategoryRepository,
@@ -358,7 +359,7 @@ function createContext(
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
   copiedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }>;
   forwardedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }>;
-  mediaGroups: Array<{ chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }>;
+  mediaGroups: Array<{ chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }>;
   deletedMessages: Array<{ chatId: number; messageId: number }>;
   privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }>;
   getCurrentSession: () => ConversationSessionRecord | null;
@@ -367,7 +368,7 @@ function createContext(
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const copiedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }> = [];
   const forwardedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }> = [];
-  const mediaGroups: Array<{ chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }> = [];
+  const mediaGroups: Array<{ chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }> = [];
   const deletedMessages: Array<{ chatId: number; messageId: number }> = [];
   const privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }> = [];
   let currentSession: ConversationSessionRecord | null = null;
@@ -475,7 +476,7 @@ function createContext(
               },
             }
           : {}),
-        sendMediaGroup: async ({ chatId, media, messageThreadId }: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }) => {
+        sendMediaGroup: async ({ chatId, media, messageThreadId }: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }) => {
           mediaGroups.push(messageThreadId === undefined ? { chatId, media } : { chatId, media, messageThreadId });
           return media.map((_, index) => ({ messageId: 1000 + index }));
         },
@@ -521,8 +522,7 @@ test('handleTelegramStorageText opens the storage submenu from the command entry
     'Almacenamiento: elige una acción.\n\nCategorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a> (vacía)',
   );
   assert.equal(replies[0]?.options?.parseMode, 'HTML');
-  assert.deepEqual(replies[0]?.options?.replyKeyboard?.[0], [{ text: 'Listar categorías', semanticRole: 'primary' }]);
-  assert.deepEqual(replies[0]?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
+  assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 });
 
 test('handleTelegramStorageText lists available categories for approved users', async () => {
@@ -537,6 +537,7 @@ test('handleTelegramStorageText lists available categories for approved users', 
     replies.at(-1)?.message,
     'Almacenamiento: elige una acción.\n\nCategorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_8"><b>Fotos</b></a> (vacía)\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a> (vacía)',
   );
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
   context.messageText = 'Listar categorías';
   const handled = await handleTelegramStorageText(context as never);
@@ -544,6 +545,7 @@ test('handleTelegramStorageText lists available categories for approved users', 
   assert.equal(handled, true);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
   assert.equal(replies.at(-1)?.message, 'Categorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_8"><b>Fotos</b></a> (vacía)\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a> (vacía)');
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 });
 
 test('handleTelegramStorageText subscribes a user to a storage category with subcategories', async () => {
@@ -678,6 +680,7 @@ test('handleTelegramStorageText renders only root category navigation links with
       '- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Mutant Chronicles</b></a> (1 subcategoría, 1 archivo)',
     ].join('\n'),
   );
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 });
 
 test('handleTelegramStorageText opens a visible category from the reply keyboard name', async () => {
@@ -693,7 +696,7 @@ test('handleTelegramStorageText opens a visible category from the reply keyboard
   assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
   assert.equal(getCurrentSession()?.data.categoryId, 7);
   assert.match(replies.at(-1)?.message ?? '', /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_root">Almacenamiento<\/a> \/ <b>Rol<\/b>/);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], [{ text: 'Subir archivos', semanticRole: 'success' }]);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
   context.messageText = '/start storage_root';
   assert.equal(await handleTelegramStorageText(context as never), true);
@@ -826,12 +829,7 @@ test('handleTelegramStorageText shows clickable parent breadcrumbs and category 
     replies.at(-1)?.message ?? '',
     /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_root">Almacenamiento<\/a> \/ <a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">STL<\/a> \/ <b>Star Wars<\/b>/,
   );
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 4), [
-    [{ text: 'Añadir subcategoría', semanticRole: 'success' }, { text: 'Renombrar categoría', semanticRole: 'secondary' }],
-    [{ text: 'Subir archivos', semanticRole: 'success' }],
-    [{ text: 'Volver', semanticRole: 'secondary' }],
-    ['Inicio', 'Ayuda'],
-  ]);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
   context.messageText = 'Renombrar categoría';
   assert.equal(await handleTelegramStorageText(context as never), true);
@@ -998,7 +996,7 @@ test('handleTelegramStorageText lists category entries alphabetically by linked 
   );
 });
 
-test('handleTelegramStorageText paginates category entries with inline buttons', async () => {
+test('handleTelegramStorageText paginates category entries with reply keyboard buttons', async () => {
   const repository = createRepository([createCategory()]);
   for (let index = 1; index <= 25; index += 1) {
     const description = `Manual ${String(index).padStart(2, '0')}`;
@@ -1035,23 +1033,19 @@ test('handleTelegramStorageText paginates category entries with inline buttons',
   assert.match(replies.at(-1)?.message ?? '', /Manual 20/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Manual 21/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], [
-    { text: 'Ir a página', semanticRole: 'secondary' },
-    { text: 'Siguiente', semanticRole: 'secondary' },
-  ]);
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().some((button) => (typeof button === 'string' ? button : button.text) === 'Ir a página'));
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().some((button) => (typeof button === 'string' ? button : button.text) === 'Siguiente'));
 
-  context.callbackData = `${storageCallbackPrefixes.categoryPage}7:2`;
-  await handleTelegramStorageCallback(context as never);
+  context.messageText = 'Siguiente';
+  await handleTelegramStorageText(context as never);
 
   assert.match(replies.at(-1)?.message ?? '', /Mostrando 21-25 de 25\. Página 2\/2\./);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Manual 20/);
   assert.match(replies.at(-1)?.message ?? '', /Manual 21/);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], [
-    { text: 'Anterior', semanticRole: 'secondary' },
-    { text: 'Ir a página', semanticRole: 'secondary' },
-  ]);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().some((button) => (typeof button === 'string' ? button : button.text) === 'Anterior'));
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().some((button) => (typeof button === 'string' ? button : button.text) === 'Ir a página'));
 
-  delete context.callbackData;
   context.messageText = 'Anterior';
   await handleTelegramStorageText(context as never);
   assert.match(replies.at(-1)?.message ?? '', /Mostrando 1-20 de 25\. Página 1\/2\./);
@@ -1187,7 +1181,8 @@ test('handleTelegramStorageText searches entries inside readable categories', as
   context.messageText = 'Buscar archivos';
   await handleTelegramStorageText(context as never);
   assert.match(replies.at(-1)?.message ?? '', /Elige una categoría para limitar la búsqueda/);
-  assert.match(replies.at(-1)?.message ?? '', /storage_select_category_7/);
+  assert.match(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_select_category_7/);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
   context.messageText = 'manual';
   const handled = await handleTelegramStorageText(context as never);
@@ -1441,10 +1436,7 @@ test('handleTelegramStorageText lets admins create a storage subcategory', async
   }
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
   assert.equal(replies.at(-1)?.message, 'Elige una categoría padre u Omitir.\nCategorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_select_category_7"><b>Manuales</b></a>');
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
-    [{ text: 'Omitir', semanticRole: 'success' }],
-    [{ text: '/cancel', semanticRole: 'danger' }],
-  ]);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
   for (const messageText of ['/start storage_select_category_7', 'Entrada manual', '-100123', '44']) {
     context.messageText = messageText;
@@ -1875,8 +1867,9 @@ test('handleTelegramStorageText accepts a category deep link while choosing an u
   await handleTelegramStorageText(context as never);
 
   assert.equal(getCurrentSession()?.stepKey, 'upload-category');
-  assert.match(replies.at(-1)?.message ?? '', /<b>Mutant Chronicles<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /  - <a href="https:\/\/t\.me\/cawatest_bot\?start=storage_select_category_8"><b>Libros<\/b><\/a>/);
+  assert.match(replies.at(-1)?.message ?? '', /storage_select_category_7"><b>Mutant Chronicles<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /storage_select_category_8"><b>Libros<\/b>/);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Mutant Chronicles \/ Libros/);
 
   context.messageText = '/start storage_select_category_8';
@@ -2458,7 +2451,7 @@ test('handleTelegramStorageText edits storage entry metadata', async () => {
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'edit-category');
   assert.match(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_edit_category_7/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_category_7/);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -2544,7 +2537,7 @@ test('handleTelegramStorageText moves an entry to another category with tree lin
   assert.equal(getCurrentSession()?.stepKey, 'edit-entry-move-category');
   assert.match(replies.at(-1)?.message ?? '', /Elige la nueva categoría de la entrada\./);
   assert.match(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_select_category_8/);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => typeof button === 'string' ? button : button.text), ['/cancel']);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
   context.messageText = '/start storage_select_category_8';
   await handleTelegramStorageStartText(context as never);

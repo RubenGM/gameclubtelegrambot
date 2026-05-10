@@ -112,11 +112,11 @@ function compactCatalogAdminMessage(lines: string[]): string {
 function formatCatalogAdminInitialBuckets(items: CatalogItemRecord[]): string[] {
   return buildCatalogAdminInitialBuckets(items)
     .flatMap((initials) => {
-      const href = buildTelegramStartUrl(`catalog_admin_letters_${serializeInitialSetForStartPayload(initials.initials.join(''))}`);
+      const href = buildTelegramStartUrl(`catalog_admin_letters_${serializeCatalogAdminInitialsStartPayload(initials.initials.join(''))}`);
       return [
-      `<a href="${escapeHtml(href)}"><b>${escapeHtml(initials.label)}</b></a>`,
-      ...formatCatalogAdminTypeCounts(initials.items),
-      '',
+        `<a href="${escapeHtml(href)}"><b>${escapeHtml(initials.label)}</b></a>`,
+        ...formatCatalogAdminTypeCounts(initials.items),
+        '',
       ];
     })
     .slice(0, -1);
@@ -143,7 +143,7 @@ function getCatalogAdminItemInitial(item: CatalogItemRecord): string {
   return /^[A-Z]$/.test(first) ? first : '#';
 }
 
-function serializeInitialSetForStartPayload(value: string): string {
+function serializeCatalogAdminInitialsStartPayload(value: string): string {
   const normalized = Array.from(new Set(value.trim().toUpperCase().replace(/[^A-Z#]/g, '').split(''))).join('');
   if (normalized.startsWith('#')) {
     return `hash_${normalized.slice(1)}`;

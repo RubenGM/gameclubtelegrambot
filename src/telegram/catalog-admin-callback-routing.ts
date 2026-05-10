@@ -10,6 +10,7 @@ export type CatalogAdminCallbackPrefixes = {
   edit: string;
   createActivity: string;
   autocorrect: string;
+  autocorrectBggCandidate: string;
   translateDescription: string;
   deactivate: string;
   addMedia: string;
@@ -27,6 +28,7 @@ export type CatalogAdminCallbackRoute =
   | { kind: 'edit-item'; itemId: number }
   | { kind: 'create-activity'; itemId: number }
   | { kind: 'autocorrect-item'; itemId: number }
+  | { kind: 'autocorrect-bgg-candidate'; itemId: number; boardGameGeekId: string }
   | { kind: 'translate-description'; itemId: number }
   | { kind: 'deactivate-item'; itemId: number }
   | { kind: 'add-media'; itemId: number }
@@ -61,6 +63,10 @@ export function parseCatalogAdminCallbackRoute(
   if (callbackData.startsWith(prefixes.createActivity)) {
     return { kind: 'create-activity', itemId: parseItemId(callbackData, prefixes.createActivity) };
   }
+  if (callbackData.startsWith(prefixes.autocorrectBggCandidate)) {
+    const selection = parseAutocorrectBggCandidate(callbackData, prefixes.autocorrectBggCandidate);
+    return selection ? { kind: 'autocorrect-bgg-candidate', ...selection } : null;
+  }
   if (callbackData.startsWith(prefixes.autocorrect)) {
     return { kind: 'autocorrect-item', itemId: parseItemId(callbackData, prefixes.autocorrect) };
   }
@@ -80,4 +86,16 @@ export function parseCatalogAdminCallbackRoute(
     return { kind: 'delete-media', mediaId: parseItemId(callbackData, prefixes.deleteMedia) };
   }
   return null;
+}
+
+function parseAutocorrectBggCandidate(
+  callbackData: string,
+  prefix: string,
+): { itemId: number; boardGameGeekId: string } | null {
+  const [itemIdValue, boardGameGeekId] = callbackData.slice(prefix.length).split(':');
+  const itemId = Number(itemIdValue);
+  if (!Number.isInteger(itemId) || itemId <= 0 || !boardGameGeekId || !/^\d+$/.test(boardGameGeekId)) {
+    return null;
+  }
+  return { itemId, boardGameGeekId };
 }

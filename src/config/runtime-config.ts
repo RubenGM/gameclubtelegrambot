@@ -45,6 +45,12 @@ export const runtimeConfigSchema = z.object({
       apiKey: z.string().trim().min(1).optional(),
     })
     .optional(),
+  translation: z
+    .object({
+      deeplApiKey: z.string().trim().min(1).optional(),
+      deeplApiUrl: z.string().trim().url().optional(),
+    })
+    .optional(),
   database: z.object({
     host: z.string().trim().min(1),
     port: z.number().int().min(1).max(65535),

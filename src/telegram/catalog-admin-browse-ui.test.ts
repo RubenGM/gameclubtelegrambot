@@ -81,11 +81,10 @@ test('formatCatalogAdminItemList groups admin lists by initial instead of famili
   });
 
   assert.ok(message.length < 4096);
-  assert.match(message, /<b># A B - 5 artículos<\/b>/);
-  assert.match(message, /catalog_admin_letters_hash_AB/);
+  assert.match(message, /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_letters_hash_AB"><b># A B - 5 artículos<\/b><\/a>/);
   assert.match(message, /4 juegos de mesa/);
   assert.match(message, /1 libro/);
-  assert.match(message, /<b>C D - 2 artículos<\/b>/);
+  assert.match(message, /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_letters_CD"><b>C D - 2 artículos<\/b><\/a>/);
   assert.doesNotMatch(message, /Family 1/);
   assert.doesNotMatch(message, /Group 1/);
   assert.doesNotMatch(message, /Sin grupo/);
