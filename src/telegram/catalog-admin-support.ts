@@ -27,6 +27,11 @@ import {
   type CatalogItemType,
   type CatalogRepository,
 } from '../catalog/catalog-model.js';
+import {
+  storeCatalogMediaAttachment,
+  storeCatalogMediaExternalImage,
+  type CatalogMediaAttachmentInput,
+} from '../catalog/catalog-media-storage.js';
 import type {
   BoardGameGeekCollectionDescriptor,
   BoardGameGeekCollectionError,
@@ -40,6 +45,8 @@ import type {
 } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
+import { createDatabaseStorageRepository } from '../storage/storage-catalog-store.js';
+import type { StorageCategoryRepository } from '../storage/storage-catalog.js';
 import { createBoardGameGeekCollectionImportService, createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { buildOpencodeRunArgs, runOpencodeImageQueryCapture } from '../scripts/opencode-image-query.js';
 import {
@@ -53,6 +60,7 @@ import {
 import { buildDateOptions } from './schedule-keyboards.js';
 import {
   buildCatalogAdminMenuOptions,
+  buildCoverSaveOptions,
   buildCreateConfirmOptions,
   buildCreateFieldMenuOptions as buildCatalogCreateFieldMenuOptions,
   buildCreateOptionalKeyboard,
@@ -92,6 +100,7 @@ import {
 import { parseCatalogAdminCallbackRoute } from './catalog-admin-callback-routing.js';
 import {
   startCatalogAdminBrowseSearchSession,
+  startCatalogAdminAddMediaSession,
   startCatalogAdminDeactivateSession,
   startCatalogAdminDeleteMediaSession,
   startCatalogAdminEditMediaSession,
@@ -151,6 +160,10 @@ import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
+import {
+  createDatabaseAppMetadataSessionStorage,
+  type AppMetadataSessionStorage,
+} from './conversation-session-store.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
 const createFlowKey = 'catalog-admin-create';
@@ -186,6 +199,7 @@ export const catalogAdminCallbackPrefixes = {
   edit: 'catalog_admin:edit:',
   createActivity: 'catalog_admin:create_activity:',
   deactivate: 'catalog_admin:deactivate:',
+  addMedia: 'catalog_admin:add_media:',
   editMedia: 'catalog_admin:edit_media:',
   deleteMedia: 'catalog_admin:delete_media:',
 } as const;
@@ -203,6 +217,7 @@ export const catalogAdminLabels = {
   searchByName: 'Cerca per nom',
   importBggCollection: 'Importar col.leccio BGG',
   edit: 'Editar item',
+  addMedia: 'Afegir media',
   deactivate: 'Desactivar item',
   typeBoardGame: 'Joc de taula',
   typeBook: 'Llibre',
@@ -265,8 +280,13 @@ export interface TelegramCatalogAdminContext {
   messageMedia?: {
     attachmentKind: string;
     fileId?: string | null;
+    fileUniqueId?: string | null;
+    caption?: string | null;
     originalFileName?: string | null;
     mimeType?: string | null;
+    fileSizeBytes?: number | null;
+    mediaGroupId?: string | null;
+    messageId: number;
   } | undefined;
   reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: {
@@ -286,6 +306,10 @@ export interface TelegramCatalogAdminContext {
       clubName: string;
       language?: string;
       sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+      createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
+      copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+      forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+      sendMediaGroup?(input: { chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
       downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
     };
   };
@@ -293,6 +317,8 @@ export interface TelegramCatalogAdminContext {
   catalogLoanRepository?: CatalogLoanRepository;
   membershipRepository?: TelegramCatalogLoanContext['membershipRepository'] | undefined;
   auditRepository?: AuditLogRepository;
+  storageRepository?: StorageCategoryRepository;
+  storageDefaultChatStore?: AppMetadataSessionStorage;
   catalogLookupService?: CatalogLookupService;
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
@@ -396,11 +422,19 @@ export async function handleTelegramCatalogAdminMessage(context: TelegramCatalog
   }
 
   const session = context.runtime.session.current;
-  if (session?.flowKey !== createFlowKey || session.stepKey !== 'display-name' || !context.messageMedia) {
+  if (!context.messageMedia) {
     return false;
   }
 
-  return handleCreateSession(context, '', session.stepKey, session.data);
+  if (session?.flowKey === createFlowKey && session.stepKey === 'display-name') {
+    return handleCreateSession(context, '', session.stepKey, session.data);
+  }
+
+  if (session?.flowKey === mediaFlowKey && (session.stepKey === 'input' || session.stepKey === 'attachment')) {
+    return handleActiveCatalogSession(context, '');
+  }
+
+  return false;
 }
 
 export async function handleTelegramCatalogAdminStartText(context: TelegramCatalogAdminContext): Promise<boolean> {
@@ -531,6 +565,22 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     });
     return true;
   }
+  if (route.kind === 'add-media') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    const item = await loadItemOrThrow(context, route.itemId);
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    await startCatalogAdminAddMediaSession({
+      session: context.runtime.session,
+      reply: context.reply,
+      language,
+      mediaFlowKey,
+      itemId: item.id,
+    });
+    return true;
+  }
   if (route.kind === 'edit-media') {
     if (!canAdministerCatalog(context)) {
       await replyAdminOnly(context);
@@ -622,6 +672,9 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
       menuLanguage: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
       confirmMediaCreateLabel: catalogAdminLabels.confirmMediaCreate,
       confirmMediaEditLabel: catalogAdminLabels.confirmMediaEdit,
+      messageMedia: toCatalogMediaAttachment(context),
+      storeAttachment: (attachment) => storeCatalogAttachmentMedia(context, attachment),
+      storeExternalImage: (url) => storeCatalogExternalImageMedia(context, url),
     });
   }
   if (session.flowKey === mediaDeleteFlowKey) {
@@ -851,6 +904,7 @@ async function resolveCatalogBulkCreateItem(
         summary: `Item de cataleg importat: ${created.displayName}`,
         details: { itemType: created.itemType, familyId: created.familyId, groupId: created.groupId, lifecycleStatus: created.lifecycleStatus },
       });
+      await tryCreateImportedImageMedia(context, created, candidate.importedData);
 
       return {
         input,
@@ -928,6 +982,7 @@ async function resolveCatalogBulkCreateItem(
       summary: `Item de cataleg importat: ${created.displayName}`,
       details: { itemType: created.itemType, familyId: created.familyId, groupId: created.groupId, lifecycleStatus: created.lifecycleStatus },
     });
+    await tryCreateImportedImageMedia(context, created, draft);
 
     return {
       input,
@@ -1119,7 +1174,7 @@ async function handleCreateSession(
   });
 }
 
-async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminContext): Promise<string | Error | null> {
+async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminContext): Promise<string | { displayName: string; coverAttachment?: Record<string, unknown> } | Error | null> {
   const media = context.messageMedia;
   if (!media) {
     return null;
@@ -1186,7 +1241,7 @@ async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminCont
       rawPreview: detected.slice(0, 500),
       normalized,
     }));
-    return normalized || new Error(texts.coverTitleNoResult);
+    return normalized ? { displayName: normalized, ...(toCatalogMediaAttachment(context) ? { coverAttachment: toCatalogMediaAttachment(context) as unknown as Record<string, unknown> } : {}) } : new Error(texts.coverTitleNoResult);
   } catch (error) {
     console.error(JSON.stringify({
       event: 'catalog.cover-title.failed',
@@ -1606,8 +1661,12 @@ async function saveCreateDraftAndReturn(
     summary: `Item de cataleg creat: ${item.displayName}`,
     details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
   });
+  await tryCreateImportedImageMedia(context, item, data);
 
   await context.runtime.session.cancel();
+  if (await startCoverSaveConfirmationIfNeeded(context, item, data, language)) {
+    return true;
+  }
   await context.reply(`${texts.created}: ${item.displayName} (#${item.id}).`, buildCatalogAdminMenuOptions(language));
   return true;
 }
@@ -1716,6 +1775,7 @@ async function buildCatalogItemDetailButtons(
     canAdminister: canAdministerCatalog(context),
     editPrefix: catalogAdminCallbackPrefixes.edit,
     createActivityPrefix: catalogAdminCallbackPrefixes.createActivity,
+    addMediaPrefix: catalogAdminCallbackPrefixes.addMedia,
     editMediaPrefix: catalogAdminCallbackPrefixes.editMedia,
     deleteMediaPrefix: catalogAdminCallbackPrefixes.deleteMedia,
     deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
@@ -2076,6 +2136,173 @@ function resolveCatalogRepository(context: TelegramCatalogAdminContext): Catalog
   return createDatabaseCatalogRepository({ database: context.runtime.services.database.db as never });
 }
 
+function resolveCatalogStorageRepository(context: TelegramCatalogAdminContext): StorageCategoryRepository {
+  return context.storageRepository ?? createDatabaseStorageRepository({ database: context.runtime.services.database.db as never });
+}
+
+function resolveCatalogStorageDefaultChatStore(context: TelegramCatalogAdminContext): AppMetadataSessionStorage {
+  return context.storageDefaultChatStore ?? createDatabaseAppMetadataSessionStorage({ database: context.runtime.services.database.db as never });
+}
+
+function toCatalogMediaAttachment(context: TelegramCatalogAdminContext): CatalogMediaAttachmentInput | null {
+  const media = context.messageMedia;
+  if (!media) {
+    return null;
+  }
+  return {
+    fromChatId: context.runtime.chat.chatId,
+    messageId: media.messageId,
+    attachmentKind: media.attachmentKind,
+    telegramFileId: media.fileId ?? null,
+    telegramFileUniqueId: media.fileUniqueId ?? null,
+    caption: media.caption ?? null,
+    originalFileName: media.originalFileName ?? null,
+    mimeType: media.mimeType ?? null,
+    fileSizeBytes: media.fileSizeBytes ?? null,
+    mediaGroupId: media.mediaGroupId ?? null,
+  };
+}
+
+async function storeCatalogAttachmentMedia(
+  context: TelegramCatalogAdminContext,
+  attachment: CatalogMediaAttachmentInput,
+): Promise<{ catalogMediaUrl: string } | Error> {
+  const item = await loadItemOrThrow(context, Number(context.runtime.session.current?.data.itemId));
+  const result = await storeCatalogMediaAttachment({
+    repository: resolveCatalogStorageRepository(context),
+    defaultChatStore: resolveCatalogStorageDefaultChatStore(context),
+    bot: context.runtime.bot,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+  }, {
+    itemDisplayName: item.displayName,
+    attachment,
+  });
+  return result.ok ? { catalogMediaUrl: result.catalogMediaUrl } : new Error(`No he podido guardar la imagen en Storage (${result.reason}).`);
+}
+
+async function storeCatalogExternalImageMedia(
+  context: TelegramCatalogAdminContext,
+  url: string,
+): Promise<{ catalogMediaUrl: string } | Error> {
+  const item = await loadItemOrThrow(context, Number(context.runtime.session.current?.data.itemId));
+  const result = await storeCatalogMediaExternalImage({
+    repository: resolveCatalogStorageRepository(context),
+    defaultChatStore: resolveCatalogStorageDefaultChatStore(context),
+    bot: context.runtime.bot,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+  }, {
+    itemDisplayName: item.displayName,
+    imageUrl: url,
+  });
+  return result.ok ? { catalogMediaUrl: result.catalogMediaUrl } : new Error(`No he podido guardar la imagen en Storage (${result.reason}).`);
+}
+
+async function tryCreateImportedImageMedia(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+  source: { metadata?: Record<string, unknown> | null; externalRefs?: Record<string, unknown> | null },
+): Promise<void> {
+  const repository = resolveCatalogRepository(context);
+  const existingMedia = await repository.listMedia({ itemId: item.id });
+  if (existingMedia.some((entry) => entry.mediaType === 'image')) {
+    return;
+  }
+
+  const imageUrl = extractImportedImageUrl(source.metadata) ?? extractImportedImageUrl(source.externalRefs);
+  if (!imageUrl) {
+    return;
+  }
+
+  let mediaUrl = imageUrl;
+  try {
+    const stored = await storeCatalogExternalImageMediaForItem(context, item, imageUrl);
+    if (!(stored instanceof Error)) {
+      mediaUrl = stored.catalogMediaUrl;
+    }
+  } catch {
+    // La importacion de portada es best-effort y no debe bloquear altas o sincronizaciones.
+  }
+
+  try {
+    const media = await createCatalogMedia({
+      repository,
+      familyId: null,
+      itemId: item.id,
+      mediaType: 'image',
+      url: mediaUrl,
+      altText: item.displayName,
+      sortOrder: 0,
+    });
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'catalog.media.created',
+      targetType: 'catalog-media',
+      targetId: media.id,
+      summary: `Portada de cataleg importada per l item #${item.id}`,
+      details: { itemId: item.id, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
+    });
+  } catch {
+    // La importacion de portada no debe bloquear el alta o sincronizacion del item.
+  }
+}
+
+async function startCoverSaveConfirmationIfNeeded(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+  data: Record<string, unknown>,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const attachment = data.coverAttachment;
+  if (!attachment) {
+    return false;
+  }
+  await context.runtime.session.start({
+    flowKey: mediaFlowKey,
+    stepKey: 'cover-confirm',
+    data: {
+      itemId: item.id,
+      attachment,
+      mediaType: 'image',
+      source: 'attachment',
+      altText: item.displayName,
+      sortOrder: 0,
+    },
+  });
+  await context.reply(createTelegramI18n(language).catalogAdmin.coverSavePrompt, buildCoverSaveOptions(language));
+  return true;
+}
+
+async function storeCatalogExternalImageMediaForItem(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+  url: string,
+): Promise<{ catalogMediaUrl: string } | Error> {
+  const result = await storeCatalogMediaExternalImage({
+    repository: resolveCatalogStorageRepository(context),
+    defaultChatStore: resolveCatalogStorageDefaultChatStore(context),
+    bot: context.runtime.bot,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+  }, {
+    itemDisplayName: item.displayName,
+    imageUrl: url,
+  });
+  return result.ok ? { catalogMediaUrl: result.catalogMediaUrl } : new Error(`No he podido guardar la imagen en Storage (${result.reason}).`);
+}
+
+function extractImportedImageUrl(value: Record<string, unknown> | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  for (const key of ['imageUrl', 'coverUrl', 'thumbnailUrl']) {
+    const candidate = value[key];
+    if (typeof candidate === 'string' && /^https?:\/\//i.test(candidate.trim())) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
 function resolveAuditRepository(context: TelegramCatalogAdminContext): AuditLogRepository {
   if (context.auditRepository) {
     return context.auditRepository;
@@ -2172,6 +2399,12 @@ async function createWikipediaImportedBoardGame(
     summary: `Item de cataleg creat: ${item.displayName}`,
     details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
   });
+  if (!(importedData as unknown as Record<string, unknown>).coverAttachment) {
+    await tryCreateImportedImageMedia(context, item, importedData);
+  }
+  if (await startCoverSaveConfirmationIfNeeded(context, item, importedData as unknown as Record<string, unknown>, language)) {
+    return;
+  }
   await context.runtime.session.start({
     flowKey: editFlowKey,
     stepKey: 'select-field',
@@ -2483,7 +2716,7 @@ async function reconcileBoardGameGeekCollectionImport(
 
     const existingByBggId = allItems.find((item) => readBoardGameGeekId(item.externalRefs) === bggId);
     if (existingByBggId) {
-      await updateCatalogItem({
+      const updatedItem = await updateCatalogItem({
         repository,
         itemId: existingByBggId.id,
         familyId: existingByBggId.familyId,
@@ -2502,6 +2735,7 @@ async function reconcileBoardGameGeekCollectionImport(
         externalRefs: draft.externalRefs,
         metadata: draft.metadata,
       });
+      await tryCreateImportedImageMedia(context, updatedItem, draft);
       await appendAuditEvent({
         repository: resolveAuditRepository(context),
         actorTelegramUserId: context.runtime.actor.telegramUserId,
@@ -2523,7 +2757,7 @@ async function reconcileBoardGameGeekCollectionImport(
     }
 
     if (matchingByName.length === 1 && matchingByName[0]) {
-      await updateCatalogItem({
+      const updatedItem = await updateCatalogItem({
         repository,
         itemId: matchingByName[0].id,
         familyId: matchingByName[0].familyId,
@@ -2542,6 +2776,7 @@ async function reconcileBoardGameGeekCollectionImport(
         externalRefs: draft.externalRefs,
         metadata: draft.metadata,
       });
+      await tryCreateImportedImageMedia(context, updatedItem, draft);
       await appendAuditEvent({
         repository: resolveAuditRepository(context),
         actorTelegramUserId: context.runtime.actor.telegramUserId,
@@ -2583,6 +2818,7 @@ async function reconcileBoardGameGeekCollectionImport(
       summary: `Item de cataleg creat: ${createdItem.displayName}`,
       details: { source: 'bgg-collection-import', boardGameGeekId: bggId, username: importResult.username },
     });
+    await tryCreateImportedImageMedia(context, createdItem, draft);
     created += 1;
   }
 

@@ -17,7 +17,9 @@ import type { MembershipAccessRepository, MembershipUserRecord } from '../member
 import { normalizeDisplayName } from '../membership/display-name.js';
 import type { WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import type { BoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import type { StorageCategoryRecord, StorageCategoryRepository, StorageEntryDetailRecord } from '../storage/storage-catalog.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
+import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import {
   catalogAdminCallbackPrefixes,
@@ -286,6 +288,121 @@ function createMembershipRepository(users: MembershipUserRecord[] = []): Members
   };
 }
 
+function createMemoryMetadataStorage(initialValues: Record<string, string> = {}): AppMetadataSessionStorage {
+  const values = new Map(Object.entries(initialValues));
+  return {
+    async get(key) {
+      return values.get(key) ?? null;
+    },
+    async set(key, value) {
+      values.set(key, value);
+    },
+    async delete(key) {
+      return values.delete(key);
+    },
+    async listByPrefix(prefix) {
+      return Array.from(values.entries())
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, value]) => ({ key, value }));
+    },
+  };
+}
+
+function createStorageRepository(): StorageCategoryRepository & { __entries: StorageEntryDetailRecord[] } {
+  const categories = new Map<number, StorageCategoryRecord>();
+  const entries: StorageEntryDetailRecord[] = [];
+  let nextCategoryId = 1;
+  let nextEntryId = 1;
+  let nextEntryMessageId = 1;
+
+  return {
+    async createCategory(input) {
+      const category: StorageCategoryRecord = {
+        id: nextCategoryId,
+        slug: input.slug,
+        displayName: input.displayName,
+        parentCategoryId: input.parentCategoryId,
+        description: input.description,
+        storageChatId: input.storageChatId,
+        storageThreadId: input.storageThreadId,
+        categoryPurpose: input.categoryPurpose ?? 'user_uploads',
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        archivedAt: null,
+      };
+      nextCategoryId += 1;
+      categories.set(category.id, category);
+      return category;
+    },
+    async updateCategoryLifecycleStatus() { throw new Error('not implemented'); },
+    async updateCategoryMetadata() { throw new Error('not implemented'); },
+    async findCategoryById(categoryId) { return categories.get(categoryId) ?? null; },
+    async findCategoryByStorageThread(storageChatId, storageThreadId) {
+      return Array.from(categories.values()).find((category) => category.storageChatId === storageChatId && category.storageThreadId === storageThreadId) ?? null;
+    },
+    async listCategories() {
+      return Array.from(categories.values());
+    },
+    async createEntry(input) {
+      const category = categories.get(input.categoryId);
+      if (!category) {
+        throw new Error('unknown category');
+      }
+      const detail: StorageEntryDetailRecord = {
+        entry: {
+          id: nextEntryId,
+          categoryId: input.categoryId,
+          createdByTelegramUserId: input.createdByTelegramUserId,
+          sourceKind: input.sourceKind,
+          description: input.description,
+          tags: input.tags,
+          lifecycleStatus: 'active',
+          createdAt: '2026-04-04T10:00:00.000Z',
+          updatedAt: '2026-04-04T10:00:00.000Z',
+          deletedAt: null,
+          deletedByTelegramUserId: null,
+        },
+        category,
+        messages: input.messages.map((message) => ({
+          id: nextEntryMessageId++,
+          entryId: nextEntryId,
+          storageChatId: message.storageChatId,
+          storageMessageId: message.storageMessageId,
+          storageThreadId: message.storageThreadId,
+          telegramFileId: message.telegramFileId ?? null,
+          telegramFileUniqueId: message.telegramFileUniqueId ?? null,
+          attachmentKind: message.attachmentKind,
+          caption: message.caption ?? null,
+          originalFileName: message.originalFileName ?? null,
+          mimeType: message.mimeType ?? null,
+          fileSizeBytes: message.fileSizeBytes ?? null,
+          mediaGroupId: message.mediaGroupId ?? null,
+          sortOrder: message.sortOrder,
+          createdAt: '2026-04-04T10:00:00.000Z',
+        })),
+      };
+      nextEntryId += 1;
+      entries.push(detail);
+      return detail;
+    },
+    async appendEntryMessages() { throw new Error('not implemented'); },
+    async updateEntryMetadata() { throw new Error('not implemented'); },
+    async updateEntryCategory() { throw new Error('not implemented'); },
+    async updateEntryLifecycleStatus() { throw new Error('not implemented'); },
+    async getEntryDetail(entryId) {
+      return entries.find((detail) => detail.entry.id === entryId) ?? null;
+    },
+    async listEntryDetailsByCategory(categoryId) {
+      return entries.filter((detail) => detail.entry.categoryId === categoryId);
+    },
+    async searchEntryDetails() {
+      return entries;
+    },
+    __entries: entries,
+  };
+}
+
 function createContext({
   repository = createRepository(),
   catalogLoanRepository = createLoanRepository(),
@@ -296,6 +413,12 @@ function createContext({
   boardGameGeekCollectionImportService,
   coverTitleResolver,
   sendPrivateMessage,
+  storageRepository,
+  storageDefaultChatStore,
+  createForumTopic,
+  copyMessage,
+  forwardMessage,
+  sendMediaGroup,
   isAdmin = true,
   language = 'ca',
 }: {
@@ -308,6 +431,12 @@ function createContext({
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
   coverTitleResolver?: (input: { imagePath: string; question: string; model: string }) => Promise<string>;
   sendPrivateMessage?: (telegramUserId: number, message: string, options?: TelegramReplyOptions) => Promise<void>;
+  storageRepository?: StorageCategoryRepository;
+  storageDefaultChatStore?: AppMetadataSessionStorage;
+  createForumTopic?: TelegramCatalogAdminContext['runtime']['bot']['createForumTopic'];
+  copyMessage?: TelegramCatalogAdminContext['runtime']['bot']['copyMessage'];
+  forwardMessage?: TelegramCatalogAdminContext['runtime']['bot']['forwardMessage'];
+  sendMediaGroup?: TelegramCatalogAdminContext['runtime']['bot']['sendMediaGroup'];
   isAdmin?: boolean;
   language?: 'ca' | 'es' | 'en';
 } = {}) {
@@ -369,12 +498,18 @@ function createContext({
         downloadFile: async ({ destinationPath }) => {
           await writeFile(destinationPath, 'fake image');
         },
+        ...(createForumTopic ? { createForumTopic } : {}),
+        ...(copyMessage ? { copyMessage } : {}),
+        ...(forwardMessage ? { forwardMessage } : {}),
+        ...(sendMediaGroup ? { sendMediaGroup } : {}),
       },
     },
     catalogRepository: repository,
     catalogLoanRepository,
     membershipRepository,
     auditRepository,
+    ...(storageRepository ? { storageRepository } : {}),
+    ...(storageDefaultChatStore ? { storageDefaultChatStore } : {}),
     ...(catalogLookupService ? { catalogLookupService } : {}),
     ...(wikipediaBoardGameImportService ? { wikipediaBoardGameImportService } : {}),
     ...(boardGameGeekCollectionImportService ? { boardGameGeekCollectionImportService } : {}),
@@ -950,6 +1085,7 @@ test('handleTelegramCatalogAdminMessage detects a catalog title from a cover ima
   context.messageMedia = {
     attachmentKind: 'photo',
     fileId: 'telegram-photo-file-id',
+    messageId: 44,
     originalFileName: null,
     mimeType: null,
   };
@@ -963,8 +1099,8 @@ test('handleTelegramCatalogAdminMessage detects a catalog title from a cover ima
   assert.deepEqual(importCalls, ['Root']);
   assert.ok(replies.some((reply) => /detectar el nom de la portada/.test(reply.message)));
   assert.ok(replies.some((reply) => /Nom detectat: Root/.test(reply.message)));
-  assert.ok(replies.some((reply) => /He importat dades externes per Root/.test(reply.message)));
-  assert.equal(getCurrentSession()?.stepKey, 'select-field');
+  assert.equal(getCurrentSession()?.stepKey, 'cover-confirm');
+  assert.match(replies.at(-1)?.message ?? '', /guardar aquesta portada/);
   assert.equal((await repository.findItemById(1))?.displayName, 'Root');
 });
 
@@ -2337,6 +2473,140 @@ test('handleTelegramCatalogAdminCallback blocks non-admin edit and deactivate ac
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /només està disponible per a administradors del club/i);
   assert.equal(getCurrentSession(), null);
+});
+
+test('handleTelegramCatalogAdminCallback lets admins add catalog media backed by Storage', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const storageRepository = createStorageRepository();
+  const storageDefaultChatStore = createMemoryMetadataStorage({
+    'storage.default_chat': JSON.stringify({ chatId: -100123 }),
+  });
+  const sentMedia: Array<{ chatId: number; media: Array<{ type: 'photo'; media: string; caption?: string }>; messageThreadId?: number }> = [];
+  const { context, replies, getCurrentSession } = createContext({
+    repository,
+    storageRepository,
+    storageDefaultChatStore,
+    createForumTopic: async ({ chatId, name }) => ({ chatId, name, messageThreadId: 456 }),
+    sendMediaGroup: async (input) => {
+      sentMedia.push(input);
+      return [{ messageId: 777 }];
+    },
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.addMedia}3`));
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.addMedia}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'input');
+  assert.match(replies.at(-1)?.message ?? '', /Escriu la URL o adjunta la imatge/);
+  delete context.callbackData;
+
+  context.messageText = 'https://example.com/root-cover.jpg';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession(), null);
+
+  const media = await repository.listMedia({ itemId: 3 });
+  assert.equal(media[0]?.url, 'storage:entry:1');
+  assert.equal(media[0]?.sortOrder, 0);
+  assert.equal(storageRepository.__entries[0]?.messages[0]?.storageMessageId, 777);
+  assert.deepEqual(sentMedia, [
+    {
+      chatId: -100123,
+      messageThreadId: 456,
+      media: [{ type: 'photo', media: 'https://example.com/root-cover.jpg', caption: 'Root' }],
+    },
+  ]);
+});
+
+test('handleTelegramCatalogAdminMessage stores an attached catalog cover in Storage', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const storageRepository = createStorageRepository();
+  const copiedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }> = [];
+  const { context, getCurrentSession } = createContext({
+    repository,
+    storageRepository,
+    storageDefaultChatStore: createMemoryMetadataStorage({
+      'storage.default_chat': JSON.stringify({ chatId: -100123 }),
+    }),
+    createForumTopic: async ({ chatId, name }) => ({ chatId, name, messageThreadId: 456 }),
+    copyMessage: async (input) => {
+      copiedMessages.push(input);
+      return { messageId: 888 };
+    },
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.addMedia}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  delete context.callbackData;
+  assert.equal(getCurrentSession()?.stepKey, 'input');
+
+  context.messageText = undefined;
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'photo-file-id',
+    fileUniqueId: 'photo-file-unique-id',
+    messageId: 55,
+    caption: 'Root cover',
+  };
+  assert.equal(await handleTelegramCatalogAdminMessage(context), true);
+  assert.equal(getCurrentSession(), null);
+
+  const media = await repository.listMedia({ itemId: 3 });
+  assert.equal(media[0]?.url, 'storage:entry:1');
+  assert.equal(storageRepository.__entries[0]?.messages[0]?.telegramFileUniqueId, 'photo-file-unique-id');
+  assert.deepEqual(copiedMessages, [{ fromChatId: 1, messageId: 55, toChatId: -100123, messageThreadId: 456 }]);
 });
 
 test('handleTelegramCatalogAdminCallback lets admins edit and delete item media', async () => {

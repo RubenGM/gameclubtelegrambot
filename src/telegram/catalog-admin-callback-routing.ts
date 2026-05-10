@@ -10,6 +10,7 @@ export type CatalogAdminCallbackPrefixes = {
   edit: string;
   createActivity: string;
   deactivate: string;
+  addMedia: string;
   editMedia: string;
   deleteMedia: string;
 };
@@ -24,6 +25,7 @@ export type CatalogAdminCallbackRoute =
   | { kind: 'edit-item'; itemId: number }
   | { kind: 'create-activity'; itemId: number }
   | { kind: 'deactivate-item'; itemId: number }
+  | { kind: 'add-media'; itemId: number }
   | { kind: 'edit-media'; mediaId: number }
   | { kind: 'delete-media'; mediaId: number };
 
@@ -57,6 +59,9 @@ export function parseCatalogAdminCallbackRoute(
   }
   if (callbackData.startsWith(prefixes.deactivate)) {
     return { kind: 'deactivate-item', itemId: parseItemId(callbackData, prefixes.deactivate) };
+  }
+  if (callbackData.startsWith(prefixes.addMedia)) {
+    return { kind: 'add-media', itemId: parseItemId(callbackData, prefixes.addMedia) };
   }
   if (callbackData.startsWith(prefixes.editMedia)) {
     return { kind: 'edit-media', mediaId: parseItemId(callbackData, prefixes.editMedia) };

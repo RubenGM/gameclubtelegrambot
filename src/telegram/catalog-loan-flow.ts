@@ -2,9 +2,12 @@ import type { CatalogItemRecord, CatalogLoanRecord, CatalogLoanRepository, Catal
 export type { CatalogLoanRecord } from '../catalog/catalog-model.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
+import { parseCatalogStorageEntryUrl } from '../catalog/catalog-media-storage.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { catalogLoanNewsCategoryByItemType, type NewsGroupRepository } from '../news/news-group-catalog.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
+import { createDatabaseStorageRepository } from '../storage/storage-catalog-store.js';
+import type { StorageCategoryRepository, StorageEntryMessageRecord } from '../storage/storage-catalog.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import { escapeHtml, formatHtmlField, formatMemberCatalogItemDetails } from './catalog-presentation.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
@@ -33,6 +36,7 @@ export type TelegramCatalogLoanContext = TelegramCommandHandlerContext & {
   catalogLoanRepository?: CatalogLoanRepository;
   membershipRepository?: MembershipAccessRepository;
   newsGroupRepository?: NewsGroupRepository;
+  storageRepository?: StorageCategoryRepository;
 };
 
 type LoanDisplayContext = {
@@ -683,13 +687,95 @@ async function publishCatalogLoanNewsGroups(
     ? texts.groupBorrowed.replace('{user}', escapeHtml(input.userName)).replace('{item}', escapeHtml(input.item.displayName))
     : texts.groupReturned.replace('{user}', escapeHtml(input.userName)).replace('{item}', escapeHtml(input.item.displayName));
 
+  const cover = input.action === 'borrowed' ? await resolveCatalogLoanCover(context, input.item.id) : null;
+
   await Promise.all(
     groups.map(async (group) => {
       try {
-        await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+        const sentWithCaption = cover ? await trySendLoanCover(context, group.chatId, cover, message) : false;
+        if (!sentWithCaption) {
+          await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+        }
       } catch {
         // La notificació de grup no ha de bloquejar el préstec o retorn.
       }
     }),
   );
+}
+
+type CatalogLoanCover =
+  | { kind: 'storage'; message: StorageEntryMessageRecord }
+  | { kind: 'url'; url: string };
+
+async function resolveCatalogLoanCover(context: TelegramCatalogLoanContext, itemId: number): Promise<CatalogLoanCover | null> {
+  const catalog = resolveCatalogRepository(context);
+  const media = (await catalog.listMedia({ itemId }))
+    .filter((entry) => entry.mediaType === 'image')
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id);
+  const primary = media[0];
+  if (!primary) {
+    return null;
+  }
+
+  const storageEntryId = parseCatalogStorageEntryUrl(primary.url);
+  if (storageEntryId) {
+    const detail = await resolveStorageRepository(context).getEntryDetail(storageEntryId);
+    const message = detail?.messages
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id)
+      .find((candidate) => candidate.attachmentKind === 'photo' || candidate.mimeType?.startsWith('image/'));
+    return message ? { kind: 'storage', message } : null;
+  }
+
+  return /^https?:\/\//i.test(primary.url) ? { kind: 'url', url: primary.url } : null;
+}
+
+async function trySendLoanCover(
+  context: TelegramCatalogLoanContext,
+  chatId: number,
+  cover: CatalogLoanCover,
+  caption: string,
+): Promise<boolean> {
+  if (cover.kind === 'storage') {
+    try {
+      await copyLoanCoverMessage(context, {
+        fromChatId: cover.message.storageChatId,
+        messageId: cover.message.storageMessageId,
+        toChatId: chatId,
+      });
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  if (!context.runtime.bot.sendMediaGroup) {
+    return false;
+  }
+  try {
+    await context.runtime.bot.sendMediaGroup({
+      chatId,
+      media: [{ type: 'photo', media: cover.url, caption }],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function copyLoanCoverMessage(
+  context: TelegramCatalogLoanContext,
+  input: { fromChatId: number; messageId: number; toChatId: number },
+): Promise<{ messageId: number } | null> {
+  if (context.runtime.bot.copyMessage) {
+    try {
+      return await context.runtime.bot.copyMessage(input);
+    } catch {
+      // Use forwardMessage as a fallback for media Telegram cannot copy.
+    }
+  }
+  return context.runtime.bot.forwardMessage ? context.runtime.bot.forwardMessage(input) : null;
+}
+
+function resolveStorageRepository(context: TelegramCatalogLoanContext): StorageCategoryRepository {
+  return context.storageRepository ?? createDatabaseStorageRepository({ database: context.runtime.services.database.db as never });
 }

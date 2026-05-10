@@ -75,6 +75,32 @@ export async function startCatalogAdminDeactivateSession({
 ${texts.askDeactivate}`, { ...buildDeactivateConfirmOptions(language), parseMode: 'HTML' });
 }
 
+export async function startCatalogAdminAddMediaSession({
+  session,
+  reply,
+  language,
+  mediaFlowKey,
+  itemId,
+}: {
+  session: SessionStarter;
+  reply: (message: string, options?: TelegramReplyOptions) => Promise<unknown>;
+  language: 'ca' | 'es' | 'en';
+  mediaFlowKey: string;
+  itemId: number;
+}): Promise<void> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  await session.start({
+    flowKey: mediaFlowKey,
+    stepKey: 'input',
+    data: {
+      itemId,
+      mediaType: 'image',
+      sortOrder: 0,
+    },
+  });
+  await reply(texts.mediaSourcePrompt, buildSingleCancelKeyboard(language));
+}
+
 export async function startCatalogAdminEditMediaSession({
   session,
   reply,

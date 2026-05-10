@@ -16,6 +16,7 @@ test('createHttpCatalogLookupService maps Open Library results into catalog look
           first_publish_year: 2024,
           language: ['eng'],
           isbn: ['9780786969518'],
+          cover_i: 12345,
         },
       ],
     }), { status: 200 }),
@@ -30,10 +31,12 @@ test('createHttpCatalogLookupService maps Open Library results into catalog look
     openLibraryKey: '/works/OL123W',
     openLibraryUrl: 'https://openlibrary.org/works/OL123W',
     isbn: '9780786969518',
+    coverUrl: 'https://covers.openlibrary.org/b/id/12345-L.jpg',
   });
   assert.deepEqual(results[0]?.importedData.metadata, {
     source: 'open-library',
     author: 'Wizards RPG Team',
+    coverUrl: 'https://covers.openlibrary.org/b/id/12345-L.jpg',
   });
   assert.equal(results[0]?.importedData.originalName, 'Player\'s Handbook: 2024 Edition');
   assert.equal(results[0]?.importedData.language, 'ENG');

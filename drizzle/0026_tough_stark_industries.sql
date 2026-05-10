@@ -1,0 +1,2 @@
+ALTER TABLE "storage_categories" ADD COLUMN "category_purpose" varchar(32) DEFAULT 'user_uploads' NOT NULL;--> statement-breakpoint
+CREATE INDEX "storage_categories_category_purpose_idx" ON "storage_categories" USING btree ("category_purpose");

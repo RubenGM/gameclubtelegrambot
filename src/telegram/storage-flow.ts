@@ -3150,7 +3150,7 @@ async function listUploadableCategories(context: StorageFlowContext): Promise<St
 
 async function listActiveCategories(context: StorageFlowContext): Promise<StorageCategoryRecord[]> {
   const categories = await resolveRepository(context).listCategories();
-  return categories.filter((category) => category.lifecycleStatus === 'active');
+  return categories.filter((category) => category.lifecycleStatus === 'active' && category.categoryPurpose === 'user_uploads');
 }
 
 async function findVisibleStorageCategoryByDisplayName(

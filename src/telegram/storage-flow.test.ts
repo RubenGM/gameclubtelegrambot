@@ -66,6 +66,7 @@ function createCategory(overrides: Partial<StorageCategoryRecord> = {}): Storage
     description: 'Documentacion',
     storageChatId: -100123,
     storageThreadId: 10,
+    categoryPurpose: 'user_uploads',
     lifecycleStatus: 'active',
     createdAt: '2026-04-21T10:00:00.000Z',
     updatedAt: '2026-04-21T10:00:00.000Z',
@@ -92,6 +93,7 @@ function createRepository(initialCategories: StorageCategoryRecord[] = [createCa
         description: input.description,
         storageChatId: input.storageChatId,
         storageThreadId: input.storageThreadId,
+        categoryPurpose: input.categoryPurpose ?? 'user_uploads',
       });
       categories.set(category.id, category);
       return category;

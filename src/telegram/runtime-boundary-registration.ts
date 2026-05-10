@@ -1241,6 +1241,15 @@ function registerCatalogAdminCallbacks({
   bot.onCallback(catalogAdminCallbackPrefixes.deactivate, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
+  bot.onCallback(catalogAdminCallbackPrefixes.addMedia, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.editMedia, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.deleteMedia, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
 }
 
 function registerTableReadCallbacks({

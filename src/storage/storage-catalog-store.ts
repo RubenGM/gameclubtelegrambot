@@ -32,6 +32,7 @@ export function createDatabaseStorageRepository({
           description: input.description,
           storageChatId: input.storageChatId,
           storageThreadId: input.storageThreadId,
+          categoryPurpose: input.categoryPurpose ?? 'user_uploads',
         })
         .returning();
 
@@ -426,6 +427,7 @@ function mapStorageCategoryRow(row: typeof storageCategories.$inferSelect): Stor
     parentCategoryId: row.parentCategoryId,
     storageChatId: row.storageChatId,
     storageThreadId: row.storageThreadId,
+    categoryPurpose: row.categoryPurpose as StorageCategoryRecord['categoryPurpose'],
     lifecycleStatus: row.lifecycleStatus as StorageCategoryRecord['lifecycleStatus'],
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

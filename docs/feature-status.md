@@ -21,7 +21,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario.                                                           |
-| Catálogo                                     | 🟡 Operativo con huecos | CRUD, familias, búsqueda, media por URL, importación desde Wikipedia/Open Library, BGG asistida y detección de título por portada.          |
+| Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y detección de título por portada.       |
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
 | Grupos de noticias                           | 🟢 Operativo         | `/news` acepta comandos y botones para activar/desactivar y gestionar suscripciones por categoría, con publicación por categoría desde agenda, LFG y préstecs. |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
@@ -137,7 +137,7 @@ Riesgos o pendientes:
 
 ## Catalogo
 
-Estado: `operativo con integraciones parciales`.
+Estado: `operativo`.
 
 Implementado:
 
@@ -147,22 +147,27 @@ Implementado:
 - Familias y grupos para agrupar lineas, colecciones o expansiones.
 - Campos principales: titulo, original, descripcion, idioma, editorial, año, jugadores, edad, duracion, referencias externas y metadata.
 - Media por URL con tipo `image`, `link` o `document`.
-- En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; OpenCode sugiere el titulo y luego continúa la busqueda normal en API.
+- Los admins pueden añadir imagen a un item existente desde el detalle usando URL o adjunto Telegram.
+- Las imagenes reales del catalogo se guardan como entradas de Storage en una categoria interna `catalog_media`, oculta de la navegacion normal de `/storage`.
+- La media principal de un item es la primera imagen por `sortOrder`, usando `0` como portada.
+- En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; OpenCode sugiere el titulo y, si se crea el item, el bot pregunta si se guarda esa portada como imagen principal.
 - `/catalog_search` como consulta para usuarios aprobados.
 - Vista de lectura con indice por rangos de tres iniciales: cada linea agrupa letras clickables, muestra total de articulos y desglose por juegos de mesa, libros y accesorios; los grupos internos no aparecen en la navegacion principal.
 - Creacion de actividad desde item del catalogo y aviso si el item esta prestado.
+- Los avisos de prestamo en grupos de noticias intentan publicar una sola imagen: la portada principal del item; si falla, mantienen el texto actual.
 
 Integraciones reales:
 
-- Juegos de mesa: importacion asistida desde Wikipedia en el flujo de alta.
-- Libros y RPG: lookup HTTP hacia servicios externos desde `catalog-lookup-service`.
-- BoardGameGeek: hay importacion de coleccion BGG en `catalog-admin-support.ts` y servicio en `wikipedia-boardgame-import-service.ts`; no es la fuente principal del alta individual de juegos, que actualmente intenta Wikipedia primero.
+- Juegos de mesa: BGG es la fuente principal cuando `bgg.apiKey` esta configurada, con Wikipedia como fallback operativo.
+- Libros y RPG: lookup HTTP hacia Open Library desde `catalog-lookup-service`, incluyendo portada cuando Open Library expone `cover_i`, `cover_edition_key` o ISBN utilizable.
+- BoardGameGeek: importacion individual y de coleccion operativas; cuando BGG devuelve imagen/thumbnail, el alta intenta guardarla como portada.
+- Open Library: cuando devuelve portada, el alta intenta guardarla como portada.
 - OpenCode: solo se usa para leer el titulo visible desde la portada; los metadatos completos siguen viniendo de APIs catalogadas como BGG/Open Library/Wikipedia.
 
 Riesgos o pendientes:
 
 - El nombre historico `wikipedia-boardgame-import-service.ts` mezcla Wikipedia, Open Library y BGG collection, lo que puede confundir mantenimiento.
-- No hay descarga/subida binaria de imagenes del catalogo; media guarda URLs.
+- La importacion automatica de imagenes externas es best-effort: si Telegram no acepta la URL o no hay Storage por defecto configurado, el item se crea igual.
 
 ## Prestamos
 

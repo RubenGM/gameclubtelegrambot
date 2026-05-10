@@ -163,6 +163,22 @@ export function buildMediaTypeOptions(language: 'ca' | 'es' | 'en' = 'ca'): Tele
   ]);
 }
 
+export function buildMediaSourceOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  return buildReplyKeyboard([
+    [texts.mediaSourceUrl, texts.mediaSourceAttachment],
+    [dangerButton(texts.cancel)],
+  ]);
+}
+
+export function buildCoverSaveOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  return buildReplyKeyboard([
+    [successButton(texts.coverSaveAsMedia), texts.coverSkipMedia],
+    [dangerButton(texts.cancel)],
+  ]);
+}
+
 export function buildEditMediaTypeOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).catalogAdmin;
   return buildReplyKeyboard([

@@ -559,6 +559,7 @@ export const storageCategories = pgTable(
     description: text('description'),
     storageChatId: bigint('storage_chat_id', { mode: 'number' }).notNull(),
     storageThreadId: integer('storage_thread_id').notNull(),
+    categoryPurpose: varchar('category_purpose', { length: 32 }).notNull().default('user_uploads'),
     lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -569,6 +570,7 @@ export const storageCategories = pgTable(
     uniqueTopic: uniqueIndex('storage_categories_storage_topic_unique').on(table.storageChatId, table.storageThreadId),
     lifecycleLookup: index('storage_categories_lifecycle_status_idx').on(table.lifecycleStatus),
     parentLookup: index('storage_categories_parent_category_id_idx').on(table.parentCategoryId),
+    purposeLookup: index('storage_categories_category_purpose_idx').on(table.categoryPurpose),
   }),
 );
 

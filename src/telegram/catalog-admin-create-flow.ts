@@ -27,6 +27,7 @@ import {
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
 type SessionRuntime = Pick<ConversationSessionRuntime, 'advance'>;
+type DetectedDisplayNameResult = string | { displayName: string; coverAttachment?: Record<string, unknown> } | Error | null;
 
 type CreateLabels = {
   confirmCreate: string;
@@ -92,7 +93,7 @@ export async function handleCatalogAdminCreateSession({
   searchCatalogLookupCandidates: (input: { itemType: CatalogItemType; displayName: string; author?: string }) => Promise<CatalogLookupCandidate[]>;
   importWikipediaBoardGameDraft: (title: string) => Promise<WikipediaBoardGameImportResult>;
   createWikipediaImportedBoardGame: (baseData: Record<string, unknown>, draft: WikipediaBoardGameCatalogDraft, sourceTitle: string) => Promise<void>;
-  detectDisplayNameFromAttachment?: () => Promise<string | Error | null>;
+  detectDisplayNameFromAttachment?: () => Promise<DetectedDisplayNameResult>;
   importWikipediaErrorMessage: (result: Extract<WikipediaBoardGameImportResult, { ok: false }>) => string;
   formatDraftSummary: (data: Record<string, unknown>) => Promise<string>;
 }): Promise<boolean> {
@@ -219,6 +220,7 @@ export async function handleCatalogAdminCreateSession({
     });
   }
   if (stepKey === 'display-name') {
+    let coverAttachment: Record<string, unknown> | null = null;
     if (!text.trim() && detectDisplayNameFromAttachment) {
       await reply(texts.coverTitleDetecting, buildSingleCancelKeyboard(language));
       const detectedDisplayName = await detectDisplayNameFromAttachment();
@@ -227,8 +229,10 @@ export async function handleCatalogAdminCreateSession({
         return true;
       }
       if (detectedDisplayName) {
-        await reply(texts.coverTitleDetected.replace('{name}', detectedDisplayName), buildSingleCancelKeyboard(language));
-        text = detectedDisplayName;
+        const detectedText = typeof detectedDisplayName === 'string' ? detectedDisplayName : detectedDisplayName.displayName;
+        coverAttachment = typeof detectedDisplayName === 'string' ? null : detectedDisplayName.coverAttachment ?? null;
+        await reply(texts.coverTitleDetected.replace('{name}', detectedText), buildSingleCancelKeyboard(language));
+        text = detectedText;
       }
     }
 
@@ -238,7 +242,7 @@ export async function handleCatalogAdminCreateSession({
     }
 
     const itemType = String(data.itemType) as CatalogItemType;
-    const nextData = { ...data, displayName: text };
+    const nextData = { ...data, displayName: text, ...(coverAttachment ? { coverAttachment } : {}) };
     if (itemType === 'board-game') {
       await reply(texts.wikipediaSearching, buildSingleCancelKeyboard(language));
       const importResult = await importWikipediaBoardGameDraft(text);

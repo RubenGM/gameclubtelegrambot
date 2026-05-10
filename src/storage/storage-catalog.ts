@@ -1,4 +1,5 @@
 export type StorageCategoryLifecycleStatus = 'active' | 'archived';
+export type StorageCategoryPurpose = 'user_uploads' | 'catalog_media';
 export type StorageEntrySourceKind = 'topic_direct' | 'dm_copy';
 export type StorageEntryLifecycleStatus = 'active' | 'hidden' | 'deleted' | 'missing_source';
 export type StorageAttachmentKind = 'document' | 'photo' | 'video' | 'audio';
@@ -11,6 +12,7 @@ export interface StorageCategoryRecord {
   description: string | null;
   storageChatId: number;
   storageThreadId: number;
+  categoryPurpose: StorageCategoryPurpose;
   lifecycleStatus: StorageCategoryLifecycleStatus;
   createdAt: string;
   updatedAt: string;
@@ -85,6 +87,7 @@ export interface StorageCategoryRepository {
     description: string | null;
     storageChatId: number;
     storageThreadId: number;
+    categoryPurpose?: StorageCategoryPurpose;
   }): Promise<StorageCategoryRecord>;
   updateCategoryLifecycleStatus(input: {
     categoryId: number;
@@ -163,6 +166,7 @@ export async function createStorageCategory({
   parentCategoryId,
   storageChatId,
   storageThreadId,
+  categoryPurpose = 'user_uploads',
 }: {
   repository: StorageCategoryRepository;
   slug: string;
@@ -171,6 +175,7 @@ export async function createStorageCategory({
   description?: string | null;
   storageChatId: number;
   storageThreadId: number;
+  categoryPurpose?: StorageCategoryPurpose;
 }): Promise<StorageCategoryRecord> {
   return repository.createCategory({
     slug: normalizeSlug(slug),
@@ -179,6 +184,7 @@ export async function createStorageCategory({
     description: normalizeOptionalText(description),
     storageChatId: normalizeTelegramId(storageChatId, 'storage chat'),
     storageThreadId: normalizePositiveInteger(storageThreadId, 'storage thread'),
+    categoryPurpose: normalizeCategoryPurpose(categoryPurpose),
   });
 }
 
@@ -389,4 +395,11 @@ function normalizeTelegramId(value: number, label: string): number {
     throw new Error(`Storage ${label} id must be a non-zero integer`);
   }
   return value;
+}
+
+function normalizeCategoryPurpose(value: StorageCategoryPurpose): StorageCategoryPurpose {
+  if (value === 'user_uploads' || value === 'catalog_media') {
+    return value;
+  }
+  throw new Error('Storage category purpose is invalid');
 }

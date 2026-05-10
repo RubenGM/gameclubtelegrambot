@@ -183,6 +183,13 @@
       "when": 1778320659596,
       "tag": "0025_perfect_molten_man",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1778410232524,
+      "tag": "0026_tough_stark_industries",
+      "breakpoints": true
     }
   ]
 }

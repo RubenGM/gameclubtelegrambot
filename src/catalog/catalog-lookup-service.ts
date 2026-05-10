@@ -29,6 +29,8 @@ interface OpenLibrarySearchResult {
   first_publish_year?: unknown;
   language?: unknown;
   isbn?: unknown;
+  cover_i?: unknown;
+  cover_edition_key?: unknown;
 }
 
 export function createHttpCatalogLookupService({
@@ -79,6 +81,7 @@ function mapOpenLibraryDocumentToCandidate(document: OpenLibrarySearchResult): C
   const author = firstString(document.author_name);
   const language = firstString(document.language)?.toUpperCase() ?? null;
   const isbn = firstString(document.isbn);
+  const coverUrl = buildOpenLibraryCoverUrl(document, isbn);
   const subtitle = asNonEmptyString(document.subtitle);
   const summaryParts = [author, publisher, publicationYear ? String(publicationYear) : null].filter((part) => part && part.trim().length > 0);
 
@@ -97,13 +100,29 @@ function mapOpenLibraryDocumentToCandidate(document: OpenLibrarySearchResult): C
         openLibraryKey: sourceId,
         openLibraryUrl: `https://openlibrary.org${sourceId}`,
         ...(isbn ? { isbn } : {}),
+        ...(coverUrl ? { coverUrl } : {}),
       },
       metadata: {
         source: 'open-library',
         ...(author ? { author } : {}),
+        ...(coverUrl ? { coverUrl } : {}),
       },
     },
   };
+}
+
+function buildOpenLibraryCoverUrl(document: OpenLibrarySearchResult, isbn: string | null): string | null {
+  if (typeof document.cover_i === 'number' && Number.isInteger(document.cover_i)) {
+    return `https://covers.openlibrary.org/b/id/${document.cover_i}-L.jpg`;
+  }
+  const coverEditionKey = asNonEmptyString(document.cover_edition_key);
+  if (coverEditionKey) {
+    return `https://covers.openlibrary.org/b/olid/${encodeURIComponent(coverEditionKey)}-L.jpg`;
+  }
+  if (isbn) {
+    return `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(isbn)}-L.jpg`;
+  }
+  return null;
 }
 
 function asNonEmptyString(value: unknown): string | null {
