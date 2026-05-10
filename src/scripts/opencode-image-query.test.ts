@@ -7,6 +7,7 @@ import {
   defaultOpencodeVisionModel,
   HelpRequested,
   parseOpencodeImageQueryArgs,
+  resolveOpencodeInvocation,
 } from './opencode-image-query.js';
 
 test('parseOpencodeImageQueryArgs requires image and question', () => {
@@ -77,5 +78,19 @@ test('buildOpencodeRunArgs attaches the image and selected model', () => {
       '--file',
       './cover.jpg',
     ],
+  );
+});
+
+test('resolveOpencodeInvocation can wrap OpenCode with sudo for another user', () => {
+  assert.deepEqual(
+    resolveOpencodeInvocation({
+      opencodeBin: '/usr/local/bin/opencode',
+      opencodeArgs: ['run', 'Hola', '--model', 'openai/gpt-5.4-mini'],
+      runAsUser: 'cawa',
+    }),
+    {
+      command: 'sudo',
+      args: ['-n', '-H', '-u', 'cawa', '/usr/local/bin/opencode', 'run', 'Hola', '--model', 'openai/gpt-5.4-mini'],
+    },
   );
 });

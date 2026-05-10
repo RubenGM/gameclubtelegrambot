@@ -18,6 +18,27 @@ Examples:
 Prefer this wrapper over calling `journalctl` directly when debugging runtime
 Telegram failures.
 
+## OpenCode / IA desde el bot
+
+Cuando una feature del bot necesite usar IA mediante OpenCode, no ejecutes
+`opencode` directamente desde el servicio. Usa siempre el wrapper:
+
+```bash
+./scripts/opencode-cawa.sh
+```
+
+En despliegue, el servicio apunta a ese wrapper con `GAMECLUB_OPENCODE_BIN`.
+El bot corre como `gameclubbot`, pero OpenCode debe ejecutarse como el usuario
+operador `cawa`, que es donde estan las credenciales y modelos disponibles. El
+instalador mantiene una regla sudoers limitada para permitir solo esa ejecucion.
+
+Para nuevas integraciones, lee `GAMECLUB_OPENCODE_BIN` y llama a ese binario en
+lugar de hardcodear `opencode`. Si necesitas enviar el prompt por stdin, usa:
+
+```bash
+printf 'prompt\n' | ./scripts/opencode-cawa.sh run --stdin --model openai/gpt-5.4-mini
+```
+
 ## Local validation workflow
 
 When making a code change that must be validated in the running bot, always run:

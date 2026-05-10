@@ -9,6 +9,8 @@ export type CatalogAdminCallbackPrefixes = {
   inspectGroup: string;
   edit: string;
   createActivity: string;
+  autocorrect: string;
+  translateDescription: string;
   deactivate: string;
   addMedia: string;
   editMedia: string;
@@ -24,6 +26,8 @@ export type CatalogAdminCallbackRoute =
   | { kind: 'inspect-group'; groupId: number }
   | { kind: 'edit-item'; itemId: number }
   | { kind: 'create-activity'; itemId: number }
+  | { kind: 'autocorrect-item'; itemId: number }
+  | { kind: 'translate-description'; itemId: number }
   | { kind: 'deactivate-item'; itemId: number }
   | { kind: 'add-media'; itemId: number }
   | { kind: 'edit-media'; mediaId: number }
@@ -56,6 +60,12 @@ export function parseCatalogAdminCallbackRoute(
   }
   if (callbackData.startsWith(prefixes.createActivity)) {
     return { kind: 'create-activity', itemId: parseItemId(callbackData, prefixes.createActivity) };
+  }
+  if (callbackData.startsWith(prefixes.autocorrect)) {
+    return { kind: 'autocorrect-item', itemId: parseItemId(callbackData, prefixes.autocorrect) };
+  }
+  if (callbackData.startsWith(prefixes.translateDescription)) {
+    return { kind: 'translate-description', itemId: parseItemId(callbackData, prefixes.translateDescription) };
   }
   if (callbackData.startsWith(prefixes.deactivate)) {
     return { kind: 'deactivate-item', itemId: parseItemId(callbackData, prefixes.deactivate) };

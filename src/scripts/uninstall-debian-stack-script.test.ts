@@ -21,6 +21,7 @@ test('uninstall-debian-stack dry run removes service, polkit rule, and operator 
   assert.match(result.stdout, /\+ sudo systemctl disable --now gameclubtelegrambot\.service/);
   assert.match(result.stdout, /\+ sudo rm -f \/etc\/systemd\/system\/gameclubtelegrambot\.service/);
   assert.match(result.stdout, /\+ sudo rm -f \/etc\/polkit-1\/rules\.d\/50-gameclubtelegrambot\.rules/);
+  assert.match(result.stdout, /\+ sudo rm -f \/etc\/sudoers\.d\/gameclubtelegrambot-opencode/);
   assert.match(
     result.stdout,
     new RegExp(`\\+ sudo rm -f .*${operatorUser}.*/\\.config/autostart/gameclubtelegrambot-tray\\.desktop`),

@@ -4,12 +4,12 @@ import {
   formatCatalogDescriptionLine,
   formatHtmlField,
   renderCatalogItemType,
-  renderCatalogOptionalObject,
   renderCatalogPlayerRange,
 } from './catalog-presentation.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 
 export function formatCatalogAdminItemDetails({
+  breadcrumbLine,
   botLanguage,
   item,
   familyName,
@@ -18,6 +18,7 @@ export function formatCatalogAdminItemDetails({
   loanAvailabilityLines,
   itemTypeSupportsPlayers,
 }: {
+  breadcrumbLine?: string | null;
   botLanguage?: string;
   item: CatalogItemRecord;
   familyName: string | null;
@@ -26,33 +27,37 @@ export function formatCatalogAdminItemDetails({
   loanAvailabilityLines: string[];
   itemTypeSupportsPlayers: (itemType: CatalogItemType) => boolean;
 }): string {
-  const texts = createTelegramI18n(normalizeBotLanguage(botLanguage, 'ca')).catalogAdmin;
+  const language = normalizeBotLanguage(botLanguage, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
   const mediaLines = media.length === 0
     ? []
     : [
       formatHtmlField(texts.media, `${media.length} ${texts.mediaCount(media.length)}`),
       ...media.map((entry) => `- #${entry.id}: ${escapeHtml(entry.mediaType)} · ${escapeHtml(entry.url)}`),
     ];
-  const descriptionLine = formatCatalogDescriptionLine(item.itemType, item.description);
+  const descriptionLine = formatCatalogDescriptionLine(item.itemType, item.description, language);
+  const originalNameLine = item.originalName && item.originalName !== item.displayName
+    ? [formatHtmlField(texts.editFieldOriginalName, escapeHtml(item.originalName))]
+    : [];
 
   return [
+    ...(breadcrumbLine ? [breadcrumbLine] : []),
     `<b>${escapeHtml(item.displayName)}</b> (#${item.id})`,
-    formatHtmlField(texts.type, renderCatalogItemType(item.itemType)),
+    '',
+    formatHtmlField(texts.type, renderCatalogItemType(item.itemType, language)),
     ...(familyName ? [formatHtmlField(texts.family, escapeHtml(familyName))] : []),
-    formatHtmlField(texts.group, escapeHtml(groupName ?? texts.noGroup)),
+    ...(groupName ? [formatHtmlField(texts.group, escapeHtml(groupName))] : []),
     ...loanAvailabilityLines,
-    ...(item.originalName ? [formatHtmlField(texts.editFieldOriginalName, escapeHtml(item.originalName))] : []),
+    ...originalNameLine,
     ...(descriptionLine ? [descriptionLine] : []),
     ...(item.language ? [formatHtmlField(texts.language, escapeHtml(item.language))] : []),
     ...(item.publisher ? [formatHtmlField(texts.publisher, escapeHtml(item.publisher))] : []),
     ...(item.publicationYear !== null ? [formatHtmlField(texts.publicationYear, String(item.publicationYear))] : []),
     ...(itemTypeSupportsPlayers(item.itemType) && (item.playerCountMin !== null || item.playerCountMax !== null)
-      ? [formatHtmlField(texts.players, renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax))]
+      ? [formatHtmlField(texts.players, renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, language))]
       : []),
     ...(item.recommendedAge !== null ? [formatHtmlField(texts.recommendedAge, String(item.recommendedAge))] : []),
     ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.playTimeMinutes, String(item.playTimeMinutes))] : []),
-    ...(item.externalRefs ? [`${texts.editFieldExternalRefs}: ${escapeHtml(renderCatalogOptionalObject(item.externalRefs))}`] : []),
-    ...(item.metadata ? [`${texts.editFieldMetadata}: ${escapeHtml(renderCatalogOptionalObject(item.metadata))}`] : []),
     ...mediaLines,
     formatHtmlField(texts.status, item.lifecycleStatus),
   ].join('\n');

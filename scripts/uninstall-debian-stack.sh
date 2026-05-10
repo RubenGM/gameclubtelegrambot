@@ -5,6 +5,7 @@ SERVICE_NAME="gameclubtelegrambot.service"
 BACKUP_SERVICE_NAME="gameclubtelegrambot-backup.service"
 BACKUP_TIMER_NAME="gameclubtelegrambot-backup.timer"
 POLKIT_RULE_PATH="/etc/polkit-1/rules.d/50-gameclubtelegrambot.rules"
+SUDOERS_OPENCODE_PATH="/etc/sudoers.d/gameclubtelegrambot-opencode"
 AUTOSTART_FILE_NAME="gameclubtelegrambot-tray.desktop"
 OPERATOR_USER="${SUDO_USER:-$USER}"
 DRY_RUN=0
@@ -25,6 +26,7 @@ What it does:
   - Stops and disables the systemd service when present.
   - Removes the installed systemd unit file.
   - Removes the installed polkit rule for service control.
+  - Removes the installed sudoers rule for OpenCode wrapper execution.
   - Removes the Game Club tray autostart entry for the operator user.
   - Reloads systemd after removing unit files.
 
@@ -131,6 +133,15 @@ remove_polkit_rule() {
   log "Polkit rule is already absent: $POLKIT_RULE_PATH"
 }
 
+remove_opencode_sudoers_rule() {
+  if [ "$DRY_RUN" -eq 1 ] || [ -e "$SUDOERS_OPENCODE_PATH" ]; then
+    run_root_cmd rm -f "$SUDOERS_OPENCODE_PATH"
+    return 0
+  fi
+
+  log "OpenCode sudoers rule is already absent: $SUDOERS_OPENCODE_PATH"
+}
+
 operator_home_dir() {
   getent passwd "$OPERATOR_USER" | cut -d: -f6
 }
@@ -222,6 +233,7 @@ disable_and_stop_service
 remove_systemd_unit
 remove_backup_units
 remove_polkit_rule
+remove_opencode_sudoers_rule
 remove_operator_autostart
 reload_systemd
 
@@ -229,6 +241,7 @@ log 'Uninstall completed.'
 log "Removed service unit: $(systemd_unit_path)"
 log "Removed backup units: $(backup_service_unit_path), $(backup_timer_unit_path)"
 log "Removed polkit rule: $POLKIT_RULE_PATH"
+log "Removed OpenCode sudoers rule: $SUDOERS_OPENCODE_PATH"
 if [ "$REMOVE_AUTOSTART" -eq 1 ]; then
   log "Removed tray autostart for operator user: $OPERATOR_USER"
 fi

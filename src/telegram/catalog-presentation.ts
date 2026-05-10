@@ -133,6 +133,7 @@ export function formatMemberCatalogGroupDetails({
 }
 
 export function formatMemberCatalogItemDetails({
+  breadcrumbLine,
   item,
   family,
   group,
@@ -141,6 +142,7 @@ export function formatMemberCatalogItemDetails({
   extraLines = [],
   language = 'ca',
 }: {
+  breadcrumbLine?: string | null;
   item: CatalogItemRecord;
   family: CatalogFamilyRecord | null;
   group: CatalogGroupRecord | null;
@@ -172,10 +174,12 @@ export function formatMemberCatalogItemDetails({
   ];
 
   return [
+    ...(breadcrumbLine ? [breadcrumbLine] : []),
     `<b>${escapeHtml(item.displayName)}</b>`,
+    '',
     formatHtmlField(texts.catalogAdmin.type, renderCatalogItemType(item.itemType, language)),
-    formatHtmlField(texts.catalogAdmin.family, escapeHtml(family?.displayName ?? texts.catalogAdmin.noFamily)),
-    formatHtmlField(texts.catalogAdmin.group, escapeHtml(group?.displayName ?? texts.catalogAdmin.noGroup)),
+    ...(family ? [formatHtmlField(texts.catalogAdmin.family, escapeHtml(family.displayName))] : []),
+    ...(group ? [formatHtmlField(texts.catalogAdmin.group, escapeHtml(group.displayName))] : []),
     ...availabilityLines,
     ...detailLines,
     ...mediaLines,

@@ -487,6 +487,42 @@ test('handleTelegramCatalogReadStartText opens linked item details from /start',
 
   assert.equal(handled, true);
   assert.equal(replies[0]?.options?.parseMode, 'HTML');
+  assert.match(replies[0]?.message ?? '', /catalog_read_letter_G/);
+  assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Sense grup/);
+});
+
+test('handleTelegramCatalogReadStartText sends the cover image before linked item details', async () => {
+  const repository = createRepository({
+    items: [
+      buildItem(1, 'Game 1'),
+    ],
+    media: [
+      {
+        id: 3,
+        familyId: null,
+        itemId: 1,
+        mediaType: 'image',
+        url: 'https://example.com/game-1.jpg',
+        altText: 'Game 1',
+        sortOrder: 0,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+  });
+  const { context, replies } = createContext(repository);
+  const mediaGroups: Array<{ chatId: number; media: Array<{ type: 'photo'; media: string }> }> = [];
+  (context.runtime.bot as unknown as { sendMediaGroup: (input: { chatId: number; media: Array<{ type: 'photo'; media: string }> }) => Promise<Array<{ messageId: number }>> }).sendMediaGroup = async (input) => {
+    mediaGroups.push(input);
+    return [{ messageId: 99 }];
+  };
+  context.messageText = '/start catalog_read_item_1';
+
+  const handled = await handleTelegramCatalogReadStartText(context);
+
+  assert.equal(handled, true);
+  assert.deepEqual(mediaGroups, [{ chatId: 1, media: [{ type: 'photo', media: 'https://example.com/game-1.jpg' }] }]);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
 });
 

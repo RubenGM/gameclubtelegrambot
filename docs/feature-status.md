@@ -46,7 +46,7 @@ Implementado:
 - Long polling con `allowed_updates` limitado a `message` y `callback_query` en `src/telegram/runtime-boundary-support.ts`.
 - Capa intermedia de reintentos para envios y operaciones Telegram en `src/telegram/telegram-api-retry.ts`, usada desde el boundary runtime.
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
-- Herramienta `npm run opencode:image` para enviar una imagen a OpenCode con pregunta y modelo configurables; usa `openai/gpt-5.4-mini` por defecto y esta pensada como paso previo a búsquedas BGG, no como fuente de metadatos.
+- Herramienta `npm run opencode:image` y wrapper `scripts/opencode-cawa.sh` para enviar prompts/imagenes a OpenCode con el usuario operador; usa `openai/gpt-5.4-mini` por defecto y esta pensada como paso previo a búsquedas BGG o traducciones asistidas, no como fuente de metadatos.
 
 Riesgos o pendientes:
 
@@ -148,8 +148,10 @@ Implementado:
 - Campos principales: titulo, original, descripcion, idioma, editorial, año, jugadores, edad, duracion, referencias externas y metadata.
 - Media por URL con tipo `image`, `link` o `document`.
 - Los admins pueden añadir imagen a un item existente desde el detalle usando URL o adjunto Telegram.
+- Los admins pueden autocorregir datos de juegos/expansiones y libros desde el detalle: el bot reconsulta BGG/Open Library con el titulo o ID disponible, intenta traducir al castellano las descripciones BGG cuando el bot esta en español, actualiza campos, limpia referencias externas/metadata visibles y reporta si la portada se ha importado, ya existia o no estaba disponible. Tambien pueden traducir solo la descripcion actual del item sin tocar el resto de datos.
 - Las imagenes reales del catalogo se guardan como entradas de Storage en una categoria interna `catalog_media`, oculta de la navegacion normal de `/storage`.
 - La media principal de un item es la primera imagen por `sortOrder`, usando `0` como portada.
+- Al abrir el detalle de un item, el bot intenta mostrar primero la portada principal y despues una ficha textual con breadcrumbs hacia la lista, titulo separado, campos vacios omitidos y acciones.
 - En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; OpenCode sugiere el titulo y, si se crea el item, el bot pregunta si se guarda esa portada como imagen principal.
 - `/catalog_search` como consulta para usuarios aprobados.
 - Vista de lectura con indice por rangos de tres iniciales: cada linea agrupa letras clickables, muestra total de articulos y desglose por juegos de mesa, libros y accesorios; los grupos internos no aparecen en la navegacion principal.
@@ -160,7 +162,7 @@ Integraciones reales:
 
 - Juegos de mesa: BGG es la fuente principal cuando `bgg.apiKey` esta configurada, con Wikipedia como fallback operativo.
 - Libros y RPG: lookup HTTP hacia Open Library desde `catalog-lookup-service`, incluyendo portada cuando Open Library expone `cover_i`, `cover_edition_key` o ISBN utilizable.
-- BoardGameGeek: importacion individual y de coleccion operativas; cuando BGG devuelve imagen/thumbnail, el alta intenta guardarla como portada.
+- BoardGameGeek: importacion individual, autocorreccion desde detalle y coleccion operativas; cuando BGG devuelve imagen/thumbnail, el alta o autocorreccion intentan guardarla como portada.
 - Open Library: cuando devuelve portada, el alta intenta guardarla como portada.
 - OpenCode: solo se usa para leer el titulo visible desde la portada; los metadatos completos siguen viniendo de APIs catalogadas como BGG/Open Library/Wikipedia.
 

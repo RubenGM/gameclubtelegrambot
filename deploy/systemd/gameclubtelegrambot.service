@@ -14,10 +14,10 @@ ExecStartPre=/usr/bin/node /opt/gameclubtelegrambot/dist/scripts/check-runtime-c
 ExecStart=/usr/bin/node /opt/gameclubtelegrambot/dist/main.js
 Restart=on-failure
 RestartSec=5
-NoNewPrivileges=yes
+NoNewPrivileges=no
 PrivateTmp=yes
 ProtectSystem=full
-ProtectHome=yes
+ProtectHome=no
 StandardOutput=journal
 StandardError=journal
 

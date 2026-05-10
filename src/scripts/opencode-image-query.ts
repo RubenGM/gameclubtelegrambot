@@ -114,17 +114,41 @@ export function buildOpencodeRunArgs(args: Pick<OpencodeImageQueryArgs, 'imagePa
   ];
 }
 
+export function resolveOpencodeInvocation({
+  opencodeBin,
+  opencodeArgs,
+  runAsUser = '',
+}: {
+  opencodeBin: string;
+  opencodeArgs: string[];
+  runAsUser?: string;
+}): { command: string; args: string[] } {
+  const command = opencodeBin.trim() || 'opencode';
+  if (!runAsUser) {
+    return { command, args: opencodeArgs };
+  }
+
+  return {
+    command: 'sudo',
+    args: ['-n', '-H', '-u', runAsUser, command, ...opencodeArgs],
+  };
+}
+
 export async function runOpencodeImageQuery(args: OpencodeImageQueryArgs): Promise<number> {
   await access(args.imagePath);
 
   const opencodeArgs = buildOpencodeRunArgs(args);
+  const invocation = resolveOpencodeInvocation({
+    opencodeBin: args.opencodeBin,
+    opencodeArgs,
+  });
   if (args.dryRun) {
-    process.stdout.write(`${shellQuote([args.opencodeBin, ...opencodeArgs])}\n`);
+    process.stdout.write(`${shellQuote([invocation.command, ...invocation.args])}\n`);
     return 0;
   }
 
   return new Promise((resolve, reject) => {
-    const child = spawn(args.opencodeBin, opencodeArgs, {
+    const child = spawn(invocation.command, invocation.args, {
       stdio: 'inherit',
     });
 
@@ -139,8 +163,12 @@ export async function runOpencodeImageQueryCapture(args: Omit<OpencodeImageQuery
   await access(args.imagePath);
 
   const opencodeArgs = buildOpencodeRunArgs(args);
+  const invocation = resolveOpencodeInvocation({
+    opencodeBin: args.opencodeBin,
+    opencodeArgs,
+  });
   return new Promise((resolve, reject) => {
-    const child = spawn(args.opencodeBin, opencodeArgs, {
+    const child = spawn(invocation.command, invocation.args, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

@@ -9,6 +9,7 @@ CONFIG_DIR="/etc/gameclubtelegrambot"
 CONFIG_TARGET="$CONFIG_DIR/runtime.json"
 RUNTIME_ENV_TARGET="$CONFIG_DIR/.env"
 ENV_TARGET="/etc/default/gameclubtelegrambot"
+SUDOERS_OPENCODE_TARGET="/etc/sudoers.d/gameclubtelegrambot-opencode"
 SERVICE_NAME="gameclubtelegrambot.service"
 BACKUP_SERVICE_NAME="gameclubtelegrambot-backup.service"
 BACKUP_TIMER_NAME="gameclubtelegrambot-backup.timer"
@@ -20,6 +21,13 @@ INSTALL_AUTOSTART=1
 START_SERVICE=1
 SKIP_APT=0
 DRY_RUN=0
+OPENCODE_REAL_BIN="${GAMECLUB_OPENCODE_REAL_BIN:-}"
+if [ -z "$OPENCODE_REAL_BIN" ]; then
+  OPENCODE_REAL_BIN="$(command -v opencode 2>/dev/null || true)"
+fi
+OPENCODE_REAL_BIN="${OPENCODE_REAL_BIN:-/usr/local/bin/opencode}"
+VISUDO_BIN="$(command -v visudo 2>/dev/null || true)"
+VISUDO_BIN="${VISUDO_BIN:-/usr/sbin/visudo}"
 
 usage() {
   cat <<'EOF'
@@ -240,14 +248,40 @@ install_runtime_config() {
   fi
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    printf '+ cat > %q <<EOF\nGAMECLUB_CONFIG_PATH=%s\nGAMECLUB_ENV_PATH=%s\nNODE_ENV=production\nEOF\n' "$ENV_TARGET" "$CONFIG_TARGET" "$RUNTIME_ENV_TARGET"
+    printf '+ cat > %q <<EOF\nGAMECLUB_CONFIG_PATH=%s\nGAMECLUB_ENV_PATH=%s\nNODE_ENV=production\nGAMECLUB_OPENCODE_BIN=%s/scripts/opencode-cawa.sh\nGAMECLUB_OPENCODE_RUN_AS_USER=%s\nGAMECLUB_OPENCODE_REAL_BIN=%s\nEOF\n' "$ENV_TARGET" "$CONFIG_TARGET" "$RUNTIME_ENV_TARGET" "$APP_ROOT" "$OPERATOR_USER" "$OPENCODE_REAL_BIN"
   else
     run_root_cmd /bin/sh -c "cat > '$ENV_TARGET' <<'EOF'
 GAMECLUB_CONFIG_PATH=$CONFIG_TARGET
 GAMECLUB_ENV_PATH=$RUNTIME_ENV_TARGET
 NODE_ENV=production
+GAMECLUB_OPENCODE_BIN=$APP_ROOT/scripts/opencode-cawa.sh
+GAMECLUB_OPENCODE_RUN_AS_USER=$OPERATOR_USER
+GAMECLUB_OPENCODE_REAL_BIN=$OPENCODE_REAL_BIN
 EOF"
   fi
+}
+
+install_opencode_sudoers() {
+  local sudoers_tmp
+
+  sudoers_tmp="$(mktemp)"
+  trap 'rm -f "$sudoers_tmp"' RETURN
+
+  cat > "$sudoers_tmp" <<EOF
+# Managed by gameclubtelegrambot install-debian-stack.sh.
+# Allows the bot service user to run only the OpenCode binary as the operator user.
+$SERVICE_USER ALL=($OPERATOR_USER) NOPASSWD: $OPENCODE_REAL_BIN
+EOF
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '+ install -m 0440 %q %q\n' "$sudoers_tmp" "$SUDOERS_OPENCODE_TARGET"
+  else
+    run_root_cmd "$VISUDO_BIN" -cf "$sudoers_tmp"
+    run_root_cmd install -m 0440 "$sudoers_tmp" "$SUDOERS_OPENCODE_TARGET"
+  fi
+
+  rm -f "$sudoers_tmp"
+  trap - RETURN
 }
 
 validate_installed_runtime() {
@@ -378,6 +412,7 @@ deploy_application
 install_runtime_config
 validate_installed_runtime
 apply_runtime_migrations
+install_opencode_sudoers
 install_service_assets
 install_tray_support
 

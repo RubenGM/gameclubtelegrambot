@@ -12,6 +12,8 @@ export function buildCatalogAdminItemDetailButtons({
   canAdminister,
   editPrefix,
   createActivityPrefix,
+  autocorrectPrefix,
+  translateDescriptionPrefix,
   addMediaPrefix,
   editMediaPrefix,
   deleteMediaPrefix,
@@ -25,6 +27,8 @@ export function buildCatalogAdminItemDetailButtons({
   canAdminister: boolean;
   editPrefix: string;
   createActivityPrefix: string;
+  autocorrectPrefix: string;
+  translateDescriptionPrefix: string;
   addMediaPrefix: string;
   editMediaPrefix: string;
   deleteMediaPrefix: string;
@@ -41,6 +45,8 @@ export function buildCatalogAdminItemDetailButtons({
 
   return [
     [{ text: texts.edit, callbackData: `${editPrefix}${itemId}` }],
+    [{ text: texts.autocorrectItem, callbackData: `${autocorrectPrefix}${itemId}` }],
+    [{ text: texts.translateDescription, callbackData: `${translateDescriptionPrefix}${itemId}` }],
     [{ text: texts.addMedia, callbackData: `${addMediaPrefix}${itemId}` }],
     ...createActivityButtons,
     ...media.flatMap((entry) => [[

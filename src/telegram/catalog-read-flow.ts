@@ -23,6 +23,7 @@ import {
 import { catalogAdminCallbackPrefixes } from './catalog-admin-flow.js';
 import type { TelegramInlineButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
+import { sendCatalogItemCoverIfPresent } from './catalog-cover-media.js';
 
 const catalogReadFlowKey = 'catalog-read';
 const catalogReadPageSize = 5;
@@ -96,6 +97,13 @@ export async function handleTelegramCatalogReadText(context: TelegramCatalogRead
 
 export async function handleTelegramCatalogReadStartText(context: TelegramCatalogReadContext): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  if (context.messageText?.trim() === '/start catalog_read' && context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved) {
+    const state: CatalogReadState = { view: 'overview', page: 1 };
+    await persistCatalogReadState(context, state);
+    await renderCatalogReadState(context, state, language);
+    return true;
+  }
+
   const initials = parseStartInitial(context.messageText, 'catalog_read_letter_');
   if (initials !== null && context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved) {
     const state: CatalogReadState = { view: 'letter', page: 1, initial: initials, returnState: { view: 'overview', page: 1 } };
@@ -118,27 +126,14 @@ export async function handleTelegramCatalogReadStartText(context: TelegramCatalo
   const family = item.familyId !== null ? familyById(families, item.familyId) ?? null : null;
   const group = item.groupId !== null ? groupById(groups, item.groupId) ?? null : null;
   const loan = await loadActiveLoanByItemId(context, item.id);
-  await context.reply(
-    formatMemberCatalogItemDetails({
-      item,
-      family,
-      group,
-      media: media.filter((entry) => entry.itemId === item.id).sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id),
-      availabilityLines: await formatLoanAvailabilityLines(context, loan),
-      language,
-    }),
-    {
-      inlineKeyboard: buildLoanDetailButtons({
-        loan,
-        itemId: item.id,
-        language,
-        ...(context.runtime.actor.isAdmin
-          ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }
-          : {}),
-      }),
-      parseMode: 'HTML',
-    },
-  );
+  await replyWithCatalogReadItemDetail(context, {
+    item,
+    family,
+    group,
+    media: media.filter((entry) => entry.itemId === item.id).sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id),
+    loan,
+    language,
+  });
   return true;
 }
 
@@ -352,28 +347,52 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
     const group = item.groupId !== null ? groupById(groups, item.groupId) ?? null : null;
     const media = (await loadCatalogData(context)).media.filter((entry) => entry.itemId === item.id).sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id);
     const loan = await loadActiveLoanByItemId(context, item.id);
-    await context.reply(
-      formatMemberCatalogItemDetails({
-        item,
-        family,
-        group,
-        media,
-        availabilityLines: await formatLoanAvailabilityLines(context, loan),
-        language,
-      }),
+    await replyWithCatalogReadItemDetail(context, { item, family, group, media, loan, language });
+  }
+}
+
+async function replyWithCatalogReadItemDetail(
+  context: TelegramCatalogReadContext,
+  input: {
+    item: CatalogItemRecord;
+    family: CatalogFamilyRecord | null;
+    group: CatalogGroupRecord | null;
+    media: CatalogMediaRecord[];
+    loan: CatalogLoanRecord | null;
+    language: 'ca' | 'es' | 'en';
+  },
+): Promise<void> {
+  await sendCatalogItemCoverIfPresent(context, { itemId: input.item.id, media: input.media });
+  await context.reply(
+    formatMemberCatalogItemDetails({
+      breadcrumbLine: buildCatalogReadItemBreadcrumb(input.item, input.language),
+      item: input.item,
+      family: input.family,
+      group: input.group,
+      media: input.media,
+      availabilityLines: await formatLoanAvailabilityLines(context, input.loan),
+      language: input.language,
+    }),
     {
       inlineKeyboard: buildLoanDetailButtons({
-        loan,
-        itemId: item.id,
-        language,
+        loan: input.loan,
+        itemId: input.item.id,
+        language: input.language,
         ...(context.runtime.actor.isAdmin
-          ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }
+          ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${input.item.id}` }
           : {}),
       }),
       parseMode: 'HTML',
     },
   );
-  }
+}
+
+function buildCatalogReadItemBreadcrumb(item: CatalogItemRecord, language: 'ca' | 'es' | 'en'): string {
+  const initial = getCatalogItemInitial(item);
+  const rootHref = buildTelegramStartUrl('catalog_read');
+  const letterHref = buildTelegramStartUrl(`catalog_read_letter_${serializeInitialSetForStartPayload(initial)}`);
+  const texts = createTelegramI18n(language);
+  return `<a href="${escapeHtml(rootHref)}">${escapeHtml(texts.actionMenu.catalog)}</a> / <a href="${escapeHtml(letterHref)}">${escapeHtml(formatInitialSetLabel(initial))}</a>`;
 }
 
 function buildListNavigationOptions(rows: TelegramInlineButton[][], state: CatalogReadState, showPaging: boolean, language: 'ca' | 'es' | 'en'): TelegramReplyOptions {

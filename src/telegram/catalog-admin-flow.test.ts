@@ -412,6 +412,7 @@ function createContext({
   wikipediaBoardGameImportService,
   boardGameGeekCollectionImportService,
   coverTitleResolver,
+  descriptionTranslator,
   sendPrivateMessage,
   storageRepository,
   storageDefaultChatStore,
@@ -430,6 +431,7 @@ function createContext({
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
   coverTitleResolver?: (input: { imagePath: string; question: string; model: string }) => Promise<string>;
+  descriptionTranslator?: (input: { description: string; model: string; targetLanguage: 'es' }) => Promise<string>;
   sendPrivateMessage?: (telegramUserId: number, message: string, options?: TelegramReplyOptions) => Promise<void>;
   storageRepository?: StorageCategoryRepository;
   storageDefaultChatStore?: AppMetadataSessionStorage;
@@ -514,6 +516,7 @@ function createContext({
     ...(wikipediaBoardGameImportService ? { wikipediaBoardGameImportService } : {}),
     ...(boardGameGeekCollectionImportService ? { boardGameGeekCollectionImportService } : {}),
     ...(coverTitleResolver ? { coverTitleResolver } : {}),
+    ...(descriptionTranslator ? { descriptionTranslator } : {}),
   };
 
   return { context, replies, getCurrentSession: () => currentSession };
@@ -2218,13 +2221,470 @@ test('handleTelegramCatalogAdminCallback shows item details without add media ac
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Media:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Descripcio:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Tipo:<\/b> Juego de mesa/);
+  assert.match(replies.at(-1)?.message ?? '', /catalog_admin_letters_R/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Grupo: Sin grupo/);
   const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
   assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.edit}3`));
+  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.autocorrect}3`));
+  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.translateDescription}3`));
   assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.createActivity}3`));
   assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}3`));
   assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:create:3'));
   assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:my_loans'));
   assert.ok(!buttons.some((button) => button.text === 'Afegir media'));
+});
+
+test('handleTelegramCatalogAdminCallback shows the storage cover before item details', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+    media: [
+      {
+        id: 8,
+        familyId: null,
+        itemId: 3,
+        mediaType: 'image',
+        url: 'storage:entry:1',
+        altText: 'Root',
+        sortOrder: 0,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+  });
+  const storageRepository = createStorageRepository();
+  const category = await storageRepository.createCategory({
+    slug: 'catalog-media',
+    displayName: 'Catalog media',
+    parentCategoryId: null,
+    description: null,
+    storageChatId: -100,
+    storageThreadId: 10,
+    categoryPurpose: 'catalog_media',
+  });
+  await storageRepository.createEntry({
+    categoryId: category.id,
+    createdByTelegramUserId: 99,
+    sourceKind: 'dm_copy',
+    description: 'Catalog media: Root',
+    tags: ['catalog'],
+    messages: [
+      {
+        storageChatId: -100,
+        storageThreadId: 10,
+        storageMessageId: 361,
+        telegramFileId: 'photo-file',
+        telegramFileUniqueId: 'photo-unique',
+        attachmentKind: 'photo',
+        caption: 'Root',
+        originalFileName: null,
+        mimeType: null,
+        fileSizeBytes: null,
+        mediaGroupId: null,
+        sortOrder: 0,
+      },
+    ],
+  });
+  const copyCalls: Array<{ fromChatId: number; messageId: number; toChatId: number }> = [];
+  const { context, replies } = createContext({
+    repository,
+    storageRepository,
+    copyMessage: async (input) => {
+      copyCalls.push(input);
+      return { messageId: 1000 };
+    },
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.deepEqual(copyCalls, [{ fromChatId: -100, messageId: 361, toChatId: 1 }]);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Root<\/b>/);
+});
+
+test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and imports cover media', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 236,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Maracaibo',
+        originalName: 'Maracaibo',
+        description: 'Old description',
+        language: null,
+        publisher: 'Old Publisher',
+        publicationYear: 2018,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: 10,
+        playTimeMinutes: 90,
+        externalRefs: { boardGameGeekId: '276025', boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/276025' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '276025', boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/276025' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const auditRepository = createAuditRepository();
+  const importCalls: string[] = [];
+  const translationCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: 'Maracaibo',
+          originalName: 'Maracaibo',
+          description: 'Updated BGG description',
+          language: null,
+          publisher: "Game's Up",
+          publicationYear: 2019,
+          playerCountMin: 1,
+          playerCountMax: 4,
+          recommendedAge: 12,
+          playTimeMinutes: 120,
+          externalRefs: {
+            boardGameGeekId: '276025',
+            boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/276025',
+          },
+          metadata: {
+            boardGameGeekId: '276025',
+            boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/276025',
+            imageUrl: 'https://cf.geekdo-images.com/maracaibo.jpg',
+          },
+        },
+      };
+    },
+  };
+  const { context, replies } = createContext({
+    repository,
+    auditRepository,
+    wikipediaBoardGameImportService,
+    language: 'es',
+    descriptionTranslator: async (input) => {
+      translationCalls.push(`${input.model}:${input.description}`);
+      return 'Descripción traducida al castellano.';
+    },
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.autocorrect}236`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.deepEqual(importCalls, ['Maracaibo [API #276025]']);
+  assert.deepEqual(translationCalls, ['openai/gpt-5.4-mini:Updated BGG description']);
+  const updated = await repository.findItemById(236);
+  assert.equal(updated?.description, 'Descripción traducida al castellano.');
+  assert.equal(updated?.publisher, "Game's Up");
+  assert.equal(updated?.publicationYear, 2019);
+  assert.equal(updated?.playerCountMin, 1);
+  assert.equal(updated?.playerCountMax, 4);
+  assert.equal(updated?.recommendedAge, 12);
+  assert.equal(updated?.playTimeMinutes, 120);
+  assert.equal(updated?.externalRefs, null);
+  assert.deepEqual(updated?.metadata, {
+    boardGameGeekId: '276025',
+  });
+  assert.deepEqual(await repository.listMedia({ itemId: 236 }), [
+    {
+      id: 1,
+      familyId: null,
+      itemId: 236,
+      mediaType: 'image',
+      url: 'https://cf.geekdo-images.com/maracaibo.jpg',
+      altText: 'Maracaibo',
+      sortOrder: 0,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  assert.match(replies[0]?.message ?? '', /actualizando los datos/i);
+  assert.match(replies.at(-2)?.message ?? '', /Datos autocorregidos/i);
+  assert.match(replies.at(-2)?.message ?? '', /Portada: importada como imagen principal \(#1\)/i);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Referencias externas/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Metadata/);
+  assert.ok(auditRepository.__events.some((event) => event.actionKey === 'catalog.item.autocorrected' && event.targetId === '236'));
+});
+
+test('handleTelegramCatalogAdminCallback autocorrects a book from Open Library', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 44,
+        familyId: null,
+        groupId: null,
+        itemType: 'book',
+        displayName: 'Dune',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: { openLibraryKey: '/works/OL893415W', openLibraryUrl: 'https://openlibrary.org/works/OL893415W' },
+        metadata: { source: 'open-library', openLibraryUrl: 'https://openlibrary.org/works/OL893415W' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const lookupCalls: Array<{ itemType: string; query: string }> = [];
+  const catalogLookupService: CatalogLookupService = {
+    async search(input) {
+      lookupCalls.push({ itemType: input.itemType, query: input.query });
+      return [
+        {
+          source: 'open-library',
+          sourceId: '/works/OL893415W',
+          title: 'Dune',
+          summary: 'Frank Herbert · Ace Books · 1965',
+          importedData: {
+            originalName: 'Dune',
+            description: null,
+            language: 'ENG',
+            publisher: 'Ace Books',
+            publicationYear: 1965,
+            externalRefs: {
+              openLibraryKey: '/works/OL893415W',
+              openLibraryUrl: 'https://openlibrary.org/works/OL893415W',
+              coverUrl: 'https://covers.openlibrary.org/b/id/123-L.jpg',
+            },
+            metadata: {
+              source: 'open-library',
+              author: 'Frank Herbert',
+              coverUrl: 'https://covers.openlibrary.org/b/id/123-L.jpg',
+              openLibraryUrl: 'https://openlibrary.org/works/OL893415W',
+            },
+          },
+        },
+      ];
+    },
+  };
+  const { context, replies } = createContext({ repository, catalogLookupService, language: 'es' });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.autocorrect}44`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.deepEqual(lookupCalls, [{ itemType: 'book', query: 'Dune' }]);
+  const updated = await repository.findItemById(44);
+  assert.equal(updated?.publisher, 'Ace Books');
+  assert.equal(updated?.publicationYear, 1965);
+  assert.equal(updated?.language, 'ENG');
+  assert.equal(updated?.externalRefs, null);
+  assert.deepEqual(updated?.metadata, {
+    source: 'open-library',
+    openLibraryKey: '/works/OL893415W',
+  });
+  assert.equal((await repository.listMedia({ itemId: 44 }))[0]?.url, 'https://covers.openlibrary.org/b/id/123-L.jpg');
+  assert.match(replies.at(-2)?.message ?? '', /Portada: importada como imagen principal \(#1\)/i);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Referencias externas/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Metadata/);
+});
+
+test('handleTelegramCatalogAdminCallback reports when autocorrect keeps an existing cover', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 232,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: '24h',
+        originalName: '24h',
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '285127' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+    media: [
+      {
+        id: 4,
+        familyId: null,
+        itemId: 232,
+        mediaType: 'image',
+        url: 'storage:entry:361',
+        altText: '24h',
+        sortOrder: 0,
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+      },
+    ],
+  });
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle() {
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: '24h',
+          originalName: '24h',
+          description: 'Updated description',
+          language: null,
+          publisher: 'Zacatrus',
+          publicationYear: 2019,
+          playerCountMin: 2,
+          playerCountMax: 4,
+          recommendedAge: 12,
+          playTimeMinutes: 30,
+          externalRefs: { boardGameGeekId: '285127' },
+          metadata: {
+            source: 'boardgamegeek',
+            boardGameGeekId: '285127',
+            imageUrl: 'https://cf.geekdo-images.com/24h.jpg',
+          },
+        },
+      };
+    },
+  };
+  const { context, replies } = createContext({
+    repository,
+    wikipediaBoardGameImportService,
+    language: 'es',
+    descriptionTranslator: async () => 'Descripcion traducida',
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.autocorrect}232`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.match(replies.at(-2)?.message ?? '', /Portada: ya había una imagen principal \(#4\)/i);
+  assert.equal((await repository.listMedia({ itemId: 232 })).length, 1);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Metadata/);
+});
+
+test('handleTelegramCatalogAdminCallback translates only the current item description', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 262,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: '1960: The Making of the President',
+        originalName: null,
+        description: 'This is a long English description about the game.',
+        language: null,
+        publisher: 'GMT Games',
+        publicationYear: 2007,
+        playerCountMin: 2,
+        playerCountMax: 2,
+        recommendedAge: 12,
+        playTimeMinutes: 120,
+        externalRefs: null,
+        metadata: { boardGameGeekId: '27708' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const auditRepository = createAuditRepository();
+  const translationCalls: string[] = [];
+  const { context, replies } = createContext({
+    repository,
+    auditRepository,
+    language: 'es',
+    descriptionTranslator: async (input) => {
+      translationCalls.push(`${input.model}:${input.description}`);
+      return 'Esta es una descripción larga en castellano sobre el juego.';
+    },
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.translateDescription}262`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.deepEqual(translationCalls, ['openai/gpt-5.4-mini:This is a long English description about the game.']);
+  const updated = await repository.findItemById(262);
+  assert.equal(updated?.description, 'Esta es una descripción larga en castellano sobre el juego.');
+  assert.equal(updated?.publisher, 'GMT Games');
+  assert.deepEqual(updated?.metadata, { boardGameGeekId: '27708' });
+  assert.match(replies[0]?.message ?? '', /traduciendo la descripción/i);
+  assert.match(replies.at(-2)?.message ?? '', /Descripción traducida correctamente/i);
+  assert.match(replies.at(-1)?.message ?? '', /Esta es una descripción larga en castellano/);
+  assert.ok(auditRepository.__events.some((event) => event.actionKey === 'catalog.item.description_translated' && event.targetId === '262'));
+});
+
+test('handleTelegramCatalogAdminCallback reports missing description when translating', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 263,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'No Description',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies } = createContext({ repository, language: 'es' });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.translateDescription}263`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  assert.match(replies.at(-1)?.message ?? '', /no tiene ninguna descripción/i);
 });
 
 test('handleTelegramCatalogAdminCallback starts activity creation from a board game detail', async () => {
@@ -2428,6 +2888,8 @@ test('handleTelegramCatalogAdminCallback hides admin-only item actions for appro
 
   const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
   assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.edit}3`));
+  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.autocorrect}3`));
+  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.translateDescription}3`));
   assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}3`));
   assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.editMedia}8`));
   assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deleteMedia}8`));
