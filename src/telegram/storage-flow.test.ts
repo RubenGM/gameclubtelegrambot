@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
+import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type {
   StorageCategoryRecord,
@@ -31,6 +32,29 @@ import { toGrammyReplyOptions } from './runtime-boundary-registration.js';
 
 function dangerButton(text: string) {
   return { text, semanticRole: 'danger' as const };
+}
+
+function createMemoryMetadataStorage(initialValues: Record<string, string> = {}): AppMetadataSessionStorage & {
+  __values: Map<string, string>;
+} {
+  const values = new Map(Object.entries(initialValues));
+  return {
+    __values: values,
+    async get(key) {
+      return values.get(key) ?? null;
+    },
+    async set(key, value) {
+      values.set(key, value);
+    },
+    async delete(key) {
+      return values.delete(key);
+    },
+    async listByPrefix(prefix) {
+      return Array.from(values.entries())
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, value]) => ({ key, value }));
+    },
+  };
 }
 
 function createCategory(overrides: Partial<StorageCategoryRecord> = {}): StorageCategoryRecord {
@@ -300,6 +324,7 @@ function createContext(
     actorStatus = 'approved',
     storageCategoryAccessRepository,
     storageCategorySubscriptionRepository,
+    storageDefaultChatStore = createMemoryMetadataStorage(),
     failCopyMessageAtCall,
     supportsForwardMessage = true,
     failForwardMessageAtCall,
@@ -317,6 +342,7 @@ function createContext(
     actorStatus?: 'pending' | 'approved' | 'blocked' | 'revoked';
     storageCategoryAccessRepository?: StorageCategoryAccessRepository;
     storageCategorySubscriptionRepository?: StorageCategorySubscriptionRepository;
+    storageDefaultChatStore?: AppMetadataSessionStorage;
     failCopyMessageAtCall?: number;
     supportsForwardMessage?: boolean;
     failForwardMessageAtCall?: number;
@@ -468,6 +494,7 @@ function createContext(
     storageRepository: repository,
     ...(storageCategoryAccessRepository ? { storageCategoryAccessRepository } : {}),
     storageCategorySubscriptionRepository: resolvedStorageCategorySubscriptionRepository,
+    storageDefaultChatStore,
   } as unknown as TelegramCommandHandlerContext & Record<string, unknown>;
 
   return {
@@ -1282,6 +1309,79 @@ test('handleTelegramStorageMessage lets admins create a storage category with gu
       'No hay ninguna entrada indexada en esta categoría.',
     ].join('\n'),
   );
+  assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
+});
+
+test('handleTelegramStorageMessage lets admins configure the default storage supergroup', async () => {
+  const repository = createRepository([]);
+  const metadataStore = createMemoryMetadataStorage();
+  const { context, replies, getCurrentSession } = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [],
+    canUploadCategoryIds: [],
+    storageDefaultChatStore: metadataStore,
+  });
+
+  context.messageText = 'Configurar supergrupo';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  assert.equal(getCurrentSession()?.flowKey, 'storage-default-chat');
+  assert.equal(replies.at(-1)?.message, 'Comparte el supergrupo que Storage usará por defecto en las nuevas categorías.');
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
+    [
+      {
+        text: 'Compartir supergrupo de storage',
+        semanticRole: 'primary',
+        requestChat: {
+          requestId: 41101,
+          chatIsChannel: false,
+          chatIsForum: true,
+          botIsMember: true,
+        },
+      },
+    ],
+    [dangerButton('/cancel')],
+  ]);
+
+  context.sharedChat = { requestId: 41101, chatId: -100555, title: 'Storage Club' };
+  assert.equal(await handleTelegramStorageMessage(context as never), true);
+
+  const stored = JSON.parse(metadataStore.__values.get('storage.default_chat') ?? '{}') as { chatId?: number; chatTitle?: string };
+  assert.equal(stored.chatId, -100555);
+  assert.equal(stored.chatTitle, 'Storage Club');
+  assert.equal(getCurrentSession(), null);
+  assert.equal(replies.at(-1)?.message, 'Supergrupo por defecto de Storage guardado: Storage Club.');
+});
+
+test('handleTelegramStorageText creates new categories in the configured default storage supergroup', async () => {
+  const repository = createRepository([]);
+  const metadataStore = createMemoryMetadataStorage({
+    'storage.default_chat': JSON.stringify({
+      chatId: -100555,
+      chatTitle: 'Storage Club',
+      updatedAt: '2026-04-21T12:00:00.000Z',
+    }),
+  });
+  const { context, replies, getCurrentSession } = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [],
+    canUploadCategoryIds: [],
+    storageDefaultChatStore: metadataStore,
+  });
+
+  context.messageText = 'Crear categoría';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Manuales';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Omitir';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+
+  const categories = await repository.listCategories();
+  assert.equal(categories.length, 1);
+  assert.equal(categories[0]?.slug, 'manuales');
+  assert.equal(categories[0]?.storageChatId, -100555);
+  assert.equal(categories[0]?.storageThreadId, 77);
+  assert.equal(replies.at(-3)?.message, 'Creando el topic de storage en Storage Club...');
+  assert.equal(replies.at(-2)?.message, 'Categoría creada: Manuales (`manuales`). Supergrupo: Storage Club. Topic: Manuales.');
   assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
 });
 

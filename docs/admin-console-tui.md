@@ -53,6 +53,7 @@ La vista activa se cambia desde el selector `Vista` del lateral:
 - `Resumen`: estado del servicio, base de datos y contadores principales.
 - `Config`: rutas runtime, bot activo, accion de cambio de token y recordatorio de backup.
 - `Backups`: lista de backups completos disponibles.
+- `Storage gestor`: gestion guiada de categorias y archivos de Storage.
 - Recursos de base de datos: usuarios, catalogo, mesas, agenda, sala, noticias, compras, LFG, storage y auditoria.
 
 La TUI usa una tabla central para listar datos y un panel de detalle para la fila o vista seleccionada.
@@ -100,13 +101,55 @@ gameclubbot:gameclubbot-operators 2770
 
 El bit setgid mantiene los nuevos backups dentro del grupo operador. No uses `chmod 777`: el servicio de backup recrea permisos controlados.
 
+## Storage Gestor
+
+La vista `Storage gestor` es la superficie recomendada para operar categorias y archivos de Storage desde terminal. No crea categorias ni sube archivos; esas acciones siguen perteneciendo a Telegram porque dependen de chats, topics y mensajes reales.
+
+La tabla muestra categorias y archivos en una sola vista:
+
+- categorias con ruta jerarquica, estado, numero de subcategorias y archivos activos;
+- archivos con categoria, estado, tags y numero de mensajes canonicos;
+- busqueda por texto sobre nombres, slugs, descripciones, tags, nombres de archivo y ruta.
+
+La busqueda acepta filtros por tokens:
+
+- `type:category` o `type:file`
+- `category:active` o `category:archived`
+- `entry:active`, `entry:hidden`, `entry:deleted` o `entry:missing_source`
+- `direct:<categoriaId>` para ver hijos/archivos directos de una categoria
+- `under:<categoriaId>` para ver una categoria y todo su subarbol
+
+Acciones sobre categorias:
+
+- `e`: editar `display_name`, `slug` o `description`.
+- `m`: mover dentro de otra categoria o a raiz dejando vacio el destino.
+- `a` o `d`: archivar, bloqueado si quedan subcategorias activas o archivos activos directos.
+- `u`: reactivar una categoria archivada.
+
+Acciones sobre archivos:
+
+- `e`: editar `description`, `tags` o `lifecycle_status`.
+- `m`: mover a otra categoria activa.
+- `d`: eliminar logicamente.
+- `u`: restaurar como activo.
+
+Reglas de seguridad:
+
+- no se puede mover una categoria dentro de si misma ni dentro de una descendiente;
+- no se editan `storage_chat_id` ni `storage_thread_id` desde esta vista;
+- no hay borrado definitivo ni borrado fisico de mensajes de Telegram;
+- mover archivos en esta version es logico: actualiza `storage_entries.category_id` y mantiene intactos los mensajes canonicos existentes.
+
 ## Teclas
 
 - `q`: salir.
 - `r`: refrescar.
 - `e`: editar campo en recursos editables.
+- `m`: mover categoria o archivo en `Storage gestor`.
 - `space`: seleccionar o deseleccionar una fila para acciones por lote.
 - `c`: limpiar seleccion.
+- `a`: archivar categoria o eliminar archivo en `Storage gestor`.
+- `u`: restaurar categoria o archivo en `Storage gestor`.
 - `d`: borrado blando cuando el recurso lo soporta.
 - `D`: borrado definitivo.
 - `b`: crear backup.
@@ -128,7 +171,7 @@ Areas principales:
 - Noticias: grupos habilitados.
 - Compras: compras, campos y mensajes.
 - LFG: anuncios de jugadores y grupos.
-- Storage: categorias, entradas y mensajes.
+- Storage: gestor guiado para categorias/archivos y vistas genericas de categorias, entradas y mensajes.
 - Auditoria: lectura.
 
 ## Seguridad Operativa

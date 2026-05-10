@@ -1,6 +1,6 @@
 # Estado real de features
 
-Ultima revision: 2026-05-09.
+Ultima revision: 2026-05-10.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -225,31 +225,34 @@ Implementado:
 
 - `/storage` para usuarios aprobados en privado.
 - Categorias con `storageChatId` y `storageThreadId` como ubicacion canonica.
-- Alta guiada de categorias: el admin comparte el supergrupo, el bot valida chat/permisos, crea el topic y guarda los ids automaticamente.
+- Configuracion admin de supergrupo de Storage por defecto desde Telegram, persistida en `app_metadata`.
+- Alta de categorias usando automaticamente el supergrupo por defecto vigente: el bot valida chat/permisos, crea el topic y guarda los ids sin pedir confirmacion al crear cada categoria.
 - Listado incremental de categorias principales/subcategorias con resumen agregado de subcategorias y archivos, breadcrumbs clicables por padre, acciones contextuales y listado de entradas por categoria.
 - Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot copia al topic canonico antes de indexar y refrescar la categoria.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
 - Soporte de `document`, `photo`, `video` y `audio`.
 - Albums por `media_group_id` agrupados en una sola entrada mediante ventana corta en memoria.
 - Admin: crear, archivar y reactivar categorias; borrar logicamente entradas; ver, conceder y revocar acceso por categoria.
+- Consola Textual `Storage gestor`: editar categorias/archivos existentes, mover categorias dentro de otras o a raiz, mover archivos a otra categoria, archivar/reactivar categorias y eliminar/restaurar archivos sin crear contenido nuevo.
 - Permisos aplicados por recurso para `storage.entry.read` y `storage.entry.upload`.
 - Auditoria de altas de categoria, cambios de estado, borrado logico y permisos.
 
 Mejoras opcionales:
 
-- La entrada manual de `storageChatId` y `storageThreadId` se mantiene como fallback, no como camino principal.
-- No hay flujo dedicado para revisar/restaurar entradas marcadas como `missing_source`.
+- Si no hay supergrupo por defecto configurado, o deja de ser valido, la seleccion guiada/manual de `storageChatId` y `storageThreadId` se mantiene como fallback.
+- La consola puede cambiar el estado de entradas, incluyendo `missing_source`, pero no hay todavia un flujo Telegram dedicado para revisarlas.
 
 Limitaciones aceptadas de la v1:
 
 - No hay OCR, antivirus ni indexado de contenido interno del binario.
 - El borrado es logico en PostgreSQL; no borra fisicamente mensajes de Telegram.
+- Mover archivos desde la consola es un movimiento logico de categoria en PostgreSQL; no copia mensajes entre topics de Telegram.
 - Si el proceso se reinicia durante la ventana de agrupacion de album, ese album puede requerir reenvio manual.
 
 Documentacion relacionada:
 
 - `STORAGE.md` describe la v1 implementada.
-- `STORAGE_GROUP_IMPROVEMENT.md` describe el diseño usado para la alta guiada de categorias.
+- `improvements/storage_tui_management_plan.md` describe el alcance usado para el gestor TUI de Storage.
 - `docs/superpowers/specs/2026-04-21-telegram-storage-design.md` contiene el diseño original.
 
 ## Backups y consola operativa
@@ -260,6 +263,7 @@ Implementado:
 
 - Scripts `backup-cli.sh`, `backup-full.sh` y `restore-full.sh`.
 - TUI `npm run backup:console`.
+- Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
 - Deteccion/instalacion asistida de dependencias Debian como `pg_dump` y `psql`.
 - Documentacion en `docs/backup-restore-recovery.md`.
 
