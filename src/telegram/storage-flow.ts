@@ -171,7 +171,7 @@ export async function handleTelegramStorageCommand(context: StorageFlowContext):
       : `${escapeHtml(texts.selectMenu)}\n\n${formatStorageCategoryListMessage({ categories: rootCategories, language, summaries })}`,
     rootCategories.length === 0
       ? buildStorageMenuOptions(language, context)
-      : { ...buildStorageCategoryListReplyOptions({ categories: rootCategories, language, context }), parseMode: 'HTML' },
+      : { ...buildStorageCategoryListReplyOptions({ language, context }), parseMode: 'HTML' },
   );
 }
 
@@ -538,7 +538,6 @@ function buildStorageCategoryEntryListOptions({
     ...buildStorageCategoryViewReplyOptions({
       context,
       category,
-      childCategories,
       language,
       ...(paginationOptions.replyKeyboard?.[0] ? { paginationRow: paginationOptions.replyKeyboard[0] } : {}),
     }),
@@ -549,13 +548,11 @@ function buildStorageCategoryEntryListOptions({
 function buildStorageCategoryViewReplyOptions({
   context,
   category,
-  childCategories,
   language,
   paginationRow,
 }: {
   context: StorageFlowContext;
   category: StorageCategoryRecord;
-  childCategories: StorageCategoryRecord[];
   language: 'ca' | 'es' | 'en';
   paginationRow?: Array<string | TelegramReplyButton>;
 }): TelegramReplyOptions {
@@ -564,7 +561,6 @@ function buildStorageCategoryViewReplyOptions({
   if (paginationRow && paginationRow.length > 0) {
     rows.push(paginationRow);
   }
-  rows.push(...buildStorageCategoryButtonRows(childCategories));
   if (canManageStorageCategories(context)) {
     rows.push([successButton(texts.addSubcategory), secondaryButton(texts.renameCategory)]);
   }
@@ -672,7 +668,7 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
         }),
       rootCategories.length === 0
         ? buildStorageMenuOptions(language, context)
-        : { ...buildStorageCategoryListReplyOptions({ categories: rootCategories, language, context }), parseMode: 'HTML' },
+        : { ...buildStorageCategoryListReplyOptions({ language, context }), parseMode: 'HTML' },
     );
     return true;
   }
@@ -3256,23 +3252,14 @@ function buildStorageMenuOptions(language: 'ca' | 'es' | 'en', context?: Storage
 }
 
 function buildStorageCategoryListReplyOptions({
-  categories,
   language,
   context,
 }: {
-  categories: StorageCategoryRecord[];
   language: 'ca' | 'es' | 'en';
   context: StorageFlowContext;
 }): TelegramReplyOptions {
   const baseRows = buildStorageMenuOptions(language, context).replyKeyboard ?? [];
-  return buildPersistentReplyKeyboard([
-    ...buildStorageCategoryButtonRows(categories),
-    ...baseRows,
-  ]);
-}
-
-function buildStorageCategoryButtonRows(categories: StorageCategoryRecord[]): Array<Array<TelegramReplyButton>> {
-  return categories.map((category) => [secondaryButton(category.displayName)]);
+  return buildPersistentReplyKeyboard(baseRows);
 }
 
 function buildStorageUserChoiceOptions(

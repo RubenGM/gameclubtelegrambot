@@ -519,8 +519,7 @@ test('handleTelegramStorageText opens the storage submenu from the command entry
     'Almacenamiento: elige una acción.\n\nCategorías disponibles:\n- <a href="https://t.me/cawatest_bot?start=storage_category_7"><b>Manuales</b></a> (vacía)',
   );
   assert.equal(replies[0]?.options?.parseMode, 'HTML');
-  assert.deepEqual(replies[0]?.options?.replyKeyboard?.[0], [{ text: 'Manuales', semanticRole: 'secondary' }]);
-  assert.equal((replies[0]?.options?.replyKeyboard?.[1]?.[0] as { semanticRole?: string })?.semanticRole, 'primary');
+  assert.deepEqual(replies[0]?.options?.replyKeyboard?.[0], [{ text: 'Listar categorías', semanticRole: 'primary' }]);
   assert.deepEqual(replies[0]?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
 });
 
@@ -692,7 +691,7 @@ test('handleTelegramStorageText opens a visible category from the reply keyboard
   assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
   assert.equal(getCurrentSession()?.data.categoryId, 7);
   assert.match(replies.at(-1)?.message ?? '', /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_root">Almacenamiento<\/a> \/ <b>Rol<\/b>/);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], [{ text: 'Cyberpunk 2020', semanticRole: 'secondary' }]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], [{ text: 'Subir archivos', semanticRole: 'success' }]);
 
   context.messageText = '/start storage_root';
   assert.equal(await handleTelegramStorageText(context as never), true);
@@ -826,10 +825,10 @@ test('handleTelegramStorageText shows clickable parent breadcrumbs and category 
     /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_root">Almacenamiento<\/a> \/ <a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">STL<\/a> \/ <b>Star Wars<\/b>/,
   );
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 4), [
-    [{ text: 'Legion', semanticRole: 'secondary' }],
     [{ text: 'Añadir subcategoría', semanticRole: 'success' }, { text: 'Renombrar categoría', semanticRole: 'secondary' }],
     [{ text: 'Subir archivos', semanticRole: 'success' }],
     [{ text: 'Volver', semanticRole: 'secondary' }],
+    ['Inicio', 'Ayuda'],
   ]);
 
   context.messageText = 'Renombrar categoría';

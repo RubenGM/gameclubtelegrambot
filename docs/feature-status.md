@@ -227,7 +227,7 @@ Implementado:
 - Categorias con `storageChatId` y `storageThreadId` como ubicacion canonica.
 - Configuracion admin de supergrupo de Storage por defecto desde Telegram, persistida en `app_metadata`.
 - Alta de categorias usando automaticamente el supergrupo por defecto vigente: el bot valida chat/permisos, crea el topic y guarda los ids sin pedir confirmacion al crear cada categoria.
-- Listado incremental de categorias principales/subcategorias con resumen agregado de subcategorias y archivos, breadcrumbs clicables por padre, acciones contextuales y listado de entradas por categoria.
+- Listado incremental de categorias principales/subcategorias con resumen agregado de subcategorias y archivos, enlaces clicables en el mensaje, breadcrumbs clicables por padre, acciones contextuales y listado de entradas por categoria.
 - Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot copia al topic canonico antes de indexar y refrescar la categoria.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
 - Soporte de `document`, `photo`, `video` y `audio`.
