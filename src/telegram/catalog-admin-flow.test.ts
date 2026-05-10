@@ -600,7 +600,7 @@ test('handleTelegramCatalogAdminText imports a BGG collection and refreshes exis
   assert.equal(auditRepository.__events.filter((event) => event.actionKey === 'catalog.item.created').length, 1);
 });
 
-test('handleTelegramCatalogAdminText lists expansions from the catalog menu', async () => {
+test('handleTelegramCatalogAdminText shows expansion counts in the compact initial index', async () => {
   const repository = createRepository({
     items: [
       {
@@ -632,7 +632,9 @@ test('handleTelegramCatalogAdminText lists expansions from the catalog menu', as
   context.messageText = 'Listar expansiones';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.match(replies.at(-1)?.message ?? '', /Riverfolk Expansion/);
+  assert.match(replies.at(-1)?.message ?? '', /R - 1 artículo/);
+  assert.match(replies.at(-1)?.message ?? '', /1 juego de mesa/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Riverfolk Expansion/);
 });
 
 test('handleTelegramCatalogAdminText lets approved non-admin members open the catalog menu and start creation', async () => {
@@ -2005,15 +2007,17 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.messageText = catalogAdminLabels.listBoardGames;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
-  assert.match(replies.at(-1)?.message ?? '', /Grup: Second Edition/);
-  assert.match(replies.at(-1)?.message ?? '', /------/);
+  assert.match(replies.at(-1)?.message ?? '', /A D - 3 artículos/);
+  assert.match(replies.at(-1)?.message ?? '', /3 juegos de mesa/);
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}AD`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Arkham Horror Core Set<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /<i>Disponible<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Joc de taula · Disponible<\/i>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Azul<\/b>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sin familia/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
-  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.inspectGroup}11`));
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}7`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -2459,8 +2463,12 @@ test('handleTelegramCatalogAdminText hides deactivated items from the normal cat
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
-  assert.match(replies.at(-1)?.message ?? '', /Sense grup/);
-  assert.match(replies.at(-1)?.message ?? '', /------/);
+  assert.match(replies.at(-1)?.message ?? '', /A - 1 artículo/);
+  assert.match(replies.at(-1)?.message ?? '', /1 libro/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}A`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_1"><b>Actiu<\/b><\/a> · <i>Llibre RPG · Disponible<\/i>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
@@ -2547,16 +2555,17 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
-  assert.match(replies.at(-1)?.message ?? '', /Família: Mundodisco/);
-  assert.match(replies.at(-1)?.message ?? '', /------/);
+  assert.match(replies.at(-1)?.message ?? '', /E M - 2 artículos/);
+  assert.match(replies.at(-1)?.message ?? '', /2 libros/);
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}EM`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_2"><b>El color de la magia<\/b><\/a>/);
   assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Disponible<\/i>/);
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_3"><b>Mort<\/b><\/a>/);
   assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Prestat a Anna · des de 04\/04\/2026<\/i>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
-  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
-  assert.equal(replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.text === 'El color de la magia')?.callbackData, `${catalogAdminCallbackPrefixes.inspect}2`);
-  assert.equal(replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.text === 'Mort')?.callbackData, `${catalogAdminCallbackPrefixes.inspect}3`);
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}1`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
