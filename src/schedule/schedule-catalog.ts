@@ -22,6 +22,12 @@ export interface ScheduleEventRecord {
   cancellationReason: string | null;
 }
 
+export interface ScheduleEventParticipationRecord extends ScheduleEventRecord {
+  participantStatus: ScheduleParticipantStatus;
+  participantJoinedAt: string;
+  participantUpdatedAt: string;
+}
+
 export interface ScheduleParticipantRecord {
   scheduleEventId: number;
   participantTelegramUserId: number;
@@ -54,6 +60,13 @@ export interface ScheduleRepository {
     startsAtFrom?: string;
     startsAtTo?: string;
   }): Promise<ScheduleEventRecord[]>;
+  listActiveEventsByParticipant?(input: {
+    participantTelegramUserId: number;
+    startsAtFrom?: string;
+    startsAtTo?: string;
+    limit?: number;
+    order?: 'asc' | 'desc';
+  }): Promise<ScheduleEventParticipationRecord[]>;
   updateEvent(input: {
     eventId: number;
     title: string;

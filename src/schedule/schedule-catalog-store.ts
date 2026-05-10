@@ -1,8 +1,13 @@
-import { and, asc, eq, gte, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { scheduleEventParticipants, scheduleEvents } from '../infrastructure/database/schema.js';
-import type { ScheduleEventRecord, ScheduleParticipantRecord, ScheduleRepository } from './schedule-catalog.js';
+import type {
+  ScheduleEventParticipationRecord,
+  ScheduleEventRecord,
+  ScheduleParticipantRecord,
+  ScheduleRepository,
+} from './schedule-catalog.js';
 
 export function createDatabaseScheduleRepository({
   database,
@@ -58,6 +63,39 @@ export function createDatabaseScheduleRepository({
       const result = await orderedQuery;
 
       return result.map(mapScheduleEventRow);
+    },
+    async listActiveEventsByParticipant({ participantTelegramUserId, startsAtFrom, startsAtTo, limit, order = 'asc' }) {
+      const filters = [
+        eq(scheduleEventParticipants.participantTelegramUserId, participantTelegramUserId),
+        eq(scheduleEventParticipants.status, 'active'),
+        eq(scheduleEvents.lifecycleStatus, 'scheduled'),
+      ];
+      if (startsAtFrom) {
+        filters.push(gte(scheduleEvents.startsAt, new Date(startsAtFrom)));
+      }
+      if (startsAtTo) {
+        filters.push(lte(scheduleEvents.startsAt, new Date(startsAtTo)));
+      }
+
+      const rows = await database
+        .select({
+          event: scheduleEvents,
+          participantStatus: scheduleEventParticipants.status,
+          participantJoinedAt: scheduleEventParticipants.joinedAt,
+          participantUpdatedAt: scheduleEventParticipants.updatedAt,
+        })
+        .from(scheduleEventParticipants)
+        .innerJoin(scheduleEvents, eq(scheduleEventParticipants.scheduleEventId, scheduleEvents.id))
+        .where(and(...filters))
+        .orderBy(order === 'desc' ? desc(scheduleEvents.startsAt) : asc(scheduleEvents.startsAt))
+        .limit(limit ?? 100);
+
+      return rows.map((row) => ({
+        ...mapScheduleEventRow(row.event),
+        participantStatus: row.participantStatus as ScheduleParticipantRecord['status'],
+        participantJoinedAt: row.participantJoinedAt.toISOString(),
+        participantUpdatedAt: row.participantUpdatedAt.toISOString(),
+      } satisfies ScheduleEventParticipationRecord));
     },
     async updateEvent(input) {
       const updated = await database

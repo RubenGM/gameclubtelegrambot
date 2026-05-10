@@ -16,7 +16,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Feature                                      | Estado               | Lectura actual                                                                                                                       |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 | Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, reintentos Telegram, systemd/tray y copias de seguridad.       |
-| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, elevación de admins, avisos privados de incidencias y comando `/status` para adjuntar informe de estado. |
+| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, gestión detallada de usuarios/admins, avisos privados y `/status` con informe adjunto.          |
 | Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto y ayuda contextual por sección activa.                                                          |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
@@ -61,7 +61,10 @@ Implementado:
 
 - `/access` crea solicitudes y soporta reintentos segun estado del usuario.
 - `/review_access`, `/approve`, `/reject` y callbacks inline resuelven solicitudes.
-- `/manage_users` permite expulsar/revocar usuarios aprobados no admin con motivo.
+- `/manage_users` abre una pantalla de gestion: lista usuarios registrados con nombre enlazado al detalle, username clicable, estado y rol.
+- El detalle de usuario resume identidad, estado, rol, prestamos activos, actividades futuras y actividades recientes.
+- Desde el detalle, los admins pueden expulsar socios no admin con motivo, ascender socios a admin y eliminar rol admin sin revocar acceso de socio.
+- La gestion de rol admin escribe auditoria en `user_permission_audit_log` y `audit_log`.
 - `/elevate_admin` eleva a admin usando hash de password runtime.
 - `/subscribe_requests` y `/unsubscribe_requests` permiten avisos privados de nuevas solicitudes.
 - Las revocaciones notifican al usuario afectado y a admins suscritos.
@@ -69,7 +72,7 @@ Implementado:
 
 Riesgos o pendientes:
 
-- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Solo hay flujos especificos, como storage category access.
+- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos especificos para rol admin, revocacion de acceso y storage category access.
 
 ## Idioma, menus y ayuda
 

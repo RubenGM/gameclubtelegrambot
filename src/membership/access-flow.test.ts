@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   approveMembershipRequest,
+  listManageableMembershipUsers,
   listPendingMembershipRequests,
   listRevocableMembershipUsers,
   rejectMembershipRequest,
@@ -57,6 +58,11 @@ function createRepository(initialUsers: MembershipUserRecord[] = []): Membership
     },
     async listPendingUsers() {
       return Array.from(users.values()).filter((user) => user.status === 'pending');
+    },
+    async listManageableUsers() {
+      return Array.from(users.values()).sort(
+        (left, right) => left.displayName.localeCompare(right.displayName) || left.telegramUserId - right.telegramUserId,
+      );
     },
     async listRevocableUsers() {
       return Array.from(users.values()).filter((user) => user.status === 'approved' && !user.isAdmin);
@@ -368,6 +374,22 @@ test('listRevocableMembershipUsers only returns approved non-admin members', asy
   const result = await listRevocableMembershipUsers({ repository });
 
   assert.deepEqual(result.users.map((user) => user.telegramUserId), [10]);
+});
+
+test('listManageableMembershipUsers includes admins, members, and pending users for the management screen', async () => {
+  const repository = createRepository([
+    { telegramUserId: 10, username: 'member', displayName: 'Beta Member', status: 'approved', isAdmin: false },
+    { telegramUserId: 11, username: 'admin', displayName: 'Alpha Admin', status: 'approved', isAdmin: true },
+    { telegramUserId: 12, username: 'pending', displayName: 'Gamma Pending', status: 'pending', isAdmin: false },
+  ]);
+
+  const result = await listManageableMembershipUsers({ repository });
+
+  assert.deepEqual(result.users.map((user) => `${user.telegramUserId}:${user.status}:${user.isAdmin}`), [
+    '11:approved:true',
+    '10:approved:false',
+    '12:pending:false',
+  ]);
 });
 
 test('approveMembershipRequest approves a pending user and returns applicant notification', async () => {

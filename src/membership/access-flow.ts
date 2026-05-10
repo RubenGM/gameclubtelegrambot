@@ -14,6 +14,8 @@ export interface MembershipUserRecord {
   displayName: string;
   status: MembershipUserStatus;
   isAdmin: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface MembershipAccessRepository {
@@ -30,6 +32,7 @@ export interface MembershipAccessRepository {
     displayName: string;
   }): Promise<MembershipUserRecord>;
   listPendingUsers(): Promise<MembershipUserRecord[]>;
+  listManageableUsers?(): Promise<MembershipUserRecord[]>;
   listRevocableUsers(): Promise<MembershipUserRecord[]>;
   listApprovedAdminUsers(): Promise<MembershipUserRecord[]>;
   findLatestRevocation(telegramUserId: number): Promise<MembershipRevocationRecord | null>;
@@ -142,6 +145,21 @@ export async function listRevocableMembershipUsers({
 }): Promise<{ users: MembershipUserRecord[] }> {
   return {
     users: await repository.listRevocableUsers(),
+  };
+}
+
+export async function listManageableMembershipUsers({
+  repository,
+}: {
+  repository: MembershipAccessRepository;
+}): Promise<{ users: MembershipUserRecord[] }> {
+  return {
+    users: repository.listManageableUsers
+      ? await repository.listManageableUsers()
+      : [
+          ...(await repository.listApprovedAdminUsers()),
+          ...(await repository.listRevocableUsers()),
+        ].sort((left, right) => left.displayName.localeCompare(right.displayName) || left.telegramUserId - right.telegramUserId),
   };
 }
 

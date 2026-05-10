@@ -73,6 +73,23 @@ export function createDatabaseCatalogLoanRepository({
         .orderBy(desc(catalogLoans.createdAt), desc(catalogLoans.id));
       return rows.map(mapCatalogLoanRow);
     },
+    async listActiveLoansWithItemsByBorrower(borrowerTelegramUserId) {
+      const rows = await database
+        .select({
+          loan: catalogLoans,
+          itemDisplayName: catalogItems.displayName,
+          itemLifecycleStatus: catalogItems.lifecycleStatus,
+        })
+        .from(catalogLoans)
+        .innerJoin(catalogItems, eq(catalogLoans.itemId, catalogItems.id))
+        .where(and(eq(catalogLoans.borrowerTelegramUserId, borrowerTelegramUserId), isNull(catalogLoans.returnedAt)))
+        .orderBy(desc(catalogLoans.createdAt), desc(catalogLoans.id));
+      return rows.map((row) => ({
+        ...mapCatalogLoanRow(row.loan),
+        itemDisplayName: row.itemDisplayName,
+        itemLifecycleStatus: row.itemLifecycleStatus as CatalogLoanWithItemRecord['itemLifecycleStatus'],
+      }));
+    },
     async listLoansByItem(itemId) {
       const rows = await database
         .select()

@@ -19,6 +19,8 @@ export function createDatabaseMembershipAccessRepository({
           displayName: users.displayName,
           status: users.status,
           isAdmin: users.isAdmin,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
         })
         .from(users)
         .where(eq(users.telegramUserId, telegramUserId));
@@ -28,7 +30,7 @@ export function createDatabaseMembershipAccessRepository({
         return null;
       }
 
-      return row as MembershipUserRecord;
+      return mapMembershipUserRow(row);
     },
     async syncUserProfile(input) {
       const existingResult = await database
@@ -38,10 +40,12 @@ export function createDatabaseMembershipAccessRepository({
           displayName: users.displayName,
           status: users.status,
           isAdmin: users.isAdmin,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
         })
         .from(users)
         .where(eq(users.telegramUserId, input.telegramUserId));
-      const existing = existingResult[0] as MembershipUserRecord | undefined;
+      const existing = existingResult[0] ? mapMembershipUserRow(existingResult[0]) : undefined;
       if (!existing) {
         return null;
       }
@@ -75,9 +79,11 @@ export function createDatabaseMembershipAccessRepository({
           displayName: users.displayName,
           status: users.status,
           isAdmin: users.isAdmin,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
         });
 
-      return (updated[0] as MembershipUserRecord | undefined) ?? null;
+      return updated[0] ? mapMembershipUserRow(updated[0]) : null;
     },
     async upsertPendingUser(input) {
       const result = await database
@@ -112,9 +118,15 @@ export function createDatabaseMembershipAccessRepository({
           displayName: users.displayName,
           status: users.status,
           isAdmin: users.isAdmin,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
         });
 
-      return result[0] as MembershipUserRecord;
+      const row = result[0];
+      if (!row) {
+        throw new Error(`Pending membership user ${input.telegramUserId} was not returned`);
+      }
+      return mapMembershipUserRow(row);
     },
     async backfillDisplayNames() {
       const result = await database
@@ -160,11 +172,30 @@ export function createDatabaseMembershipAccessRepository({
           displayName: users.displayName,
           status: users.status,
           isAdmin: users.isAdmin,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
         })
         .from(users)
         .where(eq(users.status, 'pending'));
 
-      return result as MembershipUserRecord[];
+      return result.map(mapMembershipUserRow);
+    },
+    async listManageableUsers() {
+      const result = await database
+        .select({
+          telegramUserId: users.telegramUserId,
+          username: users.username,
+          displayName: users.displayName,
+          status: users.status,
+          isAdmin: users.isAdmin,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
+        })
+        .from(users)
+        .where(sql`true`)
+        .orderBy(users.displayName, users.telegramUserId);
+
+      return result.map(mapMembershipUserRow);
     },
     async listRevocableUsers() {
       const result = await database
@@ -174,12 +205,14 @@ export function createDatabaseMembershipAccessRepository({
           displayName: users.displayName,
           status: users.status,
           isAdmin: users.isAdmin,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
         })
         .from(users)
         .where(and(eq(users.status, 'approved'), eq(users.isAdmin, false)))
         .orderBy(users.displayName, users.telegramUserId);
 
-      return result as MembershipUserRecord[];
+      return result.map(mapMembershipUserRow);
     },
     async listApprovedAdminUsers() {
       const result = await database
@@ -189,12 +222,14 @@ export function createDatabaseMembershipAccessRepository({
           displayName: users.displayName,
           status: users.status,
           isAdmin: users.isAdmin,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
         })
         .from(users)
         .where(and(eq(users.status, 'approved'), eq(users.isAdmin, true)))
         .orderBy(users.displayName, users.telegramUserId);
 
-      return result as MembershipUserRecord[];
+      return result.map(mapMembershipUserRow);
     },
     async findLatestRevocation(telegramUserId) {
       const result = await database
@@ -247,6 +282,8 @@ export function createDatabaseMembershipAccessRepository({
             displayName: users.displayName,
             status: users.status,
             isAdmin: users.isAdmin,
+            createdAt: users.createdAt,
+            updatedAt: users.updatedAt,
           });
 
         const row = updated[0];
@@ -273,7 +310,7 @@ export function createDatabaseMembershipAccessRepository({
           },
         });
 
-        return row as MembershipUserRecord;
+        return mapMembershipUserRow(row);
       });
     },
     async rejectMembershipRequest(input) {
@@ -296,6 +333,8 @@ export function createDatabaseMembershipAccessRepository({
             displayName: users.displayName,
             status: users.status,
             isAdmin: users.isAdmin,
+            createdAt: users.createdAt,
+            updatedAt: users.updatedAt,
           });
 
         const row = updated[0];
@@ -323,7 +362,7 @@ export function createDatabaseMembershipAccessRepository({
           },
         });
 
-        return row as MembershipUserRecord;
+        return mapMembershipUserRow(row);
       });
     },
     async revokeMembershipAccess(input) {
@@ -346,6 +385,8 @@ export function createDatabaseMembershipAccessRepository({
             displayName: users.displayName,
             status: users.status,
             isAdmin: users.isAdmin,
+            createdAt: users.createdAt,
+            updatedAt: users.updatedAt,
           });
 
         const row = updated[0];
@@ -373,8 +414,28 @@ export function createDatabaseMembershipAccessRepository({
           },
         });
 
-        return row as MembershipUserRecord;
+        return mapMembershipUserRow(row);
       });
     },
+  };
+}
+
+function mapMembershipUserRow(row: {
+  telegramUserId: number;
+  username: string | null;
+  displayName: string;
+  status: string;
+  isAdmin: boolean;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+}): MembershipUserRecord {
+  return {
+    telegramUserId: row.telegramUserId,
+    username: row.username,
+    displayName: row.displayName,
+    status: row.status as MembershipUserRecord['status'],
+    isAdmin: row.isAdmin,
+    ...(row.createdAt ? { createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt } : {}),
+    ...(row.updatedAt ? { updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt } : {}),
   };
 }

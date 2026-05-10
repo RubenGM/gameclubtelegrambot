@@ -5,10 +5,15 @@ import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import { createDatabaseVenueEventRepository } from '../venue-events/venue-event-catalog-store.js';
-import { elevateApprovedUserToAdmin } from '../membership/admin-elevation.js';
+import {
+  elevateApprovedUserToAdmin,
+  grantAdminRoleToUser,
+  revokeAdminRoleFromUser,
+} from '../membership/admin-elevation.js';
 import { createDatabaseAdminElevationRepository } from '../membership/admin-elevation-store.js';
 import {
   approveMembershipRequest,
+  listManageableMembershipUsers,
   listRevocableMembershipUsers,
   listPendingMembershipRequests,
   rejectMembershipRequest,
@@ -17,6 +22,7 @@ import {
 } from '../membership/access-flow.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
+import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import {
   createAppMetadataMembershipRequestNotificationSubscriptionStore,
   notifyApprovedAdminsOfMembershipRevocation,
@@ -122,11 +128,14 @@ import type {
 } from './runtime-boundary.js';
 
 const membershipRevokeFlowKey = 'membership-revoke';
+const membershipUserManagementFlowKey = 'membership-user-management';
+const membershipUserDetailPrefix = 'membership_user:detail:';
 const membershipRevokeSelectPrefix = 'membership_revoke:select:';
 const membershipRevokeConfirmCallback = 'membership_revoke:confirm';
 const membershipRevokeCancelCallback = 'membership_revoke:cancel';
 const activeHelpSections = new Map<string, TelegramHelpSection>();
 const featureStatusDocumentPath = resolve(process.cwd(), 'docs', 'feature-status.md');
+type CommonLabels = ReturnType<typeof createTelegramI18n>['common'];
 
 export function registerHandlers({
   bot,
@@ -637,6 +646,12 @@ function createDefaultCommands({
           return;
         }
 
+        const manageUserTarget = parseManageUserStartPayload(startPayload);
+        if (manageUserTarget !== null) {
+          await handleManageUserDetail(context, manageUserTarget);
+          return;
+        }
+
         if (await handlePrivateAutoMembershipRequest(context)) {
           return;
         }
@@ -765,6 +780,16 @@ function parseCallbackTarget(
   }
 
   return telegramUserId;
+}
+
+function parseManageUserStartPayload(payload: string | null | undefined): number | null {
+  const prefix = 'manage_user_';
+  if (!payload?.startsWith(prefix)) {
+    return null;
+  }
+
+  const telegramUserId = Number(payload.slice(prefix.length));
+  return Number.isInteger(telegramUserId) && telegramUserId > 0 ? telegramUserId : null;
 }
 
 export function toGrammyReplyOptions(
@@ -1094,6 +1119,15 @@ function registerMembershipCallbacks({
     );
   });
 
+  bot.onCallback(membershipUserDetailPrefix, async (context) => {
+    const targetTelegramUserId = parseCallbackTarget(
+      context.callbackData,
+      membershipUserDetailPrefix,
+      context.runtime.bot.language ?? 'ca',
+    );
+    await handleManageUserDetail(context, targetTelegramUserId);
+  });
+
   bot.onCallback(membershipRevokeConfirmCallback, async (context) => {
     const session = context.runtime.session.current;
     if (session?.flowKey !== membershipRevokeFlowKey || session.stepKey !== 'confirm') {
@@ -1330,24 +1364,95 @@ async function handleManageUsers(context: TelegramCommandHandlerContext): Promis
   const repository = createDatabaseMembershipAccessRepository({
     database: context.runtime.services.database.db,
   });
-  const result = await listRevocableMembershipUsers({ repository });
+  const result = await listManageableMembershipUsers({ repository });
 
   if (result.users.length === 0) {
-    await context.reply(i18n.common.noRevocableUsers);
+    await context.reply(i18n.common.noManageableUsers);
     return;
   }
 
   const lines = [
-    i18n.common.revocableUsersHeader,
-    ...result.users.map((user) => `- ${formatMembershipUserLabel(user)} -> ${i18n.common.revokeButton}`),
+    i18n.common.manageUsersHeader,
+    ...result.users.map((user) => formatManageableUserListLine(user, context.runtime.bot.username, i18n.common)),
   ];
 
-  await context.reply(lines.join('\n'), {
-    inlineKeyboard: result.users.map((user) => [{
-      text: `${i18n.common.revokeButton}: ${shortMembershipUserLabel(user)}`,
-      callbackData: `${membershipRevokeSelectPrefix}${user.telegramUserId}`,
-    }]),
+  await context.reply(lines.join('\n'), { parseMode: 'HTML' });
+}
+
+async function handleManageUserDetail(context: TelegramCommandHandlerContext, targetTelegramUserId: number): Promise<void> {
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isAdmin) {
+    await context.reply(i18n.common.accessDeniedAdmin);
+    return;
+  }
+
+  const membershipRepository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
   });
+  const targetUser = await membershipRepository.findUserByTelegramUserId(targetTelegramUserId);
+  if (!targetUser) {
+    await context.reply(i18n.common.userManagementTargetMissing);
+    return;
+  }
+
+  await context.runtime.session.start({
+    flowKey: membershipUserManagementFlowKey,
+    stepKey: 'detail',
+    data: { targetTelegramUserId },
+  });
+
+  const catalogLoanRepository = createDatabaseCatalogLoanRepository({
+    database: context.runtime.services.database.db,
+  });
+  const scheduleRepository = createDatabaseScheduleRepository({
+    database: context.runtime.services.database.db,
+  });
+  const now = new Date().toISOString();
+  const listActiveEventsByParticipant = scheduleRepository.listActiveEventsByParticipant?.bind(scheduleRepository);
+  const [activeLoans, futureEvents, recentEvents] = await Promise.all([
+    catalogLoanRepository.listActiveLoansWithItemsByBorrower
+      ? catalogLoanRepository.listActiveLoansWithItemsByBorrower(targetTelegramUserId)
+      : catalogLoanRepository.listActiveLoansByBorrower(targetTelegramUserId).then((loans) =>
+          loans.map((loan) => ({
+            ...loan,
+            itemDisplayName: `Item ${loan.itemId}`,
+            itemLifecycleStatus: 'active' as const,
+          })),
+        ),
+    listActiveEventsByParticipant ? listActiveEventsByParticipant({
+      participantTelegramUserId: targetTelegramUserId,
+      startsAtFrom: now,
+      limit: 10,
+      order: 'asc',
+    }) : Promise.resolve([]),
+    listActiveEventsByParticipant ? listActiveEventsByParticipant({
+      participantTelegramUserId: targetTelegramUserId,
+      startsAtTo: now,
+      limit: 5,
+      order: 'desc',
+    }) : Promise.resolve([]),
+  ]);
+
+  await context.reply(
+    formatManageUserDetail({
+      user: targetUser,
+      activeLoans,
+      futureEvents,
+      recentEvents,
+      labels: i18n.common,
+      language: context.runtime.bot.language ?? 'ca',
+    }),
+    {
+      parseMode: 'HTML',
+      replyKeyboard: buildManageUserDetailKeyboard({
+        user: targetUser,
+        actorTelegramUserId: context.runtime.actor.telegramUserId,
+        labels: i18n.common,
+      }),
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    },
+  );
 }
 
 async function handleTelegramTranslatedActionMenuText(
@@ -1390,6 +1495,10 @@ async function handleTelegramTranslatedActionMenuText(
     }
 
     return false;
+  }
+
+  if (await handleMembershipUserManagementText(context, { publicName: commandConfig.publicName })) {
+    return true;
   }
 
   if (text === i18n.actionMenu.tablesRead) {
@@ -1757,6 +1866,215 @@ function shortMembershipUserLabel(user: {
   return user.username && user.username.trim().length > 0
     ? `${user.displayName} (@${user.username.replace(/^@/, '')})`
     : user.displayName;
+}
+
+function formatManageableUserListLine(
+  user: {
+    telegramUserId: number;
+    displayName: string;
+    username?: string | null;
+    status: string;
+    isAdmin: boolean;
+  },
+  botUsername: string | undefined,
+  labels: CommonLabels,
+): string {
+  const detailUrl = botUsername ? buildTelegramStartUrl(`manage_user_${user.telegramUserId}`) : undefined;
+  const name = detailUrl
+    ? `<a href="${escapeHtml(detailUrl)}"><b>${escapeHtml(user.displayName)}</b></a>`
+    : `<b>${escapeHtml(user.displayName)}</b>`;
+  const username = formatTelegramUsernameLink(user.username);
+  const status = formatMembershipStatusLabel(user.status, labels);
+  const role = user.isAdmin ? labels.userRoleAdmin : labels.userRoleMember;
+  return `- ${name}${username ? ` · ${username}` : ''} · ${escapeHtml(status)} · ${escapeHtml(role)}`;
+}
+
+function formatManageUserDetail({
+  user,
+  activeLoans,
+  futureEvents,
+  recentEvents,
+  labels,
+  language,
+}: {
+  user: {
+    telegramUserId: number;
+    displayName: string;
+    username?: string | null;
+    status: string;
+    isAdmin: boolean;
+    createdAt?: string;
+    updatedAt?: string;
+  };
+  activeLoans: Array<{ itemDisplayName: string; createdAt: string; dueAt: string | null }>;
+  futureEvents: Array<{ title: string; startsAt: string; organizerTelegramUserId: number }>;
+  recentEvents: Array<{ title: string; startsAt: string; organizerTelegramUserId: number }>;
+  labels: CommonLabels;
+  language: 'ca' | 'es' | 'en';
+}): string {
+  const identity = [
+    `<b>${escapeHtml(labels.userDetailHeader)}</b>`,
+    `${labels.userDetailName}: <b>${escapeHtml(user.displayName)}</b>`,
+    ...(user.username ? [`${labels.userDetailUsername}: ${formatTelegramUsernameLink(user.username)}`] : []),
+    `${labels.userDetailTelegramId}: <code>${user.telegramUserId}</code>`,
+    `${labels.userDetailStatus}: ${escapeHtml(formatMembershipStatusLabel(user.status, labels))}`,
+    `${labels.userDetailRole}: ${escapeHtml(user.isAdmin ? labels.userRoleAdmin : labels.userRoleMember)}`,
+    ...(user.createdAt ? [`${labels.userDetailCreatedAt}: ${escapeHtml(formatShortDateTime(user.createdAt, language))}`] : []),
+    ...(user.updatedAt ? [`${labels.userDetailUpdatedAt}: ${escapeHtml(formatShortDateTime(user.updatedAt, language))}`] : []),
+  ];
+  const loanLines = activeLoans.length === 0
+    ? [`- ${escapeHtml(labels.userDetailNoActiveLoans)}`]
+    : activeLoans.map((loan) => {
+        const due = loan.dueAt ? labels.userDetailLoanDue.replace('{date}', formatShortDateTime(loan.dueAt, language)) : labels.userDetailLoanNoDue;
+        return `- <b>${escapeHtml(loan.itemDisplayName)}</b> · ${escapeHtml(labels.userDetailLoanedAt.replace('{date}', formatShortDateTime(loan.createdAt, language)))} · ${escapeHtml(due)}`;
+      });
+  const futureLines = futureEvents.length === 0
+    ? [`- ${escapeHtml(labels.userDetailNoFutureEvents)}`]
+    : futureEvents.map((event) => `- <b>${escapeHtml(event.title)}</b> · ${escapeHtml(formatShortDateTime(event.startsAt, language))}${event.organizerTelegramUserId === user.telegramUserId ? ` · ${escapeHtml(labels.userDetailOrganizer)}` : ''}`);
+  const recentLines = recentEvents.length === 0
+    ? [`- ${escapeHtml(labels.userDetailNoRecentEvents)}`]
+    : recentEvents.map((event) => `- <b>${escapeHtml(event.title)}</b> · ${escapeHtml(formatShortDateTime(event.startsAt, language))}${event.organizerTelegramUserId === user.telegramUserId ? ` · ${escapeHtml(labels.userDetailOrganizer)}` : ''}`);
+
+  return [
+    ...identity,
+    '',
+    `<b>${escapeHtml(labels.userDetailActiveLoans)} (${activeLoans.length})</b>`,
+    ...loanLines,
+    '',
+    `<b>${escapeHtml(labels.userDetailFutureEvents)} (${futureEvents.length})</b>`,
+    ...futureLines,
+    '',
+    `<b>${escapeHtml(labels.userDetailRecentEvents)} (${recentEvents.length})</b>`,
+    ...recentLines,
+  ].join('\n');
+}
+
+function buildManageUserDetailKeyboard({
+  user,
+  actorTelegramUserId,
+  labels,
+}: {
+  user: { telegramUserId: number; status: string; isAdmin: boolean };
+  actorTelegramUserId: number;
+  labels: CommonLabels;
+}): TelegramReplyKeyboardButton[][] {
+  const rows: TelegramReplyKeyboardButton[][] = [];
+  if (user.status === 'approved' && !user.isAdmin && user.telegramUserId !== actorTelegramUserId) {
+    rows.push([{ text: labels.revokeButton, semanticRole: 'danger' }]);
+  }
+  if (user.status === 'approved' && !user.isAdmin) {
+    rows.push([{ text: labels.grantAdminButton, semanticRole: 'success' }]);
+  }
+  if (user.status === 'approved' && user.isAdmin && user.telegramUserId !== actorTelegramUserId) {
+    rows.push([{ text: labels.revokeAdminButton, semanticRole: 'danger' }]);
+  }
+  rows.push([labels.backToStartButton]);
+  return rows;
+}
+
+async function handleMembershipUserManagementText(
+  context: TelegramCommandHandlerContext,
+  commandConfig: { publicName: string },
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  const text = context.messageText?.trim();
+  if (!text || session?.flowKey !== membershipUserManagementFlowKey || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isAdmin) {
+    return false;
+  }
+
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  const targetTelegramUserId = getSessionNumber(session.data, 'targetTelegramUserId');
+  if (text === i18n.common.backToStartButton || text === i18n.actionMenu.start) {
+    await context.runtime.session.cancel();
+    const startReply = await buildStartReply({ context, publicName: commandConfig.publicName, version: APP_VERSION });
+    await context.reply(startReply.message, startReply.options);
+    return true;
+  }
+
+  const membershipRepository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+  const targetUser = await membershipRepository.findUserByTelegramUserId(targetTelegramUserId);
+  if (!targetUser) {
+    await context.reply(i18n.common.userManagementTargetMissing);
+    return true;
+  }
+
+  if (text === i18n.common.revokeButton) {
+    if (targetUser.telegramUserId === context.runtime.actor.telegramUserId || targetUser.isAdmin || targetUser.status !== 'approved') {
+      await context.reply(i18n.common.userManagementActionDenied);
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: membershipRevokeFlowKey,
+      stepKey: 'reason',
+      data: { targetTelegramUserId },
+    });
+    await context.reply(`${formatMembershipUserLabel(targetUser)}\n\n${i18n.common.revokeReasonPrompt}`, {
+      replyKeyboard: [['/cancel']],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    });
+    return true;
+  }
+
+  if (text === i18n.common.grantAdminButton || text === i18n.common.revokeAdminButton) {
+    if (text === i18n.common.revokeAdminButton && targetUser.telegramUserId === context.runtime.actor.telegramUserId) {
+      await context.reply(i18n.common.userManagementActionDenied);
+      return true;
+    }
+
+    const repository = createDatabaseAdminElevationRepository({
+      database: context.runtime.services.database.db,
+    });
+    const result = text === i18n.common.grantAdminButton
+      ? await grantAdminRoleToUser({
+          repository,
+          targetTelegramUserId,
+          adminTelegramUserId: context.runtime.actor.telegramUserId,
+          reason: 'admin-user-management',
+        })
+      : await revokeAdminRoleFromUser({
+          repository,
+          targetTelegramUserId,
+          adminTelegramUserId: context.runtime.actor.telegramUserId,
+          reason: 'admin-user-management',
+        });
+    await context.reply(result.message);
+    await handleManageUserDetail(context, targetTelegramUserId);
+    return true;
+  }
+
+  return false;
+}
+
+function formatTelegramUsernameLink(username: string | null | undefined): string | null {
+  const normalized = username?.trim().replace(/^@/, '');
+  return normalized ? `<a href="https://t.me/${escapeHtml(normalized)}">@${escapeHtml(normalized)}</a>` : null;
+}
+
+function formatMembershipStatusLabel(status: string, labels: CommonLabels): string {
+  if (status === 'approved') return labels.userStatusApproved;
+  if (status === 'pending') return labels.userStatusPending;
+  if (status === 'blocked') return labels.userStatusBlocked;
+  if (status === 'revoked') return labels.userStatusRevoked;
+  return status;
+}
+
+function formatShortDateTime(value: string, language: 'ca' | 'es' | 'en'): string {
+  return new Intl.DateTimeFormat(language === 'ca' ? 'ca-ES' : language, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 async function handleMembershipRevocationText(
