@@ -64,7 +64,7 @@ import {
 } from './command-registry.js';
 import { createAppMetadataTelegramLanguagePreferenceStore } from './language-preference-store.js';
 import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
-import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+import { createTelegramI18n, normalizeBotLanguage, supportedBotLanguages } from './i18n.js';
 import { handleTelegramLanguageCommand, handleTelegramLanguageText } from './language-flow.js';
 import {
   handleTelegramLfgCallback,
@@ -181,10 +181,8 @@ function registerTextHandlers({
   bot.onText(async (context) => {
     await recordCurrentMenuActionSelection(context);
     const text = context.messageText?.trim();
-    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-    const i18n = createTelegramI18n(language);
 
-    if (text === i18n.actionMenu.start) {
+    if (text && matchesActionMenuLabel(text, 'start')) {
       clearActiveHelpSection(context);
     }
 
@@ -192,7 +190,7 @@ function registerTextHandlers({
       return;
     }
 
-    if (await handleTelegramTranslatedActionMenuText(context, { publicName, adminElevationPasswordHash })) {
+    if (await handleTelegramActionMenuText(context, { publicName, adminElevationPasswordHash })) {
       return;
     }
 
@@ -723,6 +721,26 @@ function createDefaultCommands({
           filePath: featureStatusDocumentPath,
           caption: 'Estado de funcionalidades',
         });
+      },
+    },
+    {
+      command: 'restart',
+      contexts: ['private'],
+      access: 'admin',
+      descriptionByLanguage: {
+        ca: 'Reinicia el bot i neteja estat temporal',
+        es: 'Reinicia el bot y limpia estado temporal',
+        en: 'Restart the bot and clear temporary state',
+      },
+      handle: async (context) => {
+        const deletedSessions = await clearTelegramTemporaryState(context);
+        await context.reply(
+          [
+            'Reinicio solicitado. El bot volverá a estar disponible en unos segundos.',
+            `Sesiones conversacionales limpiadas: ${deletedSessions}.`,
+          ].join('\n'),
+        );
+        scheduleProcessRestart();
       },
     },
     {
@@ -1491,7 +1509,7 @@ async function handleManageUserDetail(context: TelegramCommandHandlerContext, ta
   );
 }
 
-async function handleTelegramTranslatedActionMenuText(
+async function handleTelegramActionMenuText(
   context: TelegramCommandHandlerContext,
   commandConfig: {
     publicName: string;
@@ -1504,9 +1522,136 @@ async function handleTelegramTranslatedActionMenuText(
   }
 
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-  const i18n = createTelegramI18n(language);
+  const selection = resolveTelegramMenuSelection({
+    context: {
+      actor: context.runtime.actor,
+      authorization: context.runtime.authorization,
+      chat: context.runtime.chat,
+      session: context.runtime.session.current,
+      language,
+    },
+    text,
+  });
 
-  if (text === i18n.actionMenu.reviewAccess) {
+  if (selection && selection.uxSection !== 'flow') {
+    if (selection.actionId === 'review_access') {
+      if (context.runtime.chat.kind === 'private' && context.runtime.actor.isAdmin) {
+        await handleReviewAccess(context);
+        return true;
+      }
+
+      return false;
+    }
+
+    if (selection.actionId === 'manage_users') {
+      if (context.runtime.chat.kind === 'private' && context.runtime.actor.isAdmin) {
+        await handleManageUsers(context);
+        return true;
+      }
+
+      return false;
+    }
+
+    if (selection.actionId === 'access') {
+      if (context.runtime.chat.kind === 'private' && !context.runtime.actor.isApproved && !context.runtime.actor.isBlocked) {
+        await handlePrivateAutoMembershipRequest(context);
+        return true;
+      }
+
+      return false;
+    }
+
+    if (selection.actionId === 'tables_read') {
+      if (context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved && !context.runtime.actor.isBlocked && !context.runtime.actor.isAdmin) {
+        await handleTelegramTableReadCommand(context);
+        return true;
+      }
+
+      return false;
+    }
+
+    if (selection.actionId === 'start') {
+      if (await handlePrivateAutoMembershipRequest(context)) {
+        return true;
+      }
+
+      const startReply = await buildStartReply({
+        context,
+        publicName: context.runtime.bot.publicName,
+        version: APP_VERSION,
+      });
+      await context.reply(startReply.message, startReply.options);
+      return true;
+    }
+
+    if (selection.actionId === 'help') {
+      await context.reply(
+        renderTelegramHelpMessage({
+          commands: createDefaultCommands(commandConfig),
+          context,
+          section: resolveHelpSection(context),
+        }),
+      );
+      return true;
+    }
+
+    const localizedContext = { ...context, messageText: selection.label };
+
+    if (selection.actionId === 'language') {
+      return handleTelegramLanguageText(localizedContext);
+    }
+
+    if (selection.actionId === 'storage') {
+      const handled = await handleTelegramStorageText(localizedContext);
+      if (handled) {
+        setActiveHelpSection(context, 'storage');
+      }
+      return handled;
+    }
+
+    if (selection.actionId === 'group_purchases') {
+      const handled = await handleTelegramGroupPurchaseText(localizedContext);
+      if (handled) {
+        setActiveHelpSection(context, 'group_purchases');
+      }
+      return handled;
+    }
+
+    if (selection.actionId === 'lfg') {
+      const handled = await handleTelegramLfgText(localizedContext);
+      if (handled) {
+        setActiveHelpSection(context, 'lfg');
+      }
+      return handled;
+    }
+
+    if (selection.actionId === 'schedule') {
+      const handled = await handleTelegramScheduleText(localizedContext);
+      if (handled) {
+        setActiveHelpSection(context, 'schedule');
+      }
+      return handled;
+    }
+
+    if (selection.actionId === 'tables') {
+      return handleTelegramTableAdminText(localizedContext);
+    }
+
+    if (selection.actionId === 'catalog') {
+      if (await handleTelegramCatalogAdminText(localizedContext)) {
+        setActiveHelpSection(context, 'catalog');
+        return true;
+      }
+
+      const handled = await handleTelegramCatalogReadText(localizedContext);
+      if (handled) {
+        setActiveHelpSection(context, 'catalog');
+      }
+      return handled;
+    }
+  }
+
+  if (matchesActionMenuLabel(text, 'reviewAccess')) {
     if (context.runtime.chat.kind === 'private' && context.runtime.actor.isAdmin) {
       await handleReviewAccess(context);
       return true;
@@ -1515,7 +1660,7 @@ async function handleTelegramTranslatedActionMenuText(
     return false;
   }
 
-  if (text === i18n.actionMenu.manageUsers) {
+  if (matchesActionMenuLabel(text, 'manageUsers')) {
     if (context.runtime.chat.kind === 'private' && context.runtime.actor.isAdmin) {
       await handleManageUsers(context);
       return true;
@@ -1524,7 +1669,7 @@ async function handleTelegramTranslatedActionMenuText(
     return false;
   }
 
-  if (text === i18n.actionMenu.access) {
+  if (matchesActionMenuLabel(text, 'access')) {
     if (context.runtime.chat.kind === 'private' && !context.runtime.actor.isApproved && !context.runtime.actor.isBlocked) {
       await handlePrivateAutoMembershipRequest(context);
       return true;
@@ -1537,7 +1682,7 @@ async function handleTelegramTranslatedActionMenuText(
     return true;
   }
 
-  if (text === i18n.actionMenu.tablesRead) {
+  if (matchesActionMenuLabel(text, 'tablesRead')) {
     if (context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved && !context.runtime.actor.isBlocked && !context.runtime.actor.isAdmin) {
       await handleTelegramTableReadCommand(context);
       return true;
@@ -1550,10 +1695,10 @@ async function handleTelegramTranslatedActionMenuText(
     return true;
   }
 
-  if (text === i18n.actionMenu.start) {
-    if (await handlePrivateAutoMembershipRequest(context)) {
-      return true;
-    }
+    if (matchesActionMenuLabel(text, 'start')) {
+      if (await handlePrivateAutoMembershipRequest(context)) {
+        return true;
+      }
 
     const startReply = await buildStartReply({
       context,
@@ -1564,7 +1709,7 @@ async function handleTelegramTranslatedActionMenuText(
     return true;
   }
 
-  if (text === i18n.actionMenu.help) {
+  if (matchesActionMenuLabel(text, 'help')) {
     await context.reply(
       renderTelegramHelpMessage({
         commands: createDefaultCommands(commandConfig),
@@ -1576,6 +1721,37 @@ async function handleTelegramTranslatedActionMenuText(
   }
 
   return false;
+}
+
+type TelegramActionMenuTextKey = keyof ReturnType<typeof createTelegramI18n>['actionMenu'];
+
+function matchesActionMenuLabel(text: string, key: TelegramActionMenuTextKey): boolean {
+  return supportedBotLanguages.some((language) => createTelegramI18n(language).actionMenu[key] === text);
+}
+
+async function clearTelegramTemporaryState(context: TelegramCommandHandlerContext): Promise<number> {
+  activeHelpSections.clear();
+
+  const storage = createDatabaseAppMetadataSessionStorage({
+    database: context.runtime.services.database.db,
+  });
+  const rows = await storage.listByPrefix('telegram.session:');
+  let deletedSessions = 0;
+
+  for (const row of rows) {
+    if (await storage.delete(row.key)) {
+      deletedSessions += 1;
+    }
+  }
+
+  return deletedSessions;
+}
+
+function scheduleProcessRestart(delayMs = 750): void {
+  const timer = setTimeout(() => {
+    throw new Error('Admin requested Telegram bot restart via /restart');
+  }, delayMs);
+  timer.unref();
 }
 
 async function handlePrivateAutoMembershipRequest(

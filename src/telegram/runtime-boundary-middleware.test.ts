@@ -183,12 +183,51 @@ test('createMiddlewarePipeline logs structured update metadata', async () => {
       bindings: {
         chatId: 100,
         chatType: 'private',
+        messageText: 'hola',
         telegramUserId: 42,
         updateKind: 'message',
       },
       message: 'Telegram update received',
     },
   ]);
+});
+
+test('createMiddlewarePipeline logs command text from grammy msg before command handlers run', async () => {
+  const infoLogs: Array<{ bindings: object; message: string }> = [];
+  const middlewares = createMiddlewarePipeline({
+    config: runtimeConfig,
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub() as never,
+        close: async () => {},
+      },
+    } satisfies InfrastructureRuntimeServices,
+    bot: createBotStub(),
+    logger: {
+      info(bindings, message) {
+        infoLogs.push({ bindings, message });
+      },
+      error() {},
+    },
+    isNewsEnabledGroup: async () => false,
+    loadActor: async ({ telegramUserId }) => createApprovedActor(telegramUserId),
+    conversationSessionStore: createConversationSessionStoreStub(),
+    languagePreferenceStore: {
+      loadLanguage: async () => null,
+    },
+  });
+
+  await runMiddlewares(middlewares, createGrammyMsgTextContext('/start catalog_admin_letters_JKL'));
+
+  assert.equal(infoLogs[0]?.message, 'Telegram update received');
+  assert.deepEqual(infoLogs[0]?.bindings, {
+    chatId: 100,
+    chatType: 'private',
+    messageText: '/start catalog_admin_letters_JKL',
+    telegramUserId: 42,
+    updateKind: 'message',
+  });
 });
 
 function createMembershipDatabaseStub() {
@@ -277,6 +316,25 @@ function createTextContext(): TelegramContextLike & { message: { text: string } 
     },
     message: {
       text: 'hola',
+    },
+    reply: async () => {},
+  };
+}
+
+function createGrammyMsgTextContext(text: string): TelegramContextLike & { msg: { text: string } } {
+  return {
+    chat: {
+      id: 100,
+      type: 'private',
+    },
+    from: {
+      id: 42,
+      username: 'new_member',
+      first_name: 'New',
+      last_name: 'Member',
+    },
+    msg: {
+      text,
     },
     reply: async () => {},
   };

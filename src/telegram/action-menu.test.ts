@@ -181,6 +181,34 @@ test('resolveTelegramMenuSelection maps translated button text to stable menu ac
   });
 });
 
+test('resolveTelegramMenuSelection accepts menu text from a different language', async () => {
+  const selection = resolveTelegramMenuSelection({
+    context: createContext({
+      actor: {
+        telegramUserId: 77,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: false,
+        permissions: [],
+      },
+      chat: {
+        kind: 'private',
+        chatId: 1,
+      },
+    }),
+    text: 'Catálogo',
+  });
+
+  assert.deepEqual(selection, {
+    menuId: 'private-approved-default',
+    actionId: 'catalog',
+    label: 'Catàleg',
+    telemetryActionKey: 'menu.catalog',
+    uxSection: 'primary',
+  });
+});
+
 test('resolveTelegramActionMenu exposes activities to admins in private chats', async () => {
   const menu = resolveTelegramActionMenu({
     context: createContext({

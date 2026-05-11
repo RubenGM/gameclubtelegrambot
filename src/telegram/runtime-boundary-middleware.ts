@@ -325,25 +325,51 @@ function buildTelegramUpdateLogBindings(context: TelegramContextLike): {
   chatType?: string;
   telegramUserId?: number;
   updateKind: 'callback' | 'message' | 'unknown';
+  messageText?: string;
+  callbackData?: string;
 } {
   return {
     ...(context.chat ? { chatId: context.chat.id, chatType: context.chat.type } : {}),
     ...(context.from ? { telegramUserId: context.from.id } : {}),
     updateKind: resolveTelegramUpdateKind(context),
+    ...(resolveTelegramMessageText(context) ? { messageText: truncateTelegramLogValue(resolveTelegramMessageText(context) ?? '') } : {}),
+    ...(resolveTelegramCallbackData(context) ? { callbackData: truncateTelegramLogValue(resolveTelegramCallbackData(context) ?? '') } : {}),
   };
 }
 
-function resolveTelegramUpdateKind(context: TelegramContextLike): 'callback' | 'message' | 'unknown' {
+function truncateTelegramLogValue(value: string): string {
+  return value.length > 160 ? `${value.slice(0, 157)}...` : value;
+}
+
+function resolveTelegramMessageText(context: TelegramContextLike): string | undefined {
+  if (context.messageText) {
+    return context.messageText;
+  }
+
+  const maybeMessage = context as TelegramContextLike & {
+    message?: { text?: string };
+    msg?: { text?: string };
+  };
+  return maybeMessage.message?.text ?? maybeMessage.msg?.text;
+}
+
+function resolveTelegramCallbackData(context: TelegramContextLike): string | undefined {
   if (context.callbackData) {
+    return context.callbackData;
+  }
+
+  const maybeCallback = context as TelegramContextLike & {
+    callbackQuery?: { data?: string };
+  };
+  return maybeCallback.callbackQuery?.data;
+}
+
+function resolveTelegramUpdateKind(context: TelegramContextLike): 'callback' | 'message' | 'unknown' {
+  if (resolveTelegramCallbackData(context)) {
     return 'callback';
   }
 
-  const maybeMessage = context as TelegramContextLike & { message?: { text?: string } };
-  if (maybeMessage.message?.text) {
-    return 'message';
-  }
-
-  if (context.messageText) {
+  if (resolveTelegramMessageText(context)) {
     return 'message';
   }
 

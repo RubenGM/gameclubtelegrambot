@@ -31,6 +31,7 @@ import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
+import { createTelegramApiHealthMonitor, type TelegramApiHealthMonitor } from './telegram-api-health.js';
 import { withTelegramApiRetry } from './telegram-api-retry.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
 
@@ -348,6 +349,17 @@ function createGrammyTelegramBot({
   let pollingPromise: Promise<void> | undefined;
   let isStopping = false;
   let botUsername: string | undefined;
+  const apiHealth = createTelegramApiHealthMonitor();
+  const retryOptions = (operation: string) => ({
+    operation,
+    logger,
+    onRetryableFailure: ({ error }: { error: unknown }) => {
+      apiHealth.recordFailure(operation, error);
+    },
+    onSuccess: () => {
+      apiHealth.recordSuccess(operation);
+    },
+  });
 
   return {
     get username() {
@@ -364,7 +376,7 @@ function createGrammyTelegramBot({
 
         context.messageText = context.msg?.text ?? context.message?.text;
 
-        await handler(createTelegramCommandContext(context, buttonAppearance, logger));
+        await handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth));
       };
 
       bot.command(command, async (context) => {
@@ -395,7 +407,7 @@ function createGrammyTelegramBot({
 
         context.callbackData = context.callbackQuery.data;
         await runTelegramCallbackHandler({
-          handle: () => handler(createTelegramCommandContext(context, buttonAppearance, logger)),
+          handle: () => handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth)),
           acknowledge: () => context.answerCallbackQuery(),
         });
       });
@@ -407,11 +419,11 @@ function createGrammyTelegramBot({
         }
 
         context.messageText = context.msg?.text ?? context.message?.text;
-        if (!context.messageText || context.messageText.startsWith('/')) {
+        if (!context.messageText || (context.messageText.startsWith('/') && !isTelegramInternalTextCommand(context.messageText))) {
           return;
         }
 
-        await handler(createTelegramCommandContext(context, buttonAppearance, logger));
+        await handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth));
       });
     },
     onMessage(handler) {
@@ -425,7 +437,7 @@ function createGrammyTelegramBot({
         context.messageMedia = extractTelegramMessageMedia(context.msg ?? context.message);
         context.sharedChat = extractTelegramSharedChat(context.msg ?? context.message);
 
-        await handler(createTelegramCommandContext(context, buttonAppearance, logger));
+        await handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth));
       });
     },
     async getMe() {
@@ -465,17 +477,17 @@ function createGrammyTelegramBot({
       };
     },
     async sendPrivateMessage(telegramUserId, message, options) {
-      await withTelegramApiRetry({ operation: 'sendPrivateMessage', logger }, () =>
-        bot.api.sendMessage(telegramUserId, message, options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
+      await withTelegramApiRetry(retryOptions('sendPrivateMessage'), () =>
+        bot.api.sendMessage(telegramUserId, apiHealth.appendWarning(message), options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
       );
     },
     async sendGroupMessage(chatId, message, options) {
-      await withTelegramApiRetry({ operation: 'sendGroupMessage', logger }, () =>
-        bot.api.sendMessage(chatId, message, options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
+      await withTelegramApiRetry(retryOptions('sendGroupMessage'), () =>
+        bot.api.sendMessage(chatId, apiHealth.appendWarning(message), options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
       );
     },
     async copyMessage({ fromChatId, messageId, toChatId, messageThreadId }) {
-      const result = await withTelegramApiRetry({ operation: 'copyMessage', logger }, () =>
+      const result = await withTelegramApiRetry(retryOptions('copyMessage'), () =>
         bot.api.raw.copyMessage({
           from_chat_id: fromChatId,
           message_id: messageId,
@@ -488,7 +500,7 @@ function createGrammyTelegramBot({
       };
     },
     async forwardMessage({ fromChatId, messageId, toChatId, messageThreadId }) {
-      const result = await withTelegramApiRetry({ operation: 'forwardMessage', logger }, () =>
+      const result = await withTelegramApiRetry(retryOptions('forwardMessage'), () =>
         bot.api.raw.forwardMessage({
           from_chat_id: fromChatId,
           message_id: messageId,
@@ -503,7 +515,7 @@ function createGrammyTelegramBot({
     async sendMediaGroup({ chatId, media, messageThreadId }) {
       const singlePhoto = media.length === 1 ? media[0] : undefined;
       if (singlePhoto) {
-        const result = await withTelegramApiRetry({ operation: 'sendPhoto', logger }, () =>
+        const result = await withTelegramApiRetry(retryOptions('sendPhoto'), () =>
           bot.api.sendPhoto(
             chatId,
             toGrammyPhotoSource(singlePhoto.media),
@@ -516,7 +528,7 @@ function createGrammyTelegramBot({
         return [{ messageId: Number((result as { message_id: number }).message_id) }];
       }
 
-      const result = await withTelegramApiRetry({ operation: 'sendMediaGroup', logger }, () =>
+      const result = await withTelegramApiRetry(retryOptions('sendMediaGroup'), () =>
         bot.api.sendMediaGroup(
           chatId,
           media.map(toGrammyPhotoMedia),
@@ -526,12 +538,12 @@ function createGrammyTelegramBot({
       return (result as Array<{ message_id: number }>).map((message) => ({ messageId: Number(message.message_id) }));
     },
     async sendDocument({ chatId, filePath, caption }) {
-      await withTelegramApiRetry({ operation: 'sendDocument', logger }, () =>
+      await withTelegramApiRetry(retryOptions('sendDocument'), () =>
         bot.api.sendDocument(chatId, new InputFile(filePath), caption ? { caption } : undefined),
       );
     },
     async downloadFile({ fileId, destinationPath }) {
-      const file = await withTelegramApiRetry({ operation: 'getFile', logger }, () =>
+      const file = await withTelegramApiRetry(retryOptions('getFile'), () =>
         bot.api.raw.getFile({ file_id: fileId }),
       ) as { file_path?: string };
       if (!file.file_path) {
@@ -547,7 +559,7 @@ function createGrammyTelegramBot({
       await writeFile(destinationPath, Buffer.from(await response.arrayBuffer()));
     },
     async editMessageText({ chatId, messageId, text, options }) {
-      await withTelegramApiRetry({ operation: 'editMessageText', logger }, () =>
+      await withTelegramApiRetry(retryOptions('editMessageText'), () =>
         bot.api.raw.editMessageText({
           chat_id: chatId,
           message_id: messageId,
@@ -557,7 +569,7 @@ function createGrammyTelegramBot({
       );
     },
     async deleteMessage({ chatId, messageId }) {
-      await withTelegramApiRetry({ operation: 'deleteMessage', logger }, () =>
+      await withTelegramApiRetry(retryOptions('deleteMessage'), () =>
         bot.api.raw.deleteMessage({
           chat_id: chatId,
           message_id: messageId,
@@ -586,10 +598,32 @@ function createGrammyTelegramBot({
     },
     async stopPolling() {
       isStopping = true;
-      bot.stop();
-      await pollingPromise;
+      try {
+        bot.stop();
+      } catch (error) {
+        apiHealth.recordFailure('stopPolling', error);
+        logger.error(
+          { error: sanitizeTelegramErrorMessage(error) },
+          'Telegram bot stop request failed during shutdown',
+        );
+      }
+
+      try {
+        await pollingPromise;
+      } catch (error) {
+        apiHealth.recordFailure('stopPolling', error);
+        logger.error(
+          { error: sanitizeTelegramErrorMessage(error) },
+          'Telegram polling failed while shutting down',
+        );
+      }
     },
   };
+}
+
+function sanitizeTelegramErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/bot\d+:[A-Za-z0-9_-]+/g, 'bot<redacted>');
 }
 
 function toGrammyPhotoSource(input: TelegramPhotoMediaInput['media']): string | InputFile {
@@ -635,6 +669,10 @@ export function isTelegramRawCommandMatch(
 
   const targetUsername = match[2];
   return !targetUsername || (botUsername !== undefined && targetUsername.toLowerCase() === botUsername.toLowerCase());
+}
+
+export function isTelegramInternalTextCommand(messageText: string): boolean {
+  return /^(?:\/catalog_admin_letters_[A-Za-z0-9_-]+|\/cat_[A-Za-z0-9_-]+)(?:@[A-Za-z0-9_]+)?$/.test(messageText.trim());
 }
 
 function escapeRegExp(value: string): string {
@@ -763,14 +801,39 @@ function createTelegramCommandContext(
   },
   buttonAppearance?: TelegramButtonAppearanceConfig,
   logger?: TelegramLogger,
+  apiHealth?: TelegramApiHealthMonitor,
 ): TelegramCommandHandlerContext {
   return {
     ...context,
     ...(context.from ? { from: context.from } : {}),
-    reply(message: string, options?: TelegramReplyOptions) {
-      return withTelegramApiRetry({ operation: 'reply', ...(logger ? { logger } : {}) }, () =>
-        context.reply(message, toGrammyReplyOptions(options, buttonAppearance)),
+    async reply(message: string, options?: TelegramReplyOptions) {
+      const messageWithHealthWarning = apiHealth ? apiHealth.appendWarning(message) : message;
+      const result = await withTelegramApiRetry({
+        operation: 'reply',
+        ...(logger ? { logger } : {}),
+        ...(apiHealth
+          ? {
+              onRetryableFailure: ({ error }: { error: unknown }) => {
+                apiHealth.recordFailure('reply', error);
+              },
+              onSuccess: () => {
+                apiHealth.recordSuccess('reply');
+              },
+            }
+          : {}),
+      }, () =>
+        context.reply(messageWithHealthWarning, toGrammyReplyOptions(options, buttonAppearance)),
       );
+      logger?.info(
+        {
+          operation: 'reply',
+          chatId: context.chat?.id,
+          messageLength: messageWithHealthWarning.length,
+          healthWarningAppended: messageWithHealthWarning !== message,
+        },
+        'Telegram reply sent',
+      );
+      return result;
     },
   } as unknown as TelegramCommandHandlerContext;
 }

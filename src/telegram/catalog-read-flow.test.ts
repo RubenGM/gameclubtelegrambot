@@ -448,8 +448,14 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
   assert.match(replies[0]?.message ?? '', /Pàgina 1\/2/);
   assert.match(replies[0]?.message ?? '', /Prestat a Marta/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
-  assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[0]?.text, 'Game 1');
-  assert.equal(replies[0]?.options?.inlineKeyboard?.[0]?.[1]?.text, 'Retornar');
+  assert.match(replies[0]?.message ?? '', /catalog_read_item_1/);
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
+    [
+      { text: 'Anterior', callbackData: catalogReadCallbackPrefixes.pagePrev },
+      { text: 'Següent', callbackData: catalogReadCallbackPrefixes.pageNext },
+    ],
+    [{ text: 'Veure cataleg', callbackData: catalogReadCallbackPrefixes.overview }],
+  ]);
 
   replies.length = 0;
   context.callbackData = `${catalogReadCallbackPrefixes.inspectItem}1`;
@@ -560,5 +566,5 @@ test('handleTelegramCatalogReadText opens the catalog from the member keyboard a
   assert.equal(handled, true);
   assert.match(replies[0]?.message ?? '', /A - 1 article/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Alpha/);
-  assert.equal(replies[0]?.options?.inlineKeyboard?.at(-1)?.[0]?.callbackData, catalogReadCallbackPrefixes.overview);
+  assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 });

@@ -2,7 +2,7 @@ import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
-import { createTelegramI18n, type BotLanguage } from './i18n.js';
+import { createTelegramI18n, supportedBotLanguages, type BotLanguage } from './i18n.js';
 import type { TelegramButtonSemanticRole, TelegramReplyButton } from './runtime-boundary.js';
 
 export interface TelegramActionMenuContext {
@@ -266,16 +266,7 @@ export function resolveTelegramActionMenu({
     return undefined;
   }
 
-  const visibleRows = menu.rows
-    .map((row) =>
-      row
-        .map((actionId) => actionDefinitions.find((candidate) => candidate.id === actionId))
-        .filter((action): action is TelegramActionDefinition => action !== undefined)
-        .filter(
-          (action) => action.contexts.includes(context.chat.kind) && action.isVisible(context),
-        )
-    )
-    .filter((row) => row.length > 0);
+  const visibleRows = resolveVisibleActionRows(menu, context);
 
   const replyKeyboard = visibleRows.map((row) =>
     row.map((action) => ({
@@ -320,7 +311,15 @@ export function resolveTelegramMenuSelection({
     return undefined;
   }
 
-  const action = menu.actions.find((candidate) => candidate.label === normalizedText);
+  const menuDefinition = menuDefinitions.find((candidate) => candidate.id === menu.menuId);
+  if (!menuDefinition) {
+    return undefined;
+  }
+
+  const visibleActions = resolveVisibleActionRows(menuDefinition, context).flat();
+  const action = visibleActions.find((candidate) =>
+    supportedBotLanguages.some((language) => candidate.label(language) === normalizedText),
+  );
   if (!action) {
     return undefined;
   }
@@ -328,8 +327,24 @@ export function resolveTelegramMenuSelection({
   return {
     menuId: menu.menuId,
     actionId: action.id,
-    label: action.label,
+    label: action.label(context.language),
     telemetryActionKey: action.telemetryActionKey,
     uxSection: action.uxSection,
   };
+}
+
+function resolveVisibleActionRows(
+  menu: TelegramActionMenuDefinition,
+  context: TelegramActionMenuContext,
+): TelegramActionDefinition[][] {
+  return menu.rows
+    .map((row) =>
+      row
+        .map((actionId) => actionDefinitions.find((candidate) => candidate.id === actionId))
+        .filter((action): action is TelegramActionDefinition => action !== undefined)
+        .filter(
+          (action) => action.contexts.includes(context.chat.kind) && action.isVisible(context),
+        )
+    )
+    .filter((row) => row.length > 0);
 }

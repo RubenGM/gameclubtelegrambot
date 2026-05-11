@@ -9,6 +9,20 @@ export interface TelegramApiRetryOptions {
   logger?: TelegramLogger;
   maxAttempts?: number;
   sleep?: (milliseconds: number) => Promise<void>;
+  onRetryableFailure?(event: TelegramApiRetryFailureEvent): void;
+  onSuccess?(event: TelegramApiRetrySuccessEvent): void;
+}
+
+export interface TelegramApiRetryFailureEvent {
+  operation: string;
+  attempt: number;
+  maxAttempts: number;
+  error: unknown;
+}
+
+export interface TelegramApiRetrySuccessEvent {
+  operation: string;
+  attempt: number;
 }
 
 export async function withTelegramApiRetry<T>(
@@ -23,9 +37,21 @@ export async function withTelegramApiRetry<T>(
     attempt += 1;
 
     try {
-      return await action();
+      const result = await action();
+      options.onSuccess?.({ operation: options.operation, attempt });
+      return result;
     } catch (error) {
-      if (attempt >= maxAttempts || !isRetryableTelegramApiError(error)) {
+      const retryable = isRetryableTelegramApiError(error);
+      if (retryable) {
+        options.onRetryableFailure?.({
+          operation: options.operation,
+          attempt,
+          maxAttempts,
+          error,
+        });
+      }
+
+      if (attempt >= maxAttempts || !retryable) {
         throw error;
       }
 

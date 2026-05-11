@@ -6,6 +6,7 @@ import { withTelegramApiRetry } from './telegram-api-retry.js';
 test('withTelegramApiRetry retries transient network failures', async () => {
   const sleeps: number[] = [];
   const logs: Array<{ bindings: object; message: string }> = [];
+  const events: string[] = [];
   let attempts = 0;
 
   const result = await withTelegramApiRetry(
@@ -17,6 +18,12 @@ test('withTelegramApiRetry retries transient network failures', async () => {
       },
       sleep: async (milliseconds) => {
         sleeps.push(milliseconds);
+      },
+      onRetryableFailure: ({ operation, attempt }) => {
+        events.push(`failure:${operation}:${attempt}`);
+      },
+      onSuccess: ({ operation, attempt }) => {
+        events.push(`success:${operation}:${attempt}`);
       },
     },
     async () => {
@@ -31,6 +38,7 @@ test('withTelegramApiRetry retries transient network failures', async () => {
   assert.equal(result, 'sent');
   assert.equal(attempts, 2);
   assert.deepEqual(sleeps, [500]);
+  assert.deepEqual(events, ['failure:reply:1', 'success:reply:2']);
   assert.equal(logs[0]?.message, 'Telegram API call failed; retrying');
 });
 

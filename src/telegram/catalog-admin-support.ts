@@ -363,6 +363,12 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
   const i18n = createTelegramI18n(language);
   const texts = i18n.catalogAdmin;
 
+  const letterCommandPayload = parseCatalogAdminLetterStartPayload(text);
+  if (letterCommandPayload !== null) {
+    await showCatalogLettersBrowse(context, letterCommandPayload);
+    return true;
+  }
+
   if (text === texts.bulkCreateComplete || text === catalogAdminLabels.bulkCreateComplete) {
     await context.runtime.session.cancel();
     await context.reply(texts.bulkCreateCompleted, buildCatalogAdminMenuOptions(language));
@@ -2495,8 +2501,30 @@ function parseCatalogAdminStartPayload(messageText: string | undefined): number 
 }
 
 function parseCatalogAdminLetterStartPayload(messageText: string | undefined): string | null {
-  const payload = messageText?.trim().split(/\s+/).slice(1).join(' ');
+  const trimmed = messageText?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
   const prefix = 'catalog_admin_letters_';
+  const directCommand = new RegExp(`^/${prefix}([A-Za-z0-9_-]+)(?:@[A-Za-z0-9_]+)?$`).exec(trimmed);
+  if (directCommand?.[1]) {
+    const value = deserializeCatalogInitialsStartPayload(directCommand[1]);
+    return value ? value : null;
+  }
+
+  const compactCommand = /^\/cat_([A-Za-z0-9_-]+)(?:@[A-Za-z0-9_]+)?$/.exec(trimmed);
+  if (compactCommand?.[1]) {
+    const value = deserializeCatalogInitialsStartPayload(compactCommand[1]);
+    return value ? value : null;
+  }
+
+  const [command, ...rest] = trimmed.split(/\s+/);
+  if (command?.split('@')[0] !== '/start') {
+    return null;
+  }
+
+  const payload = rest.join(' ');
   if (!payload || !payload.startsWith(prefix)) {
     return null;
   }

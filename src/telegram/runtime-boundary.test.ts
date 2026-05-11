@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   createTelegramBoundary,
   formatStartMessage,
+  isTelegramInternalTextCommand,
   isTelegramRawCommandMatch,
   runTelegramCallbackHandler,
   TelegramStartupError,
@@ -264,6 +265,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
     'register:/bienvenida',
     'register:/start',
     'register:/status',
+    'register:/restart',
     'register:/help',
     'register:callback:menu:review_access',
     'register:callback:menu:help',
@@ -1044,13 +1046,13 @@ test('translated quick-action buttons still trigger the same handlers', async ()
 
               const commandContext = context as unknown as import('./command-registry.js').TelegramCommandHandlerContext;
 
-              context.messageText = createTelegramI18n('ca').actionMenu.start;
+              context.messageText = createTelegramI18n('es').actionMenu.start;
               await textHandler(commandContext);
 
-              context.messageText = createTelegramI18n('ca').actionMenu.help;
+              context.messageText = createTelegramI18n('es').actionMenu.help;
               await textHandler(commandContext);
 
-              context.messageText = createTelegramI18n('ca').actionMenu.reviewAccess;
+              context.messageText = createTelegramI18n('es').actionMenu.reviewAccess;
               await textHandler(commandContext);
               return;
             }
@@ -2123,6 +2125,15 @@ test('isTelegramRawCommandMatch accepts start deep-link payloads without bot com
   assert.equal(isTelegramRawCommandMatch('/start@cawa_management_bot catalog_admin_letters_JKL', 'start', 'cawa_management_bot'), true);
   assert.equal(isTelegramRawCommandMatch('/start@other_bot catalog_admin_letters_JKL', 'start', 'cawa_management_bot'), false);
   assert.equal(isTelegramRawCommandMatch('/status catalog_admin_letters_JKL', 'start', 'cawa_management_bot'), false);
+});
+
+test('isTelegramInternalTextCommand accepts catalog letter fallback commands only', async () => {
+  assert.equal(isTelegramInternalTextCommand('/catalog_admin_letters_jkl'), true);
+  assert.equal(isTelegramInternalTextCommand('/cat_jkl'), true);
+  assert.equal(isTelegramInternalTextCommand('/cat_hash_ab@cawa_management_bot'), true);
+  assert.equal(isTelegramInternalTextCommand('/catalog_admin_letters_hash_ab@cawa_management_bot'), true);
+  assert.equal(isTelegramInternalTextCommand('/start catalog_admin_letters_JKL'), false);
+  assert.equal(isTelegramInternalTextCommand('/storage_category_86'), false);
 });
 
 test('group start reply explains private-chat usage and offers a private button', async () => {

@@ -2162,7 +2162,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.messageText = catalogAdminLabels.listBoardGames;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
-  assert.match(replies.at(-1)?.message ?? '', /catalog_admin_letters_AD/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_letters_AD"><b>A D - 3 artículos<\/b><\/a>/);
   assert.match(replies.at(-1)?.message ?? '', /A D - 3 artículos/);
   assert.match(replies.at(-1)?.message ?? '', /3 juegos de mesa/);
   assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
@@ -3867,6 +3867,66 @@ test('handleTelegramCatalogAdminStartText opens an initial bucket from deep link
   assert.match(replies.at(-1)?.message ?? '', /<b>Jaipur<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>King of Tokyo<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Love Letter<\/b>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ark Nova/);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
+});
+
+test('handleTelegramCatalogAdminText opens an initial bucket from internal command', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 1,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Jaipur',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 2,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Ark Nova',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies } = createContext({ repository, language: 'es' });
+
+  context.messageText = '/cat_jkl';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.match(replies.at(-1)?.message ?? '', /<b>J K L<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Jaipur<\/b>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ark Nova/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 });

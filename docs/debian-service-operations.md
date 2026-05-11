@@ -190,6 +190,71 @@ sudo systemctl stop gameclubtelegrambot.service
 sudo systemctl start gameclubtelegrambot.service
 ```
 
+## Recuperar comandos de Telegram que no responden
+
+Si el bot recibe mensajes pero algunas acciones no generan respuesta, comprobar primero si
+hay procesos duplicados o validaciones colgadas:
+
+```bash
+pgrep -af "gameclubtelegrambot|node --import tsx --test|npm run typecheck|tsc --noEmit|tsx|dist/main.js" || true
+systemctl status gameclubtelegrambot.service --no-pager
+./scripts/service-journal.sh -n 120
+```
+
+El estado correcto en producción es un único proceso del servicio:
+
+```text
+/usr/bin/node /opt/gameclubtelegrambot/dist/main.js
+```
+
+La safata Debian puede tener procesos propios (`debian-tray.js` y
+`debian-tray-host.py`), pero no debe existir otro `dist/main.js` ni procesos de
+test/build activos. Si quedan procesos de validación (`node --test`, `tsc`,
+`npm run typecheck`), esperar a que terminen o pararlos antes de seguir.
+
+Si el journal muestra `Telegram update received` pero no aparece respuesta ni error,
+revisar si hay sesiones conversacionales atascadas en `app_metadata`:
+
+```bash
+PGPASSWORD="$(sed -n 's/^POSTGRES_PASSWORD=//p' .env.postgres.local)" \
+psql -h 127.0.0.1 -p 55432 -U gameclub_user -d gameclub \
+  -c "select key, value::jsonb->>'flowKey' as flow, value::jsonb->>'stepKey' as step, value::jsonb->>'updatedAt' as updated_at, value::jsonb->>'expiresAt' as expires_at from app_metadata where key like 'telegram.session:%' order by updated_at desc;"
+```
+
+Las sesiones caducadas se pueden borrar sin perder datos de dominio:
+
+```bash
+PGPASSWORD="$(sed -n 's/^POSTGRES_PASSWORD=//p' .env.postgres.local)" \
+psql -h 127.0.0.1 -p 55432 -U gameclub_user -d gameclub \
+  -c "delete from app_metadata where key like 'telegram.session:%' and (value::jsonb->>'expiresAt')::timestamptz <= now() returning key;"
+```
+
+Si el bot sigue recibiendo updates pero no responde, reiniciar el servicio para limpiar
+estado en memoria y reabrir el long polling:
+
+```bash
+systemctl restart gameclubtelegrambot.service
+./scripts/service-journal.sh -n 50
+```
+
+Desde Telegram, un admin tambien puede ejecutar `/restart` en privado. Ese comando
+borra las sesiones conversacionales `telegram.session:%`, limpia estado temporal en
+memoria y fuerza una salida con fallo controlado para que systemd levante un proceso
+nuevo mediante `Restart=on-failure`. Si el bot no llega a procesar ningun comando,
+usar el reinicio por `systemctl` desde la maquina.
+
+El runtime mantiene un canario interno de Telegram API. Si una llamada a Telegram
+falla de forma transitoria (`timeout`, red, 429 o 5xx), los mensajes de texto normales
+añaden temporalmente un aviso indicando desde cuando se detecto la incidencia y
+recomendando reintentar mas tarde si el bot deja de responder. El aviso se retira
+automaticamente tras varios envios correctos y una ventana sin nuevos fallos.
+
+Cuando el bloqueo aparece durante autocorrecciones de catálogo, revisar en el journal
+las duraciones de `catalog.external-image.telegram-upload.completed` y de traducción.
+Es normal que una subida de portada externa tarde decenas de segundos; durante ese
+periodo las respuestas pueden acumularse si la acción en curso está ocupando el flujo
+del usuario.
+
 ## Instal·lació de la regla polkit
 
 Copiar la regla:
