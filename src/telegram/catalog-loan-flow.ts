@@ -64,6 +64,15 @@ type LoanRepositoryContext = {
   };
 };
 
+type LoanActorContext = {
+  runtime: {
+    actor: {
+      telegramUserId: number;
+      isAdmin: boolean;
+    };
+  };
+};
+
 type AdminLoanDashboardContext = LoanRepositoryContext & {
   reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: LoanRepositoryContext['runtime'] & {
@@ -131,6 +140,10 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
     const loan = await repository.findLoanById(loanId);
     if (!loan) {
       throw new Error(`Catalog loan ${loanId} not found`);
+    }
+    if (!canReturnLoan(context, loan)) {
+      await context.reply(texts.noPermission);
+      return true;
     }
     const item = await resolveCatalogItem(context, loan.itemId);
     if (!item) {
@@ -275,12 +288,19 @@ export function canEditLoan(context: TelegramCatalogLoanContext, loan: CatalogLo
   return context.runtime.actor.isAdmin || loan.loanedByTelegramUserId === context.runtime.actor.telegramUserId;
 }
 
+export function canReturnLoan(context: LoanActorContext, loan: CatalogLoanRecord): boolean {
+  return context.runtime.actor.isAdmin
+    || loan.borrowerTelegramUserId === context.runtime.actor.telegramUserId
+    || loan.loanedByTelegramUserId === context.runtime.actor.telegramUserId;
+}
+
 export function buildLoanItemButton(
   loan: CatalogLoanRecord | null,
   itemId: number,
   itemLabel: string,
   inspectCallbackPrefix: string = 'catalog_read:item:',
   language: 'ca' | 'es' | 'en' = 'ca',
+  canReturn = true,
 ): TelegramInlineButton[] {
   const texts = createTelegramI18n(language).catalogLoan;
   if (!loan) {
@@ -290,10 +310,13 @@ export function buildLoanItemButton(
     ];
   }
 
-  return [
+  const buttons: TelegramInlineButton[] = [
     { text: itemLabel, callbackData: `${inspectCallbackPrefix}${itemId}` },
-    { text: texts.retornar, callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` },
   ];
+  if (canReturn) {
+    buttons.push({ text: texts.retornar, callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` });
+  }
+  return buttons;
 }
 
 export function buildLoanDetailButtons({
@@ -302,18 +325,20 @@ export function buildLoanDetailButtons({
   language = 'ca',
   deleteCallbackData,
   includeAdminDashboard = false,
+  canReturn = true,
 }: {
   loan: CatalogLoanRecord | null;
   itemId: number;
   language?: 'ca' | 'es' | 'en';
   deleteCallbackData?: string;
   includeAdminDashboard?: boolean;
+  canReturn?: boolean;
 }): TelegramInlineButton[][] {
   const texts = createTelegramI18n(language).catalogLoan;
   const rows: TelegramInlineButton[][] = [];
-  if (loan) {
+  if (loan && canReturn) {
     rows.push([{ text: texts.retornar, callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` }]);
-  } else {
+  } else if (!loan) {
     rows.push([{ text: texts.prendrePrestat, callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` }]);
   }
 
@@ -405,7 +430,12 @@ async function buildItemLoanNavigationOptions(
   language: 'ca' | 'es' | 'en' = 'ca',
 ): Promise<TelegramReplyOptions> {
   const loan = await loadActiveLoanByItemId(context, itemId);
-  const inlineKeyboard = buildLoanDetailButtons({ loan, itemId, language });
+  const inlineKeyboard = buildLoanDetailButtons({
+    loan,
+    itemId,
+    language,
+    canReturn: loan ? canReturnLoan(context, loan) : true,
+  });
   return { inlineKeyboard };
 }
 
@@ -430,6 +460,7 @@ async function replyWithItemDetail(
     language,
     ...(context.runtime.actor.isAdmin ? { deleteCallbackData: `${catalogAdminDeactivateCallbackPrefix}${itemId}` } : {}),
     includeAdminDashboard: context.runtime.actor.isAdmin,
+    canReturn: loan ? canReturnLoan(context, loan) : true,
   });
 
   if (context.runtime.actor.isAdmin) {

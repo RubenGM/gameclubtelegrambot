@@ -179,7 +179,7 @@ Estado: `operativo`.
 Implementado:
 
 - Crear prestamo desde botones del detalle/listado de catalogo.
-- Devolver prestamo desde botones.
+- Devolver prestamo desde botones, visible solo para admins, quien tiene el item prestado o quien registro el prestamo.
 - Consultar prestamos activos propios.
 - Consultar todos los prestamos activos desde dashboard admin accesible por `/loan_admin` y por el menu de catalogo, con item y prestatario enlazados, fecha prevista y estado vencido.
 - Editar notas y fecha prevista de devolucion.

@@ -11,6 +11,7 @@ import {
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import {
   buildLoanDetailButtons,
+  canReturnLoan,
   catalogLoanCallbackPrefixes,
   formatLoanAvailabilityLines,
   resolveLoanBorrowerDisplayName,
@@ -374,6 +375,7 @@ async function replyWithCatalogReadItemDetail(
           loan: input.loan,
           itemId: input.item.id,
           language: input.language,
+          canReturn: input.loan ? canReturnLoan(context, input.loan) : true,
           ...(context.runtime.actor.isAdmin
             ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${input.item.id}` }
             : {}),

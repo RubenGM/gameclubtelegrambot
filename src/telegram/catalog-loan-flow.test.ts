@@ -338,6 +338,55 @@ test('catalog loan callbacks create, list and return loans', async () => {
   assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Prendre prestat'));
 });
 
+test('catalog loan callback blocks returns from unrelated normal users', async () => {
+  const catalogRepository = createCatalogRepository([
+    {
+      id: 1,
+      familyId: null,
+      groupId: null,
+      itemType: 'board-game',
+      displayName: 'Game 1',
+      originalName: null,
+      description: null,
+      language: null,
+      publisher: null,
+      publicationYear: null,
+      playerCountMin: null,
+      playerCountMax: null,
+      recommendedAge: null,
+      playTimeMinutes: null,
+      externalRefs: null,
+      metadata: null,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const catalogLoanRepository = createLoanRepository([
+    {
+      id: 1,
+      itemId: 1,
+      borrowerTelegramUserId: 77,
+      borrowerDisplayName: 'Marta',
+      loanedByTelegramUserId: 88,
+      dueAt: null,
+      notes: null,
+      returnedAt: null,
+      returnedByTelegramUserId: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  const { context, replies } = createContext({ catalogRepository, catalogLoanRepository });
+
+  context.callbackData = `${catalogLoanCallbackPrefixes.return}1`;
+  await handleTelegramCatalogLoanCallback(context);
+
+  assert.match(replies[0]?.message ?? '', /permis|permís|permisos/i);
+  assert.equal((await catalogLoanRepository.findLoanById(1))?.returnedAt, null);
+});
+
 test('loan detail buttons use the updated borrow and delete labels', async () => {
   const loan: CatalogLoanRecord = {
     id: 7,
@@ -384,6 +433,10 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
   assert.equal(adminRows[3]?.[0]?.text, 'Préstamos activos');
   assert.equal(adminRows[3]?.[0]?.callbackData, catalogLoanCallbackPrefixes.adminDashboard);
   assert.equal(buildLoanItemButton(null, 11, 'Game 1', 'catalog_read:item:', 'es')[1]?.text, 'Tomar prestado');
+  assert.deepEqual(
+    buildLoanItemButton(loan, 11, 'Game 1', 'catalog_read:item:', 'es', false),
+    [{ text: 'Game 1', callbackData: 'catalog_read:item:11' }],
+  );
   const spanishRows = buildLoanDetailButtons({
     loan: null,
     itemId: 11,
@@ -394,6 +447,14 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
   assert.equal(spanishRows[0]?.[0]?.text, 'Tomar prestado');
   assert.equal(spanishRows[1]?.[0]?.text, 'Eliminar ítem');
   assert.equal(spanishRows[2]?.[0]?.text, 'Ver préstamos');
+  const hiddenReturnRows = buildLoanDetailButtons({
+    loan,
+    itemId: 11,
+    language: 'es',
+    canReturn: false,
+  });
+  assert.ok(!hiddenReturnRows.flat().some((button) => button.text === 'Devolver'));
+  assert.equal(hiddenReturnRows[0]?.[0]?.text, 'Ver préstamos');
 });
 
 test('admin loan dashboard lists active loans with actions and paging', async () => {

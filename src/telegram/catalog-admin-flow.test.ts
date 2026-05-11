@@ -3201,6 +3201,59 @@ test('handleTelegramCatalogAdminCallback hides admin-only item actions for appro
   assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:my_loans'));
 });
 
+test('handleTelegramCatalogAdminCallback hides return action from unrelated non-admin members', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Root',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const catalogLoanRepository = createLoanRepository([
+    {
+      id: 21,
+      itemId: 3,
+      borrowerTelegramUserId: 77,
+      borrowerDisplayName: 'Marta',
+      loanedByTelegramUserId: 88,
+      dueAt: null,
+      notes: null,
+      returnedAt: null,
+      returnedByTelegramUserId: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  const { context, replies } = createContext({ repository, catalogLoanRepository, isAdmin: false });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
+  assert.match(replies.at(-1)?.message ?? '', /<b>Té:<\/b> Marta/);
+  assert.ok(!buttons.some((button) => button.text === 'Retornar'));
+  assert.ok(buttons.some((button) => button.text === 'Veure préstecs'));
+});
+
 test('handleTelegramCatalogAdminCallback blocks non-admin edit and deactivate actions', async () => {
   const repository = createRepository({
     items: [

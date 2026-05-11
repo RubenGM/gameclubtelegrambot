@@ -57,6 +57,7 @@ import { createBoardGameGeekCollectionImportService, createWikipediaBoardGameImp
 import { buildOpencodeRunArgs, runOpencodeImageQueryCapture } from '../scripts/opencode-image-query.js';
 import {
   buildLoanItemButton,
+  canReturnLoan,
   catalogLoanCallbackPrefixes,
   formatLoanAvailabilityLines,
   resolveLoanBorrowerDisplayName,
@@ -530,8 +531,12 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
   if (route.kind === 'inspect-group') {
     const group = await loadGroupOrThrow(context, route.groupId);
     const items = await listCatalogItems({ repository: resolveCatalogRepository(context), groupId: route.groupId, includeDeactivated: true });
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
     const inlineKeyboard = await Promise.all(
-      items.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName)),
+      items.map(async (item) => {
+        const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
+        return buildLoanItemButton(loan, item.id, item.displayName, undefined, language, loan ? canReturnLoan(context, loan) : true);
+      }),
     );
     await replyWithCatalogAdminGroupInspection({
       reply: context.reply,
@@ -2048,7 +2053,8 @@ async function showCatalogBrowseMenu(context: TelegramCatalogAdminContext): Prom
 }
 
 async function showCatalogFamilyBrowse(context: TelegramCatalogAdminContext, familyId: number): Promise<void> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
   const repository = resolveCatalogRepository(context);
   const family = await repository.findFamilyById(familyId);
   if (!family) {
@@ -2067,7 +2073,10 @@ async function showCatalogFamilyBrowse(context: TelegramCatalogAdminContext, fam
       .map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null))),
   })));
   const looseItemLines = await Promise.all(looseItems.map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)));
-  const itemRows = await Promise.all(items.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName, catalogAdminCallbackPrefixes.inspect)));
+  const itemRows = await Promise.all(items.map(async (item) => {
+    const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
+    return buildLoanItemButton(loan, item.id, item.displayName, catalogAdminCallbackPrefixes.inspect, language, loan ? canReturnLoan(context, loan) : true);
+  }));
   await context.reply(formatCatalogAdminFamilyBrowseMessage({
     family,
     texts,
@@ -2128,7 +2137,8 @@ function formatCatalogInitialsLabel(initials: string): string {
 }
 
 async function handleBrowseSession(context: TelegramCatalogAdminContext, text: string, stepKey: string, data: Record<string, unknown>): Promise<boolean> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
   if (stepKey !== 'search-query') {
     return false;
   }
@@ -2157,7 +2167,10 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
 
   const activeLoans = await loadActiveLoansByItemMap(loanRepository, matches);
   const itemLines = await Promise.all(matches.map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)));
-  const itemRows = await Promise.all(matches.map(async (item) => buildLoanItemButton(await loadActiveLoanByItemIdAdmin(context, item.id), item.id, item.displayName, catalogAdminCallbackPrefixes.inspect)));
+  const itemRows = await Promise.all(matches.map(async (item) => {
+    const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
+    return buildLoanItemButton(loan, item.id, item.displayName, catalogAdminCallbackPrefixes.inspect, language, loan ? canReturnLoan(context, loan) : true);
+  }));
 
   await context.reply(formatCatalogAdminSearchResultsMessage(query, itemLines), {
     parseMode: 'HTML',
@@ -2419,6 +2432,7 @@ async function buildCatalogItemDetailButtons(
       media,
       language,
       canAdminister: canAdministerCatalog(context),
+      canReturnLoan: loan ? canReturnLoan(context, loan) : true,
       editPrefix: catalogAdminCallbackPrefixes.edit,
       createActivityPrefix: catalogAdminCallbackPrefixes.createActivity,
       autocorrectPrefix: catalogAdminCallbackPrefixes.autocorrect,

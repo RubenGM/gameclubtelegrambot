@@ -467,6 +467,43 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
   assert.match(replies[0]?.message ?? '', /<b>Retorn previst:<\/b> 10\/04\/2026/);
 });
 
+test('catalog read item details hide return button for unrelated normal users', async () => {
+  const repository = createRepository({
+    items: [buildItem(1, 'Game 1')],
+  });
+  const loanRepository = createLoanRepository([
+    {
+      id: 1,
+      itemId: 1,
+      borrowerTelegramUserId: 99,
+      borrowerDisplayName: 'Marta',
+      loanedByTelegramUserId: 88,
+      dueAt: null,
+      notes: null,
+      returnedAt: null,
+      returnedByTelegramUserId: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  const membershipRepository = createMembershipRepository([
+    {
+      telegramUserId: 99,
+      displayName: 'Marta',
+      status: 'approved',
+      isAdmin: false,
+    },
+  ]);
+  const { context, replies } = createContext(repository, loanRepository, membershipRepository);
+
+  context.callbackData = `${catalogReadCallbackPrefixes.inspectItem}1`;
+  await handleTelegramCatalogReadCallback(context);
+
+  assert.match(replies[0]?.message ?? '', /<b>Disponibilitat:<\/b> En préstec/);
+  assert.ok(!replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
+  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Veure préstecs'));
+});
+
 test('handleTelegramCatalogReadStartText opens linked item details from /start', async () => {
   const repository = createRepository({
     items: [
