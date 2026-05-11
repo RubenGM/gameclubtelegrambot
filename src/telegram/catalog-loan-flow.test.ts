@@ -736,14 +736,16 @@ test('catalog-loan notifications are sent only to subscribed news categories', a
 
   assert.equal(groupMessages.length, 1);
   assert.equal(groupMessages.at(-1)?.chatId, -200);
-  assert.match(groupMessages.at(-1)?.message ?? '', /Anna ha pres prestat Game 1\./);
+  assert.match(groupMessages.at(-1)?.message ?? '', /Anna ha pres prestat <a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_item_1">Game 1<\/a>\./);
+  assert.equal(groupMessages.at(-1)?.options?.parseMode, 'HTML');
 
   context.callbackData = `${catalogLoanCallbackPrefixes.return}1`;
   await handleTelegramCatalogLoanCallback(context);
 
   assert.equal(groupMessages.length, 2);
   assert.equal(groupMessages.at(-1)?.chatId, -200);
-  assert.match(groupMessages.at(-1)?.message ?? '', /Anna ha retornat Game 1\./);
+  assert.match(groupMessages.at(-1)?.message ?? '', /Anna ha retornat <a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_item_1">Game 1<\/a>\./);
+  assert.equal(groupMessages.at(-1)?.options?.parseMode, 'HTML');
   assert.notEqual(groupMessages.at(-1)?.chatId, -201);
   assert.notEqual(groupMessages.at(-1)?.chatId, -202);
 });

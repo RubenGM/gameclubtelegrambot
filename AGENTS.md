@@ -47,6 +47,27 @@ When making a code change that must be validated in the running bot, always run:
 ./startup.sh
 ```
 
+## Telegram progress messages
+
+For Telegram actions that can take medium or long time, use an editable progress
+message instead of leaving the user waiting after they press a button or confirm
+an action.
+
+Expected pattern:
+
+- Send one progress message as soon as the slow action starts.
+- Edit that same message as the operation moves through meaningful steps.
+- Include concrete step labels, not generic "working" text.
+- When the operation finishes, edit the progress message into the final result
+  whenever possible.
+- If Telegram message editing is unavailable or fails, fall back to sending the
+  final message normally.
+- Log edit failures as structured warnings, but do not fail the user action only
+  because the progress message could not be edited.
+
+Use the existing catalog autocorrect and Storage upload flows as reference
+implementations for this UX.
+
 ## Índice de features del bot de Telegram
 
 `docs/feature-status.md` es el inventario operativo del bot de Telegram.

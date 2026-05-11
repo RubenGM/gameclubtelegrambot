@@ -714,9 +714,10 @@ async function publishCatalogLoanNewsGroups(
 
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).catalogLoan;
+  const itemLink = `<a href="${escapeHtml(buildTelegramStartUrl(`catalog_read_item_${input.item.id}`))}">${escapeHtml(input.item.displayName)}</a>`;
   const message = input.action === 'borrowed'
-    ? texts.groupBorrowed.replace('{user}', escapeHtml(input.userName)).replace('{item}', escapeHtml(input.item.displayName))
-    : texts.groupReturned.replace('{user}', escapeHtml(input.userName)).replace('{item}', escapeHtml(input.item.displayName));
+    ? texts.groupBorrowed.replace('{user}', escapeHtml(input.userName)).replace('{item}', itemLink)
+    : texts.groupReturned.replace('{user}', escapeHtml(input.userName)).replace('{item}', itemLink);
 
   const cover = input.action === 'borrowed' ? await resolveCatalogLoanCover(context, input.item.id) : null;
 

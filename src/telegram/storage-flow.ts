@@ -165,6 +165,12 @@ type StorageFlowContext = TelegramCommandHandlerContext & {
         chatId: number;
         messageId: number;
       }) => Promise<void>;
+      editMessageText?: (input: {
+        chatId: number;
+        messageId: number;
+        text: string;
+        options?: TelegramReplyOptions;
+      }) => Promise<void>;
     };
   };
 };
@@ -2712,16 +2718,23 @@ async function handleActiveUploadFlow(context: StorageFlowContext, text: string,
 
   if (session.stepKey === 'upload-preview') {
     if (text === texts.uploadAccept) {
+      const messages = asDraftMessages(session.data.messages);
+      const progressState = createStorageUploadProgressState('copying');
+      const progress = await startStorageEditableProgress(context, formatStorageUploadProgress(texts, progressState));
       const saved = await persistPrivateUpload({
         context,
         categoryId: asNumber(session.data.categoryId),
         categoryDisplayName: String(session.data.categoryDisplayName ?? ''),
         description: asNullableString(session.data.description),
         tags: asStringArray(session.data.tags),
-        messages: asDraftMessages(session.data.messages),
+        messages,
+        onProgressStep: async (step) => {
+          await moveStorageUploadProgress(progress, texts, progressState, step);
+        },
       });
       await context.runtime.session.cancel();
-      await context.reply(
+      finishStorageUploadProgressStep(progressState);
+      await progress.complete(
         texts.saved
           .replace('{category}', saved.category.displayName)
           .replace('{count}', String(saved.messages.length)),
@@ -2959,6 +2972,7 @@ async function persistPrivateUpload({
   description,
   tags,
   messages,
+  onProgressStep,
 }: {
   context: StorageFlowContext;
   categoryId: number;
@@ -2966,6 +2980,7 @@ async function persistPrivateUpload({
   description: string | null;
   tags: string[];
   messages: DmUploadDraftMessage[];
+  onProgressStep?: (step: StorageUploadProgressStep) => Promise<void> | void;
 }) {
   const repository = resolveRepository(context);
   const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).storage;
@@ -3016,6 +3031,7 @@ async function persistPrivateUpload({
       });
     }
 
+    await onProgressStep?.('indexing');
     const detail = await createStorageEntry({
       repository,
       categoryId,
@@ -3025,6 +3041,7 @@ async function persistPrivateUpload({
       tags,
       messages: copiedMessages,
     });
+    await onProgressStep?.('notifying');
     await notifyStorageEntrySubscribers(context, detail);
     return detail;
   } catch (error) {
@@ -4639,6 +4656,154 @@ function formatStorageAttachment(message: StorageEntryMessageRecord, language: '
     message.caption ? `${escapeHtml(texts.entryFieldCaption)}: ${escapeHtml(message.caption)}` : null,
   ].filter((part): part is string => Boolean(part));
   return parts.join(' · ');
+}
+
+type StorageUploadProgressStep = 'copying' | 'indexing' | 'notifying';
+type StorageUploadProgressStatus = 'pending' | 'active' | 'done';
+
+type StorageUploadProgressState = {
+  activeStep: StorageUploadProgressStep | null;
+  activeStartedAt: number | null;
+  durations: Partial<Record<StorageUploadProgressStep, number>>;
+};
+
+const storageUploadProgressSteps: StorageUploadProgressStep[] = ['copying', 'indexing', 'notifying'];
+
+function createStorageUploadProgressState(activeStep: StorageUploadProgressStep): StorageUploadProgressState {
+  return {
+    activeStep,
+    activeStartedAt: Date.now(),
+    durations: {},
+  };
+}
+
+async function moveStorageUploadProgress(
+  progress: { update(message: string): Promise<void> },
+  texts: ReturnType<typeof createTelegramI18n>['storage'],
+  state: StorageUploadProgressState,
+  nextStep: StorageUploadProgressStep,
+): Promise<void> {
+  if (state.activeStep === nextStep) {
+    return;
+  }
+  finishStorageUploadProgressStep(state);
+  state.activeStep = nextStep;
+  state.activeStartedAt = Date.now();
+  await progress.update(formatStorageUploadProgress(texts, state));
+}
+
+function finishStorageUploadProgressStep(state: StorageUploadProgressState): void {
+  if (!state.activeStep || state.activeStartedAt === null) {
+    return;
+  }
+  state.durations[state.activeStep] = Date.now() - state.activeStartedAt;
+  state.activeStep = null;
+  state.activeStartedAt = null;
+}
+
+function formatStorageUploadProgress(
+  texts: ReturnType<typeof createTelegramI18n>['storage'],
+  state: StorageUploadProgressState,
+): string {
+  return `${texts.uploadProgressTitle}\n\n${storageUploadProgressSteps
+    .map((step) => formatStorageUploadProgressLine(texts, state, step))
+    .join('\n')}`;
+}
+
+function formatStorageUploadProgressLine(
+  texts: ReturnType<typeof createTelegramI18n>['storage'],
+  state: StorageUploadProgressState,
+  step: StorageUploadProgressStep,
+): string {
+  const label = resolveStorageUploadProgressStepLabel(texts, step);
+  const status = resolveStorageUploadProgressStepStatus(state, step);
+  const duration = state.durations[step];
+  if (status === 'done') {
+    return `✅ ${label} (${formatStorageUploadDuration(duration ?? 0)})`;
+  }
+  if (status === 'active') {
+    return `⏳ ${label}`;
+  }
+  return `⬜ ${label}`;
+}
+
+function resolveStorageUploadProgressStepStatus(
+  state: StorageUploadProgressState,
+  step: StorageUploadProgressStep,
+): StorageUploadProgressStatus {
+  if (state.activeStep === step) {
+    return 'active';
+  }
+  if (typeof state.durations[step] === 'number') {
+    return 'done';
+  }
+  return 'pending';
+}
+
+function resolveStorageUploadProgressStepLabel(
+  texts: ReturnType<typeof createTelegramI18n>['storage'],
+  step: StorageUploadProgressStep,
+): string {
+  switch (step) {
+    case 'copying':
+      return texts.uploadProgressCopying;
+    case 'indexing':
+      return texts.uploadProgressIndexing;
+    case 'notifying':
+      return texts.uploadProgressNotifying;
+  }
+}
+
+function formatStorageUploadDuration(milliseconds: number): string {
+  return `${Math.max(0, Math.round(milliseconds))} ms`;
+}
+
+async function startStorageEditableProgress(
+  context: StorageFlowContext,
+  message: string,
+): Promise<{ update(message: string): Promise<void>; complete(message: string, options?: TelegramReplyOptions): Promise<void> }> {
+  const sent = await context.reply(message);
+  const messageId = extractTelegramReplyMessageId(sent);
+  const chatId = context.runtime.chat?.chatId;
+  const editMessageText = context.runtime.bot.editMessageText;
+  let canEdit = Boolean(messageId && chatId && editMessageText);
+
+  const tryEdit = async (nextMessage: string, options?: TelegramReplyOptions): Promise<boolean> => {
+    if (!canEdit || !messageId || !chatId || !editMessageText) {
+      return false;
+    }
+    try {
+      await editMessageText({ chatId, messageId, text: nextMessage, ...(options ? { options } : {}) });
+      return true;
+    } catch (error) {
+      canEdit = false;
+      console.warn(JSON.stringify({
+        event: 'storage.upload.progress-edit.failed',
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      return false;
+    }
+  };
+
+  return {
+    update: async (nextMessage) => {
+      await tryEdit(nextMessage);
+    },
+    complete: async (nextMessage, options) => {
+      if (!(await tryEdit(nextMessage, options))) {
+        await context.reply(nextMessage, options);
+      }
+    },
+  };
+}
+
+function extractTelegramReplyMessageId(value: unknown): number | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = (value as Record<string, unknown>).message_id
+    ?? (value as Record<string, unknown>).messageId;
+  return typeof candidate === 'number' && Number.isInteger(candidate) ? candidate : null;
 }
 
 function formatStorageUploaderLabel(detail: StorageEntryDetailRecord, language: 'ca' | 'es' | 'en'): string {

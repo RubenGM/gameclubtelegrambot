@@ -348,6 +348,7 @@ function createContext(
     storageBotMember = { status: 'administrator', canManageTopics: true },
     createdTopic = { chatId: -100555, name: 'Manuales', messageThreadId: 77 },
     failCreateForumTopic = false,
+    supportsEditMessageText = false,
   }: {
     isAdmin?: boolean;
     canReadCategoryIds?: number[];
@@ -366,10 +367,12 @@ function createContext(
     storageBotMember?: { status: string; canManageTopics?: boolean };
     createdTopic?: { chatId: number; name: string; messageThreadId: number };
     failCreateForumTopic?: boolean;
+    supportsEditMessageText?: boolean;
   } = {},
 ): {
   context: TelegramCommandHandlerContext & Record<string, unknown>;
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
+  editedMessages: Array<{ chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }>;
   copiedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }>;
   forwardedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }>;
   mediaGroups: Array<{ chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }>;
@@ -379,6 +382,7 @@ function createContext(
 } {
   configureTelegramDeepLinks({ botUsername: 'cawatest_bot' });
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const editedMessages: Array<{ chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }> = [];
   const copiedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }> = [];
   const forwardedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }> = [];
   const mediaGroups: Array<{ chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }> = [];
@@ -394,6 +398,7 @@ function createContext(
     from: { id: actorTelegramUserId, username: 'ada' },
     reply: async (message: string, options?: TelegramReplyOptions) => {
       replies.push(options ? { message, options } : { message });
+      return { message_id: replies.length };
     },
     runtime: {
       chat: { kind: chatKind, chatId },
@@ -496,6 +501,13 @@ function createContext(
         deleteMessage: async ({ chatId, messageId }: { chatId: number; messageId: number }) => {
           deletedMessages.push({ chatId, messageId });
         },
+        ...(supportsEditMessageText
+          ? {
+              editMessageText: async ({ chatId, messageId, text, options }: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }) => {
+                editedMessages.push(options ? { chatId, messageId, text, options } : { chatId, messageId, text });
+              },
+            }
+          : {}),
       },
       services: {
         database: {
@@ -516,6 +528,7 @@ function createContext(
   return {
     context,
     replies,
+    editedMessages,
     copiedMessages,
     forwardedMessages,
     mediaGroups,
@@ -2965,7 +2978,9 @@ test('handleTelegramStorageCallback lets the uploader add images from the edit f
 
 test('handleTelegramStorageText collects a DM upload, copies it to the category topic and persists it', async () => {
   const repository = createRepository([createCategory()]);
-  const { context, replies, copiedMessages, getCurrentSession } = createContext(repository);
+  const { context, replies, editedMessages, copiedMessages, getCurrentSession } = createContext(repository, {
+    supportsEditMessageText: true,
+  });
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
@@ -3014,7 +3029,13 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   assert.equal(repository.__entries.length, 1);
   assert.equal(repository.__entries[0]?.entry.description, 'Manual de campana');
   assert.deepEqual(repository.__entries[0]?.entry.tags, []);
-  assert.equal(replies.at(-2)?.message, 'Archivo guardado en Manuales con 1 adjunto(s).');
+  assert.match(replies.at(-2)?.message ?? '', /Subida en curso/);
+  assert.match(replies.at(-2)?.message ?? '', /Copiando adjuntos al topic de Storage/);
+  assert.equal(editedMessages.length, 3);
+  assert.match(editedMessages[0]?.text ?? '', /Registrando la entrada en el índice/);
+  assert.match(editedMessages[1]?.text ?? '', /Avisando suscripciones/);
+  assert.equal(editedMessages[2]?.text, 'Archivo guardado en Manuales con 1 adjunto(s).');
+  assert.deepEqual(editedMessages[2]?.options?.replyKeyboard, [[{ text: '/cancel', semanticRole: 'danger' }]]);
   assert.match(replies.at(-1)?.message ?? '', /Manual de campana/);
   assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
 });

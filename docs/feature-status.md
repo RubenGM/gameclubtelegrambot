@@ -184,7 +184,7 @@ Implementado:
 - Consultar todos los prestamos activos desde dashboard admin accesible por `/loan_admin` y por el menu de catalogo, con item y prestatario enlazados, fecha prevista y estado vencido.
 - Editar notas y fecha prevista de devolucion.
 - Enviar recordatorios privados cuando se acerca o vence la fecha prevista de devolucion.
-- Publicar eventos de prestamo/devolucion a grupos de noticias por categoria.
+- Publicar eventos de prestamo/devolucion a grupos de noticias por categoria, con el item enlazado al detalle de catalogo.
 - Restriccion persistente de un prestamo activo por item.
 
 Pendiente:
@@ -236,7 +236,7 @@ Implementado:
 - Configuracion admin de supergrupo de Storage por defecto desde Telegram, persistida en `app_metadata`.
 - Alta de categorias usando automaticamente el supergrupo por defecto vigente: el bot valida chat/permisos, crea el topic y guarda los ids sin pedir confirmacion al crear cada categoria.
 - Listado incremental de categorias principales/subcategorias con resumen agregado de subcategorias y archivos, enlaces normales `t.me?...start=` en el texto, breadcrumbs clicables, acciones contextuales, cambio guiado de categoria padre y listado de entradas por categoria.
-- Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot copia al topic canonico antes de indexar y refrescar la categoria.
+- Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot muestra progreso editable mientras copia al topic canonico, indexa, notifica suscripciones y refresca la categoria.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
 - Soporte de `document`, `photo`, `video` y `audio`.
 - Albums por `media_group_id` agrupados en una sola entrada mediante ventana corta en memoria.
