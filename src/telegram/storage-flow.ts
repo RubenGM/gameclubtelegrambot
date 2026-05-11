@@ -2,6 +2,7 @@ import { createDatabaseStorageRepository } from '../storage/storage-catalog-stor
 import {
   createStorageCategory,
   createStorageEntry,
+  moveStorageCategoryParent,
   moveStorageEntryCategory,
   parseStorageCaptionMetadata,
   setStorageCategoryLifecycleStatus,
@@ -41,6 +42,7 @@ const storageCategoryStartPayloadPrefix = 'storage_category_';
 const storageSelectCategoryStartPayloadPrefix = 'storage_select_category_';
 const storageEditCategoryStartPayloadPrefix = 'storage_edit_category_';
 const storageEditEntryStartPayloadPrefix = 'storage_edit_entry_';
+const storageSelectRootCategoryStartPayload = 'storage_select_category_root';
 export const storageCallbackPrefixes = {
   root: 'storage:root',
   viewCategory: 'storage:view_category:',
@@ -72,6 +74,7 @@ const storageSubscribeFlowKey = 'storage-subscribe';
 const storageUnsubscribeFlowKey = 'storage-unsubscribe';
 const storageCategoryViewFlowKey = 'storage-category-view';
 const storageRenameCategoryFlowKey = 'storage-rename-category';
+const storageMoveCategoryParentFlowKey = 'storage-move-category-parent';
 const storageTopicMediaGroupWindowMs = 1500;
 const storageLargeAttachmentForwardThresholdBytes = 50 * 1024 * 1024;
 const storageMaxAttachmentSizeBytes = 2 * 1024 * 1024 * 1024;
@@ -221,6 +224,18 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
     return sendStorageEditableEntryList(context, editCategoryId, language);
   }
 
+  if (parseExactStartPayload(text) === storageSelectRootCategoryStartPayload) {
+    const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+    if (
+      context.runtime.session.current?.flowKey === storageMoveCategoryParentFlowKey &&
+      context.runtime.session.current.stepKey === 'move-category-parent'
+    ) {
+      return selectStorageCategoryParent(context, null, language);
+    }
+    await context.reply(createTelegramI18n(language).storage.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
   const selectedCategoryId = parseStartPayload(text, storageSelectCategoryStartPayloadPrefix);
   if (selectedCategoryId !== null) {
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
@@ -247,6 +262,12 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
       context.runtime.session.current.stepKey === 'edit-entry-move-category'
     ) {
       return selectStorageEntryMoveCategory(context, selectedCategoryId, language);
+    }
+    if (
+      context.runtime.session.current?.flowKey === storageMoveCategoryParentFlowKey &&
+      context.runtime.session.current.stepKey === 'move-category-parent'
+    ) {
+      return selectStorageCategoryParent(context, selectedCategoryId, language);
     }
     if (
       context.runtime.session.current?.flowKey === storageSubscribeFlowKey &&
@@ -528,6 +549,12 @@ async function handleSelectedStorageCategoryCallback(
     return selectStorageEntryMoveCategory(context, selectedCategoryId, language);
   }
   if (
+    current?.flowKey === storageMoveCategoryParentFlowKey &&
+    current.stepKey === 'move-category-parent'
+  ) {
+    return selectStorageCategoryParent(context, selectedCategoryId, language);
+  }
+  if (
     current?.flowKey === storageSubscribeFlowKey &&
     current.stepKey === 'subscribe-category'
   ) {
@@ -719,6 +746,9 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   }
   if (context.runtime.session.current?.flowKey === storageRenameCategoryFlowKey) {
     return handleActiveRenameCategoryFlow(context, text, language);
+  }
+  if (context.runtime.session.current?.flowKey === storageMoveCategoryParentFlowKey) {
+    return handleActiveMoveCategoryParentFlow(context, text, language);
   }
   if (context.runtime.session.current?.flowKey === storageCategoryViewFlowKey) {
     const handledCategoryAction = await handleActiveCategoryViewAction(context, text, language);
@@ -1347,6 +1377,20 @@ async function handleActiveCategoryViewAction(
     return true;
   }
 
+  if (text === texts.changeCategoryParent && canManageStorageCategories(context)) {
+    const parentChoices = buildStorageCategoryParentChoices(category, await listActiveCategories(context));
+    await context.runtime.session.start({
+      flowKey: storageMoveCategoryParentFlowKey,
+      stepKey: 'move-category-parent',
+      data: { categoryId: category.id },
+    });
+    await context.reply(
+      formatMoveCategoryParentPrompt({ category, parentChoices, allCategories: categories, language }),
+      { ...buildSingleCancelOptions(), parseMode: 'HTML' },
+    );
+    return true;
+  }
+
   return false;
 }
 
@@ -1385,6 +1429,106 @@ async function handleActiveRenameCategoryFlow(
     buildStorageMenuOptions(language, context),
   );
   return sendStorageCategoryEntryList(context, renamed.id, language);
+}
+
+async function handleActiveMoveCategoryParentFlow(
+  context: StorageFlowContext,
+  text: string,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== storageMoveCategoryParentFlowKey || session.stepKey !== 'move-category-parent') {
+    return false;
+  }
+  const texts = createTelegramI18n(language).storage;
+  if (!canManageStorageCategories(context)) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+  if (text === texts.skipOptional) {
+    return selectStorageCategoryParent(context, null, language);
+  }
+
+  const categoryId = asNumber(session.data.categoryId);
+  const category = await resolveRepository(context).findCategoryById(categoryId);
+  const parentChoices = category ? buildStorageCategoryParentChoices(category, await listActiveCategories(context)) : [];
+  const selected = parentChoices.find((candidate) => candidate.displayName === text);
+  if (!selected) {
+    await context.reply(texts.invalidCategory, {
+      ...buildSingleCancelOptions(),
+      parseMode: 'HTML',
+    });
+    return true;
+  }
+  return selectStorageCategoryParent(context, selected.id, language);
+}
+
+async function selectStorageCategoryParent(
+  context: StorageFlowContext,
+  parentCategoryId: number | null,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  const texts = createTelegramI18n(language).storage;
+  if (!session || session.flowKey !== storageMoveCategoryParentFlowKey || session.stepKey !== 'move-category-parent') {
+    await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+  if (!canManageStorageCategories(context)) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  const repository = resolveRepository(context);
+  const categoryId = asNumber(session.data.categoryId);
+  const category = await repository.findCategoryById(categoryId);
+  const activeCategories = await listActiveCategories(context);
+  if (!category || category.lifecycleStatus !== 'active') {
+    await context.runtime.session.cancel();
+    await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  const parentChoices = buildStorageCategoryParentChoices(category, activeCategories);
+  const selectedParent = parentCategoryId === null
+    ? null
+    : parentChoices.find((candidate) => candidate.id === parentCategoryId) ?? null;
+  if (parentCategoryId !== null && !selectedParent) {
+    await context.reply(
+      `${escapeHtml(texts.invalidCategory)}\n${formatMoveCategoryParentPrompt({ category, parentChoices, allCategories: activeCategories, language })}`,
+      { ...buildSingleCancelOptions(), parseMode: 'HTML' },
+    );
+    return true;
+  }
+
+  const previousParentCategoryId = category.parentCategoryId;
+  const moved = await moveStorageCategoryParent({
+    repository,
+    categoryId: category.id,
+    parentCategoryId: selectedParent?.id ?? null,
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'storage.category.moved',
+    targetType: 'storage-category',
+    targetId: moved.id,
+    summary: 'Categoria de storage movida',
+    details: {
+      previousParentCategoryId,
+      nextParentCategoryId: moved.parentCategoryId,
+    },
+  });
+  await context.runtime.session.cancel();
+  await context.reply(
+    moved.parentCategoryId === null
+      ? texts.categoryParentMovedToRoot.replace('{category}', moved.displayName)
+      : texts.categoryParentMoved.replace('{category}', moved.displayName).replace('{parent}', selectedParent?.displayName ?? String(moved.parentCategoryId)),
+    buildStorageMenuOptions(language, context),
+  );
+  return sendStorageCategoryEntryList(context, moved.id, language);
 }
 
 async function handleActiveArchiveCategoryFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
@@ -3245,6 +3389,14 @@ function filterStorageCategoriesByParent(
   return categories.filter((category) => category.parentCategoryId === parentCategoryId);
 }
 
+function buildStorageCategoryParentChoices(
+  category: StorageCategoryRecord,
+  categories: StorageCategoryRecord[],
+): StorageCategoryRecord[] {
+  const excludedIds = new Set([category.id, ...collectStorageCategoryDescendantIds(category.id, categories)]);
+  return categories.filter((candidate) => !excludedIds.has(candidate.id) && candidate.lifecycleStatus === 'active' && candidate.categoryPurpose === 'user_uploads');
+}
+
 async function buildStorageCategorySummaries(
   context: StorageFlowContext,
   categories: StorageCategoryRecord[],
@@ -3354,6 +3506,7 @@ function buildStorageCategoryViewReplyOptions({
   }
   if (canManageStorageCategories(context)) {
     rows.push([successButton(texts.addSubcategory), secondaryButton(texts.renameCategory)]);
+    rows.push([secondaryButton(texts.changeCategoryParent)]);
   }
   if (context.runtime.actor.isApproved && !context.runtime.actor.isBlocked && category.lifecycleStatus === 'active') {
     rows.push([successButton(texts.upload)]);
@@ -4037,6 +4190,30 @@ function formatCreateCategoryParentPrompt(categories: StorageCategoryRecord[], l
 function formatMoveEntryCategoryPrompt(categories: StorageCategoryRecord[], language: 'ca' | 'es' | 'en'): string {
   const texts = createTelegramI18n(language).storage;
   return `${escapeHtml(texts.askMoveCategory)}\n${formatStorageCategoryListMessage({ categories, language, linkMode: 'select' })}`;
+}
+
+function formatMoveCategoryParentPrompt({
+  category,
+  parentChoices,
+  allCategories,
+  language,
+}: {
+  category: StorageCategoryRecord;
+  parentChoices: StorageCategoryRecord[];
+  allCategories: StorageCategoryRecord[];
+  language: 'ca' | 'es' | 'en';
+}): string {
+  const texts = createTelegramI18n(language).storage;
+  const rootUrl = escapeHtml(buildTelegramStartUrl(storageSelectRootCategoryStartPayload));
+  const rootLine = `- <a href="${rootUrl}"><b>${escapeHtml(texts.storageRootLabel)}</b></a>`;
+  const lines = [
+    escapeHtml(texts.askChangeCategoryParent.replace('{category}', category.displayName)),
+    rootLine,
+  ];
+  if (parentChoices.length > 0) {
+    lines.push(...formatStorageCategoryLinks(parentChoices, language, allCategories, { linkMode: 'select' }));
+  }
+  return lines.join('\n');
 }
 
 function formatStorageCategoryLinks(

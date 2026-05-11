@@ -97,6 +97,10 @@ export interface StorageCategoryRepository {
     categoryId: number;
     displayName: string;
   }): Promise<StorageCategoryRecord>;
+  updateCategoryParent(input: {
+    categoryId: number;
+    parentCategoryId: number | null;
+  }): Promise<StorageCategoryRecord>;
   findCategoryById(categoryId: number): Promise<StorageCategoryRecord | null>;
   findCategoryByStorageThread(storageChatId: number, storageThreadId: number): Promise<StorageCategoryRecord | null>;
   listCategories(): Promise<StorageCategoryRecord[]>;
@@ -201,6 +205,45 @@ export async function setStorageCategoryLifecycleStatus({
   return repository.updateCategoryLifecycleStatus({
     categoryId: normalizePositiveInteger(categoryId, 'category'),
     lifecycleStatus: nextStatus,
+  });
+}
+
+export async function moveStorageCategoryParent({
+  repository,
+  categoryId,
+  parentCategoryId,
+}: {
+  repository: StorageCategoryRepository;
+  categoryId: number;
+  parentCategoryId: number | null;
+}): Promise<StorageCategoryRecord> {
+  const category = await loadCategoryOrThrow(repository, categoryId);
+  if (category.lifecycleStatus !== 'active') {
+    throw new Error(`Storage category ${categoryId} is archived`);
+  }
+
+  const normalizedParentCategoryId = normalizeOptionalPositiveInteger(parentCategoryId);
+  if (normalizedParentCategoryId === category.id) {
+    throw new Error('A storage category cannot be its own parent');
+  }
+
+  const categories = await repository.listCategories();
+  if (normalizedParentCategoryId !== null) {
+    const parent = categories.find((candidate) => candidate.id === normalizedParentCategoryId);
+    if (!parent) {
+      throw new Error(`Storage category ${normalizedParentCategoryId} not found`);
+    }
+    if (parent.lifecycleStatus !== 'active') {
+      throw new Error(`Storage category ${normalizedParentCategoryId} is archived`);
+    }
+    if (collectStorageCategoryDescendantIds(category.id, categories).includes(parent.id)) {
+      throw new Error('A storage category cannot be moved inside one of its descendants');
+    }
+  }
+
+  return repository.updateCategoryParent({
+    categoryId: category.id,
+    parentCategoryId: normalizedParentCategoryId,
   });
 }
 
@@ -344,6 +387,29 @@ function normalizeTags(tags: string[]): string[] {
         .filter((tag) => tag.length > 0),
     ),
   );
+}
+
+function collectStorageCategoryDescendantIds(categoryId: number, categories: StorageCategoryRecord[]): number[] {
+  const childrenByParent = new Map<number | null, StorageCategoryRecord[]>();
+  for (const category of categories) {
+    const siblings = childrenByParent.get(category.parentCategoryId) ?? [];
+    siblings.push(category);
+    childrenByParent.set(category.parentCategoryId, siblings);
+  }
+
+  const ids = new Set<number>();
+  const stack = [...(childrenByParent.get(categoryId) ?? []).map((category) => category.id)];
+  while (stack.length > 0) {
+    const currentId = stack.pop();
+    if (currentId === undefined || ids.has(currentId)) {
+      continue;
+    }
+    ids.add(currentId);
+    for (const child of childrenByParent.get(currentId) ?? []) {
+      stack.push(child.id);
+    }
+  }
+  return [...ids];
 }
 
 function normalizeRequiredText(value: string, label: string): string {

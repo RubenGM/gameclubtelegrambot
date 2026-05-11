@@ -125,6 +125,19 @@ function createRepository(initialCategories: StorageCategoryRecord[] = [createCa
       categories.set(updated.id, updated);
       return updated;
     },
+    async updateCategoryParent(input) {
+      const existing = categories.get(input.categoryId);
+      if (!existing) {
+        throw new Error(`Storage category ${input.categoryId} not found`);
+      }
+      const updated = {
+        ...existing,
+        parentCategoryId: input.parentCategoryId,
+        updatedAt: '2026-04-21T11:30:00.000Z',
+      };
+      categories.set(updated.id, updated);
+      return updated;
+    },
     async findCategoryById(categoryId) {
       return categories.get(categoryId) ?? null;
     },
@@ -842,6 +855,49 @@ test('handleTelegramStorageText shows clickable parent breadcrumbs and category 
   assert.match(
     replies.at(-1)?.message ?? '',
     /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_root">Almacenamiento<\/a> \/ <a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">STL<\/a> \/ <b>Star Wars RPG<\/b>/,
+  );
+});
+
+test('handleTelegramStorageText lets admins change a category parent from the category detail', async () => {
+  const repository = createRepository([
+    createCategory({ id: 7, slug: 'stl', displayName: 'STL' }),
+    createCategory({ id: 8, slug: 'star-wars', displayName: 'Star Wars', parentCategoryId: 7, storageThreadId: 11 }),
+    createCategory({ id: 9, slug: 'legion', displayName: 'Legion', parentCategoryId: 8, storageThreadId: 12 }),
+    createCategory({ id: 10, slug: 'malifaux', displayName: 'Malifaux', storageThreadId: 13 }),
+  ]);
+  const { context, replies, getCurrentSession } = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [7, 8, 9, 10],
+    canUploadCategoryIds: [7, 8, 9, 10],
+  });
+
+  context.messageText = '/start storage_category_9';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  assert.ok(
+    replies.at(-1)?.options?.replyKeyboard?.flat().some((button) =>
+      (typeof button === 'string' ? button : button.text) === 'Cambiar categoría padre',
+    ),
+  );
+
+  context.messageText = 'Cambiar categoría padre';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  assert.equal(getCurrentSession()?.flowKey, 'storage-move-category-parent');
+  assert.equal(getCurrentSession()?.stepKey, 'move-category-parent');
+  assert.match(replies.at(-1)?.message ?? '', /Elige la nueva categoría padre de Legion\./);
+  assert.match(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_select_category_root/);
+  assert.match(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_select_category_7/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /start=storage_select_category_9/);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
+
+  context.messageText = '/start storage_select_category_7';
+  assert.equal(await handleTelegramStorageStartText(context as never), true);
+
+  const moved = await repository.findCategoryById(9);
+  assert.equal(moved?.parentCategoryId, 7);
+  assert.equal(replies.at(-2)?.message, 'Categoría Legion movida dentro de STL.');
+  assert.match(
+    replies.at(-1)?.message ?? '',
+    /^<a href="https:\/\/t\.me\/cawatest_bot\?start=storage_root">Almacenamiento<\/a> \/ <a href="https:\/\/t\.me\/cawatest_bot\?start=storage_category_7">STL<\/a> \/ <b>Legion<\/b>/,
   );
 });
 

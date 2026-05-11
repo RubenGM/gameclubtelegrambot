@@ -234,12 +234,12 @@ Implementado:
 - Categorias con `storageChatId` y `storageThreadId` como ubicacion canonica.
 - Configuracion admin de supergrupo de Storage por defecto desde Telegram, persistida en `app_metadata`.
 - Alta de categorias usando automaticamente el supergrupo por defecto vigente: el bot valida chat/permisos, crea el topic y guarda los ids sin pedir confirmacion al crear cada categoria.
-- Listado incremental de categorias principales/subcategorias con resumen agregado de subcategorias y archivos, enlaces normales `t.me?...start=` en el texto, breadcrumbs clicables, acciones contextuales y listado de entradas por categoria.
+- Listado incremental de categorias principales/subcategorias con resumen agregado de subcategorias y archivos, enlaces normales `t.me?...start=` en el texto, breadcrumbs clicables, acciones contextuales, cambio guiado de categoria padre y listado de entradas por categoria.
 - Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot copia al topic canonico antes de indexar y refrescar la categoria.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
 - Soporte de `document`, `photo`, `video` y `audio`.
 - Albums por `media_group_id` agrupados en una sola entrada mediante ventana corta en memoria.
-- Admin: crear, archivar y reactivar categorias; borrar logicamente entradas; ver, conceder y revocar acceso por categoria.
+- Admin: crear, mover, archivar y reactivar categorias; borrar logicamente entradas; ver, conceder y revocar acceso por categoria.
 - Consola Textual `Storage gestor`: editar categorias/archivos existentes, mover categorias dentro de otras o a raiz, mover archivos a otra categoria, archivar/reactivar categorias y eliminar/restaurar archivos sin crear contenido nuevo.
 - Permisos aplicados por recurso para `storage.entry.read` y `storage.entry.upload`.
 - Auditoria de altas de categoria, cambios de estado, borrado logico y permisos.

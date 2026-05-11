@@ -76,6 +76,22 @@ export function createDatabaseStorageRepository({
       }
       return mapStorageCategoryRow(row);
     },
+    async updateCategoryParent(input) {
+      const updated = await database
+        .update(storageCategories)
+        .set({
+          parentCategoryId: input.parentCategoryId,
+          updatedAt: new Date(),
+        })
+        .where(eq(storageCategories.id, input.categoryId))
+        .returning();
+
+      const row = updated[0];
+      if (!row) {
+        throw new Error(`Storage category ${input.categoryId} not found`);
+      }
+      return mapStorageCategoryRow(row);
+    },
     async findCategoryById(categoryId) {
       const rows = await database.select().from(storageCategories).where(eq(storageCategories.id, categoryId));
       const row = rows[0];

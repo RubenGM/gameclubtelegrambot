@@ -338,6 +338,7 @@ function createStorageRepository(): StorageCategoryRepository & { __entries: Sto
     },
     async updateCategoryLifecycleStatus() { throw new Error('not implemented'); },
     async updateCategoryMetadata() { throw new Error('not implemented'); },
+    async updateCategoryParent() { throw new Error('not implemented'); },
     async findCategoryById(categoryId) { return categories.get(categoryId) ?? null; },
     async findCategoryByStorageThread(storageChatId, storageThreadId) {
       return Array.from(categories.values()).find((category) => category.storageChatId === storageChatId && category.storageThreadId === storageThreadId) ?? null;
