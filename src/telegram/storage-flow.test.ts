@@ -35,6 +35,14 @@ function dangerButton(text: string) {
   return { text, semanticRole: 'danger' as const };
 }
 
+function successButton(text: string) {
+  return { text, semanticRole: 'success' as const };
+}
+
+function secondaryButton(text: string) {
+  return { text, semanticRole: 'secondary' as const };
+}
+
 function createMemoryMetadataStorage(initialValues: Record<string, string> = {}): AppMetadataSessionStorage & {
   __values: Map<string, string>;
 } {
@@ -2569,7 +2577,8 @@ test('handleTelegramStorageText edits storage entry metadata', async () => {
 test('handleTelegramStorageText moves an entry to another category with tree links', async () => {
   const repository = createRepository([
     createCategory({ id: 7, slug: 'manuales', displayName: 'Manuales' }),
-    createCategory({ id: 8, slug: 'malifaux', displayName: 'Malifaux', storageThreadId: 11 }),
+    createCategory({ id: 8, slug: 'juegos', displayName: 'Juegos' }),
+    createCategory({ id: 9, slug: 'malifaux', displayName: 'Malifaux', parentCategoryId: 8, storageThreadId: 11 }),
   ]);
   await repository.createEntry({
     categoryId: 7,
@@ -2593,8 +2602,8 @@ test('handleTelegramStorageText moves an entry to another category with tree lin
     }],
   });
   const { context, replies, getCurrentSession } = createContext(repository, {
-    canReadCategoryIds: [7, 8],
-    canUploadCategoryIds: [7, 8],
+    canReadCategoryIds: [7, 8, 9],
+    canUploadCategoryIds: [7, 8, 9],
   });
 
   context.messageText = '/start storage_edit_entry_1';
@@ -2606,12 +2615,31 @@ test('handleTelegramStorageText moves an entry to another category with tree lin
   assert.equal(getCurrentSession()?.stepKey, 'edit-entry-move-category');
   assert.match(replies.at(-1)?.message ?? '', /Elige la nueva categoría de la entrada\./);
   assert.match(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_select_category_8/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_select_category_9/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [[dangerButton('/cancel')]]);
 
   context.messageText = '/start storage_select_category_8';
   await handleTelegramStorageStartText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'edit-entry-move-category');
+  assert.match(replies.at(-1)?.message ?? '', /<b>Juegos<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_select_category_9/);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
+    [successButton('Seleccionar Juegos')],
+    [secondaryButton('Volver')],
+    [dangerButton('/cancel')],
+  ]);
 
-  assert.equal(repository.__entries[0]?.entry.categoryId, 8);
+  context.messageText = '/start storage_select_category_9';
+  await handleTelegramStorageStartText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'edit-entry-move-category');
+  assert.match(replies.at(-1)?.message ?? '', /<b>Juegos \/ Malifaux<\/b>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_select_category_8/);
+
+  context.messageText = 'Seleccionar Malifaux';
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(repository.__entries[0]?.entry.categoryId, 9);
   assert.equal(repository.__entries[0]?.category.displayName, 'Malifaux');
   assert.equal(getCurrentSession()?.stepKey, 'edit-entry-action');
   assert.equal(replies.at(-1)?.message, 'Entrada #1 movida a Malifaux.\n\n¿Qué quieres modificar de esta entrada?');
@@ -3008,8 +3036,24 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   await handleTelegramStorageMessage(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'upload-media');
 
+  context.messageMedia = {
+    attachmentKind: 'document',
+    fileId: 'private-file-2',
+    fileUniqueId: 'private-unique-2',
+    caption: null,
+    originalFileName: 'mapa.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 1024,
+    mediaGroupId: null,
+    messageId: 78,
+  };
+  await handleTelegramStorageMessage(context as never);
+
   context.messageText = 'Terminar adjuntos';
   delete context.messageMedia;
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-grouping');
+  context.messageText = 'Guardar juntos';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
   assert.match(replies.at(-1)?.message ?? '', /Vista previa de la subida/);
@@ -3024,18 +3068,23 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   context.messageText = 'Aceptar';
   await handleTelegramStorageText(context as never);
 
-  assert.equal(copiedMessages.length, 1);
+  assert.equal(copiedMessages.length, 2);
   assert.deepEqual(copiedMessages[0], { fromChatId: 42, messageId: 77, toChatId: -100123, messageThreadId: 10 });
+  assert.deepEqual(copiedMessages[1], { fromChatId: 42, messageId: 78, toChatId: -100123, messageThreadId: 10 });
   assert.equal(repository.__entries.length, 1);
   assert.equal(repository.__entries[0]?.entry.description, 'Manual de campana');
   assert.deepEqual(repository.__entries[0]?.entry.tags, []);
   assert.match(replies.at(-2)?.message ?? '', /Subida en curso/);
   assert.match(replies.at(-2)?.message ?? '', /Copiando adjuntos al topic de Storage/);
-  assert.equal(editedMessages.length, 3);
-  assert.match(editedMessages[0]?.text ?? '', /Registrando la entrada en el índice/);
-  assert.match(editedMessages[1]?.text ?? '', /Avisando suscripciones/);
-  assert.equal(editedMessages[2]?.text, 'Archivo guardado en Manuales con 1 adjunto(s).');
-  assert.deepEqual(editedMessages[2]?.options?.replyKeyboard, [[{ text: '/cancel', semanticRole: 'danger' }]]);
+  assert.equal(editedMessages.length, 6);
+  assert.match(editedMessages[0]?.text ?? '', /✅ campana\.pdf/);
+  assert.match(editedMessages[0]?.text ?? '', /⏳ mapa\.pdf/);
+  assert.match(editedMessages[1]?.text ?? '', /✅ mapa\.pdf/);
+  assert.match(editedMessages[2]?.text ?? '', /Registrando la entrada en el índice/);
+  assert.match(editedMessages[3]?.text ?? '', /Avisando suscripciones/);
+  assert.match(editedMessages[4]?.text ?? '', /✅ Avisando suscripciones/);
+  assert.equal(editedMessages[5]?.text, 'Archivo guardado en Manuales con 2 adjunto(s).');
+  assert.deepEqual(editedMessages[5]?.options?.replyKeyboard, [[{ text: '/cancel', semanticRole: 'danger' }]]);
   assert.match(replies.at(-1)?.message ?? '', /Manual de campana/);
   assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
 });

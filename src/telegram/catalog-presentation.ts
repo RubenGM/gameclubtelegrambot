@@ -140,6 +140,7 @@ export function formatMemberCatalogItemDetails({
   media,
   availabilityLines = [],
   extraLines = [],
+  ownerLine = null,
   language = 'ca',
 }: {
   breadcrumbLine?: string | null;
@@ -149,6 +150,7 @@ export function formatMemberCatalogItemDetails({
   media: CatalogMediaRecord[];
   availabilityLines?: string[];
   extraLines?: string[];
+  ownerLine?: string | null;
   language?: BotLanguage;
 }): string {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
@@ -180,6 +182,7 @@ export function formatMemberCatalogItemDetails({
     formatHtmlField(texts.catalogAdmin.type, renderCatalogItemType(item.itemType, language)),
     ...(family ? [formatHtmlField(texts.catalogAdmin.family, escapeHtml(family.displayName))] : []),
     ...(group ? [formatHtmlField(texts.catalogAdmin.group, escapeHtml(group.displayName))] : []),
+    ...(ownerLine ? [ownerLine] : []),
     ...availabilityLines,
     ...detailLines,
     ...mediaLines,

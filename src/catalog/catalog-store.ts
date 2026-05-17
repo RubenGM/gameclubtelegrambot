@@ -114,6 +114,21 @@ export function createDatabaseCatalogRepository({
       }
       return mapCatalogItemRow(row);
     },
+    async setItemOwner(input) {
+      const updated = await database
+        .update(catalogItems)
+        .set({
+          ownerTelegramUserId: input.ownerTelegramUserId,
+          updatedAt: new Date(),
+        })
+        .where(eq(catalogItems.id, input.itemId))
+        .returning();
+      const row = updated[0];
+      if (!row) {
+        throw new Error(`Catalog item ${input.itemId} not found`);
+      }
+      return mapCatalogItemRow(row);
+    },
     async deactivateItem({ itemId }) {
       const now = new Date();
       const updated = await database
@@ -209,6 +224,7 @@ function mapCatalogItemRow(row: typeof catalogItems.$inferSelect): CatalogItemRe
     id: row.id,
     familyId: row.familyId,
     groupId: row.groupId,
+    ownerTelegramUserId: row.ownerTelegramUserId,
     itemType: row.itemType as CatalogItemRecord['itemType'],
     displayName: row.displayName,
     originalName: row.originalName,

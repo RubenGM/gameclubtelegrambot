@@ -16,6 +16,7 @@ export function formatCatalogAdminItemDetails({
   groupName,
   media,
   loanAvailabilityLines,
+  ownerLine,
   itemTypeSupportsPlayers,
 }: {
   breadcrumbLine?: string | null;
@@ -25,6 +26,7 @@ export function formatCatalogAdminItemDetails({
   groupName: string | null;
   media: CatalogMediaRecord[];
   loanAvailabilityLines: string[];
+  ownerLine?: string | null;
   itemTypeSupportsPlayers: (itemType: CatalogItemType) => boolean;
 }): string {
   const language = normalizeBotLanguage(botLanguage, 'ca');
@@ -47,6 +49,7 @@ export function formatCatalogAdminItemDetails({
     formatHtmlField(texts.type, renderCatalogItemType(item.itemType, language)),
     ...(familyName ? [formatHtmlField(texts.family, escapeHtml(familyName))] : []),
     ...(groupName ? [formatHtmlField(texts.group, escapeHtml(groupName))] : []),
+    ...(ownerLine ? [ownerLine] : []),
     ...loanAvailabilityLines,
     ...originalNameLine,
     ...(descriptionLine ? [descriptionLine] : []),

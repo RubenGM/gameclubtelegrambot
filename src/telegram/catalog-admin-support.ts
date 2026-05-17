@@ -17,6 +17,7 @@ import {
   createCatalogItem,
   createCatalogMedia,
   deactivateCatalogItem,
+  setCatalogItemOwner,
   type CatalogLoanRecord,
   type CatalogLoanRepository,
   listCatalogGroups,
@@ -164,6 +165,9 @@ import {
   renderCatalogOptionalObject,
   renderCatalogPlayerRange,
 } from './catalog-presentation.js';
+import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
+import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
+import { formatTelegramUserLink } from './telegram-user-links.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramActor } from './actor-store.js';
@@ -187,6 +191,7 @@ const bggCollectionImportFlowKey = 'catalog-admin-bgg-collection-import';
 const catalogAdminStartPayloadPrefix = 'catalog_admin_item_';
 const bulkCreateRateLimitMs = 700;
 const bulkCreateItemLimit = 100;
+const catalogOwnerSelectorPageSize = 8;
 
 type BulkCreateStatus = 'added' | 'alreadyExists' | 'noMatch' | 'ambiguous' | 'error';
 
@@ -217,6 +222,10 @@ export const catalogAdminCallbackPrefixes = {
   autocorrect: 'catalog_admin:autocorrect:',
   autocorrectBggCandidate: 'catalog_admin:autocorrect_bgg:',
   translateDescription: 'catalog_admin:translate_description:',
+  setOwnerSelf: 'catalog_admin:owner_self:',
+  selectOwner: 'catalog_admin:owner_select:',
+  ownerPage: 'catalog_admin:owner_page:',
+  clearOwner: 'catalog_admin:owner_clear:',
   deactivate: 'catalog_admin:deactivate:',
   addMedia: 'catalog_admin:add_media:',
   editMedia: 'catalog_admin:edit_media:',
@@ -607,6 +616,38 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     await handleCatalogAdminTranslateDescription(context, item);
     return true;
   }
+  if (route.kind === 'set-owner-self') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    await assignCatalogItemOwner(context, route.itemId, context.runtime.actor.telegramUserId);
+    return true;
+  }
+  if (route.kind === 'owner-page') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    await replyWithCatalogOwnerSelector(context, route.itemId, route.page);
+    return true;
+  }
+  if (route.kind === 'select-owner') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    await assignCatalogItemOwner(context, route.itemId, route.ownerTelegramUserId);
+    return true;
+  }
+  if (route.kind === 'clear-owner') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    await clearCatalogItemOwner(context, route.itemId);
+    return true;
+  }
   if (route.kind === 'deactivate-item') {
     if (!canAdministerCatalog(context)) {
       await replyAdminOnly(context);
@@ -849,6 +890,91 @@ async function handleCatalogAdminTranslateDescription(
     }));
     await context.reply(texts.translateDescriptionFailed.replace('{reason}', reason));
   }
+}
+
+async function assignCatalogItemOwner(context: TelegramCatalogAdminContext, itemId: number, ownerTelegramUserId: number): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const owner = await resolveMembershipRepository(context).findUserByTelegramUserId(ownerTelegramUserId);
+  if (!owner || owner.status !== 'approved') {
+    await context.reply(texts.ownerSelectorEmpty);
+    return;
+  }
+  const updated = await setCatalogItemOwner({
+    repository: resolveCatalogRepository(context),
+    itemId,
+    ownerTelegramUserId,
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'catalog.item.owner_updated',
+    targetType: 'catalog-item',
+    targetId: String(itemId),
+    summary: 'Propietari de cataleg actualitzat',
+    details: { ownerTelegramUserId },
+  });
+  await context.reply(texts.ownerAssigned);
+  await replyWithCatalogAdminItemDetail(context, updated, language);
+}
+
+async function clearCatalogItemOwner(context: TelegramCatalogAdminContext, itemId: number): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const updated = await setCatalogItemOwner({
+    repository: resolveCatalogRepository(context),
+    itemId,
+    ownerTelegramUserId: null,
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'catalog.item.owner_cleared',
+    targetType: 'catalog-item',
+    targetId: String(itemId),
+    summary: 'Propietari de cataleg eliminat',
+    details: {},
+  });
+  await context.reply(texts.ownerCleared);
+  await replyWithCatalogAdminItemDetail(context, updated, language);
+}
+
+async function replyWithCatalogOwnerSelector(context: TelegramCatalogAdminContext, itemId: number, page: number): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const membershipRepository = resolveMembershipRepository(context);
+  const users = (membershipRepository.listManageableUsers
+    ? await membershipRepository.listManageableUsers()
+    : [...(await membershipRepository.listApprovedAdminUsers()), ...(await membershipRepository.listRevocableUsers())])
+    .filter((user) => user.status === 'approved')
+    .sort((left, right) => left.displayName.localeCompare(right.displayName) || left.telegramUserId - right.telegramUserId);
+  if (users.length === 0) {
+    await context.reply(texts.ownerSelectorEmpty);
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(users.length / catalogOwnerSelectorPageSize));
+  const resolvedPage = Math.min(Math.max(page, 1), totalPages);
+  const pageUsers = users.slice((resolvedPage - 1) * catalogOwnerSelectorPageSize, resolvedPage * catalogOwnerSelectorPageSize);
+  const lines = [
+    escapeHtml(texts.ownerSelectorTitle),
+    '',
+    language === 'ca' ? `Pàgina ${resolvedPage}/${totalPages}` : language === 'es' ? `Página ${resolvedPage}/${totalPages}` : `Page ${resolvedPage}/${totalPages}`,
+    ...pageUsers.map((user) => `- ${formatTelegramUserLink(user)}`),
+  ];
+  const rows: NonNullable<TelegramReplyOptions['inlineKeyboard']> = pageUsers.map((user) => [{
+    text: user.displayName,
+    callbackData: `${catalogAdminCallbackPrefixes.selectOwner}${itemId}:${user.telegramUserId}`,
+  }]);
+  if (totalPages > 1) {
+    rows.push([
+      { text: language === 'es' ? 'Anterior' : language === 'en' ? 'Previous' : 'Anterior', callbackData: `${catalogAdminCallbackPrefixes.ownerPage}${itemId}:${Math.max(1, resolvedPage - 1)}` },
+      { text: language === 'es' ? 'Siguiente' : language === 'en' ? 'Next' : 'Següent', callbackData: `${catalogAdminCallbackPrefixes.ownerPage}${itemId}:${Math.min(totalPages, resolvedPage + 1)}` },
+    ]);
+  }
+  rows.push([{ text: texts.browseBack, callbackData: `${catalogAdminCallbackPrefixes.inspect}${itemId}` }]);
+
+  await context.reply(lines.join('\n'), { parseMode: 'HTML', inlineKeyboard: rows });
 }
 
 type CatalogAutocorrectDraft = WikipediaBoardGameCatalogDraft;
@@ -2437,6 +2563,9 @@ async function buildCatalogItemDetailButtons(
       createActivityPrefix: catalogAdminCallbackPrefixes.createActivity,
       autocorrectPrefix: catalogAdminCallbackPrefixes.autocorrect,
       translateDescriptionPrefix: catalogAdminCallbackPrefixes.translateDescription,
+      setOwnerSelfPrefix: catalogAdminCallbackPrefixes.setOwnerSelf,
+      selectOwnerPrefix: catalogAdminCallbackPrefixes.ownerPage,
+      clearOwnerPrefix: catalogAdminCallbackPrefixes.clearOwner,
       addMediaPrefix: catalogAdminCallbackPrefixes.addMedia,
       editMediaPrefix: catalogAdminCallbackPrefixes.editMedia,
       deleteMediaPrefix: catalogAdminCallbackPrefixes.deleteMedia,
@@ -2458,8 +2587,22 @@ async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, it
     groupName,
     media,
     loanAvailabilityLines: await formatLoanAvailabilityLines(context, loan),
+    ownerLine: await formatCatalogOwnerLine(context, item),
     itemTypeSupportsPlayers,
   });
+}
+
+async function formatCatalogOwnerLine(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string | null> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  if (item.ownerTelegramUserId == null) {
+    return formatHtmlField(texts.owner, escapeHtml(texts.noOwner));
+  }
+  const owner = await resolveMembershipRepository(context).findUserByTelegramUserId(item.ownerTelegramUserId);
+  if (!owner) {
+    return formatHtmlField(texts.owner, escapeHtml(`#${item.ownerTelegramUserId}`));
+  }
+  return formatHtmlField(texts.owner, formatTelegramUserLink(owner));
 }
 
 async function formatCatalogGroupDetails(context: TelegramCatalogAdminContext, group: CatalogGroupRecord): Promise<string> {
@@ -2841,6 +2984,10 @@ function resolveCatalogRepository(context: TelegramCatalogAdminContext): Catalog
     return context.catalogRepository;
   }
   return createDatabaseCatalogRepository({ database: context.runtime.services.database.db as never });
+}
+
+function resolveMembershipRepository(context: TelegramCatalogAdminContext): MembershipAccessRepository {
+  return context.membershipRepository ?? createDatabaseMembershipAccessRepository({ database: context.runtime.services.database.db as never });
 }
 
 function resolveCatalogStorageRepository(context: TelegramCatalogAdminContext): StorageCategoryRepository {

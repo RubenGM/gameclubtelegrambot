@@ -156,6 +156,19 @@ function createRepository({
       itemMap.set(next.id, next);
       return next;
     },
+    async setItemOwner(input) {
+      const existing = itemMap.get(input.itemId);
+      if (!existing) {
+        throw new Error('unknown item');
+      }
+      const next: CatalogItemRecord = {
+        ...existing,
+        ownerTelegramUserId: input.ownerTelegramUserId,
+        updatedAt: '2026-04-04T11:30:00.000Z',
+      };
+      itemMap.set(next.id, next);
+      return next;
+    },
     async deactivateItem({ itemId }) {
       const existing = itemMap.get(itemId);
       if (!existing) {
@@ -278,8 +291,9 @@ function createMembershipRepository(users: MembershipUserRecord[] = []): Members
     },
     async upsertPendingUser() { throw new Error('not implemented'); },
     async listPendingUsers() { return []; },
-    async listRevocableUsers() { return []; },
-    async listApprovedAdminUsers() { return []; },
+    async listManageableUsers() { return Array.from(userMap.values()).sort((left, right) => left.displayName.localeCompare(right.displayName) || left.telegramUserId - right.telegramUserId); },
+    async listRevocableUsers() { return Array.from(userMap.values()).filter((user) => user.status === 'approved' && !user.isAdmin); },
+    async listApprovedAdminUsers() { return Array.from(userMap.values()).filter((user) => user.status === 'approved' && user.isAdmin); },
     async findLatestRevocation() { return null; },
     async backfillDisplayNames() { return 0; },
     async appendStatusAuditLog() { throw new Error('not implemented'); },
@@ -4025,4 +4039,54 @@ test('handleTelegramCatalogAdminText falls back to minimum-field creation when l
   assert.equal(created?.displayName, 'Monster Manual');
   assert.equal(created?.publisher, null);
   assert.equal(created?.externalRefs, null);
+});
+
+test('catalog admin can assign an item owner from the paginated user selector', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 1,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Dune Imperium',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const membershipRepository = createMembershipRepository([
+    { telegramUserId: 7, username: 'admin_user', displayName: 'Admin User', status: 'approved', isAdmin: true },
+    { telegramUserId: 20, username: 'ana_owner', displayName: 'Ana Owner', status: 'approved', isAdmin: false },
+    { telegramUserId: 21, username: null, displayName: 'Blocked User', status: 'blocked', isAdmin: false },
+  ]);
+  const auditRepository = createAuditRepository();
+  const { context, replies } = createContext({ repository, membershipRepository, auditRepository, language: 'es' });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.ownerPage}1:1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Elige el propietario del item/);
+  assert.match(replies.at(-1)?.message ?? '', /Ana Owner/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Blocked User/);
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.selectOwner}1:20`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+
+  const updated = await repository.findItemById(1);
+  assert.equal(updated?.ownerTelegramUserId, 20);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Propietario:<\/b> <a href="https:\/\/t\.me\/ana_owner">Ana Owner \(@ana_owner\)<\/a>/);
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.owner_updated');
 });

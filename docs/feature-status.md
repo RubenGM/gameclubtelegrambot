@@ -147,6 +147,7 @@ Implementado:
 - Tipos: juegos de mesa, expansiones, libros, libros RPG y accesorios.
 - Familias y grupos para agrupar lineas, colecciones o expansiones.
 - Campos principales: titulo, original, descripcion, idioma, editorial, año, jugadores, edad, duracion, referencias externas y metadata.
+- Propietario opcional por item: un usuario puede asignarse como propietario desde el detalle; los admins pueden asignar otro usuario con selector paginado y quitar el propietario. El detalle muestra el nombre enlazado.
 - Media por URL con tipo `image`, `link` o `document`.
 - Los admins pueden añadir imagen a un item existente desde el detalle usando URL o adjunto Telegram.
 - Los admins pueden autocorregir datos de juegos/expansiones y libros desde el detalle: el bot reconsulta BGG/Open Library con el titulo o ID disponible, si BGG devuelve varias coincidencias muestra opciones para elegir manualmente, intenta traducir al castellano las descripciones BGG cuando el bot esta en español usando DeepL si esta configurado y OpenCode como fallback, actualiza campos, limpia referencias externas/metadata visibles, edita un mensaje de progreso con duracion por paso (API, traduccion, guardado, descarga/subida de portada y detalle) y reporta si la portada se ha importado, ya existia o no estaba disponible. Tambien pueden traducir solo la descripcion actual del item sin tocar el resto de datos.
@@ -235,8 +236,8 @@ Implementado:
 - Categorias con `storageChatId` y `storageThreadId` como ubicacion canonica.
 - Configuracion admin de supergrupo de Storage por defecto desde Telegram, persistida en `app_metadata`.
 - Alta de categorias usando automaticamente el supergrupo por defecto vigente: el bot valida chat/permisos, crea el topic y guarda los ids sin pedir confirmacion al crear cada categoria.
-- Listado incremental de categorias principales/subcategorias con resumen agregado de subcategorias y archivos, enlaces normales `t.me?...start=` en el texto, breadcrumbs clicables, acciones contextuales, cambio guiado de categoria padre y listado de entradas por categoria.
-- Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot muestra progreso editable mientras copia al topic canonico, indexa, notifica suscripciones y refresca la categoria.
+- Listado incremental de categorias principales/subcategorias con resumen agregado de subcategorias y archivos, enlaces normales `t.me?...start=` en el texto, breadcrumbs clicables, acciones contextuales, cambio guiado de categoria padre, movimiento de entradas por selector nivel a nivel y listado de entradas por categoria.
+- Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot muestra progreso editable con estado por adjunto mientras copia al topic canonico, indexa, notifica suscripciones y refresca la categoria.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
 - Soporte de `document`, `photo`, `video` y `audio`.
 - Albums por `media_group_id` agrupados en una sola entrada mediante ventana corta en memoria.

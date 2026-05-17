@@ -28,6 +28,7 @@ export interface CatalogItemRecord {
   id: number;
   familyId: number | null;
   groupId: number | null;
+  ownerTelegramUserId?: number | null;
   itemType: CatalogItemType;
   displayName: string;
   originalName: string | null;
@@ -135,6 +136,10 @@ export interface CatalogRepository {
     playTimeMinutes: number | null;
     externalRefs: Record<string, unknown> | null;
     metadata: Record<string, unknown> | null;
+  }): Promise<CatalogItemRecord>;
+  setItemOwner?(input: {
+    itemId: number;
+    ownerTelegramUserId: number | null;
   }): Promise<CatalogItemRecord>;
   deactivateItem(input: { itemId: number }): Promise<CatalogItemRecord>;
   createMedia(input: {
@@ -314,6 +319,29 @@ export async function createCatalogItem({
     externalRefs: normalizeObject(externalRefs),
     metadata: normalizeObject(metadata),
   });
+}
+
+export async function setCatalogItemOwner({
+  repository,
+  itemId,
+  ownerTelegramUserId,
+}: {
+  repository: CatalogRepository;
+  itemId: number;
+  ownerTelegramUserId: number | null;
+}): Promise<CatalogItemRecord> {
+  if (!Number.isInteger(itemId) || itemId <= 0) {
+    throw new Error('Catalog item id must be a positive integer');
+  }
+  if (ownerTelegramUserId !== null && (!Number.isInteger(ownerTelegramUserId) || ownerTelegramUserId <= 0)) {
+    throw new Error('Owner Telegram user id must be a positive integer');
+  }
+
+  if (!repository.setItemOwner) {
+    throw new Error('Catalog repository does not support item ownership');
+  }
+
+  return repository.setItemOwner({ itemId, ownerTelegramUserId });
 }
 
 export async function listCatalogItems({

@@ -133,6 +133,7 @@ export const catalogItems = pgTable('catalog_items', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   familyId: bigint('family_id', { mode: 'number' }).references(() => catalogFamilies.id),
   groupId: bigint('group_id', { mode: 'number' }).references(() => catalogGroups.id),
+  ownerTelegramUserId: bigint('owner_telegram_user_id', { mode: 'number' }).references(() => users.telegramUserId),
   itemType: varchar('item_type', { length: 32 }).notNull(),
   displayName: varchar('display_name', { length: 255 }).notNull(),
   originalName: varchar('original_name', { length: 255 }),

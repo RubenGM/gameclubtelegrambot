@@ -1,0 +1,2 @@
+ALTER TABLE "catalog_items" ADD COLUMN "owner_telegram_user_id" bigint;--> statement-breakpoint
+ALTER TABLE "catalog_items" ADD CONSTRAINT "catalog_items_owner_telegram_user_id_users_telegram_user_id_fk" FOREIGN KEY ("owner_telegram_user_id") REFERENCES "public"."users"("telegram_user_id") ON DELETE no action ON UPDATE no action;

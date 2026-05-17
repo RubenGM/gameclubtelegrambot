@@ -15,6 +15,9 @@ export function buildCatalogAdminItemDetailButtons({
   createActivityPrefix,
   autocorrectPrefix,
   translateDescriptionPrefix,
+  setOwnerSelfPrefix,
+  selectOwnerPrefix,
+  clearOwnerPrefix,
   addMediaPrefix,
   editMediaPrefix,
   deleteMediaPrefix,
@@ -31,6 +34,9 @@ export function buildCatalogAdminItemDetailButtons({
   createActivityPrefix: string;
   autocorrectPrefix: string;
   translateDescriptionPrefix: string;
+  setOwnerSelfPrefix: string;
+  selectOwnerPrefix: string;
+  clearOwnerPrefix: string;
   addMediaPrefix: string;
   editMediaPrefix: string;
   deleteMediaPrefix: string;
@@ -49,6 +55,9 @@ export function buildCatalogAdminItemDetailButtons({
     [{ text: texts.edit, callbackData: `${editPrefix}${itemId}` }],
     [{ text: texts.autocorrectItem, callbackData: `${autocorrectPrefix}${itemId}` }],
     [{ text: texts.translateDescription, callbackData: `${translateDescriptionPrefix}${itemId}` }],
+    [{ text: texts.assignOwnerSelf, callbackData: `${setOwnerSelfPrefix}${itemId}` }],
+    [{ text: texts.assignOwnerOther, callbackData: `${selectOwnerPrefix}${itemId}:1` }],
+    [{ text: texts.clearOwner, callbackData: `${clearOwnerPrefix}${itemId}` }],
     [{ text: texts.addMedia, callbackData: `${addMediaPrefix}${itemId}` }],
     ...createActivityButtons,
     ...media.flatMap((entry) => [[

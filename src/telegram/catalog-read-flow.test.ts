@@ -263,6 +263,7 @@ function buildItem(id: number, displayName: string, overrides: Partial<CatalogIt
     id,
     familyId: overrides.familyId ?? null,
     groupId: overrides.groupId ?? null,
+    ownerTelegramUserId: overrides.ownerTelegramUserId ?? null,
     itemType: overrides.itemType ?? 'board-game',
     displayName,
     originalName: null,
@@ -328,6 +329,25 @@ test('handleTelegramCatalogReadCommand groups the overview by initial letter', a
   assert.match(replies[0]?.message ?? '', /Brass Birmingham/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Dune Imperium/);
   assert.match(replies[0]?.message ?? '', /catalog_read_item_1/);
+});
+
+test('catalog read item detail shows the owner as a clickable user', async () => {
+  const repository = createRepository({
+    items: [
+      buildItem(1, 'Dune Imperium', {
+        ownerTelegramUserId: 20,
+      }),
+    ],
+  });
+  const membershipRepository = createMembershipRepository([
+    { telegramUserId: 20, username: 'ana_owner', displayName: 'Ana Owner', status: 'approved', isAdmin: false },
+  ]);
+  const { context, replies } = createContext(repository, createLoanRepository(), membershipRepository);
+
+  context.messageText = '/start catalog_read_item_1';
+  assert.equal(await handleTelegramCatalogReadStartText(context), true);
+
+  assert.match(replies.at(-1)?.message ?? '', /<b>Propietari:<\/b> <a href="https:\/\/t\.me\/ana_owner">Ana Owner \(@ana_owner\)<\/a>/);
 });
 
 test('handleTelegramCatalogReadCommand serializes number buckets without URL fragments', async () => {

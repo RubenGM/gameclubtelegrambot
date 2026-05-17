@@ -12,6 +12,7 @@ import {
   removeCatalogMedia,
   updateCatalogItem,
   updateCatalogMedia,
+  setCatalogItemOwner,
   type CatalogFamilyRecord,
   type CatalogGroupRecord,
   type CatalogItemRecord,
@@ -156,6 +157,19 @@ function createRepository({
       items.set(next.id, next);
       return next;
     },
+    async setItemOwner(input) {
+      const existing = items.get(input.itemId);
+      if (!existing) {
+        throw new Error(`Catalog item ${input.itemId} not found`);
+      }
+      const next: CatalogItemRecord = {
+        ...existing,
+        ownerTelegramUserId: input.ownerTelegramUserId,
+        updatedAt: '2026-04-04T11:30:00.000Z',
+      };
+      items.set(next.id, next);
+      return next;
+    },
     async deactivateItem({ itemId }) {
       const existing = items.get(itemId);
       if (!existing) {
@@ -242,6 +256,41 @@ test('createCatalogFamily creates a normalized family line', async () => {
   assert.equal(family.displayName, 'Arkham Horror');
   assert.equal(family.description, 'Joc base i expansions cooperatives');
   assert.equal(family.familyKind, 'board-game-line');
+});
+
+test('setCatalogItemOwner assigns and clears a catalog owner', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 7,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Dune Imperium',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+
+  const assigned = await setCatalogItemOwner({ repository, itemId: 7, ownerTelegramUserId: 123 });
+  assert.equal(assigned.ownerTelegramUserId, 123);
+
+  const cleared = await setCatalogItemOwner({ repository, itemId: 7, ownerTelegramUserId: null });
+  assert.equal(cleared.ownerTelegramUserId, null);
 });
 
 test('createCatalogGroup creates a normalized group within a family line', async () => {

@@ -1265,6 +1265,18 @@ function registerCatalogAdminCallbacks({
   bot.onCallback(catalogAdminCallbackPrefixes.translateDescription, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
+  bot.onCallback(catalogAdminCallbackPrefixes.setOwnerSelf, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.ownerPage, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.selectOwner, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.clearOwner, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
   bot.onCallback(catalogAdminCallbackPrefixes.deactivate, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });

@@ -1,11 +1,14 @@
 import type { CatalogMediaRecord, CatalogRepository, CatalogFamilyRecord, CatalogGroupRecord, CatalogItemRecord } from '../catalog/catalog-model.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
+import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
+import type { MembershipAccessRepository } from '../membership/access-flow.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import {
   formatMemberCatalogFamilyDetails,
   formatMemberCatalogGroupDetails,
   formatMemberCatalogItemDetails,
   formatMemberCatalogOverview,
+  formatHtmlField,
   renderCatalogItemType,
 } from './catalog-presentation.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
@@ -24,6 +27,7 @@ import { catalogAdminCallbackPrefixes } from './catalog-admin-flow.js';
 import type { TelegramInlineButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { sendCatalogItemCoverIfPresent } from './catalog-cover-media.js';
+import { formatTelegramUserLink } from './telegram-user-links.js';
 
 const catalogReadFlowKey = 'catalog-read';
 const catalogReadPageSize = 5;
@@ -363,6 +367,7 @@ async function replyWithCatalogReadItemDetail(
       group: input.group,
       media: input.media,
       availabilityLines: await formatLoanAvailabilityLines(context, input.loan),
+      ownerLine: await formatCatalogReadOwnerLine(context, input.item, input.language),
       language: input.language,
     }),
     {
@@ -384,6 +389,26 @@ async function replyWithCatalogReadItemDetail(
       parseMode: 'HTML',
     },
   );
+}
+
+async function formatCatalogReadOwnerLine(
+  context: TelegramCatalogReadContext,
+  item: CatalogItemRecord,
+  language: 'ca' | 'es' | 'en',
+): Promise<string | null> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  if (item.ownerTelegramUserId == null) {
+    return formatHtmlField(texts.owner, escapeHtml(texts.noOwner));
+  }
+  const owner = await resolveMembershipRepository(context).findUserByTelegramUserId(item.ownerTelegramUserId);
+  if (!owner) {
+    return formatHtmlField(texts.owner, escapeHtml(`#${item.ownerTelegramUserId}`));
+  }
+  return formatHtmlField(texts.owner, formatTelegramUserLink(owner));
+}
+
+function resolveMembershipRepository(context: TelegramCatalogReadContext): MembershipAccessRepository {
+  return context.membershipRepository ?? createDatabaseMembershipAccessRepository({ database: context.runtime.services.database.db as never });
 }
 
 function buildCatalogReadItemBreadcrumb(item: CatalogItemRecord, language: 'ca' | 'es' | 'en'): string {

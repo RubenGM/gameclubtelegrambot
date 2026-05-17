@@ -130,6 +130,8 @@ type StorageUserChoice = {
   label: string;
 };
 
+type StorageCategoryChoice = Pick<StorageCategoryRecord, 'id' | 'displayName' | 'parentCategoryId'>;
+
 type StorageFlowContext = TelegramCommandHandlerContext & {
   storageRepository?: StorageCategoryRepository | undefined;
   storageCategoryAccessRepository?: StorageCategoryAccessRepository | undefined;
@@ -267,7 +269,7 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
       context.runtime.session.current?.flowKey === storageEditEntryFlowKey &&
       context.runtime.session.current.stepKey === 'edit-entry-move-category'
     ) {
-      return selectStorageEntryMoveCategory(context, selectedCategoryId, language);
+      return showStorageEntryMoveCategoryNode(context, selectedCategoryId, language);
     }
     if (
       context.runtime.session.current?.flowKey === storageMoveCategoryParentFlowKey &&
@@ -378,6 +380,39 @@ async function selectStorageEntryMoveCategory(
       .replace('{id}', String(updated.entry.id))
       .replace('{category}', updated.category.displayName)}\n\n${texts.askEditAction}`,
     buildEditEntryActionOptions(language),
+  );
+  return true;
+}
+
+async function showStorageEntryMoveCategoryNode(
+  context: StorageFlowContext,
+  categoryId: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  const texts = createTelegramI18n(language).storage;
+  if (!session || session.flowKey !== storageEditEntryFlowKey || session.stepKey !== 'edit-entry-move-category') {
+    await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  const categories = asCategoryChoices(session.data.categories);
+  const selected = categories.find((category) => category.id === categoryId);
+  if (!selected) {
+    await context.reply(texts.invalidCategory, buildMoveEntryCategoryOptions({ categories, currentCategoryId: asNullableNumber(session.data.currentMoveCategoryId), language }));
+    return true;
+  }
+
+  await context.runtime.session.advance({
+    stepKey: 'edit-entry-move-category',
+    data: {
+      ...session.data,
+      currentMoveCategoryId: selected.id,
+    },
+  });
+  await context.reply(
+    formatMoveEntryCategoryPrompt({ categories, currentCategoryId: selected.id, language }),
+    buildMoveEntryCategoryOptions({ categories, currentCategoryId: selected.id, language }),
   );
   return true;
 }
@@ -2136,10 +2171,18 @@ async function handleActiveEditEntryFlow(context: StorageFlowContext, text: stri
         stepKey: 'edit-entry-move-category',
         data: {
           ...session.data,
-          categories: categories.map((category) => ({ id: category.id, displayName: category.displayName })),
+          categories: categories.map((category) => ({
+            id: category.id,
+            displayName: category.displayName,
+            parentCategoryId: category.parentCategoryId,
+          })),
+          currentMoveCategoryId: null,
         },
       });
-      await context.reply(formatMoveEntryCategoryPrompt(categories, language), { ...buildSingleCancelOptions(), parseMode: 'HTML' });
+      await context.reply(
+        formatMoveEntryCategoryPrompt({ categories, currentCategoryId: null, language }),
+        buildMoveEntryCategoryOptions({ categories, currentCategoryId: null, language }),
+      );
       return true;
     }
 
@@ -2155,16 +2198,35 @@ async function handleActiveEditEntryFlow(context: StorageFlowContext, text: stri
 
   if (session.stepKey === 'edit-entry-move-category') {
     const categories = asCategoryChoices(session.data.categories);
-    const selected = categories.find((category) => category.displayName === text);
-    if (!selected) {
-      await context.reply(texts.invalidCategory, {
-        ...buildSingleCancelOptions(),
-        parseMode: 'HTML',
+    const currentCategoryId = asNullableNumber(session.data.currentMoveCategoryId);
+    const currentCategory = currentCategoryId === null ? null : categories.find((category) => category.id === currentCategoryId) ?? null;
+    if (currentCategory && text === texts.selectCurrentMoveCategory.replace('{category}', currentCategory.displayName)) {
+      return selectStorageEntryMoveCategory(context, currentCategory.id, language);
+    }
+
+    if (text === texts.back) {
+      const parentCategoryId = currentCategory ? asNullableNumber(currentCategory.parentCategoryId) : null;
+      await context.runtime.session.advance({
+        stepKey: 'edit-entry-move-category',
+        data: {
+          ...session.data,
+          currentMoveCategoryId: parentCategoryId,
+        },
       });
+      await context.reply(
+        formatMoveEntryCategoryPrompt({ categories, currentCategoryId: parentCategoryId, language }),
+        buildMoveEntryCategoryOptions({ categories, currentCategoryId: parentCategoryId, language }),
+      );
       return true;
     }
 
-    return selectStorageEntryMoveCategory(context, selected.id, language);
+    const selected = categories.find((category) => category.displayName === text);
+    if (selected) {
+      return showStorageEntryMoveCategoryNode(context, selected.id, language);
+    }
+
+    await context.reply(texts.invalidCategory, buildMoveEntryCategoryOptions({ categories, currentCategoryId, language }));
+    return true;
   }
 
   if (session.stepKey === 'edit-entry-description') {
@@ -2719,7 +2781,7 @@ async function handleActiveUploadFlow(context: StorageFlowContext, text: string,
   if (session.stepKey === 'upload-preview') {
     if (text === texts.uploadAccept) {
       const messages = asDraftMessages(session.data.messages);
-      const progressState = createStorageUploadProgressState('copying');
+      const progressState = createStorageUploadProgressState(messages, language);
       const progress = await startStorageEditableProgress(context, formatStorageUploadProgress(texts, progressState));
       const saved = await persistPrivateUpload({
         context,
@@ -2728,12 +2790,17 @@ async function handleActiveUploadFlow(context: StorageFlowContext, text: string,
         description: asNullableString(session.data.description),
         tags: asStringArray(session.data.tags),
         messages,
+        onCopyProgress: async (event) => {
+          updateStorageUploadCopyProgress(progressState, event);
+          await progress.update(formatStorageUploadProgress(texts, progressState));
+        },
         onProgressStep: async (step) => {
           await moveStorageUploadProgress(progress, texts, progressState, step);
         },
       });
       await context.runtime.session.cancel();
       finishStorageUploadProgressStep(progressState);
+      await progress.update(formatStorageUploadProgress(texts, progressState));
       await progress.complete(
         texts.saved
           .replace('{category}', saved.category.displayName)
@@ -2972,6 +3039,7 @@ async function persistPrivateUpload({
   description,
   tags,
   messages,
+  onCopyProgress,
   onProgressStep,
 }: {
   context: StorageFlowContext;
@@ -2980,6 +3048,7 @@ async function persistPrivateUpload({
   description: string | null;
   tags: string[];
   messages: DmUploadDraftMessage[];
+  onCopyProgress?: (event: StorageUploadCopyProgressEvent) => Promise<void> | void;
   onProgressStep?: (step: StorageUploadProgressStep) => Promise<void> | void;
 }) {
   const repository = resolveRepository(context);
@@ -3008,7 +3077,7 @@ async function persistPrivateUpload({
   }>;
 
   try {
-    for (const message of messages) {
+    for (const [index, message] of messages.entries()) {
       const copied = await transferStorageMessageToTopic({
         context,
         message,
@@ -3029,6 +3098,7 @@ async function persistPrivateUpload({
         mediaGroupId: message.mediaGroupId,
         sortOrder: message.sortOrder,
       });
+      await onCopyProgress?.({ kind: 'finished', index });
     }
 
     await onProgressStep?.('indexing');
@@ -3869,6 +3939,31 @@ function buildSingleCancelOptions(): TelegramReplyOptions {
   };
 }
 
+function buildMoveEntryCategoryOptions({
+  categories,
+  currentCategoryId,
+  language,
+}: {
+  categories: StorageCategoryChoice[];
+  currentCategoryId: number | null;
+  language: 'ca' | 'es' | 'en';
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).storage;
+  const currentCategory = currentCategoryId === null ? null : categories.find((category) => category.id === currentCategoryId) ?? null;
+  const rows: Array<Array<string | TelegramReplyButton>> = [];
+  if (currentCategory) {
+    rows.push([successButton(texts.selectCurrentMoveCategory.replace('{category}', currentCategory.displayName))]);
+    rows.push([secondaryButton(texts.back)]);
+  }
+  rows.push([dangerButton('/cancel')]);
+  return {
+    replyKeyboard: rows,
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+    parseMode: 'HTML',
+  };
+}
+
 function successButton(text: string): TelegramReplyButton {
   return { text, semanticRole: 'success' };
 }
@@ -3885,7 +3980,7 @@ function dangerButton(text: string): TelegramReplyButton {
   return { text, semanticRole: 'danger' };
 }
 
-function asCategoryChoices(value: unknown): Array<{ id: number; displayName: string }> {
+function asCategoryChoices(value: unknown): StorageCategoryChoice[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -3893,8 +3988,13 @@ function asCategoryChoices(value: unknown): Array<{ id: number; displayName: str
     .map((entry) => ({
       id: typeof entry === 'object' && entry !== null && 'id' in entry ? Number(entry.id) : NaN,
       displayName: typeof entry === 'object' && entry !== null && 'displayName' in entry ? String(entry.displayName) : '',
+      parentCategoryId: typeof entry === 'object' && entry !== null && 'parentCategoryId' in entry ? asNullableNumber(entry.parentCategoryId) : null,
     }))
     .filter((entry) => Number.isInteger(entry.id) && entry.id > 0 && entry.displayName.length > 0);
+}
+
+function asNullableNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
 }
 
 function asEntryChoices(value: unknown): Array<{ id: number }> {
@@ -4204,9 +4304,56 @@ function formatCreateCategoryParentPrompt(categories: StorageCategoryRecord[], l
   return `${escapeHtml(texts.askCategoryParent)}\n${formatStorageCategoryListMessage({ categories, language, linkMode: 'select' })}`;
 }
 
-function formatMoveEntryCategoryPrompt(categories: StorageCategoryRecord[], language: 'ca' | 'es' | 'en'): string {
+function formatMoveEntryCategoryPrompt({
+  categories,
+  currentCategoryId,
+  language,
+}: {
+  categories: StorageCategoryChoice[];
+  currentCategoryId: number | null;
+  language: 'ca' | 'es' | 'en';
+}): string {
   const texts = createTelegramI18n(language).storage;
-  return `${escapeHtml(texts.askMoveCategory)}\n${formatStorageCategoryListMessage({ categories, language, linkMode: 'select' })}`;
+  const currentCategory = currentCategoryId === null ? null : categories.find((category) => category.id === currentCategoryId) ?? null;
+  const childCategories = categories
+    .filter((category) => category.parentCategoryId === currentCategoryId)
+    .sort(compareStorageCategoryChoices);
+  const lines = [escapeHtml(texts.askMoveCategory)];
+  if (currentCategory) {
+    lines.push('', `<b>${escapeHtml(formatStorageCategoryChoicePath(currentCategory, categories))}</b>`);
+  }
+  if (childCategories.length > 0) {
+    lines.push(
+      '',
+      escapeHtml(texts.categoriesHeader),
+      ...childCategories.map((category) => {
+        const url = escapeHtml(buildTelegramStartUrl(`${storageSelectCategoryStartPayloadPrefix}${category.id}`));
+        return `- <a href="${url}"><b>${escapeHtml(category.displayName)}</b></a>`;
+      }),
+    );
+  }
+  return lines.join('\n');
+}
+
+function compareStorageCategoryChoices(left: StorageCategoryChoice, right: StorageCategoryChoice): number {
+  return left.displayName.localeCompare(right.displayName, undefined, { sensitivity: 'base', numeric: true }) || left.id - right.id;
+}
+
+function formatStorageCategoryChoicePath(category: StorageCategoryChoice, allCategories: StorageCategoryChoice[]): string {
+  const byId = new Map(allCategories.map((candidate) => [candidate.id, candidate]));
+  const segments = [category.displayName];
+  const visited = new Set<number>([category.id]);
+  let current = category;
+  while (current.parentCategoryId !== null) {
+    const parent = byId.get(current.parentCategoryId);
+    if (!parent || visited.has(parent.id)) {
+      break;
+    }
+    segments.unshift(parent.displayName);
+    visited.add(parent.id);
+    current = parent;
+  }
+  return segments.join(' / ');
 }
 
 function formatMoveCategoryParentPrompt({
@@ -4665,16 +4812,55 @@ type StorageUploadProgressState = {
   activeStep: StorageUploadProgressStep | null;
   activeStartedAt: number | null;
   durations: Partial<Record<StorageUploadProgressStep, number>>;
+  copyFiles: StorageUploadCopyFileProgress[];
 };
 
 const storageUploadProgressSteps: StorageUploadProgressStep[] = ['copying', 'indexing', 'notifying'];
 
-function createStorageUploadProgressState(activeStep: StorageUploadProgressStep): StorageUploadProgressState {
+type StorageUploadCopyFileProgress = {
+  label: string;
+  status: StorageUploadProgressStatus;
+  startedAt: number | null;
+  duration: number | null;
+};
+
+type StorageUploadCopyProgressEvent = {
+  kind: 'finished';
+  index: number;
+};
+
+function createStorageUploadProgressState(messages: DmUploadDraftMessage[], language: 'ca' | 'es' | 'en'): StorageUploadProgressState {
   return {
-    activeStep,
+    activeStep: 'copying',
     activeStartedAt: Date.now(),
     durations: {},
+    copyFiles: messages.map((message, index) => ({
+      label: formatDraftStorageAttachmentLabel(message, language),
+      status: index === 0 ? 'active' : 'pending',
+      startedAt: index === 0 ? Date.now() : null,
+      duration: null,
+    })),
   };
+}
+
+function updateStorageUploadCopyProgress(
+  state: StorageUploadProgressState,
+  event: StorageUploadCopyProgressEvent,
+): void {
+  const file = state.copyFiles[event.index];
+  if (!file) {
+    return;
+  }
+  if (file.status === 'active' && file.startedAt !== null) {
+    file.duration = Date.now() - file.startedAt;
+  }
+  file.status = 'done';
+  file.startedAt = null;
+  const nextFile = state.copyFiles[event.index + 1];
+  if (nextFile && nextFile.status === 'pending') {
+    nextFile.status = 'active';
+    nextFile.startedAt = Date.now();
+  }
 }
 
 async function moveStorageUploadProgress(
@@ -4706,25 +4892,40 @@ function formatStorageUploadProgress(
   state: StorageUploadProgressState,
 ): string {
   return `${texts.uploadProgressTitle}\n\n${storageUploadProgressSteps
-    .map((step) => formatStorageUploadProgressLine(texts, state, step))
+    .flatMap((step) => formatStorageUploadProgressLines(texts, state, step))
     .join('\n')}`;
 }
 
-function formatStorageUploadProgressLine(
+function formatStorageUploadProgressLines(
   texts: ReturnType<typeof createTelegramI18n>['storage'],
   state: StorageUploadProgressState,
   step: StorageUploadProgressStep,
-): string {
+): string[] {
   const label = resolveStorageUploadProgressStepLabel(texts, step);
   const status = resolveStorageUploadProgressStepStatus(state, step);
   const duration = state.durations[step];
+  const lines: string[] = [];
   if (status === 'done') {
-    return `✅ ${label} (${formatStorageUploadDuration(duration ?? 0)})`;
+    lines.push(`✅ ${label} (${formatStorageUploadDuration(duration ?? 0)})`);
+  } else if (status === 'active') {
+    lines.push(`⏳ ${label}`);
+  } else {
+    lines.push(`⬜ ${label}`);
   }
-  if (status === 'active') {
-    return `⏳ ${label}`;
+  if (step === 'copying') {
+    lines.push(...state.copyFiles.map((file) => formatStorageUploadCopyFileProgressLine(file)));
   }
-  return `⬜ ${label}`;
+  return lines;
+}
+
+function formatStorageUploadCopyFileProgressLine(file: StorageUploadCopyFileProgress): string {
+  if (file.status === 'done') {
+    return `  ✅ ${file.label} (${formatStorageUploadDuration(file.duration ?? 0)})`;
+  }
+  if (file.status === 'active') {
+    return `  ⏳ ${file.label}`;
+  }
+  return `  ⬜ ${file.label}`;
 }
 
 function resolveStorageUploadProgressStepStatus(

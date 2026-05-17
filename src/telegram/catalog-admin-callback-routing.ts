@@ -12,6 +12,10 @@ export type CatalogAdminCallbackPrefixes = {
   autocorrect: string;
   autocorrectBggCandidate: string;
   translateDescription: string;
+  setOwnerSelf: string;
+  selectOwner: string;
+  ownerPage: string;
+  clearOwner: string;
   deactivate: string;
   addMedia: string;
   editMedia: string;
@@ -30,6 +34,10 @@ export type CatalogAdminCallbackRoute =
   | { kind: 'autocorrect-item'; itemId: number }
   | { kind: 'autocorrect-bgg-candidate'; itemId: number; boardGameGeekId: string }
   | { kind: 'translate-description'; itemId: number }
+  | { kind: 'set-owner-self'; itemId: number }
+  | { kind: 'select-owner'; itemId: number; ownerTelegramUserId: number }
+  | { kind: 'owner-page'; itemId: number; page: number }
+  | { kind: 'clear-owner'; itemId: number }
   | { kind: 'deactivate-item'; itemId: number }
   | { kind: 'add-media'; itemId: number }
   | { kind: 'edit-media'; mediaId: number }
@@ -73,6 +81,20 @@ export function parseCatalogAdminCallbackRoute(
   if (callbackData.startsWith(prefixes.translateDescription)) {
     return { kind: 'translate-description', itemId: parseItemId(callbackData, prefixes.translateDescription) };
   }
+  if (callbackData.startsWith(prefixes.setOwnerSelf)) {
+    return { kind: 'set-owner-self', itemId: parseItemId(callbackData, prefixes.setOwnerSelf) };
+  }
+  if (callbackData.startsWith(prefixes.selectOwner)) {
+    const selection = parseOwnerSelection(callbackData, prefixes.selectOwner);
+    return selection ? { kind: 'select-owner', ...selection } : null;
+  }
+  if (callbackData.startsWith(prefixes.ownerPage)) {
+    const selection = parseOwnerPage(callbackData, prefixes.ownerPage);
+    return selection ? { kind: 'owner-page', ...selection } : null;
+  }
+  if (callbackData.startsWith(prefixes.clearOwner)) {
+    return { kind: 'clear-owner', itemId: parseItemId(callbackData, prefixes.clearOwner) };
+  }
   if (callbackData.startsWith(prefixes.deactivate)) {
     return { kind: 'deactivate-item', itemId: parseItemId(callbackData, prefixes.deactivate) };
   }
@@ -86,6 +108,26 @@ export function parseCatalogAdminCallbackRoute(
     return { kind: 'delete-media', mediaId: parseItemId(callbackData, prefixes.deleteMedia) };
   }
   return null;
+}
+
+function parseOwnerSelection(callbackData: string, prefix: string): { itemId: number; ownerTelegramUserId: number } | null {
+  const [itemIdValue, userIdValue] = callbackData.slice(prefix.length).split(':');
+  const itemId = Number(itemIdValue);
+  const ownerTelegramUserId = Number(userIdValue);
+  if (!Number.isInteger(itemId) || itemId <= 0 || !Number.isInteger(ownerTelegramUserId) || ownerTelegramUserId <= 0) {
+    return null;
+  }
+  return { itemId, ownerTelegramUserId };
+}
+
+function parseOwnerPage(callbackData: string, prefix: string): { itemId: number; page: number } | null {
+  const [itemIdValue, pageValue] = callbackData.slice(prefix.length).split(':');
+  const itemId = Number(itemIdValue);
+  const page = Number(pageValue);
+  if (!Number.isInteger(itemId) || itemId <= 0 || !Number.isInteger(page) || page <= 0) {
+    return null;
+  }
+  return { itemId, page };
 }
 
 function parseAutocorrectBggCandidate(
