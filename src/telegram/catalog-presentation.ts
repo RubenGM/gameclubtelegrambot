@@ -188,3 +188,39 @@ export function formatMemberCatalogItemDetails({
     ...mediaLines,
   ].join('\n');
 }
+
+export function formatCatalogItemSummaryDetails({
+  breadcrumbLine,
+  item,
+  availabilityLine,
+  borrowerLine = null,
+  ownerLine = null,
+  detailsUrl,
+  language = 'ca',
+}: {
+  breadcrumbLine?: string | null;
+  item: CatalogItemRecord;
+  availabilityLine: string;
+  borrowerLine?: string | null;
+  ownerLine?: string | null;
+  detailsUrl: string;
+  language?: BotLanguage;
+}): string {
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
+  const lines = [
+    ...(breadcrumbLine ? [breadcrumbLine] : []),
+    `<b>${escapeHtml(item.displayName)}</b>`,
+    '',
+    ...(ownerLine ? [ownerLine] : []),
+    availabilityLine,
+    ...(borrowerLine ? [borrowerLine] : []),
+    ...(item.itemType !== 'book' && item.itemType !== 'rpg-book' && (item.playerCountMin !== null || item.playerCountMax !== null)
+      ? [formatHtmlField(texts.catalogAdmin.players, renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, language))]
+      : []),
+    ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.catalogAdmin.playTimeMinutes, String(item.playTimeMinutes))] : []),
+    '',
+    `<a href="${escapeHtml(detailsUrl)}">${escapeHtml(texts.catalogAdmin.viewDetails)}</a>`,
+  ];
+
+  return lines.join('\n');
+}

@@ -9,16 +9,20 @@ import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { createDatabaseStorageRepository } from '../storage/storage-catalog-store.js';
 import type { StorageCategoryRepository, StorageEntryMessageRecord } from '../storage/storage-catalog.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
-import { escapeHtml, formatHtmlField, formatMemberCatalogItemDetails } from './catalog-presentation.js';
+import { escapeHtml, formatCatalogItemSummaryDetails, formatHtmlField } from './catalog-presentation.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
-import type { TelegramInlineButton, TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramInlineButton, TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { formatMembershipDisplayName, resolveTelegramDisplayName } from '../membership/display-name.js';
 import { buildTelegramStartUrl } from './deep-links.js';
+import { formatTelegramUserLink } from './telegram-user-links.js';
 
 const loanEditFlowKey = 'catalog-loan-edit';
+const catalogAdminBrowseFlowKey = 'catalog-admin-browse';
 const catalogAdminEditCallbackPrefix = 'catalog_admin:edit:';
+const catalogAdminCreateActivityCallbackPrefix = 'catalog_admin:create_activity:';
 const catalogAdminDeactivateCallbackPrefix = 'catalog_admin:deactivate:';
+const catalogReadFullItemStartPayloadPrefix = 'catalog_read_item_full_';
 
 export const catalogLoanCallbackPrefixes = {
   openMyLoans: 'catalog_loan:my_loans',
@@ -450,37 +454,119 @@ async function replyWithItemDetail(
     throw new Error(`Catalog item ${itemId} not found`);
   }
 
-  const family = item.familyId !== null ? await catalog.findFamilyById(item.familyId) : null;
-  const group = item.groupId !== null ? await catalog.findGroupById(item.groupId) : null;
-  const media = await catalog.listMedia({ itemId });
   const loan = await loadActiveLoanByItemId(context, itemId);
   const inlineKeyboard = buildLoanDetailButtons({
     loan,
     itemId,
     language,
     ...(context.runtime.actor.isAdmin ? { deleteCallbackData: `${catalogAdminDeactivateCallbackPrefix}${itemId}` } : {}),
-    includeAdminDashboard: context.runtime.actor.isAdmin,
     canReturn: loan ? canReturnLoan(context, loan) : true,
   });
 
   if (context.runtime.actor.isAdmin) {
     inlineKeyboard.unshift([{ text: createTelegramI18n(language).catalogAdmin.edit, callbackData: `${catalogAdminEditCallbackPrefix}${itemId}` }]);
   }
+  if (item.itemType === 'board-game') {
+    inlineKeyboard.unshift([{ text: createTelegramI18n(language).catalogAdmin.createActivity, callbackData: `${catalogAdminCreateActivityCallbackPrefix}${itemId}` }]);
+  }
+
+  await context.runtime.session.start({
+    flowKey: catalogAdminBrowseFlowKey,
+    stepKey: 'detail',
+    data: { itemId },
+  });
 
   await context.reply(
-    formatMemberCatalogItemDetails({
+    formatCatalogItemSummaryDetails({
       item,
-      family,
-      group,
-      media: media.filter((entry) => entry.itemId === item.id).sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id),
-      availabilityLines: await formatLoanAvailabilityLines(context, loan),
+      availabilityLine: formatLoanAvailabilitySummaryLine(loan, language),
+      borrowerLine: await formatLoanBorrowerSummaryLine(context, loan, language),
+      ownerLine: await formatLoanOwnerSummaryLine(context, item, language),
+      detailsUrl: buildTelegramStartUrl(`${catalogReadFullItemStartPayloadPrefix}${item.id}`),
       language,
     }),
     {
-      inlineKeyboard,
+      replyKeyboard: buildCatalogLoanItemDetailReplyKeyboard({
+        context,
+        item,
+        loan,
+        actionRows: inlineKeyboard,
+        language,
+      }),
+      resizeKeyboard: true,
+      persistentKeyboard: true,
       parseMode: 'HTML',
     },
   );
+}
+
+function buildCatalogLoanItemDetailReplyKeyboard({
+  context,
+  item,
+  loan,
+  actionRows,
+  language,
+}: {
+  context: TelegramCatalogLoanContext;
+  item: CatalogItemRecord;
+  loan: CatalogLoanRecord | null;
+  actionRows: TelegramInlineButton[][];
+  language: 'ca' | 'es' | 'en';
+}): NonNullable<TelegramReplyOptions['replyKeyboard']> {
+  const texts = createTelegramI18n(language);
+  const rows: NonNullable<TelegramReplyOptions['replyKeyboard']> = [];
+  if (loan && loan.borrowerTelegramUserId === context.runtime.actor.telegramUserId && canReturnLoan(context, loan)) {
+    rows.push([successButton(texts.catalogLoan.retornar)]);
+  }
+  if (item.itemType === 'board-game') {
+    rows.push([successButton(texts.catalogAdmin.createActivity)]);
+  }
+  rows.push([texts.catalogLoan.veurePrestecs]);
+  rows.push([texts.catalogAdmin.browseBack, formatCatalogInitialsLabel(getCatalogItemInitial(item))]);
+
+  const prioritizedTexts = new Set(rows.flat().map((button) => typeof button === 'string' ? button : button.text));
+  rows.push(...actionRows
+    .map((row) => row.filter((button) => !prioritizedTexts.has(button.text)).map((button) => button.text))
+    .filter((row) => row.length > 0));
+  return rows;
+}
+
+function successButton(text: string): TelegramReplyButton {
+  return { text, semanticRole: 'success' };
+}
+
+function getCatalogItemInitial(item: CatalogItemRecord): string {
+  const first = item.displayName.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').at(0)?.toUpperCase() ?? '#';
+  return /^[A-Z]$/.test(first) ? first : '#';
+}
+
+function formatCatalogInitialsLabel(initials: string): string {
+  return initials.split('').join(' ');
+}
+
+function formatLoanAvailabilitySummaryLine(loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): string {
+  const texts = createTelegramI18n(language).catalogLoan;
+  return formatHtmlField(texts.availabilityAvailable, loan ? texts.availabilityLoaned : texts.available);
+}
+
+async function formatLoanBorrowerSummaryLine(context: TelegramCatalogLoanContext, loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): Promise<string | null> {
+  if (!loan) {
+    return null;
+  }
+  const texts = createTelegramI18n(language).catalogLoan;
+  return formatHtmlField(texts.availabilityHas, escapeHtml(await resolveLoanBorrowerDisplayName(context, loan)));
+}
+
+async function formatLoanOwnerSummaryLine(context: TelegramCatalogLoanContext, item: CatalogItemRecord, language: 'ca' | 'es' | 'en'): Promise<string | null> {
+  if (item.ownerTelegramUserId == null) {
+    return null;
+  }
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const owner = await loadMembershipUser(context, item.ownerTelegramUserId);
+  if (!owner) {
+    return formatHtmlField(texts.owner, escapeHtml(`#${item.ownerTelegramUserId}`));
+  }
+  return formatHtmlField(texts.owner, formatTelegramUserLink(owner));
 }
 
 function resolveLoanRepository(context: LoanRepositoryContext): CatalogLoanRepository {

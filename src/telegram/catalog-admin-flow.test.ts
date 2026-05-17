@@ -2199,11 +2199,13 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}4`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Grup:<\/b> Second Edition/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Grup:<\/b> Second Edition/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Té:<\/b> Anna/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Des de:<\/b> 04\/04\/2026/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Des de:<\/b> 04\/04\/2026/);
+  assert.match(replies.at(-1)?.message ?? '', /catalog_admin_item_full_4/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().some((button) => button === 'Retornar'));
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}5`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -2245,20 +2247,23 @@ test('handleTelegramCatalogAdminCallback shows item details without add media ac
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Media:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Descripcio:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Tipo:<\/b> Juego de mesa/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Tipo:<\/b> Juego de mesa/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Jugadores:<\/b> 2-4/);
   assert.match(replies.at(-1)?.message ?? '', /catalog_admin_letters_R/);
+  assert.match(replies.at(-1)?.message ?? '', /catalog_admin_item_full_3/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Grupo: Sin grupo/);
-  const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
-  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.edit}3`));
-  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.autocorrect}3`));
-  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.translateDescription}3`));
-  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.createActivity}3`));
-  assert.ok(buttons.some((button) => button.callbackData === catalogAdminCallbackPrefixes.browseMenu));
-  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.browseLetters}R`));
-  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}3`));
-  assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:create:3'));
-  assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:my_loans'));
-  assert.ok(!buttons.some((button) => button.text === 'Afegir media'));
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
+  const buttons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];
+  assert.ok(buttons.some((button) => buttonText(button) === 'Edit item'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Autocorregir datos'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Traducir descripción'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Crear partida'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Volver al catálogo'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'R'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Eliminar ítem'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Tomar prestado'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Ver préstamos'));
+  assert.ok(!buttons.some((button) => buttonText(button) === 'Afegir media'));
 });
 
 test('handleTelegramCatalogAdminCallback shows the storage cover before item details', async () => {
@@ -3262,10 +3267,10 @@ test('handleTelegramCatalogAdminCallback hides return action from unrelated non-
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
 
-  const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
+  const buttons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];
   assert.match(replies.at(-1)?.message ?? '', /<b>Té:<\/b> Marta/);
-  assert.ok(!buttons.some((button) => button.text === 'Retornar'));
-  assert.ok(buttons.some((button) => button.text === 'Veure préstecs'));
+  assert.ok(!buttons.some((button) => button === 'Retornar'));
+  assert.ok(buttons.some((button) => button === 'Veure préstecs'));
 });
 
 test('handleTelegramCatalogAdminCallback blocks non-admin edit and deactivate actions', async () => {
@@ -3825,11 +3830,11 @@ test('handleTelegramCatalogAdminStartText opens an item detail from deep link pa
   context.messageText = '/start catalog_admin_item_2';
   assert.equal(await handleTelegramCatalogAdminStartText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>El color de la magia<\/b>/);
-  const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
-  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.edit}2`));
-  assert.ok(buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}2`));
-  assert.ok(!buttons.some((button) => button.text === 'Editar préstec'));
-  assert.ok(!buttons.some((button) => button.text === 'Veure cataleg'));
+  const buttons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];
+  assert.ok(buttons.some((button) => button === 'Editar ítem'));
+  assert.ok(buttons.some((button) => button === 'Eliminar ítem'));
+  assert.ok(!buttons.some((button) => button === 'Editar préstec'));
+  assert.ok(!buttons.some((button) => button === 'Veure cataleg'));
 });
 
 test('handleTelegramCatalogAdminStartText opens an initial bucket from deep link payload', async () => {

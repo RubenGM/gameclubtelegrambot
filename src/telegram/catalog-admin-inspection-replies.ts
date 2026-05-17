@@ -3,15 +3,17 @@ import type { TelegramReplyOptions } from './runtime-boundary.js';
 export async function replyWithCatalogAdminItemInspection({
   reply,
   detailsMessage,
-  inlineKeyboard,
+  replyKeyboard,
 }: {
   reply: (message: string, options?: TelegramReplyOptions) => Promise<unknown>;
   detailsMessage: string;
-  inlineKeyboard: NonNullable<TelegramReplyOptions['inlineKeyboard']>;
+  replyKeyboard: NonNullable<TelegramReplyOptions['replyKeyboard']>;
 }): Promise<void> {
   await reply(detailsMessage, {
     parseMode: 'HTML',
-    inlineKeyboard,
+    replyKeyboard,
+    resizeKeyboard: true,
+    persistentKeyboard: true,
   });
 }
 

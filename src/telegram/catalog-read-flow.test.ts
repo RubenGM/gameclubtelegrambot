@@ -16,6 +16,10 @@ import {
   handleTelegramCatalogReadStartText,
 } from './catalog-read-flow.js';
 
+function successButton(text: string) {
+  return { text, semanticRole: 'success' as const };
+}
+
 function createRepository({
   families = [],
   groups = [],
@@ -484,7 +488,10 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
 
   assert.match(replies[0]?.message ?? '', /<b>Disponibilitat:<\/b> En préstec/);
   assert.match(replies[0]?.message ?? '', /<b>Té:<\/b> Marta/);
-  assert.match(replies[0]?.message ?? '', /<b>Retorn previst:<\/b> 10\/04\/2026/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /<b>Retorn previst:<\/b> 10\/04\/2026/);
+  assert.match(replies[0]?.message ?? '', /catalog_read_item_full_1/);
+  assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
+  assert.ok(replies[0]?.options?.replyKeyboard?.flat().some((button) => button === 'Veure préstecs'));
 });
 
 test('catalog read item details hide return button for unrelated normal users', async () => {
@@ -520,8 +527,55 @@ test('catalog read item details hide return button for unrelated normal users', 
   await handleTelegramCatalogReadCallback(context);
 
   assert.match(replies[0]?.message ?? '', /<b>Disponibilitat:<\/b> En préstec/);
-  assert.ok(!replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
-  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Veure préstecs'));
+  assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
+  assert.ok(!replies[0]?.options?.replyKeyboard?.flat().some((button) => button === 'Retornar'));
+  assert.ok(replies[0]?.options?.replyKeyboard?.flat().some((button) => button === 'Veure préstecs'));
+});
+
+test('catalog read item detail prioritizes return and create game keyboard actions for the borrower', async () => {
+  const repository = createRepository({
+    items: [buildItem(1, 'Game 1')],
+  });
+  const loanRepository = createLoanRepository([
+    {
+      id: 1,
+      itemId: 1,
+      borrowerTelegramUserId: 7,
+      borrowerDisplayName: 'Current User',
+      loanedByTelegramUserId: 7,
+      dueAt: null,
+      notes: null,
+      returnedAt: null,
+      returnedByTelegramUserId: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  const { context, replies } = createContext(repository, loanRepository);
+
+  context.callbackData = `${catalogReadCallbackPrefixes.inspectItem}1`;
+  await handleTelegramCatalogReadCallback(context);
+
+  assert.deepEqual(replies[0]?.options?.replyKeyboard?.slice(0, 3), [
+    [successButton('Retornar')],
+    [successButton('Crear partida')],
+    ['Veure préstecs'],
+  ]);
+});
+
+test('catalog read item detail keyboard actions work for admins', async () => {
+  const repository = createRepository({
+    items: [buildItem(1, 'Game 1')],
+  });
+  const { context, replies } = createContext(repository);
+  context.runtime.actor.isAdmin = true;
+
+  context.callbackData = `${catalogReadCallbackPrefixes.inspectItem}1`;
+  await handleTelegramCatalogReadCallback(context);
+
+  context.messageText = 'Veure préstecs';
+  assert.equal(await handleTelegramCatalogReadText(context), true);
+  assert.equal(replies.at(-1)?.message, 'No tens cap préstec actiu.');
 });
 
 test('handleTelegramCatalogReadStartText opens linked item details from /start', async () => {

@@ -61,6 +61,7 @@ import {
   canReturnLoan,
   catalogLoanCallbackPrefixes,
   formatLoanAvailabilityLines,
+  handleTelegramCatalogLoanCallback,
   resolveLoanBorrowerDisplayName,
   showAdminLoanDashboard,
   type TelegramCatalogLoanContext,
@@ -160,6 +161,7 @@ import { parseCatalogFamilyInput, parseCatalogGroupInput } from './catalog-admin
 import {
   escapeHtml,
   formatCatalogDescriptionLine,
+  formatCatalogItemSummaryDetails,
   formatHtmlField,
   renderCatalogItemType,
   renderCatalogOptionalObject,
@@ -178,7 +180,7 @@ import {
   createDatabaseAppMetadataSessionStorage,
   type AppMetadataSessionStorage,
 } from './conversation-session-store.js';
-import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 
 const createFlowKey = 'catalog-admin-create';
 const bulkCreateFlowKey = 'catalog-admin-bulk-create';
@@ -189,6 +191,7 @@ const mediaDeleteFlowKey = 'catalog-admin-media-delete';
 const browseFlowKey = 'catalog-admin-browse';
 const bggCollectionImportFlowKey = 'catalog-admin-bgg-collection-import';
 const catalogAdminStartPayloadPrefix = 'catalog_admin_item_';
+const catalogAdminFullItemStartPayloadPrefix = 'catalog_admin_item_full_';
 const bulkCreateRateLimitMs = 700;
 const bulkCreateItemLimit = 100;
 const catalogOwnerSelectorPageSize = 8;
@@ -489,13 +492,14 @@ export async function handleTelegramCatalogAdminStartText(context: TelegramCatal
     return true;
   }
 
-  const payload = parseCatalogAdminStartPayload(context.messageText);
+  const fullPayload = parseCatalogAdminStartPayloadValue(context.messageText, catalogAdminFullItemStartPayloadPrefix);
+  const payload = fullPayload ?? parseCatalogAdminStartPayload(context.messageText);
   if (payload === null || context.runtime.chat.kind !== 'private' || !canAccessCatalog(context)) {
     return false;
   }
 
   const item = await loadItemOrThrow(context, payload);
-  await replyWithCatalogAdminItemDetail(context, item, normalizeBotLanguage(context.runtime.bot.language, 'ca'));
+  await replyWithCatalogAdminItemDetail(context, item, normalizeBotLanguage(context.runtime.bot.language, 'ca'), { full: fullPayload !== null });
   return true;
 }
 
@@ -800,12 +804,18 @@ async function replyWithCatalogAdminItemDetail(
   context: TelegramCatalogAdminContext,
   item: CatalogItemRecord,
   language: 'ca' | 'es' | 'en',
+  { full = false }: { full?: boolean } = {},
 ): Promise<void> {
   await sendCatalogItemCoverIfPresent(context, { itemId: item.id });
+  await context.runtime.session.start({
+    flowKey: browseFlowKey,
+    stepKey: 'detail',
+    data: { itemId: item.id },
+  });
   await replyWithCatalogAdminItemInspection({
     reply: context.reply,
-    detailsMessage: await formatCatalogItemDetails(context, item),
-    inlineKeyboard: await buildCatalogItemDetailButtons(context, item, language),
+    detailsMessage: full ? await formatCatalogItemDetails(context, item) : await formatCatalogItemSummary(context, item),
+    replyKeyboard: await buildCatalogItemDetailReplyKeyboard(context, item, language),
   });
 }
 
@@ -2265,6 +2275,9 @@ function formatCatalogInitialsLabel(initials: string): string {
 async function handleBrowseSession(context: TelegramCatalogAdminContext, text: string, stepKey: string, data: Record<string, unknown>): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).catalogAdmin;
+  if (stepKey === 'detail') {
+    return handleCatalogAdminDetailKeyboardText(context, text, data, language);
+  }
   if (stepKey !== 'search-query') {
     return false;
   }
@@ -2307,6 +2320,51 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
     }),
   });
   return true;
+}
+
+async function handleCatalogAdminDetailKeyboardText(
+  context: TelegramCatalogAdminContext,
+  text: string,
+  data: Record<string, unknown>,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const itemId = asNullableNumber(data.itemId);
+  if (itemId === null) {
+    await context.runtime.session.cancel();
+    return false;
+  }
+  const item = await loadItemOrThrow(context, itemId);
+  const buttons = (await buildCatalogItemDetailButtons(context, item, language)).flat();
+  const action = buttons.find((button) => button.text === text);
+  if (!action?.callbackData) {
+    return false;
+  }
+  const previousCallbackData = context.callbackData;
+  context.callbackData = action.callbackData;
+  if (action.callbackData.startsWith(catalogLoanCallbackPrefixes.create)
+    || action.callbackData.startsWith(catalogLoanCallbackPrefixes.return)
+    || action.callbackData === catalogLoanCallbackPrefixes.openMyLoans) {
+    try {
+      await handleTelegramCatalogLoanCallback(context as TelegramCatalogLoanContext);
+      return true;
+    } finally {
+      if (previousCallbackData === undefined) {
+        delete context.callbackData;
+      } else {
+        context.callbackData = previousCallbackData;
+      }
+    }
+  }
+  try {
+    await handleTelegramCatalogAdminCallback(context);
+    return true;
+  } finally {
+    if (previousCallbackData === undefined) {
+      delete context.callbackData;
+    } else {
+      context.callbackData = previousCallbackData;
+    }
+  }
 }
 
 async function replyWithCatalogList(
@@ -2574,6 +2632,61 @@ async function buildCatalogItemDetailButtons(
   ];
 }
 
+async function buildCatalogItemDetailReplyKeyboard(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+  language: 'ca' | 'es' | 'en',
+): Promise<NonNullable<TelegramReplyOptions['replyKeyboard']>> {
+  const inlineRows = await buildCatalogItemDetailButtons(context, item, language);
+  const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
+  const texts = createTelegramI18n(language);
+  const rows: NonNullable<TelegramReplyOptions['replyKeyboard']> = [];
+  if (loan && loan.borrowerTelegramUserId === context.runtime.actor.telegramUserId && canReturnLoan(context, loan)) {
+    rows.push([successButton(texts.catalogLoan.retornar)]);
+  }
+  if (item.itemType === 'board-game') {
+    rows.push([successButton(texts.catalogAdmin.createActivity)]);
+  }
+  rows.push([texts.catalogLoan.veurePrestecs]);
+
+  const prioritizedTexts = new Set(rows.flat().map((button) => typeof button === 'string' ? button : button.text));
+  rows.push(...inlineRows
+    .map((row) => row.filter((button) => !prioritizedTexts.has(button.text)).map((button) => button.text))
+    .filter((row) => row.length > 0));
+  return rows;
+}
+
+function successButton(text: string): TelegramReplyButton {
+  return { text, semanticRole: 'success' };
+}
+
+async function formatCatalogItemSummary(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
+  return formatCatalogItemSummaryDetails({
+    breadcrumbLine: buildCatalogAdminItemBreadcrumb(item, language),
+    item,
+    availabilityLine: formatCatalogAdminAvailabilityLine(loan, language),
+    borrowerLine: await formatCatalogAdminBorrowerLine(context, loan, language),
+    ownerLine: await formatCatalogOwnerLine(context, item, { includeEmpty: false }),
+    detailsUrl: buildTelegramStartUrl(`${catalogAdminFullItemStartPayloadPrefix}${item.id}`),
+    language,
+  });
+}
+
+function formatCatalogAdminAvailabilityLine(loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): string {
+  const texts = createTelegramI18n(language).catalogLoan;
+  return formatHtmlField(texts.availabilityAvailable, loan ? texts.availabilityLoaned : texts.available);
+}
+
+async function formatCatalogAdminBorrowerLine(context: TelegramCatalogAdminContext, loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): Promise<string | null> {
+  if (!loan) {
+    return null;
+  }
+  const texts = createTelegramI18n(language).catalogLoan;
+  return formatHtmlField(texts.availabilityHas, escapeHtml(await resolveLoanBorrowerDisplayName(context, loan)));
+}
+
 async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string> {
   const familyName = await loadFamilyName(context, item.familyId);
   const groupName = await loadGroupName(context, item.groupId);
@@ -2592,11 +2705,15 @@ async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, it
   });
 }
 
-async function formatCatalogOwnerLine(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string | null> {
+async function formatCatalogOwnerLine(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+  { includeEmpty = true }: { includeEmpty?: boolean } = {},
+): Promise<string | null> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).catalogAdmin;
   if (item.ownerTelegramUserId == null) {
-    return formatHtmlField(texts.owner, escapeHtml(texts.noOwner));
+    return includeEmpty ? formatHtmlField(texts.owner, escapeHtml(texts.noOwner)) : null;
   }
   const owner = await resolveMembershipRepository(context).findUserByTelegramUserId(item.ownerTelegramUserId);
   if (!owner) {

@@ -41,7 +41,11 @@ printf 'prompt\n' | ./scripts/opencode-cawa.sh run --stdin --model openai/gpt-5.
 
 ## Local validation workflow
 
-When making a code change that must be validated in the running bot, always run:
+After every code change in this bot, run `./startup.sh` before handing the work
+back so the live Telegram bot is rebuilt/restarted and can be tested for real.
+Do this even if targeted tests passed, unless the user explicitly asks not to.
+
+Run:
 
 ```bash
 ./startup.sh
