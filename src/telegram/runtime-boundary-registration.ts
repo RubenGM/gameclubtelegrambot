@@ -688,6 +688,7 @@ function createDefaultCommands({
           return;
         }
 
+        await context.runtime.session.cancel();
         const startReply = await buildStartReply({
           context,
           publicName,
@@ -1533,6 +1534,10 @@ async function handleTelegramActionMenuText(
     return false;
   }
 
+  if (matchesActionMenuLabel(text, 'start')) {
+    return replyWithStartAndDefaultKeyboard(context);
+  }
+
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const selection = resolveTelegramMenuSelection({
     context: {
@@ -1583,17 +1588,7 @@ async function handleTelegramActionMenuText(
     }
 
     if (selection.actionId === 'start') {
-      if (await handlePrivateAutoMembershipRequest(context)) {
-        return true;
-      }
-
-      const startReply = await buildStartReply({
-        context,
-        publicName: context.runtime.bot.publicName,
-        version: APP_VERSION,
-      });
-      await context.reply(startReply.message, startReply.options);
-      return true;
+      return replyWithStartAndDefaultKeyboard(context);
     }
 
     if (selection.actionId === 'help') {
@@ -1707,20 +1702,6 @@ async function handleTelegramActionMenuText(
     return true;
   }
 
-    if (matchesActionMenuLabel(text, 'start')) {
-      if (await handlePrivateAutoMembershipRequest(context)) {
-        return true;
-      }
-
-    const startReply = await buildStartReply({
-      context,
-      publicName: context.runtime.bot.publicName,
-      version: APP_VERSION,
-    });
-    await context.reply(startReply.message, startReply.options);
-    return true;
-  }
-
   if (matchesActionMenuLabel(text, 'help')) {
     await context.reply(
       renderTelegramHelpMessage({
@@ -1739,6 +1720,21 @@ type TelegramActionMenuTextKey = keyof ReturnType<typeof createTelegramI18n>['ac
 
 function matchesActionMenuLabel(text: string, key: TelegramActionMenuTextKey): boolean {
   return supportedBotLanguages.some((language) => createTelegramI18n(language).actionMenu[key] === text);
+}
+
+async function replyWithStartAndDefaultKeyboard(context: TelegramCommandHandlerContext): Promise<boolean> {
+  if (await handlePrivateAutoMembershipRequest(context)) {
+    return true;
+  }
+
+  await context.runtime.session.cancel();
+  const startReply = await buildStartReply({
+    context,
+    publicName: context.runtime.bot.publicName,
+    version: APP_VERSION,
+  });
+  await context.reply(startReply.message, startReply.options);
+  return true;
 }
 
 async function clearTelegramTemporaryState(context: TelegramCommandHandlerContext): Promise<number> {

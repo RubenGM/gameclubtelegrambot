@@ -1231,6 +1231,127 @@ test('cancel restores the default action menu after an active flow', async () =>
   await telegram.stop();
 });
 
+test('start menu action clears active flow before showing the default keyboard', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  let textHandler: TelegramCommandHandler | undefined;
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createEmptyScheduleDatabaseStub() as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => {
+      let current: ConversationSessionRecord | null = {
+        key: 'telegram.session:100:42',
+        flowKey: 'schedule-create',
+        stepKey: 'title',
+        data: {},
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        expiresAt: '2026-04-04T11:00:00.000Z',
+      };
+
+      return {
+        loadSession: async () => current,
+        saveSession: async (session) => {
+          current = session;
+        },
+        deleteSession: async () => {
+          current = null;
+          return true;
+        },
+        deleteExpiredSessions: async () => 0,
+      };
+    },
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: (handler) => {
+          textHandler = handler;
+        },
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 42,
+            },
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push({ message, ...(options ? { options } : {}) });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              if (!textHandler) {
+                throw new Error('text handler not registered');
+              }
+
+              context.messageText = createTelegramI18n('ca').actionMenu.start;
+              await textHandler(context as unknown as TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.equal(replies.length, 1);
+  assert.match(replies[0]?.message ?? '', /Benvingut a Game Club Bot/);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [
+    ['Activitats', 'Taules'],
+    ['Catàleg', 'Emmagatzematge'],
+    ['Compres conjuntes', 'LFG'],
+    ['Idioma', 'Ajuda'],
+  ]);
+
+  await telegram.stop();
+});
+
 test('private free text auto-creates a pending access request with detailed guidance', async () => {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const membershipUsers = new Map<

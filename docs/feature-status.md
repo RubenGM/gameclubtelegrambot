@@ -83,6 +83,7 @@ Implementado:
 
 - `/language` y flujo de idioma en privado/grupo.
 - Menu principal dinamico por rol, estado, chat y sesion en `src/telegram/action-menu.ts`.
+- `Inicio` y `/start` normal limpian cualquier sesion activa antes de reconstruir la portada, evitando dejar al usuario atrapado con un teclado de `/cancel`.
 - Ayuda contextual en `src/telegram/command-registry.ts` y seccion activa gestionada desde `runtime-boundary-registration.ts`.
 - Soporte visible para `ca`, `es` y `en`.
 
