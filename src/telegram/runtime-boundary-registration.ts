@@ -202,6 +202,11 @@ function registerTextHandlers({
       return;
     }
 
+    if (context.isForwardedMessage && await handleTelegramStorageMessage(context)) {
+      setActiveHelpSection(context, 'storage');
+      return;
+    }
+
     if (await handleTelegramCatalogLoanText(context)) {
       return;
     }

@@ -63,6 +63,8 @@ export interface TelegramContextLike {
     last_name?: string;
   } | undefined;
   messageText?: string | undefined;
+  messageId?: number | undefined;
+  isForwardedMessage?: boolean | undefined;
   callbackData?: string | undefined;
   messageThreadId?: number | undefined;
   messageMedia?: {
@@ -375,6 +377,8 @@ function createGrammyTelegramBot({
         }
 
         context.messageText = context.msg?.text ?? context.message?.text;
+        context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
+        context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
 
         await handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth));
       };
@@ -419,6 +423,8 @@ function createGrammyTelegramBot({
         }
 
         context.messageText = context.msg?.text ?? context.message?.text;
+        context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
+        context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
         if (!context.messageText || (context.messageText.startsWith('/') && !isTelegramInternalTextCommand(context.messageText))) {
           return;
         }
@@ -433,6 +439,8 @@ function createGrammyTelegramBot({
         }
 
         context.messageText = context.msg?.text ?? context.message?.text;
+        context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
+        context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
         context.messageThreadId = resolveMessageThreadId(context.msg ?? context.message);
         context.messageMedia = extractTelegramMessageMedia(context.msg ?? context.message);
         context.sharedChat = extractTelegramSharedChat(context.msg ?? context.message);
@@ -687,6 +695,31 @@ function resolveMessageThreadId(message: unknown): number | undefined {
   const maybeMessage = message as Record<string, unknown>;
   const candidate = maybeMessage.message_thread_id ?? maybeMessage.messageThreadId;
   return typeof candidate === 'number' ? candidate : undefined;
+}
+
+function resolveTelegramMessageId(message: unknown): number | undefined {
+  if (!message || typeof message !== 'object') {
+    return undefined;
+  }
+  const candidate = (message as Record<string, unknown>).message_id ?? (message as Record<string, unknown>).messageId;
+  return typeof candidate === 'number' ? candidate : undefined;
+}
+
+function resolveTelegramForwardedMessage(message: unknown): boolean {
+  if (!message || typeof message !== 'object') {
+    return false;
+  }
+  const maybeMessage = message as Record<string, unknown>;
+  return (
+    maybeMessage.forward_origin !== undefined ||
+    maybeMessage.forwardOrigin !== undefined ||
+    maybeMessage.forward_from !== undefined ||
+    maybeMessage.forwardFrom !== undefined ||
+    maybeMessage.forward_sender_name !== undefined ||
+    maybeMessage.forwardSenderName !== undefined ||
+    maybeMessage.forward_from_chat !== undefined ||
+    maybeMessage.forwardFromChat !== undefined
+  );
 }
 
 function extractTelegramMessageMedia(message: unknown): TelegramContextLike['messageMedia'] {

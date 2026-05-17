@@ -2,7 +2,7 @@ export type StorageCategoryLifecycleStatus = 'active' | 'archived';
 export type StorageCategoryPurpose = 'user_uploads' | 'catalog_media';
 export type StorageEntrySourceKind = 'topic_direct' | 'dm_copy';
 export type StorageEntryLifecycleStatus = 'active' | 'hidden' | 'deleted' | 'missing_source';
-export type StorageAttachmentKind = 'document' | 'photo' | 'video' | 'audio';
+export type StorageAttachmentKind = 'document' | 'photo' | 'video' | 'audio' | 'text';
 
 export interface StorageCategoryRecord {
   id: number;
@@ -138,7 +138,7 @@ export interface StorageCategoryRepository {
   }): Promise<StorageEntryDetailRecord[]>;
 }
 
-const supportedAttachmentKinds = new Set<StorageAttachmentKind>(['document', 'photo', 'video', 'audio']);
+const supportedAttachmentKinds = new Set<StorageAttachmentKind>(['document', 'photo', 'video', 'audio', 'text']);
 
 export function parseStorageCaptionMetadata(caption: string | null | undefined): {
   description: string | null;

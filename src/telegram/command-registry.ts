@@ -63,6 +63,8 @@ export interface TelegramCommandHandlerContext {
     last_name?: string;
   };
   messageText?: string;
+  messageId?: number;
+  isForwardedMessage?: boolean;
   callbackData?: string;
   messageThreadId?: number;
   messageMedia?: {
