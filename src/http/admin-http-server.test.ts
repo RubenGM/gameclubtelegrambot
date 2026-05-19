@@ -298,7 +298,8 @@ test('admin http server exposes public feedback and protects admin pages', async
     const adminHtml = await adminPage.text();
     assert.match(adminHtml, /gameclubtelegrambot\.service/);
     assert.match(adminHtml, /Altas web pendientes/);
-    assert.match(adminHtml, /Servicio, backups y logs/);
+    assert.match(adminHtml, /Servicio y logs/);
+    assert.match(adminHtml, /href="\/admin\/backups"/);
     assert.match(adminHtml, /href="\/admin\/feedback"/);
     assert.match(adminHtml, /href="\/admin\/member-signups"/);
     assert.doesNotMatch(adminHtml, /Nou token de Telegram/);
@@ -310,8 +311,14 @@ test('admin http server exposes public feedback and protects admin pages', async
     const maintenanceHtml = await maintenancePage.text();
     assert.match(maintenanceHtml, /Runtime config/);
     assert.match(maintenanceHtml, /users/);
-    assert.match(maintenanceHtml, /Restaurar/);
-    assert.match(maintenanceHtml, /\/admin\/restore\?backupFilePath=/);
+    assert.doesNotMatch(maintenanceHtml, /Restaurar/);
+
+    const backupsPage = await fetch(`${baseUrl}/admin/backups`, { headers: { cookie } });
+    assert.equal(backupsPage.status, 200);
+    const backupsHtml = await backupsPage.text();
+    assert.match(backupsHtml, /Backups/);
+    assert.match(backupsHtml, /Crear backup complet/);
+    assert.match(backupsHtml, /\/admin\/restore\?backupFilePath=/);
 
     const webSettingsPage = await fetch(`${baseUrl}/admin/web`, { headers: { cookie } });
     assert.equal(webSettingsPage.status, 200);
@@ -464,6 +471,7 @@ test('admin http server exposes public feedback and protects admin pages', async
       body: new URLSearchParams({ csrfToken, backupFilePath: backupPath, confirm: 'RESTORE' }),
     });
     assert.equal(confirmedRestoreResponse.status, 303);
+    assert.equal(confirmedRestoreResponse.headers.get('location'), '/admin/backups');
     assert.deepEqual(restored, [backupPath]);
 
     const resourcesPage = await fetch(`${baseUrl}/admin/resources/users`, { headers: { cookie } });
@@ -570,6 +578,7 @@ test('admin http server exposes public feedback and protects admin pages', async
       body: new URLSearchParams({ csrfToken, backupFilePath: backupPath, confirm: 'DELETE' }),
     });
     assert.equal(confirmedDeleteBackupResponse.status, 303);
+    assert.equal(confirmedDeleteBackupResponse.headers.get('location'), '/admin/backups');
   } finally {
     await server.stop();
     await rm(tmp, { recursive: true, force: true });

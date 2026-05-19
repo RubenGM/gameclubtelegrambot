@@ -284,7 +284,7 @@ Implementado:
 - TUI `npm run backup:console`.
 - Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
 - Panel web admin protegido por contraseña de elevación, sesión firmada, token CSRF en acciones POST y límite de intentos de login por IP.
-- `/admin` abre en un dashboard de estado y métricas principales; la pantalla cruda de servicio/config/backups/logs queda separada en `/admin/service`, el feedback en `/admin/feedback` y las altas web en `/admin/member-signups`.
+- `/admin` abre en un dashboard de estado y métricas principales; la pantalla cruda de servicio/config/logs queda separada en `/admin/service`, backups en `/admin/backups`, feedback en `/admin/feedback` y altas web en `/admin/member-signups`.
 - Configuración de la web pública desde `/admin/web`, persistida en `app_metadata`, con marca CAWA Girona, temas allowlisted, enlaces destacados, contenido de `/club` y referencias a logo/hero/imagenes auxiliares.
 - Assets públicos de portada servidos desde `/assets/...`, guardados bajo `data/http-assets/` con nombre generado, validación de MIME/extensión y límite de 2 MiB.
 - Restaurar o eliminar backups desde el panel web exige pantalla intermedia y confirmación textual (`RESTORE`/`DELETE`) además de CSRF.

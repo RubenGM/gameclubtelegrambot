@@ -30,6 +30,7 @@ const adminNavItems: PageNavItem[] = [
   { href: '/admin/web', label: 'Web publica' },
   { href: '/admin/feedback', label: 'Feedback' },
   { href: '/admin/member-signups', label: 'Altas' },
+  { href: '/admin/backups', label: 'Backups' },
   { href: '/admin/service', label: 'Servicio y logs' },
   { href: '/admin/resources', label: 'Recursos' },
   { href: '/', label: 'Ver web' },

@@ -490,6 +490,12 @@ async function routeRequest(options: {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/admin/backups') {
+    const status = await options.operations.readBackupConsoleStatus();
+    sendHtml(response, 200, adminBackupsPage(status, adminSession.csrfToken));
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/admin/web') {
     const settings = await options.webSettingsStore.load();
     sendHtml(response, 200, webSettingsPage(settings, adminSession.csrfToken));
@@ -676,7 +682,7 @@ async function routeRequest(options: {
       return;
     }
     await options.operations.createFullBackup();
-    redirect(response, '/admin');
+    redirect(response, '/admin/backups');
     return;
   }
 
@@ -708,7 +714,7 @@ async function routeRequest(options: {
       return;
     }
     await options.operations.restoreFullBackup({ backupFilePath });
-    redirect(response, '/admin');
+    redirect(response, '/admin/backups');
     return;
   }
 
@@ -740,7 +746,7 @@ async function routeRequest(options: {
       return;
     }
     await deleteBackupArchive(backupFilePath);
-    redirect(response, '/admin');
+    redirect(response, '/admin/backups');
     return;
   }
 
@@ -2116,7 +2122,7 @@ function adminDashboardPage(
   return page({
     title: 'Admin',
     shell: 'admin',
-    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/feedback">Feedback</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/service">Servicio, backups y logs</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
+    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/feedback">Feedback</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/backups">Backups</a><a href="/admin/service">Servicio y logs</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
   });
 }
 
@@ -2162,10 +2168,19 @@ function adminMaintenancePage(status: Awaited<ReturnType<BackupOperations['readB
   const tableCounts = status.database.state === 'connected'
     ? `<ul>${status.database.knownTableCounts.map((item) => `<li>${escapeHtml(item.tableName)}: ${item.rowCount}</li>`).join('')}</ul>`
     : '';
+  return page({ title: 'Servicio y logs', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="restart">Reiniciar</button><a href="/admin/service/confirm?action=stop">Aturar</a></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
+}
+
+function adminBackupsPage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, csrfToken: string): string {
   const archives = status.backups.archives.length === 0
     ? '<p>No hi ha backups disponibles.</p>'
     : `<ul>${status.backups.archives.map((archive) => `<li>${escapeHtml(archive.fileName)} · ${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)} <a href="/admin/restore?backupFilePath=${encodeURIComponent(archive.filePath)}">Restaurar</a> <a href="/admin/delete-backup?backupFilePath=${encodeURIComponent(archive.filePath)}">Eliminar</a></li>`).join('')}</ul>`;
-  return page({ title: 'Servicio y logs', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="restart">Reiniciar</button><a href="/admin/service/confirm?action=stop">Aturar</a></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Backups</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup">${csrfInput(csrfToken)}<button type="submit">Crear backup complet</button></form>${archives}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
+
+  return page({
+    title: 'Backups',
+    shell: 'admin',
+    body: `<section><h2>Directorio</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup">${csrfInput(csrfToken)}<button type="submit">Crear backup complet</button></form></section><section><h2>Archivos</h2>${archives}</section>`,
+  });
 }
 
 type BackupArchive = Awaited<ReturnType<BackupOperations['listBackupArchives']>>[number];
