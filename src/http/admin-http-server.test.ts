@@ -89,6 +89,55 @@ test('admin http server exposes public feedback and protects admin pages', async
             ],
           };
         }
+        if (sql.includes('count(*)::int as count from storage_categories') && sql.includes("lifecycle_status = 'active'")) {
+          return { rows: [{ count: 2 }] };
+        }
+        if (sql.includes('count(*)::int as count from storage_categories') && sql.includes("lifecycle_status = 'archived'")) {
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('count(*)::int as count from storage_entries') && sql.includes("lifecycle_status = 'active'")) {
+          return { rows: [{ count: 7 }] };
+        }
+        if (sql.includes('count(*)::int as count from storage_entries') && sql.includes("lifecycle_status = 'deleted'")) {
+          return { rows: [{ count: 2 }] };
+        }
+        if (sql.includes('count(*)::int as count from storage_entry_messages')) {
+          return { rows: [{ count: 12 }] };
+        }
+        if (sql.includes('from storage_categories categories') && sql.includes('left join storage_categories parents')) {
+          return {
+            rows: [{
+              id: 3,
+              display_name: 'Reglamentos',
+              slug: 'reglamentos',
+              description: 'PDFs y ayudas',
+              parent_category_id: null,
+              parent_name: null,
+              storage_chat_id: -100,
+              storage_thread_id: 12,
+              category_purpose: 'user_uploads',
+              lifecycle_status: 'active',
+              entry_count: 4,
+              updated_at: '2026-05-19T18:00:00.000Z',
+            }],
+          };
+        }
+        if (sql.includes('from storage_entries entries') && sql.includes('inner join storage_categories categories')) {
+          return {
+            rows: [{
+              id: 55,
+              category_id: 3,
+              category_name: 'Reglamentos',
+              source_kind: 'document',
+              description: 'Manual de campaña',
+              tags: ['rol', 'pdf'],
+              lifecycle_status: 'active',
+              created_by_name: 'Ada',
+              message_count: 1,
+              updated_at: '2026-05-19T18:00:00.000Z',
+            }],
+          };
+        }
         if (sql.includes('from member_signup_requests') && sql.includes('full_name')) {
           return {
             rows: [{
@@ -424,6 +473,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminHtml, /href="\/admin\/config"/);
     assert.match(adminHtml, /href="\/admin\/activities"/);
     assert.match(adminHtml, /href="\/admin\/catalog"/);
+    assert.match(adminHtml, /href="\/admin\/storage"/);
     assert.match(adminHtml, /href="\/admin\/users"/);
     assert.doesNotMatch(adminHtml, /Nou token de Telegram/);
     assert.doesNotMatch(adminHtml, /Restaurar/);
@@ -522,6 +572,64 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminCatalogHtml, /Dune Imperium/);
     assert.match(adminCatalogHtml, /Juego de mesa/);
     assert.match(adminCatalogHtml, /\/admin\/resources\/catalog_items/);
+
+    const adminStoragePage = await fetch(`${baseUrl}/admin/storage?q=manual`, { headers: { cookie } });
+    assert.equal(adminStoragePage.status, 200);
+    const adminStorageHtml = await adminStoragePage.text();
+    assert.match(adminStorageHtml, /Storage admin/);
+    assert.match(adminStorageHtml, /Manual de campaña/);
+    assert.match(adminStorageHtml, /Reglamentos/);
+    assert.match(adminStorageHtml, /#rol/);
+    assert.match(adminStorageHtml, /\/admin\/storage\/entries\/55\/edit/);
+    assert.match(adminStorageHtml, /\/admin\/storage\/categories\/3\/edit/);
+
+    const storageEntryEditPage = await fetch(`${baseUrl}/admin/storage/entries/55/edit`, { headers: { cookie } });
+    assert.equal(storageEntryEditPage.status, 200);
+    const storageEntryEditHtml = await storageEntryEditPage.text();
+    assert.match(storageEntryEditHtml, /Editar Storage #55/);
+    assert.match(storageEntryEditHtml, /rol, pdf/);
+
+    const storageEntryUpdateResponse = await fetch(`${baseUrl}/admin/storage/entries/55/edit`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, categoryId: '3', lifecycleStatus: 'active', tags: 'rol, ayuda', description: 'Manual actualizado' }),
+    });
+    assert.equal(storageEntryUpdateResponse.status, 303);
+    assert.equal(storageEntryUpdateResponse.headers.get('location'), '/admin/storage');
+    assert.ok(queries.some((query) => query.sql.includes('update storage_entries') && query.params[0] === 3 && query.params[2] === '["ayuda","rol"]'));
+
+    const storageEntryDeletePage = await fetch(`${baseUrl}/admin/storage/entries/55/delete`, { headers: { cookie } });
+    assert.equal(storageEntryDeletePage.status, 200);
+    assert.match(await storageEntryDeletePage.text(), /No borra fisicamente/);
+
+    const storageEntryDeleteResponse = await fetch(`${baseUrl}/admin/storage/entries/55/delete`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, confirm: 'DELETE' }),
+    });
+    assert.equal(storageEntryDeleteResponse.status, 303);
+    assert.ok(queries.some((query) => query.sql.includes("set lifecycle_status = 'deleted'") && query.params[0] === 55));
+
+    const storageCategoryEditResponse = await fetch(`${baseUrl}/admin/storage/categories/3/edit`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({
+        csrfToken,
+        displayName: 'Reglamentos revisados',
+        slug: 'reglamentos',
+        parentCategoryId: '',
+        categoryPurpose: 'user_uploads',
+        lifecycleStatus: 'active',
+        storageChatId: '-100',
+        storageThreadId: '12',
+        description: 'PDFs',
+      }),
+    });
+    assert.equal(storageCategoryEditResponse.status, 303);
+    assert.ok(queries.some((query) => query.sql.includes('update storage_categories') && query.params[0] === 'Reglamentos revisados'));
 
     const uploadBoundary = '----gameclub-test-boundary';
     const uploadLogoResponse = await fetch(`${baseUrl}/admin/web/assets`, {

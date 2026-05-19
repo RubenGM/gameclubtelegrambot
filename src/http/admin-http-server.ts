@@ -211,6 +211,7 @@ const resourceDefs: ResourceDef[] = [
     { column: 'lifecycle_status', label: 'Lifecycle', type: 'string' },
   ], { column: 'lifecycle_status', value: 'archived', timestampColumn: 'archived_at' }),
   resource('storage_entries', 'Storage entradas', 'storage_entries', 'id', 'description', ['category_id', 'lifecycle_status'], ['id', 'category_id', 'source_kind', 'description', 'lifecycle_status'], [
+    { column: 'category_id', label: 'Category ID', type: 'number' },
     { column: 'description', label: 'Description', type: 'string', nullable: true },
     { column: 'tags', label: 'Tags', type: 'json' },
     { column: 'lifecycle_status', label: 'Lifecycle', type: 'string' },
@@ -601,6 +602,143 @@ async function routeRequest(options: {
   if (request.method === 'GET' && url.pathname === '/admin/catalog') {
     const catalogOverview = await fetchAdminCatalogOverview(options.services);
     sendHtml(response, 200, adminCatalogPage(catalogOverview));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/admin/storage') {
+    const search = url.searchParams.get('q') ?? '';
+    const storageOverview = await fetchAdminStorageOverview(options.services, search);
+    sendHtml(response, 200, adminStoragePage(storageOverview, adminSession.csrfToken, search));
+    return;
+  }
+
+  const storageEntryEditMatch = url.pathname.match(/^\/admin\/storage\/entries\/(\d+)\/edit$/);
+  if (request.method === 'GET' && storageEntryEditMatch?.[1]) {
+    const [entry, categories] = await Promise.all([
+      fetchStorageEntryAdminDetail(options.services, Number(storageEntryEditMatch[1])),
+      fetchStorageCategoryOptions(options.services),
+    ]);
+    if (!entry) {
+      sendHtml(response, 404, page({ title: 'Entrada no encontrada', body: '<p>No se ha encontrado la entrada de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
+      return;
+    }
+    sendHtml(response, 200, storageEntryEditPage(entry, categories, adminSession.csrfToken));
+    return;
+  }
+
+  if (request.method === 'POST' && storageEntryEditMatch?.[1]) {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
+    try {
+      await updateStorageEntryFromForm(options.services, Number(storageEntryEditMatch[1]), form);
+    } catch (error) {
+      const [entry, categories] = await Promise.all([
+        fetchStorageEntryAdminDetail(options.services, Number(storageEntryEditMatch[1])),
+        fetchStorageCategoryOptions(options.services),
+      ]);
+      if (!entry) {
+        sendHtml(response, 404, page({ title: 'Entrada no encontrada', body: '<p>No se ha encontrado la entrada de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
+        return;
+      }
+      sendHtml(response, 400, storageEntryEditPage(entry, categories, adminSession.csrfToken, error instanceof Error ? error.message : 'No se ha podido guardar la entrada.'));
+      return;
+    }
+    redirect(response, '/admin/storage');
+    return;
+  }
+
+  const storageEntryDeleteMatch = url.pathname.match(/^\/admin\/storage\/entries\/(\d+)\/delete$/);
+  if (request.method === 'GET' && storageEntryDeleteMatch?.[1]) {
+    const entry = await fetchStorageEntryAdminDetail(options.services, Number(storageEntryDeleteMatch[1]));
+    if (!entry) {
+      sendHtml(response, 404, page({ title: 'Entrada no encontrada', body: '<p>No se ha encontrado la entrada de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
+      return;
+    }
+    sendHtml(response, 200, storageEntryDeletePage(entry, adminSession.csrfToken));
+    return;
+  }
+
+  if (request.method === 'POST' && storageEntryDeleteMatch?.[1]) {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
+    if (form.get('confirm') !== 'DELETE') {
+      const entry = await fetchStorageEntryAdminDetail(options.services, Number(storageEntryDeleteMatch[1]));
+      sendHtml(response, 400, storageEntryDeletePage(entry, adminSession.csrfToken, 'Escribe DELETE para confirmar el borrado logico.'));
+      return;
+    }
+    await softDeleteStorageEntry(options.services, Number(storageEntryDeleteMatch[1]));
+    redirect(response, '/admin/storage');
+    return;
+  }
+
+  const storageCategoryEditMatch = url.pathname.match(/^\/admin\/storage\/categories\/(\d+)\/edit$/);
+  if (request.method === 'GET' && storageCategoryEditMatch?.[1]) {
+    const [category, categories] = await Promise.all([
+      fetchStorageCategoryAdminDetail(options.services, Number(storageCategoryEditMatch[1])),
+      fetchStorageCategoryOptions(options.services),
+    ]);
+    if (!category) {
+      sendHtml(response, 404, page({ title: 'Categoria no encontrada', body: '<p>No se ha encontrado la categoria de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
+      return;
+    }
+    sendHtml(response, 200, storageCategoryEditPage(category, categories, adminSession.csrfToken));
+    return;
+  }
+
+  if (request.method === 'POST' && storageCategoryEditMatch?.[1]) {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
+    try {
+      await updateStorageCategoryFromForm(options.services, Number(storageCategoryEditMatch[1]), form);
+    } catch (error) {
+      const [category, categories] = await Promise.all([
+        fetchStorageCategoryAdminDetail(options.services, Number(storageCategoryEditMatch[1])),
+        fetchStorageCategoryOptions(options.services),
+      ]);
+      if (!category) {
+        sendHtml(response, 404, page({ title: 'Categoria no encontrada', body: '<p>No se ha encontrado la categoria de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
+        return;
+      }
+      sendHtml(response, 400, storageCategoryEditPage(category, categories, adminSession.csrfToken, error instanceof Error ? error.message : 'No se ha podido guardar la categoria.'));
+      return;
+    }
+    redirect(response, '/admin/storage');
+    return;
+  }
+
+  const storageCategoryArchiveMatch = url.pathname.match(/^\/admin\/storage\/categories\/(\d+)\/archive$/);
+  if (request.method === 'GET' && storageCategoryArchiveMatch?.[1]) {
+    const category = await fetchStorageCategoryAdminDetail(options.services, Number(storageCategoryArchiveMatch[1]));
+    if (!category) {
+      sendHtml(response, 404, page({ title: 'Categoria no encontrada', body: '<p>No se ha encontrado la categoria de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
+      return;
+    }
+    sendHtml(response, 200, storageCategoryArchivePage(category, adminSession.csrfToken));
+    return;
+  }
+
+  if (request.method === 'POST' && storageCategoryArchiveMatch?.[1]) {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
+    if (form.get('confirm') !== 'ARCHIVE') {
+      const category = await fetchStorageCategoryAdminDetail(options.services, Number(storageCategoryArchiveMatch[1]));
+      sendHtml(response, 400, storageCategoryArchivePage(category, adminSession.csrfToken, 'Escribe ARCHIVE para confirmar el archivado.'));
+      return;
+    }
+    await archiveStorageCategory(options.services, Number(storageCategoryArchiveMatch[1]));
+    redirect(response, '/admin/storage');
     return;
   }
 
@@ -1464,6 +1602,32 @@ function parseOptionalPositiveInteger(value: string | null): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function normalizeRequiredText(value: string, label: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`Missing ${label}`);
+  }
+  return trimmed;
+}
+
+function normalizeNullableText(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeOneOf(value: string, allowed: string[]): string | null {
+  const normalized = value.trim().toLowerCase();
+  return allowed.includes(normalized) ? normalized : null;
+}
+
+function normalizeStorageTags(value: string): string[] {
+  const rawTags = value
+    .split(/[,\s]+/)
+    .map((tag) => tag.trim().replace(/^#+/, '').toLowerCase())
+    .filter((tag) => /^[a-z0-9][a-z0-9_-]{0,47}$/.test(tag));
+  return Array.from(new Set(rawTags)).sort();
+}
+
 interface PublicScheduleEventRow {
   id: number;
   title: string;
@@ -1591,6 +1755,46 @@ interface AdminCatalogOverview {
   };
   typeCounts: AdminCatalogTypeCount[];
   sampleItems: PublicCatalogItemRow[];
+}
+
+interface StorageCategoryAdminRow {
+  id: number;
+  display_name: string;
+  slug: string;
+  description: string | null;
+  parent_category_id: number | null;
+  parent_name: string | null;
+  storage_chat_id: number;
+  storage_thread_id: number;
+  category_purpose: string;
+  lifecycle_status: string;
+  entry_count: number;
+  updated_at: Date | string;
+}
+
+interface StorageEntryAdminRow {
+  id: number;
+  category_id: number;
+  category_name: string;
+  source_kind: string;
+  description: string | null;
+  tags: unknown;
+  lifecycle_status: string;
+  created_by_name: string | null;
+  message_count: number;
+  updated_at: Date | string;
+}
+
+interface AdminStorageOverview {
+  counts: {
+    activeCategories: number;
+    archivedCategories: number;
+    activeEntries: number;
+    deletedEntries: number;
+    messages: number;
+  };
+  categories: StorageCategoryAdminRow[];
+  entries: StorageEntryAdminRow[];
 }
 
 interface NewsAdminCategorySummary {
@@ -1796,6 +2000,303 @@ async function fetchAdminCatalogTypeCounts(services: InfrastructureRuntimeServic
   } catch {
     return [];
   }
+}
+
+async function fetchAdminStorageOverview(services: InfrastructureRuntimeServices, search: string): Promise<AdminStorageOverview> {
+  const normalizedSearch = search.trim();
+  const [
+    activeCategories,
+    archivedCategories,
+    activeEntries,
+    deletedEntries,
+    messages,
+    categories,
+    entries,
+  ] = await Promise.all([
+    safeCount(services, "select count(*)::int as count from storage_categories where lifecycle_status = 'active'"),
+    safeCount(services, "select count(*)::int as count from storage_categories where lifecycle_status = 'archived'"),
+    safeCount(services, "select count(*)::int as count from storage_entries where lifecycle_status = 'active'"),
+    safeCount(services, "select count(*)::int as count from storage_entries where lifecycle_status = 'deleted'"),
+    safeCount(services, 'select count(*)::int as count from storage_entry_messages'),
+    fetchStorageCategoryAdminRows(services),
+    fetchStorageEntryAdminRows(services, normalizedSearch),
+  ]);
+
+  return {
+    counts: { activeCategories, archivedCategories, activeEntries, deletedEntries, messages },
+    categories,
+    entries,
+  };
+}
+
+async function fetchStorageCategoryAdminRows(services: InfrastructureRuntimeServices): Promise<StorageCategoryAdminRow[]> {
+  try {
+    const result = await services.database.pool.query<StorageCategoryAdminRow>(
+      `
+        select
+          categories.id,
+          categories.display_name,
+          categories.slug,
+          categories.description,
+          categories.parent_category_id,
+          parents.display_name as parent_name,
+          categories.storage_chat_id,
+          categories.storage_thread_id,
+          categories.category_purpose,
+          categories.lifecycle_status,
+          coalesce(count(entries.id) filter (where entries.lifecycle_status = 'active'), 0)::int as entry_count,
+          categories.updated_at
+        from storage_categories categories
+        left join storage_categories parents on parents.id = categories.parent_category_id
+        left join storage_entries entries on entries.category_id = categories.id
+        group by categories.id, parents.display_name
+        order by
+          case when categories.lifecycle_status = 'active' then 0 else 1 end,
+          categories.display_name asc
+        limit 200
+      `,
+    );
+    return result.rows;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchStorageEntryAdminRows(services: InfrastructureRuntimeServices, search: string): Promise<StorageEntryAdminRow[]> {
+  const params: unknown[] = [];
+  const filters: string[] = [];
+  if (search) {
+    params.push(`%${search.toLowerCase()}%`);
+    filters.push(`(
+      lower(coalesce(entries.description, '')) like $${params.length}
+      or lower(categories.display_name) like $${params.length}
+      or lower(categories.slug) like $${params.length}
+      or exists (
+        select 1
+        from jsonb_array_elements_text(entries.tags) tag
+        where lower(tag) like $${params.length}
+      )
+    )`);
+  }
+  const where = filters.length > 0 ? `where ${filters.join(' and ')}` : '';
+  try {
+    const result = await services.database.pool.query<StorageEntryAdminRow>(
+      `
+        select
+          entries.id,
+          entries.category_id,
+          categories.display_name as category_name,
+          entries.source_kind,
+          entries.description,
+          entries.tags,
+          entries.lifecycle_status,
+          users.display_name as created_by_name,
+          coalesce(count(messages.id), 0)::int as message_count,
+          entries.updated_at
+        from storage_entries entries
+        inner join storage_categories categories on categories.id = entries.category_id
+        left join users on users.telegram_user_id = entries.created_by_telegram_user_id
+        left join storage_entry_messages messages on messages.entry_id = entries.id
+        ${where}
+        group by entries.id, categories.display_name, users.display_name
+        order by
+          case when entries.lifecycle_status = 'active' then 0 else 1 end,
+          entries.updated_at desc
+        limit 200
+      `,
+      params,
+    );
+    return result.rows;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchStorageCategoryOptions(services: InfrastructureRuntimeServices): Promise<StorageCategoryAdminRow[]> {
+  return fetchStorageCategoryAdminRows(services);
+}
+
+async function fetchStorageEntryAdminDetail(services: InfrastructureRuntimeServices, entryId: number): Promise<StorageEntryAdminRow | null> {
+  if (!Number.isInteger(entryId) || entryId <= 0) {
+    return null;
+  }
+  try {
+    const result = await services.database.pool.query<StorageEntryAdminRow>(
+      `
+        select
+          entries.id,
+          entries.category_id,
+          categories.display_name as category_name,
+          entries.source_kind,
+          entries.description,
+          entries.tags,
+          entries.lifecycle_status,
+          users.display_name as created_by_name,
+          coalesce(count(messages.id), 0)::int as message_count,
+          entries.updated_at
+        from storage_entries entries
+        inner join storage_categories categories on categories.id = entries.category_id
+        left join users on users.telegram_user_id = entries.created_by_telegram_user_id
+        left join storage_entry_messages messages on messages.entry_id = entries.id
+        where entries.id = $1
+        group by entries.id, categories.display_name, users.display_name
+      `,
+      [entryId],
+    );
+    return result.rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchStorageCategoryAdminDetail(services: InfrastructureRuntimeServices, categoryId: number): Promise<StorageCategoryAdminRow | null> {
+  if (!Number.isInteger(categoryId) || categoryId <= 0) {
+    return null;
+  }
+  try {
+    const result = await services.database.pool.query<StorageCategoryAdminRow>(
+      `
+        select
+          categories.id,
+          categories.display_name,
+          categories.slug,
+          categories.description,
+          categories.parent_category_id,
+          parents.display_name as parent_name,
+          categories.storage_chat_id,
+          categories.storage_thread_id,
+          categories.category_purpose,
+          categories.lifecycle_status,
+          coalesce(count(entries.id) filter (where entries.lifecycle_status = 'active'), 0)::int as entry_count,
+          categories.updated_at
+        from storage_categories categories
+        left join storage_categories parents on parents.id = categories.parent_category_id
+        left join storage_entries entries on entries.category_id = categories.id
+        where categories.id = $1
+        group by categories.id, parents.display_name
+      `,
+      [categoryId],
+    );
+    return result.rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function updateStorageEntryFromForm(
+  services: InfrastructureRuntimeServices,
+  entryId: number,
+  form: URLSearchParams,
+): Promise<void> {
+  if (!Number.isInteger(entryId) || entryId <= 0) {
+    throw new Error('Invalid storage entry id');
+  }
+  const categoryId = parsePositiveInteger(form.get('categoryId'), 0);
+  if (categoryId <= 0) {
+    throw new Error('Invalid storage category id');
+  }
+  const status = normalizeOneOf(form.get('lifecycleStatus') ?? '', ['active', 'deleted', 'missing_source']);
+  if (!status) {
+    throw new Error('Invalid storage entry lifecycle status');
+  }
+  const description = normalizeNullableText(form.get('description') ?? '');
+  const tags = normalizeStorageTags(form.get('tags') ?? '');
+  await services.database.pool.query(
+    `
+      update storage_entries
+      set category_id = $1,
+          description = $2,
+          tags = $3::jsonb,
+          lifecycle_status = $4,
+          deleted_at = case when $4 = 'deleted' then coalesce(deleted_at, now()) else null end,
+          updated_at = now()
+      where id = $5
+    `,
+    [categoryId, description, JSON.stringify(tags), status, entryId],
+  );
+}
+
+async function updateStorageCategoryFromForm(
+  services: InfrastructureRuntimeServices,
+  categoryId: number,
+  form: URLSearchParams,
+): Promise<void> {
+  if (!Number.isInteger(categoryId) || categoryId <= 0) {
+    throw new Error('Invalid storage category id');
+  }
+  const parentCategoryId = parseOptionalPositiveInteger(form.get('parentCategoryId'));
+  if (parentCategoryId === categoryId) {
+    throw new Error('A storage category cannot be its own parent');
+  }
+  const storageChatId = Number(form.get('storageChatId') ?? 0);
+  const storageThreadId = Number(form.get('storageThreadId') ?? 0);
+  if (!Number.isInteger(storageChatId) || storageChatId === 0 || !Number.isInteger(storageThreadId) || storageThreadId <= 0) {
+    throw new Error('Invalid storage Telegram destination');
+  }
+  const status = normalizeOneOf(form.get('lifecycleStatus') ?? '', ['active', 'archived']);
+  if (!status) {
+    throw new Error('Invalid storage category lifecycle status');
+  }
+  await services.database.pool.query(
+    `
+      update storage_categories
+      set display_name = $1,
+          slug = $2,
+          description = $3,
+          parent_category_id = $4,
+          storage_chat_id = $5,
+          storage_thread_id = $6,
+          category_purpose = $7,
+          lifecycle_status = $8,
+          archived_at = case when $8 = 'archived' then coalesce(archived_at, now()) else null end,
+          updated_at = now()
+      where id = $9
+    `,
+    [
+      normalizeRequiredText(form.get('displayName') ?? '', 'display name'),
+      normalizeRequiredText(form.get('slug') ?? '', 'slug'),
+      normalizeNullableText(form.get('description') ?? ''),
+      parentCategoryId,
+      storageChatId,
+      storageThreadId,
+      normalizeRequiredText(form.get('categoryPurpose') ?? '', 'category purpose'),
+      status,
+      categoryId,
+    ],
+  );
+}
+
+async function softDeleteStorageEntry(services: InfrastructureRuntimeServices, entryId: number): Promise<void> {
+  if (!Number.isInteger(entryId) || entryId <= 0) {
+    throw new Error('Invalid storage entry id');
+  }
+  await services.database.pool.query(
+    `
+      update storage_entries
+      set lifecycle_status = 'deleted',
+          deleted_at = coalesce(deleted_at, now()),
+          deleted_by_telegram_user_id = case when $2::bigint > 0 then $2::bigint else deleted_by_telegram_user_id end,
+          updated_at = now()
+      where id = $1
+    `,
+    [entryId, adminOperatorId],
+  );
+}
+
+async function archiveStorageCategory(services: InfrastructureRuntimeServices, categoryId: number): Promise<void> {
+  if (!Number.isInteger(categoryId) || categoryId <= 0) {
+    throw new Error('Invalid storage category id');
+  }
+  await services.database.pool.query(
+    `
+      update storage_categories
+      set lifecycle_status = 'archived',
+          archived_at = coalesce(archived_at, now()),
+          updated_at = now()
+      where id = $1
+    `,
+    [categoryId],
+  );
 }
 
 async function fetchPublicScheduleEvents(
@@ -3086,6 +3587,7 @@ function adminDashboardPage(
     ['Contenido publico', 'Web publica', 'Portada, logos, imagenes, enlaces destacados y textos del club.', '/admin/web'],
     ['Operacion diaria', 'Actividades', 'Resumen de agenda y acceso a eventos programados.', '/admin/activities'],
     ['Operacion diaria', 'Catalogo', 'Juegos, libros, prestamos activos y recursos de catalogo.', '/admin/catalog'],
+    ['Operacion diaria', 'Storage', 'Editar, mover, retaggear y eliminar logicamente archivos existentes.', '/admin/storage'],
     ['Comunidad', 'Socios y usuarios', 'Altas Telegram, aprobaciones, admins y estado de miembros.', '/admin/users'],
     ['Comunidad', 'Feedback', 'Mensajes enviados desde el formulario publico.', '/admin/feedback'],
     ['Comunidad', 'Altas de socio', 'Solicitudes web pendientes y seguimiento de contacto.', '/admin/member-signups'],
@@ -3155,59 +3657,192 @@ function newsAdminPage(summary: NewsAdminSummary): string {
 
 function adminUsersPage(overview: AdminUsersOverview): string {
   const metrics = [
-    ['Total', overview.counts.total],
-    ['Aprobados', overview.counts.approved],
-    ['Pendientes', overview.counts.pending],
-    ['Admins', overview.counts.admins],
-    ['Bloqueados', overview.counts.blocked],
-    ['Revocados', overview.counts.revoked],
-  ].map(([label, value]) => `<section><h2>${escapeHtml(label)}</h2><p>${value}</p></section>`).join('');
+    ['Total', overview.counts.total, 'Usuarios conocidos por el bot'],
+    ['Aprobados', overview.counts.approved, 'Acceso normal al club'],
+    ['Pendientes', overview.counts.pending, 'Requieren revision'],
+    ['Admins', overview.counts.admins, 'Usuarios con permisos admin'],
+    ['Bloqueados', overview.counts.blocked, 'Acceso detenido'],
+    ['Revocados', overview.counts.revoked, 'Acceso retirado'],
+  ].map(([label, value, detail]) => renderAdminMetric(String(label), String(value), String(detail))).join('');
+  const actions = renderAdminActionGrid([
+    ['Altas web', 'Revisar solicitudes publicas de socio y cambiar su estado.', '/admin/member-signups'],
+    ['Editar usuarios', 'Aprobar, bloquear, revocar o ajustar permisos admin.', '/admin/resources/users'],
+    ['Feedback', 'Leer mensajes enviados desde la web publica.', '/admin/feedback'],
+    ['Noticias', 'Revisar feeds y suscripciones de avisos.', '/admin/news'],
+  ]);
   const rows = overview.recentUsers.length === 0
     ? '<p>No hay usuarios registrados.</p>'
-    : `<table><thead><tr><th>Usuario</th><th>Telegram</th><th>Estado</th><th>Rol</th><th>Actualizado</th></tr></thead><tbody>${overview.recentUsers.map((user) => `<tr><td>${escapeHtml(user.display_name)}</td><td>${user.username ? `@${escapeHtml(user.username)}` : escapeHtml(user.telegram_user_id)}</td><td>${escapeHtml(user.status)}</td><td>${user.is_admin ? 'admin' : 'socio'}</td><td>${escapeHtml(formatDateTime(user.updated_at))}</td></tr>`).join('')}</tbody></table>`;
+    : `<table><thead><tr><th>Usuario</th><th>Telegram</th><th>Estado</th><th>Rol</th><th>Aprobado</th><th>Actualizado</th><th>Acciones</th></tr></thead><tbody>${overview.recentUsers.map((user) => `<tr><td><strong>${escapeHtml(user.display_name)}</strong></td><td>${user.username ? `@${escapeHtml(user.username)}` : escapeHtml(user.telegram_user_id)}</td><td>${renderStatusBadge(user.status)}</td><td>${user.is_admin ? renderStatusBadge('admin') : 'socio'}</td><td>${user.is_approved ? renderStatusBadge('si') : renderStatusBadge('no')}</td><td>${escapeHtml(formatDateTime(user.updated_at))}</td><td><a href="/admin/resources/users/${encodeURIComponent(String(user.telegram_user_id))}/edit">Editar</a></td></tr>`).join('')}</tbody></table>`;
 
   return page({
     title: 'Socios y usuarios',
     shell: 'admin',
-    body: `<div class="asset-grid">${metrics}</div><section><h2>Gestion</h2><p class="row"><a href="/admin/member-signups">Altas web</a><a href="/admin/resources/users">Editar usuarios</a></p></section><section><h2>Usuarios recientes</h2>${rows}</section>`,
+    body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section class="admin-table-shell"><h2>Usuarios recientes</h2>${rows}</section>`,
   });
 }
 
 function adminActivitiesPage(overview: AdminActivitiesOverview): string {
   const metrics = [
-    ['Futuras', overview.counts.future],
-    ['Programadas', overview.counts.scheduledTotal],
-    ['Canceladas', overview.counts.cancelledTotal],
-  ].map(([label, value]) => `<section><h2>${escapeHtml(label)}</h2><p>${value}</p></section>`).join('');
+    ['Futuras', overview.counts.future, 'Visibles en agenda publica'],
+    ['Programadas', overview.counts.scheduledTotal, 'Eventos no cancelados'],
+    ['Canceladas', overview.counts.cancelledTotal, 'Historial operativo'],
+  ].map(([label, value, detail]) => renderAdminMetric(String(label), String(value), String(detail))).join('');
+  const actions = renderAdminActionGrid([
+    ['Editar actividades', 'Cambiar fecha, juego, mesa, plazas, asistencia o cancelar.', '/admin/resources/schedule_events'],
+    ['Gestionar mesas', 'Actualizar mesas del club y capacidad operativa.', '/admin/resources/club_tables'],
+    ['Eventos de sala', 'Gestionar reservas, cierres o impactos sobre la sala.', '/admin/resources/venue_events'],
+    ['Vista publica', 'Comprobar como queda la agenda para visitantes.', '/actividades'],
+  ]);
   const rows = overview.upcomingEvents.length === 0
     ? '<p>No hay actividades futuras programadas.</p>'
-    : `<table><thead><tr><th>Actividad</th><th>Fecha</th><th>Duracion</th><th>Plazas</th><th>Modo</th></tr></thead><tbody>${overview.upcomingEvents.map((event) => `<tr><td>${escapeHtml(event.title)}</td><td>${escapeHtml(formatDateTime(event.starts_at))}</td><td>${event.duration_minutes} min</td><td>${event.capacity > 0 ? `${event.initial_occupied_seats}/${event.capacity}` : '-'}</td><td>${escapeHtml(event.attendance_mode)}</td></tr>`).join('')}</tbody></table>`;
+    : `<table><thead><tr><th>Actividad</th><th>Fecha</th><th>Juego</th><th>Mesa</th><th>Asistencia</th><th>Acciones</th></tr></thead><tbody>${overview.upcomingEvents.map((event) => `<tr><td><strong>${escapeHtml(event.title)}</strong><br><small>${escapeHtml(event.description ?? '')}</small></td><td>${escapeHtml(formatDateTime(event.starts_at))}<br><small>${hasPublicActivityDuration(event.duration_minutes) ? escapeHtml(formatHumanDuration(event.duration_minutes)) : 'Sin duracion publica'}</small></td><td>${event.catalog_item_id ? `<a href="/catalogo/${event.catalog_item_id}">${escapeHtml(event.catalog_item_name ?? 'Juego enlazado')}</a>` : '-'}</td><td>${escapeHtml(event.table_name ?? '-')}</td><td>${event.attendance_mode === 'closed' ? renderStatusBadge('cerrada') : `${event.confirmed_attendees}/${event.capacity || '-'} confirmados`}</td><td><a href="/admin/resources/schedule_events/${encodeURIComponent(String(event.id))}/edit">Editar</a></td></tr>`).join('')}</tbody></table>`;
 
   return page({
     title: 'Actividades admin',
     shell: 'admin',
-    body: `<div class="asset-grid">${metrics}</div><section><h2>Gestion</h2><p class="row"><a href="/admin/resources/schedule_events">Editar actividades</a><a href="/actividades">Ver pagina publica</a></p></section><section><h2>Proximas actividades</h2>${rows}</section>`,
+    body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section class="admin-table-shell"><h2>Proximas actividades</h2>${rows}</section>`,
   });
 }
 
 function adminCatalogPage(overview: AdminCatalogOverview): string {
   const metrics = [
-    ['Activos', overview.counts.active],
-    ['Inactivos', overview.counts.inactive],
-    ['Prestados', overview.counts.loaned],
-  ].map(([label, value]) => `<section><h2>${escapeHtml(label)}</h2><p>${value}</p></section>`).join('');
+    ['Activos', overview.counts.active, 'Publicados en catalogo'],
+    ['Inactivos', overview.counts.inactive, 'Ocultos o retirados'],
+    ['Prestados', overview.counts.loaned, 'Prestamos sin devolver'],
+  ].map(([label, value, detail]) => renderAdminMetric(String(label), String(value), String(detail))).join('');
+  const actions = renderAdminActionGrid([
+    ['Editar catalogo', 'Modificar juegos, libros, datos BGG/media y estado.', '/admin/resources/catalog_items'],
+    ['Familias y grupos', 'Mantener taxonomia interna del catalogo.', '/admin/resources/catalog_groups'],
+    ['Prestamos', 'Revisar prestamos activos y fechas de retorno.', '/admin/resources/catalog_loans'],
+    ['Vista publica', 'Comprobar busqueda, fichas y enlaces externos.', '/catalogo'],
+  ]);
   const typeRows = overview.typeCounts.length === 0
     ? '<p>No hay articulos activos agrupados por tipo.</p>'
     : `<table><thead><tr><th>Tipo</th><th>Articulos activos</th></tr></thead><tbody>${overview.typeCounts.map((item) => `<tr><td>${escapeHtml(renderCatalogType(item.item_type))}</td><td>${Number(item.count)}</td></tr>`).join('')}</tbody></table>`;
   const sampleRows = overview.sampleItems.length === 0
     ? '<p>No hay articulos activos.</p>'
-    : `<table><thead><tr><th>Articulo</th><th>Tipo</th><th>Familia</th><th>Datos</th></tr></thead><tbody>${overview.sampleItems.map((item) => `<tr><td>${escapeHtml(item.display_name)}</td><td>${escapeHtml(renderCatalogType(item.item_type))}</td><td>${escapeHtml(item.family_name ?? item.group_name ?? '-')}</td><td>${renderCatalogItemFacts(item) || '-'}</td></tr>`).join('')}</tbody></table>`;
+    : `<table><thead><tr><th>Articulo</th><th>Tipo</th><th>Familia</th><th>Prestamo</th><th>Datos</th><th>Acciones</th></tr></thead><tbody>${overview.sampleItems.map((item) => `<tr><td><strong>${escapeHtml(item.display_name)}</strong>${item.original_name ? `<br><small>${escapeHtml(item.original_name)}</small>` : ''}</td><td>${escapeHtml(renderCatalogType(item.item_type))}</td><td>${escapeHtml(item.family_name ?? item.group_name ?? '-')}</td><td>${item.active_loan_borrower ? renderStatusBadge(`Prestado a ${item.active_loan_borrower}`) : renderStatusBadge('Disponible')}</td><td>${renderCatalogItemFacts(item) || '-'}</td><td><a href="/admin/resources/catalog_items/${encodeURIComponent(String(item.id))}/edit">Editar</a> <a href="/catalogo/${encodeURIComponent(String(item.id))}">Ver</a></td></tr>`).join('')}</tbody></table>`;
 
   return page({
     title: 'Catalogo admin',
     shell: 'admin',
-    body: `<div class="asset-grid">${metrics}</div><section><h2>Gestion</h2><p class="row"><a href="/admin/resources/catalog_items">Editar catalogo</a><a href="/catalogo">Ver catalogo publico</a></p></section><section><h2>Tipos</h2>${typeRows}</section><section><h2>Muestra de articulos activos</h2>${sampleRows}</section>`,
+    body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section class="admin-table-shell"><h2>Tipos</h2>${typeRows}</section><section class="admin-table-shell"><h2>Muestra de articulos activos</h2>${sampleRows}</section>`,
   });
+}
+
+function adminStoragePage(overview: AdminStorageOverview, csrfToken: string, search: string): string {
+  const metrics = [
+    ['Categorias activas', overview.counts.activeCategories, 'Destinos visibles para archivos'],
+    ['Categorias archivadas', overview.counts.archivedCategories, 'Ocultas de la operacion normal'],
+    ['Entradas activas', overview.counts.activeEntries, 'Archivos disponibles'],
+    ['Entradas eliminadas', overview.counts.deletedEntries, 'Borrado logico'],
+    ['Mensajes canonicos', overview.counts.messages, 'Adjuntos guardados en Telegram'],
+  ].map(([label, value, detail]) => renderAdminMetric(String(label), String(value), String(detail))).join('');
+  const actions = renderAdminActionGrid([
+    ['Entradas avanzadas', 'Vista tabular tecnica de entradas de Storage.', '/admin/resources/storage_entries'],
+    ['Categorias avanzadas', 'Vista tabular tecnica de categorias.', '/admin/resources/storage_categories'],
+    ['Sin creacion web', 'La creacion de archivos se mantiene exclusivamente en /storage desde Telegram.', '/admin/storage'],
+  ]);
+  const searchForm = `<form class="admin-search-bar" method="get"><label>Buscar entradas<input name="q" value="${escapeHtml(search)}" placeholder="Descripcion, categoria o tag"></label><button type="submit">Filtrar</button></form>`;
+  const categoryRows = overview.categories.length === 0
+    ? '<p>No hay categorias de Storage.</p>'
+    : `<table><thead><tr><th>Categoria</th><th>Padre</th><th>Proposito</th><th>Estado</th><th>Archivos</th><th>Topic</th><th>Acciones</th></tr></thead><tbody>${overview.categories.map((category) => `<tr><td><strong>${escapeHtml(category.display_name)}</strong><br><small>${escapeHtml(category.slug)}</small></td><td>${escapeHtml(category.parent_name ?? 'Raiz')}</td><td>${escapeHtml(category.category_purpose)}</td><td>${renderStatusBadge(category.lifecycle_status)}</td><td>${category.entry_count}</td><td>${escapeHtml(category.storage_chat_id)} / ${escapeHtml(category.storage_thread_id)}</td><td><a href="/admin/storage/categories/${encodeURIComponent(String(category.id))}/edit">Editar</a> <a href="/admin/storage/categories/${encodeURIComponent(String(category.id))}/archive">Archivar</a></td></tr>`).join('')}</tbody></table>`;
+  const entryRows = overview.entries.length === 0
+    ? '<p>No hay entradas de Storage para este filtro.</p>'
+    : `<table><thead><tr><th>Entrada</th><th>Categoria</th><th>Tags</th><th>Estado</th><th>Adjuntos</th><th>Actualizada</th><th>Acciones</th></tr></thead><tbody>${overview.entries.map((entry) => `<tr><td><strong>#${entry.id}</strong><br><small>${escapeHtml(truncateText(entry.description ?? 'Sin descripcion', 90))}</small></td><td>${escapeHtml(entry.category_name)}</td><td>${renderTagChips(asTagArray(entry.tags))}</td><td>${renderStatusBadge(entry.lifecycle_status)}</td><td>${entry.message_count} ${escapeHtml(entry.source_kind)}</td><td>${escapeHtml(formatDateTime(entry.updated_at))}</td><td><a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/edit">Editar</a> <a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/delete">Eliminar</a></td></tr>`).join('')}</tbody></table>`;
+
+  return page({
+    title: 'Storage admin',
+    shell: 'admin',
+    body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section><h2>Entradas</h2>${searchForm}</section><section class="admin-table-shell">${entryRows}</section><section class="admin-table-shell"><h2>Categorias</h2>${categoryRows}</section><p class="muted">La web permite editar, mover, retaggear, archivar y eliminar logicamente. La creacion de entradas sigue limitada a Telegram.</p><form hidden>${csrfInput(csrfToken)}</form>`,
+  });
+}
+
+function storageEntryEditPage(entry: StorageEntryAdminRow, categories: StorageCategoryAdminRow[], csrfToken: string, error = ''): string {
+  const categoryOptions = categories
+    .map((category) => `<option value="${category.id}"${category.id === entry.category_id ? ' selected' : ''}>${escapeHtml(category.display_name)} (${escapeHtml(category.slug)})</option>`)
+    .join('');
+  const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
+  return page({
+    title: `Editar Storage #${entry.id}`,
+    shell: 'admin',
+    body: `${errorHtml}<form method="post">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Categoria<select name="categoryId" required>${categoryOptions}</select></label><label>Estado<select name="lifecycleStatus"><option value="active"${entry.lifecycle_status === 'active' ? ' selected' : ''}>active</option><option value="deleted"${entry.lifecycle_status === 'deleted' ? ' selected' : ''}>deleted</option><option value="missing_source"${entry.lifecycle_status === 'missing_source' ? ' selected' : ''}>missing_source</option></select></label><label>Tags<input name="tags" value="${escapeHtml(asTagArray(entry.tags).join(', '))}" placeholder="rol, pdf, campaña"></label></div><label>Descripcion<textarea name="description">${escapeHtml(entry.description ?? '')}</textarea></label><button type="submit">Guardar entrada</button> <a href="/admin/storage">Cancelar</a></form>`,
+  });
+}
+
+function storageEntryDeletePage(entry: StorageEntryAdminRow | null, csrfToken: string, error = ''): string {
+  const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
+  const title = entry ? `#${entry.id} · ${entry.description ?? 'Sin descripcion'}` : 'Entrada no encontrada';
+  return page({
+    title: 'Eliminar entrada de Storage',
+    shell: 'admin',
+    body: `${errorHtml}<section class="admin-danger-panel"><h2>${escapeHtml(title)}</h2><p>Esta accion marca la entrada como eliminada en PostgreSQL. No borra fisicamente los mensajes ni archivos ya guardados en Telegram.</p><form method="post">${csrfInput(csrfToken)}<label>Confirmacion<input name="confirm" autocomplete="off" placeholder="DELETE" required></label><button type="submit">Eliminar entrada</button> <a href="/admin/storage">Cancelar</a></form></section>`,
+  });
+}
+
+function storageCategoryEditPage(category: StorageCategoryAdminRow, categories: StorageCategoryAdminRow[], csrfToken: string, error = ''): string {
+  const parentOptions = [
+    `<option value="">Raiz</option>`,
+    ...categories
+      .filter((candidate) => candidate.id !== category.id)
+      .map((candidate) => `<option value="${candidate.id}"${candidate.id === category.parent_category_id ? ' selected' : ''}>${escapeHtml(candidate.display_name)} (${escapeHtml(candidate.slug)})</option>`),
+  ].join('');
+  const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
+  return page({
+    title: `Editar categoria ${category.display_name}`,
+    shell: 'admin',
+    body: `${errorHtml}<form method="post">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Nombre<input name="displayName" value="${escapeHtml(category.display_name)}" required></label><label>Slug<input name="slug" value="${escapeHtml(category.slug)}" required></label><label>Categoria padre<select name="parentCategoryId">${parentOptions}</select></label><label>Proposito<input name="categoryPurpose" value="${escapeHtml(category.category_purpose)}" required></label><label>Estado<select name="lifecycleStatus"><option value="active"${category.lifecycle_status === 'active' ? ' selected' : ''}>active</option><option value="archived"${category.lifecycle_status === 'archived' ? ' selected' : ''}>archived</option></select></label><label>Storage chat ID<input name="storageChatId" type="number" value="${escapeHtml(category.storage_chat_id)}" required></label><label>Thread ID<input name="storageThreadId" type="number" value="${escapeHtml(category.storage_thread_id)}" required></label></div><label>Descripcion<textarea name="description">${escapeHtml(category.description ?? '')}</textarea></label><button type="submit">Guardar categoria</button> <a href="/admin/storage">Cancelar</a></form>`,
+  });
+}
+
+function storageCategoryArchivePage(category: StorageCategoryAdminRow | null, csrfToken: string, error = ''): string {
+  const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
+  const title = category ? category.display_name : 'Categoria no encontrada';
+  return page({
+    title: 'Archivar categoria de Storage',
+    shell: 'admin',
+    body: `${errorHtml}<section class="admin-danger-panel"><h2>${escapeHtml(title)}</h2><p>Archivar oculta la categoria de la operacion normal, pero no crea ni borra mensajes en Telegram.</p><form method="post">${csrfInput(csrfToken)}<label>Confirmacion<input name="confirm" autocomplete="off" placeholder="ARCHIVE" required></label><button type="submit">Archivar categoria</button> <a href="/admin/storage">Cancelar</a></form></section>`,
+  });
+}
+
+function renderAdminMetric(label: string, value: string, detail = ''): string {
+  return `<article class="admin-metric-card"><h2>${escapeHtml(label)}</h2><p>${escapeHtml(value)}</p>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</article>`;
+}
+
+function renderAdminActionGrid(actions: Array<[string, string, string]>): string {
+  return `<div class="admin-action-grid">${actions.map(([title, description, href]) => `<a class="admin-action-card" href="${escapeHtml(href)}"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(description)}</small></a>`).join('')}</div>`;
+}
+
+function renderStatusBadge(status: string): string {
+  const normalized = status.toLowerCase();
+  const className = ['active', 'approved', 'scheduled', 'disponible', 'si', 'admin'].includes(normalized)
+    ? 'admin-badge-ok'
+    : ['deleted', 'blocked', 'revoked', 'cancelled', 'no'].includes(normalized)
+      ? 'admin-badge-danger'
+      : 'admin-badge-warn';
+  return `<span class="admin-badge ${className}">${escapeHtml(status)}</span>`;
+}
+
+function asTagArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).filter((item) => item.trim().length > 0);
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return asTagArray(parsed);
+    } catch {
+      return value.split(',').map((item) => item.trim()).filter((item) => item.length > 0);
+    }
+  }
+  return [];
+}
+
+function renderTagChips(tags: string[]): string {
+  if (tags.length === 0) {
+    return '<span class="muted">Sin tags</span>';
+  }
+  return `<span class="admin-chip-list">${tags.map((tag) => `<span class="admin-chip">#${escapeHtml(tag)}</span>`).join('')}</span>`;
 }
 
 function formatNotificationSummary(summary: Record<string, unknown> | null): string {

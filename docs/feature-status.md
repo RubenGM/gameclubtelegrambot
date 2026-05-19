@@ -25,8 +25,8 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
 | Grupos de noticias                           | 🟢 Operativo         | `/news` y `/admin/news` gestionan/visibilizan suscripciones por categoría, incluyendo el feed `nuevos_miembros` para altas web.          |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
-| Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas y procesos de carga (DM y topic).                                              |
-| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, temas CAWA, assets y secciones públicas.             |
+| Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
+| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, temas CAWA y secciones públicas.        |
 | Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 ```
@@ -255,6 +255,7 @@ Implementado:
 - Albums por `media_group_id` agrupados en una sola entrada mediante ventana corta en memoria.
 - Admin: crear, mover, archivar y reactivar categorias; borrar logicamente entradas; ver, conceder y revocar acceso por categoria.
 - Consola Textual `Storage gestor`: editar categorias/archivos existentes, mover categorias dentro de otras o a raiz, mover archivos a otra categoria, archivar/reactivar categorias y eliminar/restaurar archivos sin crear contenido nuevo.
+- Panel web `/admin/storage`: gestiona entradas y categorias existentes con busqueda, cambio de descripcion, categoria, tags y estado, movimiento logico de entradas/categorias y borrado logico/archivado con confirmacion; no permite crear contenido nuevo, que sigue entrando por Telegram.
 - Permisos aplicados por recurso para `storage.entry.read` y `storage.entry.upload`.
 - Auditoria de altas de categoria, cambios de estado, borrado logico y permisos.
 
@@ -285,7 +286,7 @@ Implementado:
 - TUI `npm run backup:console`.
 - Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
 - Panel web admin protegido por contraseña de elevación, sesión firmada, token CSRF en acciones POST y límite de intentos de login por IP.
-- `/admin` abre en un dashboard de estado y métricas principales con toolbar operativa, métricas compactas y tarjetas de navegación por dominio; la operación queda separada en secciones: socios/usuarios en `/admin/users`, actividades en `/admin/activities`, catálogo en `/admin/catalog`, servicio/logs en `/admin/service`, configuración técnica y cambio de token en `/admin/config`, backups en `/admin/backups`, feedback en `/admin/feedback`, feeds en `/admin/news` y altas web en `/admin/member-signups`.
+- `/admin` abre en un dashboard de estado y métricas principales con toolbar operativa, métricas compactas y tarjetas de navegación por dominio; la operación queda separada en secciones: socios/usuarios en `/admin/users`, actividades en `/admin/activities`, catálogo en `/admin/catalog`, Storage en `/admin/storage`, servicio/logs en `/admin/service`, configuración técnica y cambio de token en `/admin/config`, backups en `/admin/backups`, feedback en `/admin/feedback`, feeds en `/admin/news` y altas web en `/admin/member-signups`.
 - Configuración de la web pública desde `/admin/web`, persistida en `app_metadata`, con marca CAWA Girona, temas allowlisted, enlaces destacados, contenido de `/club` y referencias a logo/hero/imagenes auxiliares. La shell pública/admin aplica una capa visual más rica con textura de fondo, cabecera con presencia, tarjetas métricas, formularios y tablas refinadas desde el CSS base compartido.
 - La shell pública/admin usa los SVG de marca incluidos (`/brand/cawa_logo.svg` como logo por defecto y `/brand/cawa_casco.svg` como favicon), manteniendo los assets subidos desde `/admin/web` como override.
 - Assets públicos de portada servidos desde `/assets/...`, guardados bajo `data/http-assets/` con nombre generado, validación de MIME/extensión y límite de 2 MiB.

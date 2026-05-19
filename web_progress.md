@@ -37,6 +37,8 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Revision de altas web | Hecho | `/admin/member-signups/:id/status` permite marcar solicitudes como contactadas, aprobadas, rechazadas o pendientes con CSRF |
 | Comprobacion publica HTTPS | Hecho | `https://cawa.hopto.org/`, `/feedback`, `/actividades`, `/catalogo`, `/club`, `/alta`, `/brand/cawa_casco.svg` y login admin responden correctamente |
 | Validacion final del plan | Hecho | Suite HTTP/news, typecheck, feature-status audit, `startup.sh`, systemd y HTTPS verificados |
+| Mejora funcional admin por dominio | Hecho | `/admin/users`, `/admin/activities` y `/admin/catalog` pasan a hubs con metricas, acciones directas, badges de estado y tablas con enlaces de edicion/verificacion |
+| Gestion web completa de Storage existente | Hecho | `/admin/storage` lista/filtra entradas y categorias; permite editar descripcion, categoria, tags y estado, mover categorias, archivar categorias y eliminar logicamente entradas; no permite crear desde web |
 
 ## Opcional no bloqueante
 
@@ -59,3 +61,4 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 - `https://cawa.hopto.org/`, `/feedback`, `/actividades`, `/catalogo`, `/club`, `/alta` y `/brand/cawa_casco.svg`: devuelven `200`.
 - `https://cawa.hopto.org/admin`: devuelve `303 /admin/login`; login con `cawabotadmin` devuelve `303 /admin`.
 - Corte estetico: `node --import tsx --test src/http/admin-http-server.test.ts src/http/http-theme.test.ts src/http/web-settings-store.test.ts`, `npm run typecheck` y `./scripts/feature-status-audit.sh` pasan.
+- Corte admin/Storage: `npm run typecheck` y `node --import tsx --test src/http/admin-http-server.test.ts` pasan localmente antes de validacion runtime.
