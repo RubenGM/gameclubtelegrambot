@@ -162,6 +162,15 @@ export function parseStorageCaptionMetadata(caption: string | null | undefined):
   };
 }
 
+export function parseStorageTagInput(input: string | null | undefined): string[] {
+  const normalizedInput = normalizeOptionalText(input);
+  if (normalizedInput === null) {
+    return [];
+  }
+
+  return normalizeTags(normalizedInput.split(/[\s,;]+/));
+}
+
 export async function createStorageCategory({
   repository,
   slug,

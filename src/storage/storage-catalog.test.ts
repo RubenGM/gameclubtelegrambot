@@ -5,6 +5,7 @@ import {
   createStorageCategory,
   createStorageEntry,
   parseStorageCaptionMetadata,
+  parseStorageTagInput,
   setStorageCategoryLifecycleStatus,
   type StorageCategoryRecord,
   type StorageCategoryRepository,
@@ -259,6 +260,11 @@ test('parseStorageCaptionMetadata extracts normalized tags and description', () 
     description: 'Manual revisado',
     tags: ['rol', 'fantasy', 'pdf'],
   });
+});
+
+test('parseStorageTagInput accepts hashes spaces commas and semicolons', () => {
+  assert.deepEqual(parseStorageTagInput('  #Rol pdf, fantasy; mammoth  rol  '), ['rol', 'pdf', 'fantasy', 'mammoth']);
+  assert.deepEqual(parseStorageTagInput(''), []);
 });
 
 test('createStorageCategory trims text fields and keeps topic mapping', async () => {
