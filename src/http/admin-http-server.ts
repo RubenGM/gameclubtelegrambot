@@ -1096,7 +1096,7 @@ function welcomePage(settings: WebSettings): string {
   return page({
     title: settings.brand.name,
     themeName: settings.theme,
-    body: `<p><strong>${escapeHtml(settings.brand.headline)}</strong></p><p>${escapeHtml(settings.home.intro)}</p><p class="row"><a href="/club">Informacion del club</a><a href="/feedback">Enviar feedback</a><a href="/admin">Administracion</a></p>`,
+    body: `<p><strong>${escapeHtml(settings.brand.headline)}</strong></p><p>${escapeHtml(settings.home.intro)}</p><p class="row"><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a><a href="/club">Informacion del club</a><a href="/feedback">Enviar feedback</a><a href="/admin">Administracion</a></p>`,
   });
 }
 

@@ -13,22 +13,32 @@ export interface RenderHttpPageOptions {
   shell?: 'public' | 'admin';
 }
 
-const defaultNavItems: PageNavItem[] = [
+const publicNavItems: PageNavItem[] = [
   { href: '/', label: 'Inicio' },
+  { href: '/actividades', label: 'Actividades' },
+  { href: '/catalogo', label: 'Catalogo' },
+  { href: '/club', label: 'Club' },
   { href: '/feedback', label: 'Feedback' },
   { href: '/admin', label: 'Admin' },
+];
+
+const adminNavItems: PageNavItem[] = [
+  { href: '/admin', label: 'Dashboard' },
+  { href: '/admin/web', label: 'Web publica' },
   { href: '/admin/resources', label: 'Recursos' },
+  { href: '/', label: 'Ver web' },
 ];
 
 export function renderHttpPage({
   title,
   body,
-  navItems = defaultNavItems,
+  navItems,
   themeName = defaultHttpThemeName,
   shell = 'public',
 }: RenderHttpPageOptions): string {
   const theme = resolveHttpTheme(themeName);
-  return `<!doctype html><html lang="ca" data-theme="${escapeHtml(theme.name)}" data-shell="${escapeHtml(shell)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${renderHttpThemeCss(theme.name)}${baseCss()}</style></head><body><header class="site-header"><a class="brand" href="/">CAWA Girona</a>${renderNav(navItems)}</header><main class="page-shell"><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
+  const resolvedNavItems = navItems ?? (shell === 'admin' ? adminNavItems : publicNavItems);
+  return `<!doctype html><html lang="ca" data-theme="${escapeHtml(theme.name)}" data-shell="${escapeHtml(shell)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${renderHttpThemeCss(theme.name)}${baseCss()}</style></head><body><header class="site-header"><a class="brand" href="/">CAWA Girona</a>${renderNav(resolvedNavItems)}</header><main class="page-shell"><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
 }
 
 export function renderNav(items: PageNavItem[]): string {

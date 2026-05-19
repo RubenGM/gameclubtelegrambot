@@ -163,6 +163,9 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(welcomeHtml, /Club de juegos, rol y wargames en Girona/);
     assert.match(welcomeHtml, /data-theme="classic"/);
     assert.match(welcomeHtml, /--cawa-brand:#184b1f/);
+    assert.match(welcomeHtml, /href="\/actividades"/);
+    assert.match(welcomeHtml, /href="\/catalogo"/);
+    assert.match(welcomeHtml, /href="\/club"/);
 
     const clubPage = await fetch(`${baseUrl}/club`);
     assert.equal(clubPage.status, 200);
