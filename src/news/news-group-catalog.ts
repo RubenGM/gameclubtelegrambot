@@ -14,6 +14,7 @@ export type NewsGroupCategoryKey =
   | 'events'
   | 'lfg:players'
   | 'lfg:groups'
+  | 'nuevos_miembros'
   | 'catalog-loans:board-game'
   | 'catalog-loans:book'
   | 'catalog-loans:rpg-book';
@@ -71,6 +72,21 @@ export const newsGroupCategories: readonly NewsGroupCategoryDescriptor[] = [
       ca: 'grups buscant jugadors',
       es: 'grupos buscando jugadores',
       en: 'groups looking for players',
+    },
+    defaultSubscribed: false,
+  },
+  {
+    key: 'nuevos_miembros',
+    aliases: ['nuevos_miembros', 'new-members', 'socios', 'members'],
+    label: {
+      ca: 'nuevos_miembros',
+      es: 'nuevos_miembros',
+      en: 'nuevos_miembros',
+    },
+    description: {
+      ca: 'sol·licituds d alta de nous socis desde la web',
+      es: 'solicitudes de alta de nuevos socios desde la web',
+      en: 'new member signup requests from the website',
     },
     defaultSubscribed: false,
   },
@@ -133,6 +149,7 @@ export const newsGroupCategoryDefaults = newsGroupCategories.filter((category) =
 export const lfgPlayerNewsCategory = 'lfg:players' as const;
 export const lfgGroupNewsCategory = 'lfg:groups' as const;
 export const eventsNewsGroupCategory = 'events' as const;
+export const newMembersNewsGroupCategory = 'nuevos_miembros' as const;
 
 export const catalogLoanNewsCategoryByItemType: Partial<Record<CatalogLoanCategoryItemType, NewsGroupCategoryKey>> = {
   'board-game': 'catalog-loans:board-game',

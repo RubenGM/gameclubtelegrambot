@@ -230,6 +230,7 @@ test('handleTelegramNewsGroupText shows help for unknown actions', async () => {
   assert.match(replies.at(-1) ?? '', /\/news desubscriure <categoria>/);
   assert.match(replies.at(-1) ?? '', /lfg:players/);
   assert.match(replies.at(-1) ?? '', /lfg:groups/);
+  assert.match(replies.at(-1) ?? '', /nuevos_miembros/);
 });
 
 test('handleTelegramNewsGroupText allows only bot admins even if a user has news permission', async () => {
@@ -244,17 +245,17 @@ test('handleTelegramNewsGroupText allows only bot admins even if a user has news
 test('handleTelegramNewsGroupText accepts Spanish command aliases', async () => {
   const { context, replies, repository } = createContext();
 
-  context.messageText = '/news suscribir lfg:groups';
+  context.messageText = '/news suscribir socios';
   assert.equal(await handleTelegramNewsGroupText(context), true);
-  assert.match(replies.at(-1) ?? '', /Categoria "lfg:groups" subscrita\./);
+  assert.match(replies.at(-1) ?? '', /Categoria "nuevos_miembros" subscrita\./);
 
   context.messageText = '/news estado';
   assert.equal(await handleTelegramNewsGroupText(context), true);
-  assert.match(replies.at(-1) ?? '', /Categories subscrites: lfg:groups/);
+  assert.match(replies.at(-1) ?? '', /Categories subscrites: nuevos_miembros/);
 
-  context.messageText = '/news desuscribir lfg:groups';
+  context.messageText = '/news desuscribir new-members';
   assert.equal(await handleTelegramNewsGroupText(context), true);
-  assert.match(replies.at(-1) ?? '', /Categoria "lfg:groups" eliminada\./);
+  assert.match(replies.at(-1) ?? '', /Categoria "nuevos_miembros" eliminada\./);
   assert.deepEqual(await repository.listSubscriptionsByChatId(-200), []);
 });
 
@@ -275,14 +276,14 @@ test('handleTelegramNewsGroupCallback toggles and refreshes the status with inli
 test('handleTelegramNewsGroupCallback subscribes and unsubscribes a category directly', async () => {
   const { context, replies, repository } = createContext();
 
-  context.callbackData = `${newsGroupCallbackPrefixes.subscribe}lfg:groups`;
+  context.callbackData = `${newsGroupCallbackPrefixes.subscribe}nuevos_miembros`;
   assert.equal(await handleTelegramNewsGroupCallback(context), true);
-  assert.match(replies.at(-1) ?? '', /Categoria "lfg:groups" subscrita\./);
-  assert.deepEqual((await repository.listSubscriptionsByChatId(-200)).map((entry) => entry.categoryKey), ['lfg:groups']);
+  assert.match(replies.at(-1) ?? '', /Categoria "nuevos_miembros" subscrita\./);
+  assert.deepEqual((await repository.listSubscriptionsByChatId(-200)).map((entry) => entry.categoryKey), ['nuevos_miembros']);
 
-  context.callbackData = `${newsGroupCallbackPrefixes.unsubscribe}lfg:groups`;
+  context.callbackData = `${newsGroupCallbackPrefixes.unsubscribe}nuevos_miembros`;
   assert.equal(await handleTelegramNewsGroupCallback(context), true);
-  assert.match(replies.at(-1) ?? '', /Categoria "lfg:groups" eliminada\./);
+  assert.match(replies.at(-1) ?? '', /Categoria "nuevos_miembros" eliminada\./);
   assert.deepEqual(await repository.listSubscriptionsByChatId(-200), []);
 });
 

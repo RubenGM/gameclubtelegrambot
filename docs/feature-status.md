@@ -23,7 +23,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario.                                                           |
 | Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y detección de título por portada.       |
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
-| Grupos de noticias                           | 🟢 Operativo         | `/news` acepta comandos y botones para activar/desactivar y gestionar suscripciones por categoría, con publicación por categoría desde agenda, LFG y préstecs. |
+| Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría, incluyendo agenda, LFG, préstamos y el feed `nuevos_miembros` para altas web.              |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas y procesos de carga (DM y topic).                                              |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, estado de servicio, gestión Debian y panel web con temas CAWA, assets controlados y secciones públicas.        |
@@ -205,7 +205,7 @@ Implementado:
 - `/news status`, `/news enable`, `/news disable`, `/news subscribe <categoria>` y `/news unsubscribe <categoria>` en grupos.
 - Persistencia de grupos habilitados y suscripciones por categoria.
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
-- Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG y préstecs.
+- Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs y altas web (`nuevos_miembros`).
 - Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem).
 
 Pendiente:
