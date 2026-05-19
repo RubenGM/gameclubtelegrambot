@@ -2121,7 +2121,7 @@ function loginPage(error = ''): string {
 function welcomePage(settings: WebSettings): string {
   const hero = settings.home.heroAsset
     ? `<img class="hero-image" src="${escapeHtml(settings.home.heroAsset)}" alt="${escapeHtml(settings.brand.name)}" loading="lazy">`
-    : '';
+    : `<div class="brand-hero-mark" aria-hidden="true"><span>Portal del club</span><img src="/brand/cawa_casco.svg" width="168" height="168" alt="" loading="eager"></div>`;
   const safeFeaturedLinks = settings.home.featuredLinks.filter((link) => link.label.trim().length > 0 && isSafePublicHref(link.url));
   const featuredLinks = safeFeaturedLinks.length > 0
     ? `<div class="featured-links">${safeFeaturedLinks.map((link) => `<a href="${escapeHtml(link.url)}">${escapeHtml(link.label)}</a>`).join('')}</div>`
@@ -2135,7 +2135,7 @@ function welcomePage(settings: WebSettings): string {
     themeName: settings.theme,
     headerBrandName: settings.brand.name,
     headerLogoAsset: settings.home.logoAsset,
-    body: `${hero}<p><strong>${escapeHtml(settings.brand.headline)}</strong></p><p>${escapeHtml(settings.home.intro)}</p>${featuredLinks}${gallery}`,
+    body: `<div class="home-lede"><div><p><strong>${escapeHtml(settings.brand.headline)}</strong></p><p>${escapeHtml(settings.home.intro)}</p></div>${hero}</div>${featuredLinks}${gallery}`,
   });
 }
 

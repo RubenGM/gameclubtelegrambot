@@ -12,7 +12,7 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Base de layout y temas | Hecho | `src/http/http-pages.ts`, `src/http/http-theme.ts`, tests `http-theme` |
 | Marca CAWA y guidelines | Hecho | `docs/brand-guidelines.md`, defaults de marca en web settings |
 | Logo, casco y favicon base | Hecho | `cawa_logo.svg`, `cawa_casco.svg`, rutas `/brand/cawa_logo.svg` y `/brand/cawa_casco.svg` |
-| Mejora estetica visual | Hecho | CSS base con textura sutil, cabecera con profundidad, tarjetas métricas, formularios/tablas refinados y diferenciacion publica/admin |
+| Mejora estetica visual | Hecho | CSS base con textura sutil, cabecera con profundidad, hero de marca por defecto, tarjetas métricas, formularios/tablas refinados y diferenciacion publica/admin |
 | Configuracion de portada desde admin | Hecho | `/admin/web`, `web-settings-store`, uploads a `data/http-assets/` |
 | Navegacion publica | Hecho | Portada enlaza a admin, feedback, actividades, catalogo, club y alta |
 | Informacion del club | Hecho | `/club` configurable desde `/admin/web` |
