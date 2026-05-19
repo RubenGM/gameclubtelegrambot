@@ -9,7 +9,10 @@ import { resolveRuntimeConfigPaths, serializeEnvFile } from '../config/runtime-c
 import { createBackupOperations, type BackupOperations } from '../operations/backup-operations.js';
 import { createServiceControl, type ServiceControl } from '../operations/service-control.js';
 import { verifySecret } from '../security/verify-password-hash.js';
+import { createDatabaseAppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
 import { escapeHtml, renderHttpPage, type RenderHttpPageOptions } from './http-pages.js';
+import { listHttpThemes } from './http-theme.js';
+import { createAppMetadataWebSettingsStore, type WebSettings, type WebSettingsStore } from './web-settings-store.js';
 
 export interface AdminHttpServer {
   start(): Promise<void>;
@@ -28,6 +31,7 @@ export interface CreateAdminHttpServerOptions {
   serviceName?: string;
   backupOperations?: BackupOperations;
   serviceControl?: ServiceControl;
+  webSettingsStore?: WebSettingsStore;
 }
 
 interface Session {
@@ -213,6 +217,7 @@ export function createAdminHttpServer({
   serviceName = process.env.GAMECLUB_SERVICE_NAME ?? 'gameclubtelegrambot.service',
   backupOperations,
   serviceControl,
+  webSettingsStore,
 }: CreateAdminHttpServerOptions): AdminHttpServer {
   const httpConfig = {
     ...defaultHttpServerConfig,
@@ -232,6 +237,9 @@ export function createAdminHttpServer({
   const control = serviceControl ?? createServiceControl({ serviceName });
   const operations = backupOperations ?? createBackupOperations({ appRoot, backupDir, serviceName, serviceControl: control });
   const feedbackFile = resolve(appRoot, httpConfig.feedbackFile);
+  const settingsStore = webSettingsStore ?? createAppMetadataWebSettingsStore({
+    storage: createDatabaseAppMetadataSessionStorage({ database: services.database.db }),
+  });
   let server: Server | undefined;
 
   const handler = async (request: IncomingMessage, response: ServerResponse) => {
@@ -248,6 +256,7 @@ export function createAdminHttpServer({
         operations,
         serviceControl: control,
         feedbackFile,
+        webSettingsStore: settingsStore,
       });
     } catch (error) {
       logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Admin HTTP request failed');
@@ -306,12 +315,20 @@ async function routeRequest(options: {
   operations: BackupOperations;
   serviceControl: ServiceControl;
   feedbackFile: string;
+  webSettingsStore: WebSettingsStore;
 }): Promise<void> {
   const { request, response } = options;
   const url = new URL(request.url ?? '/', 'http://localhost');
 
   if (request.method === 'GET' && url.pathname === '/') {
-    sendHtml(response, 200, welcomePage());
+    const settings = await options.webSettingsStore.load();
+    sendHtml(response, 200, welcomePage(settings));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/club') {
+    const settings = await options.webSettingsStore.load();
+    sendHtml(response, 200, clubPage(settings));
     return;
   }
 
@@ -385,6 +402,23 @@ async function routeRequest(options: {
     const status = await options.operations.readBackupConsoleStatus();
     const logs = await safeReadLogs(options.serviceControl);
     sendHtml(response, 200, adminPage(status, logs, adminSession.csrfToken));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/admin/web') {
+    const settings = await options.webSettingsStore.load();
+    sendHtml(response, 200, webSettingsPage(settings, adminSession.csrfToken));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/admin/web') {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
+    await options.webSettingsStore.save(buildWebSettingsFromForm(form));
+    redirect(response, '/admin/web');
     return;
   }
 
@@ -949,11 +983,65 @@ function loginPage(error = ''): string {
   return page({ title: 'Admin', body: `${errorHtml}<form method="post"><label>Contrasenya admin<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Entrar</button></form>`, shell: 'admin' });
 }
 
-function welcomePage(): string {
+function welcomePage(settings: WebSettings): string {
   return page({
-    title: 'Cawa',
-    body: '<p>Benvingut al panell web de Cawa. Des d&apos;aqui pots enviar feedback del bot o entrar a l&apos;administracio si tens permisos.</p><p class="row"><a href="/feedback">Enviar feedback</a><a href="/admin">Administracio</a></p>',
+    title: settings.brand.name,
+    themeName: settings.theme,
+    body: `<p><strong>${escapeHtml(settings.brand.headline)}</strong></p><p>${escapeHtml(settings.home.intro)}</p><p class="row"><a href="/club">Informacion del club</a><a href="/feedback">Enviar feedback</a><a href="/admin">Administracion</a></p>`,
   });
+}
+
+function clubPage(settings: WebSettings): string {
+  const detailRows: Array<[string, string]> = [
+    ['Direccion', settings.clubInfo.address],
+    ['Horarios', settings.clubInfo.openingHours],
+    ['Contacto', settings.clubInfo.contact],
+    ['Normas basicas', settings.clubInfo.rules],
+  ];
+  const details = detailRows
+    .filter(([, value]) => value.trim().length > 0)
+    .map(([label, value]) => `<section><h2>${escapeHtml(label)}</h2><p>${escapeHtml(value)}</p></section>`)
+    .join('');
+
+  return page({
+    title: 'Informacion del club',
+    themeName: settings.theme,
+    body: `<p>${escapeHtml(settings.clubInfo.summary)}</p>${details}`,
+  });
+}
+
+function webSettingsPage(settings: WebSettings, csrfToken: string): string {
+  const themeOptions = listHttpThemes()
+    .map((theme) => `<option value="${escapeHtml(theme.name)}"${theme.name === settings.theme ? ' selected' : ''}>${escapeHtml(theme.label)}</option>`)
+    .join('');
+
+  return page({
+    title: 'Web publica',
+    shell: 'admin',
+    themeName: settings.theme,
+    body: `<form method="post" action="/admin/web">${csrfInput(csrfToken)}<section><h2>Marca</h2><label>Nombre publico<input name="brandName" value="${escapeHtml(settings.brand.name)}" maxlength="120" required></label><label>Titular<input name="brandHeadline" value="${escapeHtml(settings.brand.headline)}" maxlength="180" required></label><label>Color principal<input name="primaryColor" value="${escapeHtml(settings.brand.primaryColor)}" pattern="#[0-9a-fA-F]{6}" required></label><label>Tema<select name="theme">${themeOptions}</select></label></section><section><h2>Portada</h2><label>Texto introductorio<textarea name="homeIntro" maxlength="1000" required>${escapeHtml(settings.home.intro)}</textarea></label></section><section><h2>Informacion del club</h2><label>Resumen<textarea name="clubSummary" maxlength="2000" required>${escapeHtml(settings.clubInfo.summary)}</textarea></label><label>Direccion<input name="clubAddress" value="${escapeHtml(settings.clubInfo.address)}" maxlength="240"></label><label>Horarios<textarea name="clubOpeningHours" maxlength="500">${escapeHtml(settings.clubInfo.openingHours)}</textarea></label><label>Contacto<input name="clubContact" value="${escapeHtml(settings.clubInfo.contact)}" maxlength="240"></label><label>Normas basicas<textarea name="clubRules" maxlength="2000">${escapeHtml(settings.clubInfo.rules)}</textarea></label></section><p class="row"><button type="submit">Guardar web publica</button><a href="/">Ver portada</a><a href="/club">Ver club</a></p></form>`,
+  });
+}
+
+function buildWebSettingsFromForm(form: URLSearchParams): WebSettings {
+  return {
+    theme: form.get('theme') as WebSettings['theme'],
+    brand: {
+      name: form.get('brandName') ?? '',
+      headline: form.get('brandHeadline') ?? '',
+      primaryColor: form.get('primaryColor') ?? '',
+    },
+    home: {
+      intro: form.get('homeIntro') ?? '',
+    },
+    clubInfo: {
+      summary: form.get('clubSummary') ?? '',
+      address: form.get('clubAddress') ?? '',
+      openingHours: form.get('clubOpeningHours') ?? '',
+      contact: form.get('clubContact') ?? '',
+      rules: form.get('clubRules') ?? '',
+    },
+  };
 }
 
 function adminPage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, logs: string, csrfToken: string): string {

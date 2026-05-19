@@ -8,6 +8,7 @@ import { createServer } from 'node:http';
 import { createAdminHttpServer } from './admin-http-server.js';
 import { hashSecret } from '../security/password-hash.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
+import { defaultWebSettings, type WebSettings, type WebSettingsStore } from './web-settings-store.js';
 
 test('admin http server exposes public feedback and protects admin pages', async () => {
   const tmp = await mkdtemp(join(tmpdir(), 'gameclub-http-'));
@@ -109,6 +110,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     },
     readLastOperationLog: async () => 'ok',
   };
+  const webSettingsStore = createMemoryWebSettingsStore();
 
   const server = createAdminHttpServer({
     config,
@@ -117,6 +119,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     appRoot: tmp,
     backupOperations,
     serviceControl,
+    webSettingsStore,
   });
 
   await server.start();
@@ -125,9 +128,14 @@ test('admin http server exposes public feedback and protects admin pages', async
     const welcomePage = await fetch(`${baseUrl}/`);
     assert.equal(welcomePage.status, 200);
     const welcomeHtml = await welcomePage.text();
-    assert.match(welcomeHtml, /Benvingut al panell web de Cawa/);
+    assert.match(welcomeHtml, /CAWA Girona/);
+    assert.match(welcomeHtml, /Club de juegos, rol y wargames en Girona/);
     assert.match(welcomeHtml, /data-theme="classic"/);
     assert.match(welcomeHtml, /--cawa-brand:#184b1f/);
+
+    const clubPage = await fetch(`${baseUrl}/club`);
+    assert.equal(clubPage.status, 200);
+    assert.match(await clubPage.text(), /CAWA Girona es un club multidisciplinar/);
 
     const feedbackPage = await fetch(`${baseUrl}/feedback`);
     assert.equal(feedbackPage.status, 200);
@@ -161,6 +169,41 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminHtml, /users/);
     assert.match(adminHtml, /Restaurar/);
     const csrfToken = extractCsrfToken(adminHtml);
+
+    const webSettingsPage = await fetch(`${baseUrl}/admin/web`, { headers: { cookie } });
+    assert.equal(webSettingsPage.status, 200);
+    const webSettingsHtml = await webSettingsPage.text();
+    assert.match(webSettingsHtml, /Web publica/);
+    assert.match(webSettingsHtml, /CAWA Girona/);
+
+    const saveWebSettingsResponse = await fetch(`${baseUrl}/admin/web`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({
+        csrfToken,
+        brandName: 'Club Test',
+        brandHeadline: 'Mesa abierta',
+        primaryColor: '#184b1f',
+        theme: 'tabletop',
+        homeIntro: '<b>Intro escapada</b>',
+        clubSummary: 'Resumen del club',
+        clubAddress: 'Carrer Major',
+        clubOpeningHours: 'Viernes tarde',
+        clubContact: 'club@example.test',
+        clubRules: 'Respeta el local',
+      }),
+    });
+    assert.equal(saveWebSettingsResponse.status, 303);
+    assert.equal(saveWebSettingsResponse.headers.get('location'), '/admin/web');
+
+    const updatedWelcomePage = await fetch(`${baseUrl}/`);
+    const updatedWelcomeHtml = await updatedWelcomePage.text();
+    assert.match(updatedWelcomeHtml, /Club Test/);
+    assert.match(updatedWelcomeHtml, /Mesa abierta/);
+    assert.match(updatedWelcomeHtml, /data-theme="tabletop"/);
+    assert.doesNotMatch(updatedWelcomeHtml, /<b>Intro escapada<\/b>/);
+    assert.match(updatedWelcomeHtml, /&lt;b&gt;Intro escapada&lt;\/b&gt;/);
 
     const serviceResponse = await fetch(`${baseUrl}/admin/service`, {
       method: 'POST',
@@ -248,6 +291,19 @@ function extractCsrfToken(html: string): string {
   const match = html.match(/name="csrfToken" value="([^"]+)"/);
   assert.ok(match?.[1]);
   return match[1];
+}
+
+function createMemoryWebSettingsStore(): WebSettingsStore {
+  let settings: WebSettings = defaultWebSettings;
+
+  return {
+    async load() {
+      return settings;
+    },
+    async save(nextSettings) {
+      settings = nextSettings;
+    },
+  };
 }
 
 async function findFreePort(): Promise<number> {
