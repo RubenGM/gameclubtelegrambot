@@ -607,8 +607,9 @@ async function routeRequest(options: {
 
   if (request.method === 'GET' && url.pathname === '/admin/storage') {
     const search = url.searchParams.get('q') ?? '';
-    const storageOverview = await fetchAdminStorageOverview(options.services, search);
-    sendHtml(response, 200, adminStoragePage(storageOverview, adminSession.csrfToken, search));
+    const categoryId = parseOptionalPositiveInteger(url.searchParams.get('categoryId'));
+    const storageOverview = await fetchAdminStorageOverview(options.services, { search, categoryId });
+    sendHtml(response, 200, adminStoragePage(storageOverview, adminSession.csrfToken, { search, categoryId }));
     return;
   }
 
@@ -1794,7 +1795,12 @@ interface AdminStorageOverview {
     messages: number;
   };
   categories: StorageCategoryAdminRow[];
+  visibleCategories: StorageCategoryAdminRow[];
   entries: StorageEntryAdminRow[];
+  selectedCategory: StorageCategoryAdminRow | null;
+  breadcrumbs: StorageCategoryAdminRow[];
+  summaries: Map<number, { subcategoryCount: number; entryCount: number }>;
+  mode: 'category' | 'search';
 }
 
 interface NewsAdminCategorySummary {
@@ -2002,7 +2008,10 @@ async function fetchAdminCatalogTypeCounts(services: InfrastructureRuntimeServic
   }
 }
 
-async function fetchAdminStorageOverview(services: InfrastructureRuntimeServices, search: string): Promise<AdminStorageOverview> {
+async function fetchAdminStorageOverview(
+  services: InfrastructureRuntimeServices,
+  { search, categoryId }: { search: string; categoryId: number | null },
+): Promise<AdminStorageOverview> {
   const normalizedSearch = search.trim();
   const [
     activeCategories,
@@ -2019,13 +2028,24 @@ async function fetchAdminStorageOverview(services: InfrastructureRuntimeServices
     safeCount(services, "select count(*)::int as count from storage_entries where lifecycle_status = 'deleted'"),
     safeCount(services, 'select count(*)::int as count from storage_entry_messages'),
     fetchStorageCategoryAdminRows(services),
-    fetchStorageEntryAdminRows(services, normalizedSearch),
+    fetchStorageEntryAdminRows(services, { search: normalizedSearch, categoryId }),
   ]);
+  const selectedCategory = categoryId ? categories.find((category) => storageCategoryNumericId(category) === categoryId) ?? null : null;
+  const mode = normalizedSearch ? 'search' : 'category';
+  const visibleCategories = mode === 'search'
+    ? []
+    : categories.filter((category) => selectedCategory ? storageCategoryParentNumericId(category) === storageCategoryNumericId(selectedCategory) : storageCategoryParentNumericId(category) === null);
+  const summaries = buildStorageCategoryAdminSummaries(categories);
 
   return {
     counts: { activeCategories, archivedCategories, activeEntries, deletedEntries, messages },
     categories,
+    visibleCategories,
     entries,
+    selectedCategory,
+    breadcrumbs: selectedCategory ? buildStorageCategoryAdminBreadcrumbs(selectedCategory, categories) : [],
+    summaries,
+    mode,
   };
 }
 
@@ -2062,7 +2082,10 @@ async function fetchStorageCategoryAdminRows(services: InfrastructureRuntimeServ
   }
 }
 
-async function fetchStorageEntryAdminRows(services: InfrastructureRuntimeServices, search: string): Promise<StorageEntryAdminRow[]> {
+async function fetchStorageEntryAdminRows(
+  services: InfrastructureRuntimeServices,
+  { search, categoryId }: { search: string; categoryId: number | null },
+): Promise<StorageEntryAdminRow[]> {
   const params: unknown[] = [];
   const filters: string[] = [];
   if (search) {
@@ -2077,6 +2100,11 @@ async function fetchStorageEntryAdminRows(services: InfrastructureRuntimeService
         where lower(tag) like $${params.length}
       )
     )`);
+  } else if (categoryId !== null) {
+    params.push(categoryId);
+    filters.push(`entries.category_id = $${params.length}`);
+  } else {
+    return [];
   }
   const where = filters.length > 0 ? `where ${filters.join(' and ')}` : '';
   try {
@@ -2110,6 +2138,56 @@ async function fetchStorageEntryAdminRows(services: InfrastructureRuntimeService
   } catch {
     return [];
   }
+}
+
+function buildStorageCategoryAdminSummaries(categories: StorageCategoryAdminRow[]): Map<number, { subcategoryCount: number; entryCount: number }> {
+  return new Map(categories.map((category) => {
+    const numericId = storageCategoryNumericId(category);
+    const descendantIds = collectStorageCategoryAdminDescendantIds(numericId, categories);
+    const entryCount = [numericId, ...descendantIds].reduce((total, categoryId) => {
+      const candidate = categories.find((item) => storageCategoryNumericId(item) === categoryId);
+      return total + (candidate?.entry_count ?? 0);
+    }, 0);
+    return [numericId, { subcategoryCount: descendantIds.length, entryCount }];
+  }));
+}
+
+function collectStorageCategoryAdminDescendantIds(categoryId: number, categories: StorageCategoryAdminRow[]): number[] {
+  const children = categories.filter((category) => storageCategoryParentNumericId(category) === categoryId);
+  return children.flatMap((child) => {
+    const childId = storageCategoryNumericId(child);
+    return [childId, ...collectStorageCategoryAdminDescendantIds(childId, categories)];
+  });
+}
+
+function buildStorageCategoryAdminBreadcrumbs(
+  category: StorageCategoryAdminRow,
+  categories: StorageCategoryAdminRow[],
+): StorageCategoryAdminRow[] {
+  const byId = new Map(categories.map((candidate) => [storageCategoryNumericId(candidate), candidate]));
+  const path: StorageCategoryAdminRow[] = [];
+  let current: StorageCategoryAdminRow | undefined = category;
+  const seen = new Set<number>();
+  while (current && !seen.has(storageCategoryNumericId(current))) {
+    seen.add(storageCategoryNumericId(current));
+    path.unshift(current);
+    const parentId = storageCategoryParentNumericId(current);
+    current = parentId ? byId.get(parentId) : undefined;
+  }
+  return path;
+}
+
+function storageCategoryNumericId(category: StorageCategoryAdminRow): number {
+  return Number(category.id);
+}
+
+function storageCategoryParentNumericId(category: StorageCategoryAdminRow): number | null {
+  const value = category.parent_category_id;
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 async function fetchStorageCategoryOptions(services: InfrastructureRuntimeServices): Promise<StorageCategoryAdminRow[]> {
@@ -3730,7 +3808,11 @@ function adminCatalogPage(overview: AdminCatalogOverview): string {
   });
 }
 
-function adminStoragePage(overview: AdminStorageOverview, csrfToken: string, search: string): string {
+function adminStoragePage(
+  overview: AdminStorageOverview,
+  csrfToken: string,
+  { search, categoryId }: { search: string; categoryId: number | null },
+): string {
   const metrics = [
     ['Categorias activas', overview.counts.activeCategories, 'Destinos visibles para archivos'],
     ['Categorias archivadas', overview.counts.archivedCategories, 'Ocultas de la operacion normal'],
@@ -3743,24 +3825,55 @@ function adminStoragePage(overview: AdminStorageOverview, csrfToken: string, sea
     ['Categorias avanzadas', 'Vista tabular tecnica de categorias.', '/admin/resources/storage_categories'],
     ['Sin creacion web', 'La creacion de archivos se mantiene exclusivamente en /storage desde Telegram.', '/admin/storage'],
   ]);
-  const searchForm = `<form class="admin-search-bar" method="get"><label>Buscar entradas<input name="q" value="${escapeHtml(search)}" placeholder="Descripcion, categoria o tag"></label><button type="submit">Filtrar</button></form>`;
-  const categoryRows = overview.categories.length === 0
-    ? '<p>No hay categorias de Storage.</p>'
-    : `<table><thead><tr><th>Categoria</th><th>Padre</th><th>Proposito</th><th>Estado</th><th>Archivos</th><th>Topic</th><th>Acciones</th></tr></thead><tbody>${overview.categories.map((category) => `<tr><td><strong>${escapeHtml(category.display_name)}</strong><br><small>${escapeHtml(category.slug)}</small></td><td>${escapeHtml(category.parent_name ?? 'Raiz')}</td><td>${escapeHtml(category.category_purpose)}</td><td>${renderStatusBadge(category.lifecycle_status)}</td><td>${category.entry_count}</td><td>${escapeHtml(category.storage_chat_id)} / ${escapeHtml(category.storage_thread_id)}</td><td><a href="/admin/storage/categories/${encodeURIComponent(String(category.id))}/edit">Editar</a> <a href="/admin/storage/categories/${encodeURIComponent(String(category.id))}/archive">Archivar</a></td></tr>`).join('')}</tbody></table>`;
+  const searchForm = `<form class="admin-search-bar" method="get"><label>Buscar en Storage<input name="q" value="${escapeHtml(search)}" placeholder="Descripcion, categoria o tag"></label><button type="submit">Buscar</button>${categoryId ? `<a href="/admin/storage?categoryId=${encodeURIComponent(String(categoryId))}">Limpiar busqueda</a>` : ''}</form>`;
+  const breadcrumb = renderStorageAdminBreadcrumbs(overview);
+  const categoryCards = overview.visibleCategories.length === 0
+    ? `<p class="muted">${overview.selectedCategory ? 'No hay subcategorias en esta categoria.' : 'No hay categorias principales de Storage.'}</p>`
+    : `<div class="admin-action-grid">${overview.visibleCategories.map((category) => renderStorageCategoryCard(category, overview.summaries)).join('')}</div>`;
   const entryRows = overview.entries.length === 0
-    ? '<p>No hay entradas de Storage para este filtro.</p>'
+    ? `<p class="muted">${overview.mode === 'search' ? 'No hay entradas de Storage para esta busqueda.' : overview.selectedCategory ? 'No hay entradas directas en esta categoria.' : 'Elige una categoria para ver sus entradas.'}</p>`
     : `<table><thead><tr><th>Entrada</th><th>Categoria</th><th>Tags</th><th>Estado</th><th>Adjuntos</th><th>Actualizada</th><th>Acciones</th></tr></thead><tbody>${overview.entries.map((entry) => `<tr><td><strong>#${entry.id}</strong><br><small>${escapeHtml(truncateText(entry.description ?? 'Sin descripcion', 90))}</small></td><td>${escapeHtml(entry.category_name)}</td><td>${renderTagChips(asTagArray(entry.tags))}</td><td>${renderStatusBadge(entry.lifecycle_status)}</td><td>${entry.message_count} ${escapeHtml(entry.source_kind)}</td><td>${escapeHtml(formatDateTime(entry.updated_at))}</td><td><a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/edit">Editar</a> <a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/delete">Eliminar</a></td></tr>`).join('')}</tbody></table>`;
+  const selectedActions = overview.selectedCategory
+    ? `<p class="row"><a href="/admin/storage/categories/${encodeURIComponent(String(storageCategoryNumericId(overview.selectedCategory)))}/edit">Editar categoria</a><a href="/admin/storage/categories/${encodeURIComponent(String(storageCategoryNumericId(overview.selectedCategory)))}/archive">Archivar categoria</a></p>`
+    : '';
+  const categoryHeading = overview.mode === 'search'
+    ? 'Resultados de busqueda'
+    : overview.selectedCategory
+      ? `Categoria: ${escapeHtml(overview.selectedCategory.display_name)}`
+      : 'Categorias principales';
+  const entryHeading = overview.mode === 'search'
+    ? 'Entradas encontradas'
+    : overview.selectedCategory
+      ? 'Entradas directas'
+      : 'Entradas';
 
   return page({
     title: 'Storage admin',
     shell: 'admin',
-    body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section><h2>Entradas</h2>${searchForm}</section><section class="admin-table-shell">${entryRows}</section><section class="admin-table-shell"><h2>Categorias</h2>${categoryRows}</section><p class="muted">La web permite editar, mover, retaggear, archivar y eliminar logicamente. La creacion de entradas sigue limitada a Telegram.</p><form hidden>${csrfInput(csrfToken)}</form>`,
+    body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section><h2>Buscar</h2>${searchForm}</section><section class="admin-table-shell"><h2>${categoryHeading}</h2>${breadcrumb}${selectedActions}${overview.mode === 'search' ? '<p class="muted">La busqueda es global; borra el filtro para volver a navegar por categorias.</p>' : categoryCards}</section><section class="admin-table-shell"><h2>${entryHeading}</h2>${entryRows}</section><p class="muted">La web permite editar, mover, retaggear, archivar y eliminar logicamente. La creacion de entradas sigue limitada a Telegram.</p><form hidden>${csrfInput(csrfToken)}</form>`,
   });
+}
+
+function renderStorageAdminBreadcrumbs(overview: AdminStorageOverview): string {
+  if (overview.mode === 'search') {
+    return '<p class="storage-breadcrumb"><a href="/admin/storage">Storage</a> / Busqueda</p>';
+  }
+  const parts = [
+    '<a href="/admin/storage">Storage</a>',
+    ...overview.breadcrumbs.map((category) => `<a href="/admin/storage?categoryId=${encodeURIComponent(String(storageCategoryNumericId(category)))}">${escapeHtml(category.display_name)}</a>`),
+  ];
+  return `<p class="storage-breadcrumb">${parts.join(' / ')}</p>`;
+}
+
+function renderStorageCategoryCard(category: StorageCategoryAdminRow, summaries: Map<number, { subcategoryCount: number; entryCount: number }>): string {
+  const categoryId = storageCategoryNumericId(category);
+  const summary = summaries.get(categoryId) ?? { subcategoryCount: 0, entryCount: category.entry_count };
+  return `<a class="admin-action-card" href="/admin/storage?categoryId=${encodeURIComponent(String(categoryId))}"><strong>${escapeHtml(category.display_name)}</strong><small>${escapeHtml(category.slug)} · ${summary.subcategoryCount} subcategorias · ${summary.entryCount} archivos</small><span>${renderStatusBadge(category.lifecycle_status)}</span></a>`;
 }
 
 function storageEntryEditPage(entry: StorageEntryAdminRow, categories: StorageCategoryAdminRow[], csrfToken: string, error = ''): string {
   const categoryOptions = categories
-    .map((category) => `<option value="${category.id}"${category.id === entry.category_id ? ' selected' : ''}>${escapeHtml(category.display_name)} (${escapeHtml(category.slug)})</option>`)
+    .map((category) => `<option value="${storageCategoryNumericId(category)}"${storageCategoryNumericId(category) === Number(entry.category_id) ? ' selected' : ''}>${escapeHtml(category.display_name)} (${escapeHtml(category.slug)})</option>`)
     .join('');
   const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
   return page({
@@ -3784,8 +3897,8 @@ function storageCategoryEditPage(category: StorageCategoryAdminRow, categories: 
   const parentOptions = [
     `<option value="">Raiz</option>`,
     ...categories
-      .filter((candidate) => candidate.id !== category.id)
-      .map((candidate) => `<option value="${candidate.id}"${candidate.id === category.parent_category_id ? ' selected' : ''}>${escapeHtml(candidate.display_name)} (${escapeHtml(candidate.slug)})</option>`),
+      .filter((candidate) => storageCategoryNumericId(candidate) !== storageCategoryNumericId(category))
+      .map((candidate) => `<option value="${storageCategoryNumericId(candidate)}"${storageCategoryNumericId(candidate) === storageCategoryParentNumericId(category) ? ' selected' : ''}>${escapeHtml(candidate.display_name)} (${escapeHtml(candidate.slug)})</option>`),
   ].join('');
   const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
   return page({

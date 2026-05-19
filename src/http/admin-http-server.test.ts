@@ -119,6 +119,19 @@ test('admin http server exposes public feedback and protects admin pages', async
               lifecycle_status: 'active',
               entry_count: 4,
               updated_at: '2026-05-19T18:00:00.000Z',
+            }, {
+              id: 4,
+              display_name: 'Ayudas de juego',
+              slug: 'ayudas',
+              description: 'Resumenes',
+              parent_category_id: 3,
+              parent_name: 'Reglamentos',
+              storage_chat_id: -100,
+              storage_thread_id: 13,
+              category_purpose: 'user_uploads',
+              lifecycle_status: 'active',
+              entry_count: 2,
+              updated_at: '2026-05-19T18:00:00.000Z',
             }],
           };
         }
@@ -573,15 +586,34 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminCatalogHtml, /Juego de mesa/);
     assert.match(adminCatalogHtml, /\/admin\/resources\/catalog_items/);
 
+    const adminStorageRootPage = await fetch(`${baseUrl}/admin/storage`, { headers: { cookie } });
+    assert.equal(adminStorageRootPage.status, 200);
+    const adminStorageRootHtml = await adminStorageRootPage.text();
+    assert.match(adminStorageRootHtml, /Storage admin/);
+    assert.match(adminStorageRootHtml, /Categorias principales/);
+    assert.match(adminStorageRootHtml, /Reglamentos/);
+    assert.match(adminStorageRootHtml, /\/admin\/storage\?categoryId=3/);
+    assert.doesNotMatch(adminStorageRootHtml, /Manual de campaña/);
+
+    const adminStorageCategoryPage = await fetch(`${baseUrl}/admin/storage?categoryId=3`, { headers: { cookie } });
+    assert.equal(adminStorageCategoryPage.status, 200);
+    const adminStorageCategoryHtml = await adminStorageCategoryPage.text();
+    assert.match(adminStorageCategoryHtml, /Categoria: Reglamentos/);
+    assert.match(adminStorageCategoryHtml, /Ayudas de juego/);
+    assert.match(adminStorageCategoryHtml, /Manual de campaña/);
+    assert.match(adminStorageCategoryHtml, /Entradas directas/);
+    assert.match(adminStorageCategoryHtml, /\/admin\/storage\/entries\/55\/edit/);
+    assert.match(adminStorageCategoryHtml, /\/admin\/storage\/categories\/3\/edit/);
+
     const adminStoragePage = await fetch(`${baseUrl}/admin/storage?q=manual`, { headers: { cookie } });
     assert.equal(adminStoragePage.status, 200);
     const adminStorageHtml = await adminStoragePage.text();
     assert.match(adminStorageHtml, /Storage admin/);
+    assert.match(adminStorageHtml, /Resultados de busqueda/);
     assert.match(adminStorageHtml, /Manual de campaña/);
     assert.match(adminStorageHtml, /Reglamentos/);
     assert.match(adminStorageHtml, /#rol/);
     assert.match(adminStorageHtml, /\/admin\/storage\/entries\/55\/edit/);
-    assert.match(adminStorageHtml, /\/admin\/storage\/categories\/3\/edit/);
 
     const storageEntryEditPage = await fetch(`${baseUrl}/admin/storage/entries/55/edit`, { headers: { cookie } });
     assert.equal(storageEntryEditPage.status, 200);
