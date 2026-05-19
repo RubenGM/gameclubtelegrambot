@@ -38,8 +38,30 @@ confirmaciones cuando una accion pueda destruir o alterar datos importantes.
   `/access` y suscriptores privados, no para altas desde la web.
 - `docs/feature-status.md` registra el panel web como operativo, pero solo con
   bienvenida publica, feedback y admin protegido.
+- `docs/brand-guidelines.md` documenta la identidad de CAWA Girona extraida de
+  la web publica actual: tono cercano, marca `CAWA Girona`, logo actual,
+  paleta base con verde `#184b1f`, tipografias recomendadas, temas iniciales y
+  reglas para web publica/admin.
 
 ## Alcance funcional
+
+### Marca y experiencia visual
+
+- Usar `docs/brand-guidelines.md` como referencia de marca para todo el trabajo
+  visual y de copy.
+- Normalizar la marca en nueva UI como `CAWA Girona`, salvo cuando se muestre un
+  asset legado que ya lleve otra grafia.
+- Sembrar defaults de configuracion web desde la guia:
+  - Nombre: `CAWA Girona`.
+  - Titular: `Club de juegos, rol y wargames en Girona`.
+  - Color principal: `#184b1f`.
+  - Tema inicial: `classic`.
+- Mantener una experiencia de club local y comunidad de juego, no una landing
+  generica ni un panel SaaS decorativo.
+- Publica: visual mas acogedor, con logo, imagenes reales del club/juegos y
+  enlaces claros a actividades, catalogo, club, feedback y alta.
+- Admin: visual sobrio, denso y operativo, con la misma marca pero sin heroes
+  grandes ni decoracion que distraiga de tareas sensibles.
 
 ### Web publica
 
@@ -240,9 +262,21 @@ Permitir cambiar estetica de web publica y admin sin reescribir cada pagina.
   - Opcion B inicial: generar `<style>` desde un mapa de temas permitido.
 - Usar allowlist de temas:
   - `classic`
-  - `light`
-  - `dark`
-  - `club`
+  - `club-dark`
+  - `tabletop`
+  - `high-contrast`
+- Todos los temas deben mantener los tokens de marca definidos en
+  `docs/brand-guidelines.md` y cubrir:
+  - Background.
+  - Surface.
+  - Text.
+  - Muted text.
+  - Border.
+  - Brand.
+  - Brand hover.
+  - Action.
+  - Danger.
+  - Focus ring.
 - Guardar tema activo en configuracion web persistida.
 - No aceptar nombres de CSS arbitrarios por query/form.
 - Aplicar el mismo sistema a paginas publicas y admin, con variantes si hace
@@ -260,6 +294,11 @@ Permitir cambiar estetica de web publica y admin sin reescribir cada pagina.
 ```json
 {
   "theme": "classic",
+  "brand": {
+    "name": "CAWA Girona",
+    "headline": "Club de juegos, rol y wargames en Girona",
+    "primaryColor": "#184b1f"
+  },
   "home": {
     "headline": "...",
     "intro": "...",
@@ -340,6 +379,7 @@ Permitir cambiar estetica de web publica y admin sin reescribir cada pagina.
 
 - Refactorizar helpers de pagina/layout sin cambiar comportamiento visible.
 - Anadir sistema de temas allowlisted.
+- Implementar tokens base siguiendo `docs/brand-guidelines.md`.
 - Mantener rutas actuales funcionando.
 - Tests:
   - `/`, `/feedback`, `/admin/login`, `/admin` siguen respondiendo.
@@ -351,6 +391,9 @@ Permitir cambiar estetica de web publica y admin sin reescribir cada pagina.
 - Crear store de configuracion web.
 - Crear `/admin/web`.
 - Editar portada, logo/hero, enlaces, tema y contenido de `/club`.
+- Sembrar valores iniciales de marca desde `docs/brand-guidelines.md`:
+  `CAWA Girona`, `Club de juegos, rol y wargames en Girona`, verde `#184b1f`
+  y tema `classic`.
 - Crear `/club`.
 - Tests:
   - Cambios admin persisten.
@@ -411,6 +454,8 @@ Permitir cambiar estetica de web publica y admin sin reescribir cada pagina.
   - Panel web pasa de bienvenida/admin basicos a web publica configurable,
     secciones publicas, alta de socio y admin por secciones.
   - Anadir feed `nuevos_miembros` en grupos de noticias.
+- Revisar `docs/brand-guidelines.md` si durante la implementacion se cambian
+  tokens, nombres de tema, assets base o reglas de copy.
 - Actualizar docs operativas si cambian rutas o archivos persistidos.
 - Ejecutar:
   - `node --import tsx --test src/http/admin-http-server.test.ts`
@@ -441,6 +486,9 @@ Permitir cambiar estetica de web publica y admin sin reescribir cada pagina.
 - Operaciones destructivas o peligrosas requieren confirmacion explicita.
 - El sistema de temas se aplica a web publica y admin mediante CSS seleccionable
   allowlisted.
+- La web publica y el panel admin siguen `docs/brand-guidelines.md`: marca
+  `CAWA Girona`, verde base `#184b1f`, tono cercano en publico y tono operativo
+  claro en admin.
 - No se exponen secretos, hashes ni tokens en HTML, logs o respuestas.
 - Las acciones admin POST mantienen CSRF y sesiones firmadas.
 - `docs/feature-status.md` queda actualizado.
