@@ -496,6 +496,12 @@ async function routeRequest(options: {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/admin/feedback') {
+    const entries = await readFeedbackEntries(options.feedbackFile);
+    sendHtml(response, 200, feedbackAdminPage(entries));
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/admin/member-signups') {
     const signups = await fetchMemberSignupRows(options.services);
     sendHtml(response, 200, memberSignupsAdminPage(signups));
@@ -834,6 +840,50 @@ async function saveFeedback(filePath: string, input: Record<string, unknown>): P
   }
   await mkdir(dirname(filePath), { recursive: true });
   await appendFile(filePath, `${JSON.stringify({ ...input, message })}\n`, 'utf8');
+}
+
+interface FeedbackEntry {
+  createdAt: string;
+  topic: string;
+  name: string;
+  contact: string;
+  message: string;
+  userAgent: string;
+  remoteAddress: string;
+}
+
+async function readFeedbackEntries(filePath: string): Promise<FeedbackEntry[]> {
+  const raw = await readFile(filePath, 'utf8').catch((error: unknown) => {
+    if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return '';
+    }
+    throw error;
+  });
+
+  return raw
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => parseFeedbackEntry(line))
+    .filter((entry): entry is FeedbackEntry => entry !== null)
+    .slice(-200)
+    .reverse();
+}
+
+function parseFeedbackEntry(line: string): FeedbackEntry | null {
+  try {
+    const parsed = JSON.parse(line) as Partial<FeedbackEntry>;
+    return {
+      createdAt: String(parsed.createdAt ?? ''),
+      topic: String(parsed.topic ?? ''),
+      name: String(parsed.name ?? ''),
+      contact: String(parsed.contact ?? ''),
+      message: String(parsed.message ?? ''),
+      userAgent: String(parsed.userAgent ?? ''),
+      remoteAddress: String(parsed.remoteAddress ?? ''),
+    };
+  } catch {
+    return null;
+  }
 }
 
 interface ValidMemberSignupForm {
@@ -2066,7 +2116,19 @@ function adminDashboardPage(
   return page({
     title: 'Admin',
     shell: 'admin',
-    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/service">Servicio, backups y logs</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
+    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/feedback">Feedback</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/service">Servicio, backups y logs</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
+  });
+}
+
+function feedbackAdminPage(entries: FeedbackEntry[]): string {
+  const body = entries.length === 0
+    ? '<p>No hay feedback registrado.</p>'
+    : `<table><thead><tr><th>Fecha</th><th>Tema</th><th>Nombre</th><th>Contacto</th><th>Mensaje</th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${escapeHtml(entry.createdAt)}</td><td>${escapeHtml(entry.topic)}</td><td>${escapeHtml(entry.name)}</td><td>${escapeHtml(entry.contact)}</td><td>${escapeHtml(entry.message)}</td></tr>`).join('')}</tbody></table>`;
+
+  return page({
+    title: 'Feedback recibido',
+    shell: 'admin',
+    body,
   });
 }
 

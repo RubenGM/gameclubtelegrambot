@@ -299,6 +299,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminHtml, /gameclubtelegrambot\.service/);
     assert.match(adminHtml, /Altas web pendientes/);
     assert.match(adminHtml, /Servicio, backups y logs/);
+    assert.match(adminHtml, /href="\/admin\/feedback"/);
     assert.match(adminHtml, /href="\/admin\/member-signups"/);
     assert.doesNotMatch(adminHtml, /Nou token de Telegram/);
     assert.doesNotMatch(adminHtml, /Restaurar/);
@@ -319,6 +320,13 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(webSettingsHtml, /CAWA Girona/);
     assert.match(webSettingsHtml, /enctype="multipart\/form-data"/);
     assert.match(webSettingsHtml, /Imagenes/);
+
+    const feedbackAdminPage = await fetch(`${baseUrl}/admin/feedback`, { headers: { cookie } });
+    assert.equal(feedbackAdminPage.status, 200);
+    const feedbackAdminHtml = await feedbackAdminPage.text();
+    assert.match(feedbackAdminHtml, /Feedback recibido/);
+    assert.match(feedbackAdminHtml, /Great club/);
+    assert.match(feedbackAdminHtml, /club/);
 
     const memberSignupsAdminPage = await fetch(`${baseUrl}/admin/member-signups`, { headers: { cookie } });
     assert.equal(memberSignupsAdminPage.status, 200);
