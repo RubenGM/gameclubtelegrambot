@@ -86,6 +86,7 @@ interface ResourceDef {
 const sessionCookieName = 'gameclub_admin_session';
 const maxBodyBytes = 64 * 1024;
 const maxAssetUploadBytes = 2 * 1024 * 1024;
+const publicCatalogPageSize = 24;
 const defaultHttpServerConfig = {
   enabled: true,
   host: '127.0.0.1',
@@ -372,8 +373,9 @@ async function routeRequest(options: {
     const settings = await options.webSettingsStore.load();
     const search = url.searchParams.get('q') ?? '';
     const itemType = url.searchParams.get('type') ?? '';
-    const items = await fetchPublicCatalogItems(options.services, { search, itemType });
-    sendHtml(response, 200, catalogPage(settings, items, { search, itemType }));
+    const pageNumber = parsePositiveInteger(url.searchParams.get('page'), 1);
+    const catalogResult = await fetchPublicCatalogItems(options.services, { search, itemType, page: pageNumber });
+    sendHtml(response, 200, catalogPage(settings, catalogResult, { search, itemType }));
     return;
   }
 
@@ -1278,6 +1280,14 @@ function normalizeId(value: string): string | number {
   return /^-?\d+$/.test(value) ? Number(value) : value;
 }
 
+function parsePositiveInteger(value: string | null, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 interface PublicScheduleEventRow {
   id: number;
   title: string;
@@ -1301,6 +1311,14 @@ interface PublicCatalogItemRow {
   player_count_max: number | null;
   recommended_age: number | null;
   play_time_minutes: number | null;
+}
+
+interface PublicCatalogPage {
+  items: PublicCatalogItemRow[];
+  totalItems: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 interface AdminDashboardStats {
@@ -1407,15 +1425,18 @@ async function fetchPublicCatalogItems(
   {
     search,
     itemType,
+    page,
   }: {
     search: string;
     itemType: string;
+    page: number;
   },
-): Promise<PublicCatalogItemRow[]> {
+): Promise<PublicCatalogPage> {
   const filters = ["items.lifecycle_status = 'active'"];
   const params: unknown[] = [];
   const normalizedSearch = search.trim();
   const normalizedType = itemType.trim();
+  const normalizedPage = Math.max(1, page);
 
   if (normalizedSearch) {
     params.push(`%${normalizedSearch.toLowerCase()}%`);
@@ -1427,6 +1448,18 @@ async function fetchPublicCatalogItems(
     filters.push(`items.item_type = $${params.length}`);
   }
 
+  const countResult = await services.database.pool.query<{ count: number | string }>(
+    `
+      select count(*)::int as count
+      from catalog_items items
+      where ${filters.join(' and ')}
+    `,
+    params,
+  );
+  const totalItems = Number(countResult.rows[0]?.count ?? 0);
+  const totalPages = Math.max(1, Math.ceil(totalItems / publicCatalogPageSize));
+  const resolvedPage = Math.min(normalizedPage, totalPages);
+  const itemParams = [...params, publicCatalogPageSize, (resolvedPage - 1) * publicCatalogPageSize];
   const result = await services.database.pool.query<PublicCatalogItemRow>(
     `
       select
@@ -1446,12 +1479,19 @@ async function fetchPublicCatalogItems(
       left join catalog_groups groups on groups.id = items.group_id
       where ${filters.join(' and ')}
       order by items.display_name asc
-      limit 100
+      limit $${itemParams.length - 1}
+      offset $${itemParams.length}
     `,
-    params,
+    itemParams,
   );
 
-  return result.rows;
+  return {
+    items: result.rows,
+    totalItems,
+    page: resolvedPage,
+    pageSize: publicCatalogPageSize,
+    totalPages,
+  };
 }
 
 async function fetchResourceRows(
@@ -1816,9 +1856,10 @@ function activitiesPage(settings: WebSettings, events: PublicScheduleEventRow[])
 
 function catalogPage(
   settings: WebSettings,
-  items: PublicCatalogItemRow[],
+  catalogResult: PublicCatalogPage,
   filters: { search: string; itemType: string },
 ): string {
+  const { items } = catalogResult;
   const typeOptions = [
     ['', 'Todos'],
     ['board-game', 'Juegos de mesa'],
@@ -1831,14 +1872,44 @@ function catalogPage(
   const list = items.length === 0
     ? '<p>No hay artículos activos que coincidan con la búsqueda.</p>'
     : `<div class="list">${items.map((item) => `<section><h2>${escapeHtml(item.display_name)}</h2><p>${escapeHtml(renderCatalogType(item.item_type))}${item.family_name ? ` · ${escapeHtml(item.family_name)}` : ''}${item.group_name ? ` · ${escapeHtml(item.group_name)}` : ''}</p>${renderCatalogItemFacts(item)}</section>`).join('')}</div>`;
+  const pagination = renderCatalogPagination(catalogResult, filters);
 
   return page({
     title: 'Catalogo',
     themeName: settings.theme,
     headerBrandName: settings.brand.name,
     headerLogoAsset: settings.home.logoAsset,
-    body: `${form}${list}`,
+    body: `${form}${pagination}${list}${pagination}`,
   });
+}
+
+function renderCatalogPagination(
+  catalogResult: PublicCatalogPage,
+  filters: { search: string; itemType: string },
+): string {
+  const summary = `Mostrando ${catalogResult.items.length} de ${catalogResult.totalItems} articulos. Pagina ${catalogResult.page} de ${catalogResult.totalPages}.`;
+  if (catalogResult.totalPages <= 1) {
+    return `<p>${escapeHtml(summary)}</p>`;
+  }
+
+  const links = [
+    catalogResult.page > 1 ? `<a href="${escapeHtml(buildCatalogPageUrl(filters, catalogResult.page - 1))}">Anterior</a>` : '',
+    catalogResult.page < catalogResult.totalPages ? `<a href="${escapeHtml(buildCatalogPageUrl(filters, catalogResult.page + 1))}">Siguiente</a>` : '',
+  ].filter(Boolean).join('');
+
+  return `<nav aria-label="Paginacion catalogo"><span>${escapeHtml(summary)}</span>${links}</nav>`;
+}
+
+function buildCatalogPageUrl(filters: { search: string; itemType: string }, pageNumber: number): string {
+  const params = new URLSearchParams();
+  if (filters.search.trim()) {
+    params.set('q', filters.search.trim());
+  }
+  if (filters.itemType.trim()) {
+    params.set('type', filters.itemType.trim());
+  }
+  params.set('page', String(pageNumber));
+  return `/catalogo?${params.toString()}`;
 }
 
 function webSettingsPage(settings: WebSettings, csrfToken: string): string {

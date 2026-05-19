@@ -103,6 +103,9 @@ test('admin http server exposes public feedback and protects admin pages', async
             }],
           };
         }
+        if (sql.includes('count(*)') && sql.includes('from catalog_items items')) {
+          return { rows: [{ count: 25 }] };
+        }
         if (sql.includes('from catalog_items items')) {
           return {
             rows: [{
@@ -225,12 +228,15 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(activitiesHtml, /Partida abierta/);
     assert.match(activitiesHtml, /2\/6 plazas/);
 
-    const catalogPage = await fetch(`${baseUrl}/catalogo?q=dune&type=board-game`);
+    const catalogPage = await fetch(`${baseUrl}/catalogo?q=dune&type=board-game&page=2`);
     assert.equal(catalogPage.status, 200);
     const catalogHtml = await catalogPage.text();
     assert.match(catalogHtml, /Dune Imperium/);
     assert.match(catalogHtml, /Juego de mesa/);
     assert.match(catalogHtml, /Jugadores: 1-4/);
+    assert.match(catalogHtml, /Mostrando 1 de 25 articulos/);
+    assert.match(catalogHtml, /Pagina 2 de 2/);
+    assert.match(catalogHtml, /href="\/catalogo\?q=dune&amp;type=board-game&amp;page=1"/);
 
     const feedbackPage = await fetch(`${baseUrl}/feedback`);
     assert.equal(feedbackPage.status, 200);
