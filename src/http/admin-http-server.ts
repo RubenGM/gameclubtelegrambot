@@ -332,6 +332,22 @@ async function routeRequest(options: {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/actividades') {
+    const settings = await options.webSettingsStore.load();
+    const events = await fetchPublicScheduleEvents(options.services);
+    sendHtml(response, 200, activitiesPage(settings, events));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/catalogo') {
+    const settings = await options.webSettingsStore.load();
+    const search = url.searchParams.get('q') ?? '';
+    const itemType = url.searchParams.get('type') ?? '';
+    const items = await fetchPublicCatalogItems(options.services, { search, itemType });
+    sendHtml(response, 200, catalogPage(settings, items, { search, itemType }));
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/feedback') {
     sendHtml(response, 200, feedbackPage());
     return;
@@ -715,6 +731,99 @@ function normalizeId(value: string): string | number {
   return /^-?\d+$/.test(value) ? Number(value) : value;
 }
 
+interface PublicScheduleEventRow {
+  id: number;
+  title: string;
+  description: string | null;
+  starts_at: Date | string;
+  duration_minutes: number;
+  capacity: number;
+  initial_occupied_seats: number;
+  attendance_mode: string;
+}
+
+interface PublicCatalogItemRow {
+  id: number;
+  display_name: string;
+  item_type: string;
+  family_name: string | null;
+  group_name: string | null;
+  publisher: string | null;
+  publication_year: number | null;
+  player_count_min: number | null;
+  player_count_max: number | null;
+  recommended_age: number | null;
+  play_time_minutes: number | null;
+}
+
+async function fetchPublicScheduleEvents(
+  services: InfrastructureRuntimeServices,
+): Promise<PublicScheduleEventRow[]> {
+  const result = await services.database.pool.query<PublicScheduleEventRow>(
+    `
+      select id, title, description, starts_at, duration_minutes, capacity, initial_occupied_seats, attendance_mode
+      from schedule_events
+      where lifecycle_status = 'scheduled' and starts_at >= now()
+      order by starts_at asc
+      limit 50
+    `,
+  );
+
+  return result.rows;
+}
+
+async function fetchPublicCatalogItems(
+  services: InfrastructureRuntimeServices,
+  {
+    search,
+    itemType,
+  }: {
+    search: string;
+    itemType: string;
+  },
+): Promise<PublicCatalogItemRow[]> {
+  const filters = ["items.lifecycle_status = 'active'"];
+  const params: unknown[] = [];
+  const normalizedSearch = search.trim();
+  const normalizedType = itemType.trim();
+
+  if (normalizedSearch) {
+    params.push(`%${normalizedSearch.toLowerCase()}%`);
+    filters.push(`lower(items.display_name) like $${params.length}`);
+  }
+
+  if (normalizedType && ['board-game', 'book', 'rpg-book', 'expansion', 'accessory'].includes(normalizedType)) {
+    params.push(normalizedType);
+    filters.push(`items.item_type = $${params.length}`);
+  }
+
+  const result = await services.database.pool.query<PublicCatalogItemRow>(
+    `
+      select
+        items.id,
+        items.display_name,
+        items.item_type,
+        families.display_name as family_name,
+        groups.display_name as group_name,
+        items.publisher,
+        items.publication_year,
+        items.player_count_min,
+        items.player_count_max,
+        items.recommended_age,
+        items.play_time_minutes
+      from catalog_items items
+      left join catalog_families families on families.id = items.family_id
+      left join catalog_groups groups on groups.id = items.group_id
+      where ${filters.join(' and ')}
+      order by items.display_name asc
+      limit 100
+    `,
+    params,
+  );
+
+  return result.rows;
+}
+
 async function fetchResourceRows(
   services: InfrastructureRuntimeServices,
   resourceDef: ResourceDef,
@@ -1010,6 +1119,48 @@ function clubPage(settings: WebSettings): string {
   });
 }
 
+function activitiesPage(settings: WebSettings, events: PublicScheduleEventRow[]): string {
+  const body = events.length === 0
+    ? '<p>No hay actividades futuras publicadas ahora mismo.</p>'
+    : `<div class="list">${events.map((event) => {
+      const occupiedSeats = event.initial_occupied_seats;
+      const capacity = event.capacity;
+      const seats = capacity > 0 ? `${occupiedSeats}/${capacity} plazas` : 'sin plazas configuradas';
+      return `<section><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(formatDateTime(event.starts_at))} · ${event.duration_minutes} min · ${escapeHtml(seats)}</p>${event.description ? `<p>${escapeHtml(event.description)}</p>` : ''}</section>`;
+    }).join('')}</div>`;
+
+  return page({
+    title: 'Actividades',
+    themeName: settings.theme,
+    body,
+  });
+}
+
+function catalogPage(
+  settings: WebSettings,
+  items: PublicCatalogItemRow[],
+  filters: { search: string; itemType: string },
+): string {
+  const typeOptions = [
+    ['', 'Todos'],
+    ['board-game', 'Juegos de mesa'],
+    ['book', 'Libros'],
+    ['rpg-book', 'Libros de rol'],
+    ['expansion', 'Expansiones'],
+    ['accessory', 'Accesorios'],
+  ].map(([value, label]) => `<option value="${escapeHtml(value)}"${value === filters.itemType ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  const form = `<form method="get" action="/catalogo" class="search-form"><label>Buscar<input name="q" value="${escapeHtml(filters.search)}" placeholder="Nombre del juego o libro"></label><label>Tipo<select name="type">${typeOptions}</select></label><button type="submit">Filtrar</button></form>`;
+  const list = items.length === 0
+    ? '<p>No hay artículos activos que coincidan con la búsqueda.</p>'
+    : `<div class="list">${items.map((item) => `<section><h2>${escapeHtml(item.display_name)}</h2><p>${escapeHtml(renderCatalogType(item.item_type))}${item.family_name ? ` · ${escapeHtml(item.family_name)}` : ''}${item.group_name ? ` · ${escapeHtml(item.group_name)}` : ''}</p>${renderCatalogItemFacts(item)}</section>`).join('')}</div>`;
+
+  return page({
+    title: 'Catalogo',
+    themeName: settings.theme,
+    body: `${form}${list}`,
+  });
+}
+
 function webSettingsPage(settings: WebSettings, csrfToken: string): string {
   const themeOptions = listHttpThemes()
     .map((theme) => `<option value="${escapeHtml(theme.name)}"${theme.name === settings.theme ? ' selected' : ''}>${escapeHtml(theme.label)}</option>`)
@@ -1021,6 +1172,56 @@ function webSettingsPage(settings: WebSettings, csrfToken: string): string {
     themeName: settings.theme,
     body: `<form method="post" action="/admin/web">${csrfInput(csrfToken)}<section><h2>Marca</h2><label>Nombre publico<input name="brandName" value="${escapeHtml(settings.brand.name)}" maxlength="120" required></label><label>Titular<input name="brandHeadline" value="${escapeHtml(settings.brand.headline)}" maxlength="180" required></label><label>Color principal<input name="primaryColor" value="${escapeHtml(settings.brand.primaryColor)}" pattern="#[0-9a-fA-F]{6}" required></label><label>Tema<select name="theme">${themeOptions}</select></label></section><section><h2>Portada</h2><label>Texto introductorio<textarea name="homeIntro" maxlength="1000" required>${escapeHtml(settings.home.intro)}</textarea></label></section><section><h2>Informacion del club</h2><label>Resumen<textarea name="clubSummary" maxlength="2000" required>${escapeHtml(settings.clubInfo.summary)}</textarea></label><label>Direccion<input name="clubAddress" value="${escapeHtml(settings.clubInfo.address)}" maxlength="240"></label><label>Horarios<textarea name="clubOpeningHours" maxlength="500">${escapeHtml(settings.clubInfo.openingHours)}</textarea></label><label>Contacto<input name="clubContact" value="${escapeHtml(settings.clubInfo.contact)}" maxlength="240"></label><label>Normas basicas<textarea name="clubRules" maxlength="2000">${escapeHtml(settings.clubInfo.rules)}</textarea></label></section><p class="row"><button type="submit">Guardar web publica</button><a href="/">Ver portada</a><a href="/club">Ver club</a></p></form>`,
   });
+}
+
+function renderCatalogType(itemType: string): string {
+  const labels: Record<string, string> = {
+    'board-game': 'Juego de mesa',
+    book: 'Libro',
+    'rpg-book': 'Libro de rol',
+    expansion: 'Expansion',
+    accessory: 'Accesorio',
+  };
+
+  return labels[itemType] ?? itemType;
+}
+
+function renderCatalogItemFacts(item: PublicCatalogItemRow): string {
+  const facts = [
+    item.publisher ? `Editorial: ${item.publisher}` : '',
+    item.publication_year ? `Año: ${item.publication_year}` : '',
+    item.player_count_min || item.player_count_max ? `Jugadores: ${renderPlayerRange(item.player_count_min, item.player_count_max)}` : '',
+    item.recommended_age ? `Edad: ${item.recommended_age}+` : '',
+    item.play_time_minutes ? `Duracion: ${item.play_time_minutes} min` : '',
+  ].filter((fact) => fact.length > 0);
+
+  return facts.length > 0 ? `<p>${facts.map(escapeHtml).join(' · ')}</p>` : '';
+}
+
+function renderPlayerRange(min: number | null, max: number | null): string {
+  if (min !== null && max !== null && min !== max) {
+    return `${min}-${max}`;
+  }
+  if (min !== null) {
+    return String(min);
+  }
+  if (max !== null) {
+    return String(max);
+  }
+  return '-';
+}
+
+function formatDateTime(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat('es-ES', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Europe/Madrid',
+  }).format(date);
 }
 
 function buildWebSettingsFromForm(form: URLSearchParams): WebSettings {

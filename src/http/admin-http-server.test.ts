@@ -55,6 +55,37 @@ test('admin http server exposes public feedback and protects admin pages', async
             }],
           };
         }
+        if (sql.includes('from schedule_events')) {
+          return {
+            rows: [{
+              id: 7,
+              title: 'Partida abierta',
+              description: 'Mesa de iniciacion',
+              starts_at: '2026-05-23T17:00:00.000Z',
+              duration_minutes: 180,
+              capacity: 6,
+              initial_occupied_seats: 2,
+              attendance_mode: 'open',
+            }],
+          };
+        }
+        if (sql.includes('from catalog_items items')) {
+          return {
+            rows: [{
+              id: 11,
+              display_name: 'Dune Imperium',
+              item_type: 'board-game',
+              family_name: 'Juegos de mesa',
+              group_name: 'Estrategia',
+              publisher: 'Dire Wolf',
+              publication_year: 2020,
+              player_count_min: 1,
+              player_count_max: 4,
+              recommended_age: 14,
+              play_time_minutes: 120,
+            }],
+          };
+        }
         if (sql.includes('select * from "users"')) {
           return {
             rows: [{
@@ -136,6 +167,19 @@ test('admin http server exposes public feedback and protects admin pages', async
     const clubPage = await fetch(`${baseUrl}/club`);
     assert.equal(clubPage.status, 200);
     assert.match(await clubPage.text(), /CAWA Girona es un club multidisciplinar/);
+
+    const activitiesPage = await fetch(`${baseUrl}/actividades`);
+    assert.equal(activitiesPage.status, 200);
+    const activitiesHtml = await activitiesPage.text();
+    assert.match(activitiesHtml, /Partida abierta/);
+    assert.match(activitiesHtml, /2\/6 plazas/);
+
+    const catalogPage = await fetch(`${baseUrl}/catalogo?q=dune&type=board-game`);
+    assert.equal(catalogPage.status, 200);
+    const catalogHtml = await catalogPage.text();
+    assert.match(catalogHtml, /Dune Imperium/);
+    assert.match(catalogHtml, /Juego de mesa/);
+    assert.match(catalogHtml, /Jugadores: 1-4/);
 
     const feedbackPage = await fetch(`${baseUrl}/feedback`);
     assert.equal(feedbackPage.status, 200);
