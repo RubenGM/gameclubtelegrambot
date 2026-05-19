@@ -1,6 +1,6 @@
 # Estado real de features
 
-Ultima revision: 2026-05-18.
+Ultima revision: 2026-05-19.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -26,7 +26,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Grupos de noticias                           | 🟢 Operativo         | `/news` acepta comandos y botones para activar/desactivar y gestionar suscripciones por categoría, con publicación por categoría desde agenda, LFG y préstecs. |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas y procesos de carga (DM y topic).                                              |
-| Backups y operación TUI                      | 🟢 Operativo         | CLI/TUI de backup/restore, estado de servicio y gestión de configuración Debian.                                                         |
+| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, estado de servicio, gestión Debian y panel web con bienvenida pública y admin protegido en `/admin`.          |
 | Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 ```
@@ -48,6 +48,8 @@ Implementado:
 - Canario de salud de Telegram API: detecta fallos transitorios, mantiene estado degradado temporal y añade aviso a mensajes de texto mientras dura la incidencia.
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
 - Herramienta `npm run opencode:image` y wrapper `scripts/opencode-cawa.sh` para enviar prompts/imagenes a OpenCode con el usuario operador; usa `openai/gpt-5.4-mini` por defecto y esta pensada como paso previo a búsquedas BGG o traducciones asistidas, no como fuente de metadatos.
+- Panel HTTP integrado en el servicio del bot (`src/http/admin-http-server.ts`): bienvenida pública en `/`, feedback público en `/feedback` y admin protegido en `/admin`.
+- El despliegue público usa Nginx como reverse proxy hacia `127.0.0.1:8787` con HTTPS de Let's Encrypt para `cawa.hopto.org`.
 
 Riesgos o pendientes:
 
@@ -270,7 +272,7 @@ Documentacion relacionada:
 - `improvements/storage_tui_management_plan.md` describe el alcance usado para el gestor TUI de Storage.
 - `docs/superpowers/specs/2026-04-21-telegram-storage-design.md` contiene el diseño original.
 
-## Backups y consola operativa
+## Backups, consola operativa y panel web
 
 Estado: `tecnico operativo`.
 
@@ -279,6 +281,7 @@ Implementado:
 - Scripts `backup-cli.sh`, `backup-full.sh` y `restore-full.sh`.
 - TUI `npm run backup:console`.
 - Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
+- Panel web admin protegido por contraseña de elevación, sesión firmada, token CSRF en acciones POST y límite de intentos de login por IP.
 - Comando Telegram admin `/restart` para limpiar estado temporal y reiniciar el servicio bajo systemd.
 - Deteccion/instalacion asistida de dependencias Debian como `pg_dump` y `psql`.
 - Documentacion en `docs/backup-restore-recovery.md`.

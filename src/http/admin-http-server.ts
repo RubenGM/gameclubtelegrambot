@@ -31,7 +31,13 @@ export interface CreateAdminHttpServerOptions {
 
 interface Session {
   token: string;
+  csrfToken: string;
   expiresAt: number;
+}
+
+interface LoginAttempt {
+  count: number;
+  firstAttemptAt: number;
 }
 
 type FieldType = 'string' | 'number' | 'boolean' | 'json' | 'timestamp';
@@ -220,6 +226,7 @@ export function createAdminHttpServer({
   }
 
   const sessions = new Map<string, Session>();
+  const loginAttempts = new Map<string, LoginAttempt>();
   const cookieSecret = httpConfig.sessionSecret ?? randomBytes(32).toString('hex');
   const control = serviceControl ?? createServiceControl({ serviceName });
   const operations = backupOperations ?? createBackupOperations({ appRoot, backupDir, serviceName, serviceControl: control });
@@ -235,6 +242,7 @@ export function createAdminHttpServer({
         logger,
         services,
         sessions,
+        loginAttempts,
         cookieSecret,
         operations,
         serviceControl: control,
@@ -292,6 +300,7 @@ async function routeRequest(options: {
   logger: CreateAdminHttpServerOptions['logger'];
   services: InfrastructureRuntimeServices;
   sessions: Map<string, Session>;
+  loginAttempts: Map<string, LoginAttempt>;
   cookieSecret: string;
   operations: BackupOperations;
   serviceControl: ServiceControl;
@@ -301,7 +310,7 @@ async function routeRequest(options: {
   const url = new URL(request.url ?? '/', 'http://localhost');
 
   if (request.method === 'GET' && url.pathname === '/') {
-    redirect(response, '/feedback');
+    sendHtml(response, 200, welcomePage());
     return;
   }
 
@@ -332,32 +341,49 @@ async function routeRequest(options: {
 
   if (request.method === 'POST' && url.pathname === '/admin/login') {
     const form = await readForm(request);
+    const loginKey = loginAttemptKey(request);
+    if (isLoginRateLimited(options.loginAttempts, loginKey)) {
+      sendHtml(response, 429, loginPage('Massa intents. Torna-ho a provar mes tard.'));
+      return;
+    }
     const ok = await verifySecret(form.get('password') ?? '', options.config.adminElevation.passwordHash);
     if (!ok) {
+      recordFailedLogin(options.loginAttempts, loginKey);
       sendHtml(response, 401, loginPage('Contrasenya incorrecta.'));
       return;
     }
-    const token = createSession(options.sessions);
-    response.setHeader('Set-Cookie', serializeCookie(sessionCookieName, signToken(token, options.cookieSecret)));
+    options.loginAttempts.delete(loginKey);
+    const session = createSession(options.sessions);
+    response.setHeader('Set-Cookie', serializeCookie(sessionCookieName, signToken(session.token, options.cookieSecret)));
     redirect(response, '/admin');
     return;
   }
 
+  const authenticatedSession = url.pathname.startsWith('/admin')
+    ? getAuthenticatedSession(request, options.sessions, options.cookieSecret)
+    : null;
+
   if (request.method === 'POST' && url.pathname === '/admin/logout') {
+    const form = await readForm(request);
+    if (!authenticatedSession || !isValidCsrf(form, authenticatedSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
     response.setHeader('Set-Cookie', `${sessionCookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
     redirect(response, '/admin/login');
     return;
   }
 
-  if (url.pathname.startsWith('/admin') && !isAuthenticated(request, options.sessions, options.cookieSecret)) {
+  if (url.pathname.startsWith('/admin') && !authenticatedSession) {
     redirect(response, '/admin/login');
     return;
   }
+  const adminSession = authenticatedSession as Session;
 
   if (request.method === 'GET' && url.pathname === '/admin') {
     const status = await options.operations.readBackupConsoleStatus();
     const logs = await safeReadLogs(options.serviceControl);
-    sendHtml(response, 200, adminPage(status, logs));
+    sendHtml(response, 200, adminPage(status, logs, adminSession.csrfToken));
     return;
   }
 
@@ -371,7 +397,7 @@ async function routeRequest(options: {
     const resourceDef = requireResource(resourceMatch[1]);
     const search = url.searchParams.get('q') ?? '';
     const rows = await fetchResourceRows(options.services, resourceDef, search);
-    sendHtml(response, 200, resourceListPage(resourceDef, rows, search));
+    sendHtml(response, 200, resourceListPage(resourceDef, rows, search, adminSession.csrfToken));
     return;
   }
 
@@ -379,13 +405,17 @@ async function routeRequest(options: {
   if (request.method === 'GET' && resourceEditMatch?.[1] && resourceEditMatch[2]) {
     const resourceDef = requireResource(resourceEditMatch[1]);
     const row = await fetchResourceDetail(options.services, resourceDef, resourceEditMatch[2]);
-    sendHtml(response, 200, resourceEditPage(resourceDef, row));
+    sendHtml(response, 200, resourceEditPage(resourceDef, row, adminSession.csrfToken));
     return;
   }
 
   if (request.method === 'POST' && resourceEditMatch?.[1] && resourceEditMatch[2]) {
     const resourceDef = requireResource(resourceEditMatch[1]);
     const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
     await updateResourceFields(options.services, resourceDef, resourceEditMatch[2], form);
     redirect(response, `/admin/resources/${resourceDef.key}`);
     return;
@@ -395,6 +425,10 @@ async function routeRequest(options: {
   if (request.method === 'POST' && resourceDeleteMatch?.[1] && resourceDeleteMatch[2]) {
     const resourceDef = requireResource(resourceDeleteMatch[1]);
     const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
     await deleteResource(options.services, resourceDef, resourceDeleteMatch[2], form.get('mode') === 'hard');
     redirect(response, `/admin/resources/${resourceDef.key}`);
     return;
@@ -403,6 +437,10 @@ async function routeRequest(options: {
   const userActionMatch = url.pathname.match(/^\/admin\/resources\/users\/([^/]+)\/user-action$/);
   if (request.method === 'POST' && userActionMatch?.[1]) {
     const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
     await applyUserAction(options.services, userActionMatch[1], form.get('action') ?? '');
     redirect(response, '/admin/resources/users');
     return;
@@ -410,6 +448,10 @@ async function routeRequest(options: {
 
   if (request.method === 'POST' && url.pathname === '/admin/token') {
     const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
     await updateTelegramToken(form.get('token') ?? '');
     redirect(response, '/admin');
     return;
@@ -417,6 +459,10 @@ async function routeRequest(options: {
 
   if (request.method === 'POST' && url.pathname === '/admin/service') {
     const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
     const action = form.get('action');
     if (action === 'start') await options.serviceControl.startService();
     if (action === 'stop') await options.serviceControl.stopService();
@@ -426,6 +472,11 @@ async function routeRequest(options: {
   }
 
   if (request.method === 'POST' && url.pathname === '/admin/backup') {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
     await options.operations.createFullBackup();
     redirect(response, '/admin');
     return;
@@ -433,6 +484,10 @@ async function routeRequest(options: {
 
   if (request.method === 'POST' && url.pathname === '/admin/restore') {
     const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
     const backupFilePath = form.get('backupFilePath') ?? '';
     const archives = await options.operations.listBackupArchives();
     if (!archives.some((archive) => archive.filePath === backupFilePath)) {
@@ -446,6 +501,10 @@ async function routeRequest(options: {
 
   if (request.method === 'POST' && url.pathname === '/admin/delete-backup') {
     const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
     const backupFilePath = form.get('backupFilePath') ?? '';
     const archives = await options.operations.listBackupArchives();
     if (!archives.some((archive) => archive.filePath === backupFilePath)) {
@@ -483,27 +542,64 @@ async function saveFeedback(filePath: string, input: Record<string, unknown>): P
   await appendFile(filePath, `${JSON.stringify({ ...input, message })}\n`, 'utf8');
 }
 
-function createSession(sessions: Map<string, Session>): string {
+function createSession(sessions: Map<string, Session>): Session {
   const token = randomBytes(32).toString('hex');
-  sessions.set(token, { token, expiresAt: Date.now() + 8 * 60 * 60 * 1000 });
-  return token;
+  const session = {
+    token,
+    csrfToken: randomBytes(32).toString('hex'),
+    expiresAt: Date.now() + 8 * 60 * 60 * 1000,
+  };
+  sessions.set(token, session);
+  return session;
 }
 
-function isAuthenticated(request: IncomingMessage, sessions: Map<string, Session>, secret: string): boolean {
+function getAuthenticatedSession(request: IncomingMessage, sessions: Map<string, Session>, secret: string): Session | null {
   const signed = parseCookies(request.headers.cookie ?? '')[sessionCookieName];
   if (!signed) {
-    return false;
+    return null;
   }
   const token = verifySignedToken(signed, secret);
   if (!token) {
-    return false;
+    return null;
   }
   const session = sessions.get(token);
   if (!session || session.expiresAt < Date.now()) {
     sessions.delete(token);
+    return null;
+  }
+  return session;
+}
+
+function isValidCsrf(form: URLSearchParams, session: Session): boolean {
+  const value = form.get('csrfToken') ?? '';
+  return value.length > 0 && safeEqual(value, session.csrfToken);
+}
+
+function loginAttemptKey(request: IncomingMessage): string {
+  return request.socket.remoteAddress ?? 'unknown';
+}
+
+function isLoginRateLimited(attempts: Map<string, LoginAttempt>, key: string): boolean {
+  const current = attempts.get(key);
+  if (!current) {
     return false;
   }
-  return true;
+  const windowMs = 15 * 60 * 1000;
+  if (Date.now() - current.firstAttemptAt > windowMs) {
+    attempts.delete(key);
+    return false;
+  }
+  return current.count >= 5;
+}
+
+function recordFailedLogin(attempts: Map<string, LoginAttempt>, key: string): void {
+  const now = Date.now();
+  const current = attempts.get(key);
+  if (!current || now - current.firstAttemptAt > 15 * 60 * 1000) {
+    attempts.set(key, { count: 1, firstAttemptAt: now });
+    return;
+  }
+  attempts.set(key, { ...current, count: current.count + 1 });
 }
 
 function signToken(token: string, secret: string): string {
@@ -848,7 +944,14 @@ function loginPage(error = ''): string {
   return page('Admin', `${errorHtml}<form method="post"><label>Contrasenya admin<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Entrar</button></form>`);
 }
 
-function adminPage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, logs: string): string {
+function welcomePage(): string {
+  return page(
+    'Cawa',
+    '<p>Benvingut al panell web de Cawa. Des d&apos;aqui pots enviar feedback del bot o entrar a l&apos;administracio si tens permisos.</p><p class="row"><a href="/feedback">Enviar feedback</a><a href="/admin">Administracio</a></p>',
+  );
+}
+
+function adminPage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, logs: string, csrfToken: string): string {
   const databaseSummary = status.database.state === 'connected'
     ? `${escapeHtml(status.database.databaseName)} · ${status.database.totalTables} taules · ${formatBytes(status.database.sizeBytes)}`
     : escapeHtml(status.database.message);
@@ -857,34 +960,34 @@ function adminPage(status: Awaited<ReturnType<BackupOperations['readBackupConsol
     : '';
   const archives = status.backups.archives.length === 0
     ? '<p>No hi ha backups disponibles.</p>'
-    : `<ul>${status.backups.archives.map((archive) => `<li>${escapeHtml(archive.fileName)} · ${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)} <form method="post" action="/admin/restore" class="inline"><input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><button type="submit">Restaurar</button></form> <form method="post" action="/admin/delete-backup" class="inline"><input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><button type="submit">Eliminar</button></form></li>`).join('')}</ul>`;
-  return page('Admin', `<form method="post" action="/admin/logout"><button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service"><button name="action" value="start">Arrencar</button><button name="action" value="stop">Aturar</button><button name="action" value="restart">Reiniciar</button></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token"><label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Canviar token bot</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Backups</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup"><button type="submit">Crear backup complet</button></form>${archives}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`);
+    : `<ul>${status.backups.archives.map((archive) => `<li>${escapeHtml(archive.fileName)} · ${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)} <form method="post" action="/admin/restore" class="inline">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><button type="submit">Restaurar</button></form> <form method="post" action="/admin/delete-backup" class="inline">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><button type="submit">Eliminar</button></form></li>`).join('')}</ul>`;
+  return page('Admin', `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="stop">Aturar</button><button name="action" value="restart">Reiniciar</button></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Canviar token bot</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Backups</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup">${csrfInput(csrfToken)}<button type="submit">Crear backup complet</button></form>${archives}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`);
 }
 
 function resourcesIndexPage(): string {
   return page('Recursos', `<ul>${resourceDefs.map((resourceDef) => `<li><a href="/admin/resources/${resourceDef.key}">${escapeHtml(resourceDef.label)}</a></li>`).join('')}</ul>`);
 }
 
-function resourceListPage(resourceDef: ResourceDef, rows: Array<Record<string, unknown>>, search: string): string {
+function resourceListPage(resourceDef: ResourceDef, rows: Array<Record<string, unknown>>, search: string, csrfToken: string): string {
   const columns = uniqueColumns([resourceDef.idColumn, resourceDef.titleColumn, ...resourceDef.subtitleColumns, ...resourceDef.listColumns]);
   const header = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('');
   const body = rows.map((row) => {
     const id = String(row[resourceDef.idColumn] ?? '');
     const cells = columns.map((column) => `<td>${escapeHtml(formatCell(row[column]))}</td>`).join('');
-    return `<tr>${cells}<td><a href="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/edit">Editar</a> <form method="post" action="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/delete" class="inline"><button name="mode" value="soft">Desactivar</button><button name="mode" value="hard">Borrar</button></form>${resourceDef.key === 'users' ? userActionForms(id) : ''}</td></tr>`;
+    return `<tr>${cells}<td><a href="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/edit">Editar</a> <form method="post" action="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/delete" class="inline">${csrfInput(csrfToken)}<button name="mode" value="soft">Desactivar</button><button name="mode" value="hard">Borrar</button></form>${resourceDef.key === 'users' ? userActionForms(id, csrfToken) : ''}</td></tr>`;
   }).join('');
   return page(resourceDef.label, `<form method="get"><input name="q" value="${escapeHtml(search)}" placeholder="Buscar"><button type="submit">Buscar</button></form><table><thead><tr>${header}<th>Acciones</th></tr></thead><tbody>${body}</tbody></table>`);
 }
 
-function resourceEditPage(resourceDef: ResourceDef, row: Record<string, unknown>): string {
+function resourceEditPage(resourceDef: ResourceDef, row: Record<string, unknown>, csrfToken: string): string {
   if (resourceDef.editableFields.length === 0) {
     return page(resourceDef.label, '<p>Aquest recurs no te camps editables.</p>');
   }
   const fields = resourceDef.editableFields.map((field) => `<label>${escapeHtml(field.label)} <small>${escapeHtml(field.column)} · ${escapeHtml(field.type)}</small><textarea name="${escapeHtml(field.column)}">${escapeHtml(formatCell(row[field.column]))}</textarea></label>`).join('');
-  return page(resourceDef.label, `<form method="post">${fields}<button type="submit">Guardar</button></form>`);
+  return page(resourceDef.label, `<form method="post">${csrfInput(csrfToken)}${fields}<button type="submit">Guardar</button></form>`);
 }
 
-function userActionForms(id: string): string {
+function userActionForms(id: string, csrfToken: string): string {
   const actions = [
     ['approved', 'Aprobar'],
     ['pending', 'Pend.'],
@@ -893,7 +996,11 @@ function userActionForms(id: string): string {
     ['toggle-admin', 'Admin'],
     ['toggle-approved', 'Aprob.'],
   ];
-  return ` ${actions.map(([action, label]) => `<form method="post" action="/admin/resources/users/${encodeURIComponent(id)}/user-action" class="inline"><button name="action" value="${action}">${label}</button></form>`).join(' ')}`;
+  return ` ${actions.map(([action, label]) => `<form method="post" action="/admin/resources/users/${encodeURIComponent(id)}/user-action" class="inline">${csrfInput(csrfToken)}<button name="action" value="${action}">${label}</button></form>`).join(' ')}`;
+}
+
+function csrfInput(csrfToken: string): string {
+  return `<input type="hidden" name="csrfToken" value="${escapeHtml(csrfToken)}">`;
 }
 
 function formatCell(value: unknown): string {

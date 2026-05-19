@@ -51,6 +51,38 @@ Run:
 ./startup.sh
 ```
 
+## Admin HTTP server / panel web
+
+El panel web de apoyo del bot se llama **Admin HTTP server del bot**. No es una
+app frontend separada: vive dentro del servicio `gameclubtelegrambot.service` y
+esta implementado principalmente en:
+
+- `src/http/admin-http-server.ts`
+- `src/http/admin-http-server.test.ts`
+
+El servicio del bot levanta el servidor interno en `127.0.0.1:8787`. En
+despliegue publico, Nginx lo expone como reverse proxy en:
+
+- `https://cawa.hopto.org/` pagina de bienvenida publica.
+- `https://cawa.hopto.org/feedback` formulario publico de feedback.
+- `https://cawa.hopto.org/admin` panel admin protegido por la contraseña de
+  elevacion admin (`GAMECLUB_ADMIN_PASSWORD_HASH`).
+
+Nginx gestiona `80/tcp` y `443/tcp`; el backend `8787/tcp` debe permanecer
+interno y no abrirse en el router. El certificado HTTPS es de Let's Encrypt y
+lo renueva `certbot.timer`.
+
+Cuando modifiques este panel:
+
+- Mantén `/` como bienvenida publica, `/feedback` publico y `/admin` protegido.
+- Mantén las acciones admin POST con token CSRF y sesiones firmadas.
+- No expongas secretos ni hashes en HTML, logs o respuestas HTTP.
+- Actualiza `docs/feature-status.md` si cambia comportamiento visible o
+  capacidad operativa.
+- Valida al menos con `node --import tsx --test src/http/admin-http-server.test.ts`
+  y `npm run typecheck`, y luego ejecuta `./startup.sh`.
+- Comprueba despues `https://cawa.hopto.org/` y `https://cawa.hopto.org/admin`.
+
 ## Telegram progress messages
 
 For Telegram actions that can take medium or long time, use an editable progress

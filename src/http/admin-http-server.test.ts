@@ -122,6 +122,10 @@ test('admin http server exposes public feedback and protects admin pages', async
   await server.start();
   try {
     const baseUrl = `http://127.0.0.1:${port}`;
+    const welcomePage = await fetch(`${baseUrl}/`);
+    assert.equal(welcomePage.status, 200);
+    assert.match(await welcomePage.text(), /Benvingut al panell web de Cawa/);
+
     const feedbackPage = await fetch(`${baseUrl}/feedback`);
     assert.equal(feedbackPage.status, 200);
     assert.match(await feedbackPage.text(), /Enviar feedback/);
@@ -153,34 +157,45 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminHtml, /Runtime config/);
     assert.match(adminHtml, /users/);
     assert.match(adminHtml, /Restaurar/);
+    const csrfToken = extractCsrfToken(adminHtml);
 
     const serviceResponse = await fetch(`${baseUrl}/admin/service`, {
       method: 'POST',
       redirect: 'manual',
       headers: { cookie },
-      body: new URLSearchParams({ action: 'start' }),
+      body: new URLSearchParams({ csrfToken, action: 'start' }),
     });
     assert.equal(serviceResponse.status, 303);
     assert.deepEqual(serviceActions, ['start']);
+
+    const csrfFailureResponse = await fetch(`${baseUrl}/admin/service`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ action: 'restart' }),
+    });
+    assert.equal(csrfFailureResponse.status, 403);
 
     const restoreResponse = await fetch(`${baseUrl}/admin/restore`, {
       method: 'POST',
       redirect: 'manual',
       headers: { cookie },
-      body: new URLSearchParams({ backupFilePath: backupPath }),
+      body: new URLSearchParams({ csrfToken, backupFilePath: backupPath }),
     });
     assert.equal(restoreResponse.status, 303);
     assert.deepEqual(restored, [backupPath]);
 
     const resourcesPage = await fetch(`${baseUrl}/admin/resources/users`, { headers: { cookie } });
     assert.equal(resourcesPage.status, 200);
-    assert.match(await resourcesPage.text(), /Ada/);
+    const resourcesHtml = await resourcesPage.text();
+    assert.match(resourcesHtml, /Ada/);
+    assert.match(resourcesHtml, /csrfToken/);
 
     const editResponse = await fetch(`${baseUrl}/admin/resources/users/42/edit`, {
       method: 'POST',
       redirect: 'manual',
       headers: { cookie },
-      body: new URLSearchParams({ display_name: 'Ada Lovelace', is_admin: 'true' }),
+      body: new URLSearchParams({ csrfToken, display_name: 'Ada Lovelace', is_admin: 'true' }),
     });
     assert.equal(editResponse.status, 303);
     assert.ok(queries.some((query) => query.sql.includes('update "users" set')));
@@ -189,7 +204,7 @@ test('admin http server exposes public feedback and protects admin pages', async
       method: 'POST',
       redirect: 'manual',
       headers: { cookie },
-      body: new URLSearchParams({ action: 'approved' }),
+      body: new URLSearchParams({ csrfToken, action: 'approved' }),
     });
     assert.equal(userActionResponse.status, 303);
     assert.ok(queries.some((query) => query.sql.includes('insert into "user_status_audit_log"')));
@@ -201,7 +216,7 @@ test('admin http server exposes public feedback and protects admin pages', async
         method: 'POST',
         redirect: 'manual',
         headers: { cookie },
-        body: new URLSearchParams({ token: '123456789:ABCDEFGHIJKLMNOPQRST_uvwx' }),
+        body: new URLSearchParams({ csrfToken, token: '123456789:ABCDEFGHIJKLMNOPQRST_uvwx' }),
       });
       assert.equal(tokenResponse.status, 303);
       assert.match(await readFile(join(tmp, '.env'), 'utf8'), /GAMECLUB_TELEGRAM_TOKEN/);
@@ -217,7 +232,7 @@ test('admin http server exposes public feedback and protects admin pages', async
       method: 'POST',
       redirect: 'manual',
       headers: { cookie },
-      body: new URLSearchParams({ backupFilePath: backupPath }),
+      body: new URLSearchParams({ csrfToken, backupFilePath: backupPath }),
     });
     assert.equal(deleteBackupResponse.status, 303);
   } finally {
@@ -225,6 +240,12 @@ test('admin http server exposes public feedback and protects admin pages', async
     await rm(tmp, { recursive: true, force: true });
   }
 });
+
+function extractCsrfToken(html: string): string {
+  const match = html.match(/name="csrfToken" value="([^"]+)"/);
+  assert.ok(match?.[1]);
+  return match[1];
+}
 
 async function findFreePort(): Promise<number> {
   const server = createServer();
