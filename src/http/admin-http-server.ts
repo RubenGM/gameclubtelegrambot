@@ -525,13 +525,30 @@ async function routeRequest(options: {
 
   if (request.method === 'GET' && url.pathname === '/admin/member-signups') {
     const signups = await fetchMemberSignupRows(options.services);
-    sendHtml(response, 200, memberSignupsAdminPage(signups));
+    sendHtml(response, 200, memberSignupsAdminPage(signups, adminSession.csrfToken));
     return;
   }
 
   if (request.method === 'GET' && url.pathname === '/admin/news') {
     const newsSummary = await fetchNewsAdminSummary(options.services);
     sendHtml(response, 200, newsAdminPage(newsSummary));
+    return;
+  }
+
+  const memberSignupStatusMatch = url.pathname.match(/^\/admin\/member-signups\/(\d+)\/status$/);
+  if (request.method === 'POST' && memberSignupStatusMatch?.[1]) {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
+    const nextStatus = normalizeMemberSignupStatus(form.get('status') ?? '');
+    if (!nextStatus) {
+      sendHtml(response, 400, page({ title: 'Estado invalido', body: '<p>El estado solicitado no es valido.</p><p><a href="/admin/member-signups">Volver</a></p>', shell: 'admin' }));
+      return;
+    }
+    await updateMemberSignupStatus(options.services, Number(memberSignupStatusMatch[1]), nextStatus);
+    redirect(response, '/admin/member-signups');
     return;
   }
 
@@ -1582,6 +1599,31 @@ async function fetchMemberSignupRows(services: InfrastructureRuntimeServices): P
   }
 }
 
+function normalizeMemberSignupStatus(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  return ['pending', 'contacted', 'approved', 'rejected'].includes(normalized) ? normalized : null;
+}
+
+async function updateMemberSignupStatus(
+  services: InfrastructureRuntimeServices,
+  signupId: number,
+  status: string,
+): Promise<void> {
+  if (!Number.isInteger(signupId) || signupId <= 0) {
+    throw new Error('Invalid member signup id');
+  }
+  await services.database.pool.query(
+    `
+      update member_signup_requests
+      set status = $1,
+          resolved_at = case when $1 = 'pending' then null else now() end,
+          updated_at = now()
+      where id = $2
+    `,
+    [status, signupId],
+  );
+}
+
 async function fetchNewsAdminSummary(services: InfrastructureRuntimeServices): Promise<NewsAdminSummary> {
   const [enabledGroups, totalGroups] = await Promise.all([
     safeCount(services, 'select count(*)::int as count from news_groups where is_enabled = true'),
@@ -2365,16 +2407,25 @@ function feedbackAdminPage(entries: FeedbackEntry[]): string {
   });
 }
 
-function memberSignupsAdminPage(signups: AdminMemberSignupRow[]): string {
+function memberSignupsAdminPage(signups: AdminMemberSignupRow[], csrfToken: string): string {
   const body = signups.length === 0
     ? '<p>No hay solicitudes de alta web registradas.</p>'
-    : `<table><thead><tr><th>Fecha</th><th>Nombre</th><th>Telegram</th><th>Contacto</th><th>Estado</th><th>Avisos</th><th>Mensaje</th></tr></thead><tbody>${signups.map((signup) => `<tr><td>${escapeHtml(formatDateTime(signup.created_at))}</td><td>${escapeHtml(signup.full_name)}</td><td>${signup.telegram_alias ? `@${escapeHtml(signup.telegram_alias.replace(/^@/, ''))}` : ''}</td><td>${escapeHtml(signup.contact)}</td><td>${escapeHtml(signup.status)}</td><td>${escapeHtml(formatNotificationSummary(signup.notification_summary))}</td><td>${escapeHtml(signup.message ?? '')}</td></tr>`).join('')}</tbody></table>`;
+    : `<table><thead><tr><th>Fecha</th><th>Nombre</th><th>Telegram</th><th>Contacto</th><th>Estado</th><th>Avisos</th><th>Mensaje</th><th>Revision</th></tr></thead><tbody>${signups.map((signup) => `<tr><td>${escapeHtml(formatDateTime(signup.created_at))}</td><td>${escapeHtml(signup.full_name)}</td><td>${signup.telegram_alias ? `@${escapeHtml(signup.telegram_alias.replace(/^@/, ''))}` : ''}</td><td>${escapeHtml(signup.contact)}</td><td>${escapeHtml(signup.status)}</td><td>${escapeHtml(formatNotificationSummary(signup.notification_summary))}</td><td>${escapeHtml(signup.message ?? '')}</td><td>${renderMemberSignupStatusActions(signup, csrfToken)}</td></tr>`).join('')}</tbody></table>`;
 
   return page({
     title: 'Altas de socio',
     shell: 'admin',
     body,
   });
+}
+
+function renderMemberSignupStatusActions(signup: AdminMemberSignupRow, csrfToken: string): string {
+  const actions: Array<[string, string]> = signup.status === 'pending'
+    ? [['contacted', 'Contactada'], ['approved', 'Aprobada'], ['rejected', 'Rechazada']]
+    : [['pending', 'Reabrir']];
+  return actions
+    .map(([status, label]) => `<form method="post" action="/admin/member-signups/${signup.id}/status" class="inline">${csrfInput(csrfToken)}<button name="status" value="${escapeHtml(status)}" type="submit">${escapeHtml(label)}</button></form>`)
+    .join(' ');
 }
 
 function newsAdminPage(summary: NewsAdminSummary): string {

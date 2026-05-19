@@ -17,7 +17,7 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Informacion del club | Hecho | `/club` configurable desde `/admin/web` |
 | Horarios de actividades | Hecho | `/actividades` lista actividades futuras reales |
 | Catalogo publico | Hecho | `/catalogo` con busqueda, filtro por tipo y paginacion |
-| Alta web como socio | Hecho | `/alta`, tabla `member_signup_requests`, avisos privados a admins |
+| Alta web como socio | Hecho | `/alta`, tabla `member_signup_requests`, avisos privados a admins, revision de estado desde `/admin/member-signups` |
 | Feed `nuevos_miembros` | Hecho | Categoria de noticias, aliases y panel `/admin/news` |
 | Dashboard admin inicial | Hecho | `/admin` muestra estadisticas e informacion relevante |
 | Secciones admin separadas | Hecho | Hechas: web, actividades, catalogo, socios/usuarios, feedback, altas, noticias, backups, servicio/logs, configuracion tecnica y recursos avanzados |
@@ -32,7 +32,7 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | --- | --- | --- |
 | Password admin runtime | Hecho local/deploy | `config/.env` y `config/runtime.local.json` validan `cawabotadmin`; login HTTP local devuelve 303 a `/admin` tras `./startup.sh` |
 | Admin por dominios completos | Hecho | `/admin/activities`, `/admin/catalog` y `/admin/users` agrupan resumenes operativos y enlazan a recursos avanzados concretos |
-| Revision de altas web | Pendiente opcional | Implementar cambio de estado/resolucion desde `/admin/member-signups` si se quiere gestionar el ciclo completo desde web |
+| Revision de altas web | Hecho | `/admin/member-signups/:id/status` permite marcar solicitudes como contactadas, aprobadas, rechazadas o pendientes con CSRF |
 | Revision de feedback | Pendiente opcional | Añadir estado revisado/pendiente si el club quiere bandeja de seguimiento |
 | Comprobacion publica HTTPS | Pendiente | Verificar `https://cawa.hopto.org/`, `/admin` y nuevas rutas despues de `startup.sh` |
 | Validacion final del plan | Pendiente | Ejecutar suite acordada, revisar docs y crear commit final de cierre |

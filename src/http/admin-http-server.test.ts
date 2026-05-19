@@ -385,6 +385,25 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(memberSignupsAdminHtml, /Nueva Socia/);
     assert.match(memberSignupsAdminHtml, /nueva@example\.test/);
     assert.match(memberSignupsAdminHtml, /privados 1\/1 fallos/);
+    assert.match(memberSignupsAdminHtml, /Contactada/);
+
+    const memberSignupStatusResponse = await fetch(`${baseUrl}/admin/member-signups/1/status`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, status: 'contacted' }),
+    });
+    assert.equal(memberSignupStatusResponse.status, 303);
+    assert.equal(memberSignupStatusResponse.headers.get('location'), '/admin/member-signups');
+    assert.ok(queries.some((query) => query.sql.includes('update member_signup_requests') && query.params[0] === 'contacted' && query.params[1] === 1));
+
+    const invalidMemberSignupStatusResponse = await fetch(`${baseUrl}/admin/member-signups/1/status`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, status: 'deleted' }),
+    });
+    assert.equal(invalidMemberSignupStatusResponse.status, 400);
 
     const newsAdminPage = await fetch(`${baseUrl}/admin/news`, { headers: { cookie } });
     assert.equal(newsAdminPage.status, 200);
