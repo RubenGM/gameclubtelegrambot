@@ -475,8 +475,15 @@ async function routeRequest(options: {
 
   if (request.method === 'GET' && url.pathname === '/admin') {
     const status = await options.operations.readBackupConsoleStatus();
+    const dashboardStats = await fetchAdminDashboardStats(options.services);
+    sendHtml(response, 200, adminDashboardPage(status, dashboardStats, adminSession.csrfToken));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/admin/service') {
+    const status = await options.operations.readBackupConsoleStatus();
     const logs = await safeReadLogs(options.serviceControl);
-    sendHtml(response, 200, adminPage(status, logs, adminSession.csrfToken));
+    sendHtml(response, 200, adminMaintenancePage(status, logs, adminSession.csrfToken));
     return;
   }
 
@@ -1209,6 +1216,60 @@ interface PublicCatalogItemRow {
   play_time_minutes: number | null;
 }
 
+interface AdminDashboardStats {
+  approvedUsers: number;
+  pendingUsers: number;
+  adminUsers: number;
+  futureActivities: number;
+  activeCatalogItems: number;
+  activeLoans: number;
+  overdueLoans: number;
+  pendingMemberSignups: number;
+}
+
+async function fetchAdminDashboardStats(services: InfrastructureRuntimeServices): Promise<AdminDashboardStats> {
+  const [
+    approvedUsers,
+    pendingUsers,
+    adminUsers,
+    futureActivities,
+    activeCatalogItems,
+    activeLoans,
+    overdueLoans,
+    pendingMemberSignups,
+  ] = await Promise.all([
+    safeCount(services, "select count(*)::int as count from users where status = 'approved'"),
+    safeCount(services, "select count(*)::int as count from users where status = 'pending'"),
+    safeCount(services, "select count(*)::int as count from users where status = 'approved' and is_admin = true"),
+    safeCount(services, "select count(*)::int as count from schedule_events where lifecycle_status = 'scheduled' and starts_at >= now()"),
+    safeCount(services, "select count(*)::int as count from catalog_items where lifecycle_status = 'active'"),
+    safeCount(services, 'select count(*)::int as count from catalog_loans where returned_at is null'),
+    safeCount(services, 'select count(*)::int as count from catalog_loans where returned_at is null and due_at < now()'),
+    safeCount(services, "select count(*)::int as count from member_signup_requests where status = 'pending'"),
+  ]);
+
+  return {
+    approvedUsers,
+    pendingUsers,
+    adminUsers,
+    futureActivities,
+    activeCatalogItems,
+    activeLoans,
+    overdueLoans,
+    pendingMemberSignups,
+  };
+}
+
+async function safeCount(services: InfrastructureRuntimeServices, sql: string): Promise<number> {
+  try {
+    const result = await services.database.pool.query<{ count: number | string }>(sql);
+    const count = Number(result.rows[0]?.count ?? 0);
+    return Number.isFinite(count) ? count : 0;
+  } catch {
+    return 0;
+  }
+}
+
 async function fetchPublicScheduleEvents(
   services: InfrastructureRuntimeServices,
 ): Promise<PublicScheduleEventRow[]> {
@@ -1777,7 +1838,42 @@ function buildWebSettingsFromForm(form: URLSearchParams, currentSettings: WebSet
   };
 }
 
-function adminPage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, logs: string, csrfToken: string): string {
+function adminDashboardPage(
+  status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>,
+  stats: AdminDashboardStats,
+  csrfToken: string,
+): string {
+  const latestBackup = status.backups.latestBackup
+    ? `${escapeHtml(status.backups.latestBackup.fileName)} · ${formatBytes(status.backups.latestBackup.sizeBytes)}`
+    : 'Sin backups';
+  const database = status.database.state === 'connected'
+    ? `${escapeHtml(status.database.databaseName)} · ${status.database.totalTables} tablas`
+    : escapeHtml(status.database.message);
+
+  const metricRows = [
+    ['Servicio', `${status.service.serviceName}: ${status.service.state}`],
+    ['Base de datos', database],
+    ['Ultimo backup', latestBackup],
+    ['Socios aprobados', String(stats.approvedUsers)],
+    ['Pendientes Telegram', String(stats.pendingUsers)],
+    ['Admins', String(stats.adminUsers)],
+    ['Actividades futuras', String(stats.futureActivities)],
+    ['Catalogo activo', String(stats.activeCatalogItems)],
+    ['Prestamos activos', `${stats.activeLoans} (${stats.overdueLoans} vencidos)`],
+    ['Altas web pendientes', String(stats.pendingMemberSignups)],
+  ];
+  const metrics = metricRows
+    .map(([label, value]) => `<section><h2>${escapeHtml(label)}</h2><p>${value}</p></section>`)
+    .join('');
+
+  return page({
+    title: 'Admin',
+    shell: 'admin',
+    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/service">Servicio, backups y logs</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
+  });
+}
+
+function adminMaintenancePage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, logs: string, csrfToken: string): string {
   const databaseSummary = status.database.state === 'connected'
     ? `${escapeHtml(status.database.databaseName)} · ${status.database.totalTables} taules · ${formatBytes(status.database.sizeBytes)}`
     : escapeHtml(status.database.message);
@@ -1787,7 +1883,7 @@ function adminPage(status: Awaited<ReturnType<BackupOperations['readBackupConsol
   const archives = status.backups.archives.length === 0
     ? '<p>No hi ha backups disponibles.</p>'
     : `<ul>${status.backups.archives.map((archive) => `<li>${escapeHtml(archive.fileName)} · ${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)} <form method="post" action="/admin/restore" class="inline">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><button type="submit">Restaurar</button></form> <form method="post" action="/admin/delete-backup" class="inline">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><button type="submit">Eliminar</button></form></li>`).join('')}</ul>`;
-  return page({ title: 'Admin', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="stop">Aturar</button><button name="action" value="restart">Reiniciar</button></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Canviar token bot</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Backups</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup">${csrfInput(csrfToken)}<button type="submit">Crear backup complet</button></form>${archives}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
+  return page({ title: 'Servicio y logs', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="stop">Aturar</button><button name="action" value="restart">Reiniciar</button></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Canviar token bot</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Backups</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup">${csrfInput(csrfToken)}<button type="submit">Crear backup complet</button></form>${archives}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
 }
 
 function resourcesIndexPage(): string {

@@ -275,10 +275,18 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.equal(adminPage.status, 200);
     const adminHtml = await adminPage.text();
     assert.match(adminHtml, /gameclubtelegrambot\.service/);
-    assert.match(adminHtml, /Runtime config/);
-    assert.match(adminHtml, /users/);
-    assert.match(adminHtml, /Restaurar/);
+    assert.match(adminHtml, /Altas web pendientes/);
+    assert.match(adminHtml, /Servicio, backups y logs/);
+    assert.doesNotMatch(adminHtml, /Nou token de Telegram/);
+    assert.doesNotMatch(adminHtml, /Restaurar/);
     const csrfToken = extractCsrfToken(adminHtml);
+
+    const maintenancePage = await fetch(`${baseUrl}/admin/service`, { headers: { cookie } });
+    assert.equal(maintenancePage.status, 200);
+    const maintenanceHtml = await maintenancePage.text();
+    assert.match(maintenanceHtml, /Runtime config/);
+    assert.match(maintenanceHtml, /users/);
+    assert.match(maintenanceHtml, /Restaurar/);
 
     const webSettingsPage = await fetch(`${baseUrl}/admin/web`, { headers: { cookie } });
     assert.equal(webSettingsPage.status, 200);

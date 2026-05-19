@@ -26,7 +26,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría, incluyendo agenda, LFG, préstamos y el feed `nuevos_miembros` para altas web.              |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas y procesos de carga (DM y topic).                                              |
-| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, estado de servicio, gestión Debian y panel web con temas CAWA, assets controlados y secciones públicas.        |
+| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, estado de servicio, gestión Debian, dashboard web admin, temas CAWA, assets y secciones públicas.             |
 | Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 ```
@@ -283,6 +283,7 @@ Implementado:
 - TUI `npm run backup:console`.
 - Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
 - Panel web admin protegido por contraseña de elevación, sesión firmada, token CSRF en acciones POST y límite de intentos de login por IP.
+- `/admin` abre en un dashboard de estado y métricas principales; la pantalla cruda de servicio/config/backups/logs queda separada en `/admin/service`.
 - Configuración de la web pública desde `/admin/web`, persistida en `app_metadata`, con marca CAWA Girona, temas allowlisted, enlaces destacados, contenido de `/club` y referencias a logo/hero/imagenes auxiliares.
 - Assets públicos de portada servidos desde `/assets/...`, guardados bajo `data/http-assets/` con nombre generado, validación de MIME/extensión y límite de 2 MiB.
 - Secciones públicas iniciales: `/actividades` lista próximas actividades programadas y `/catalogo` lista artículos activos con búsqueda y filtro básico por tipo.
