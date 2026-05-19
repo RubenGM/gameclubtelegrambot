@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { mkdir, appendFile, readFile, unlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, extname, resolve } from 'node:path';
 
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
@@ -75,6 +75,7 @@ interface ResourceDef {
 
 const sessionCookieName = 'gameclub_admin_session';
 const maxBodyBytes = 64 * 1024;
+const maxAssetUploadBytes = 2 * 1024 * 1024;
 const defaultHttpServerConfig = {
   enabled: true,
   host: '127.0.0.1',
@@ -237,6 +238,7 @@ export function createAdminHttpServer({
   const control = serviceControl ?? createServiceControl({ serviceName });
   const operations = backupOperations ?? createBackupOperations({ appRoot, backupDir, serviceName, serviceControl: control });
   const feedbackFile = resolve(appRoot, httpConfig.feedbackFile);
+  const webAssetsDir = resolve(appRoot, 'data/http-assets');
   const settingsStore = webSettingsStore ?? createAppMetadataWebSettingsStore({
     storage: createDatabaseAppMetadataSessionStorage({ database: services.database.db }),
   });
@@ -257,6 +259,7 @@ export function createAdminHttpServer({
         serviceControl: control,
         feedbackFile,
         webSettingsStore: settingsStore,
+        webAssetsDir,
       });
     } catch (error) {
       logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Admin HTTP request failed');
@@ -316,9 +319,16 @@ async function routeRequest(options: {
   serviceControl: ServiceControl;
   feedbackFile: string;
   webSettingsStore: WebSettingsStore;
+  webAssetsDir: string;
 }): Promise<void> {
   const { request, response } = options;
   const url = new URL(request.url ?? '/', 'http://localhost');
+
+  const assetMatch = url.pathname.match(/^\/assets\/([A-Za-z0-9][A-Za-z0-9._-]{0,160})$/);
+  if (request.method === 'GET' && assetMatch?.[1]) {
+    await sendWebAsset(response, options.webAssetsDir, assetMatch[1]);
+    return;
+  }
 
   if (request.method === 'GET' && url.pathname === '/') {
     const settings = await options.webSettingsStore.load();
@@ -433,7 +443,23 @@ async function routeRequest(options: {
       sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
       return;
     }
-    await options.webSettingsStore.save(buildWebSettingsFromForm(form));
+    const currentSettings = await options.webSettingsStore.load();
+    await options.webSettingsStore.save(buildWebSettingsFromForm(form, currentSettings));
+    redirect(response, '/admin/web');
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/admin/web/assets') {
+    const assetActionCompleted = await handleWebAssetAction({
+      request,
+      response,
+      session: adminSession,
+      webAssetsDir: options.webAssetsDir,
+      webSettingsStore: options.webSettingsStore,
+    });
+    if (!assetActionCompleted) {
+      return;
+    }
     redirect(response, '/admin/web');
     return;
   }
@@ -571,17 +597,89 @@ async function routeRequest(options: {
 }
 
 async function readForm(request: IncomingMessage): Promise<URLSearchParams> {
+  const body = await readRequestBody(request, maxBodyBytes);
+  return new URLSearchParams(body.toString('utf8'));
+}
+
+async function readRequestBody(request: IncomingMessage, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > maxBodyBytes) {
+    if (total > maxBytes) {
       throw new Error('Request body too large');
     }
     chunks.push(buffer);
   }
-  return new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
+  return Buffer.concat(chunks);
+}
+
+interface MultipartFile {
+  filename: string;
+  contentType: string;
+  content: Buffer;
+}
+
+interface MultipartForm {
+  fields: URLSearchParams;
+  files: Map<string, MultipartFile>;
+}
+
+async function readMultipartForm(request: IncomingMessage): Promise<MultipartForm> {
+  const contentType = String(request.headers['content-type'] ?? '');
+  const boundary = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/)?.[1] ?? contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/)?.[2];
+  if (!boundary) {
+    throw new Error('Multipart boundary missing');
+  }
+
+  return parseMultipartForm(await readRequestBody(request, maxAssetUploadBytes), boundary);
+}
+
+function parseMultipartForm(body: Buffer, boundary: string): MultipartForm {
+  const fields = new URLSearchParams();
+  const files = new Map<string, MultipartFile>();
+  const boundaryBuffer = Buffer.from(`--${boundary}`);
+  let cursor = body.indexOf(boundaryBuffer);
+
+  while (cursor !== -1) {
+    let partStart = cursor + boundaryBuffer.length;
+    if (body[partStart] === 45 && body[partStart + 1] === 45) {
+      break;
+    }
+    if (body[partStart] === 13 && body[partStart + 1] === 10) {
+      partStart += 2;
+    }
+    const nextBoundary = body.indexOf(boundaryBuffer, partStart);
+    if (nextBoundary === -1) {
+      break;
+    }
+
+    let part = body.subarray(partStart, nextBoundary);
+    if (part.length >= 2 && part[part.length - 2] === 13 && part[part.length - 1] === 10) {
+      part = part.subarray(0, part.length - 2);
+    }
+
+    const headerEnd = part.indexOf(Buffer.from('\r\n\r\n'));
+    if (headerEnd !== -1) {
+      const header = part.subarray(0, headerEnd).toString('utf8');
+      const content = part.subarray(headerEnd + 4);
+      const disposition = header.match(/^content-disposition:\s*([^\r\n]+)/im)?.[1] ?? '';
+      const name = disposition.match(/name="([^"]+)"/)?.[1];
+      const filename = disposition.match(/filename="([^"]*)"/)?.[1];
+      const partContentType = header.match(/^content-type:\s*([^\r\n]+)/im)?.[1]?.trim() ?? 'application/octet-stream';
+
+      if (name && filename !== undefined) {
+        files.set(name, { filename, contentType: partContentType, content });
+      } else if (name) {
+        fields.append(name, content.toString('utf8'));
+      }
+    }
+
+    cursor = nextBoundary;
+  }
+
+  return { fields, files };
 }
 
 async function saveFeedback(filePath: string, input: Record<string, unknown>): Promise<void> {
@@ -591,6 +689,162 @@ async function saveFeedback(filePath: string, input: Record<string, unknown>): P
   }
   await mkdir(dirname(filePath), { recursive: true });
   await appendFile(filePath, `${JSON.stringify({ ...input, message })}\n`, 'utf8');
+}
+
+async function handleWebAssetAction({
+  request,
+  response,
+  session,
+  webAssetsDir,
+  webSettingsStore,
+}: {
+  request: IncomingMessage;
+  response: ServerResponse;
+  session: Session;
+  webAssetsDir: string;
+  webSettingsStore: WebSettingsStore;
+}): Promise<boolean> {
+  const contentType = String(request.headers['content-type'] ?? '');
+  const isMultipart = contentType.toLowerCase().startsWith('multipart/form-data');
+  const multipart = isMultipart ? await readMultipartForm(request) : null;
+  const fields = multipart?.fields ?? await readForm(request);
+  const files = multipart?.files ?? new Map<string, MultipartFile>();
+
+  if (!isValidCsrf(fields, session)) {
+    sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+    return false;
+  }
+
+  const target = parseWebAssetTarget(fields.get('target') ?? '');
+  if (!target) {
+    sendHtml(response, 400, page('Asset invalid', '<p>El destino de la imagen no es valido.</p>'));
+    return false;
+  }
+
+  const settings = await webSettingsStore.load();
+  if ((fields.get('action') ?? '') === 'clear') {
+    await webSettingsStore.save(updateWebSettingsAsset(settings, target, null));
+    return true;
+  }
+
+  if (!isMultipart) {
+    sendHtml(response, 400, page('Asset invalid', '<p>La subida debe enviarse como multipart/form-data.</p>'));
+    return false;
+  }
+
+  const file = files.get('asset');
+  if (!file || file.content.length === 0) {
+    sendHtml(response, 400, page('Asset invalid', '<p>Selecciona una imagen para subir.</p>'));
+    return false;
+  }
+
+  let assetPath: string;
+  try {
+    assetPath = await saveWebAsset(webAssetsDir, target, file);
+  } catch {
+    sendHtml(response, 400, page('Asset invalid', '<p>La imagen debe ser PNG, JPG, WEBP o GIF y no puede superar 2 MiB.</p>'));
+    return false;
+  }
+  await webSettingsStore.save(updateWebSettingsAsset(settings, target, assetPath));
+  return true;
+}
+
+type WebAssetTarget = 'logo' | 'hero' | `gallery${1 | 2 | 3}`;
+
+function parseWebAssetTarget(value: string): WebAssetTarget | null {
+  return value === 'logo' || value === 'hero' || value === 'gallery1' || value === 'gallery2' || value === 'gallery3'
+    ? value
+    : null;
+}
+
+async function saveWebAsset(webAssetsDir: string, target: WebAssetTarget, file: MultipartFile): Promise<string> {
+  const allowedExtensionsByMime: Record<string, string[]> = {
+    'image/png': ['.png'],
+    'image/jpeg': ['.jpg', '.jpeg'],
+    'image/webp': ['.webp'],
+    'image/gif': ['.gif'],
+  };
+  const normalizedMime = file.contentType.toLowerCase();
+  const allowedExtensions = allowedExtensionsByMime[normalizedMime];
+  const originalExtension = extname(file.filename).toLowerCase();
+  if (!allowedExtensions || !allowedExtensions.includes(originalExtension)) {
+    throw new Error('Unsupported web asset type');
+  }
+  if (file.content.length === 0 || file.content.length > maxAssetUploadBytes) {
+    throw new Error('Invalid web asset size');
+  }
+
+  const extension = originalExtension === '.jpeg' ? '.jpg' : originalExtension;
+  const fileName = `${target}-${Date.now()}-${randomBytes(6).toString('hex')}${extension}`;
+  const filePath = resolve(webAssetsDir, fileName);
+  if (!filePath.startsWith(`${webAssetsDir}/`)) {
+    throw new Error('Invalid web asset path');
+  }
+
+  await mkdir(webAssetsDir, { recursive: true });
+  await writeFile(filePath, file.content);
+  return `/assets/${fileName}`;
+}
+
+function updateWebSettingsAsset(settings: WebSettings, target: WebAssetTarget, assetPath: string | null): WebSettings {
+  if (target === 'logo') {
+    return { ...settings, home: { ...settings.home, logoAsset: assetPath } };
+  }
+  if (target === 'hero') {
+    return { ...settings, home: { ...settings.home, heroAsset: assetPath } };
+  }
+
+  const galleryAssets = [...settings.home.galleryAssets];
+  const index = Number(target.replace('gallery', '')) - 1;
+  if (assetPath) {
+    galleryAssets[index] = assetPath;
+  } else {
+    galleryAssets.splice(index, 1);
+  }
+
+  return {
+    ...settings,
+    home: {
+      ...settings.home,
+      galleryAssets: galleryAssets.filter((item) => item && item.trim().length > 0),
+    },
+  };
+}
+
+async function sendWebAsset(response: ServerResponse, webAssetsDir: string, fileName: string): Promise<void> {
+  const filePath = resolve(webAssetsDir, fileName);
+  if (!filePath.startsWith(`${webAssetsDir}/`)) {
+    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>'));
+    return;
+  }
+
+  try {
+    const content = await readFile(filePath);
+    response.writeHead(200, {
+      'Content-Type': webAssetContentType(fileName),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    });
+    response.end(content);
+  } catch {
+    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>'));
+  }
+}
+
+function webAssetContentType(fileName: string): string {
+  const extension = extname(fileName).toLowerCase();
+  if (extension === '.png') {
+    return 'image/png';
+  }
+  if (extension === '.jpg' || extension === '.jpeg') {
+    return 'image/jpeg';
+  }
+  if (extension === '.webp') {
+    return 'image/webp';
+  }
+  if (extension === '.gif') {
+    return 'image/gif';
+  }
+  return 'application/octet-stream';
 }
 
 function createSession(sessions: Map<string, Session>): Session {
@@ -1093,10 +1347,23 @@ function loginPage(error = ''): string {
 }
 
 function welcomePage(settings: WebSettings): string {
+  const hero = settings.home.heroAsset
+    ? `<img class="hero-image" src="${escapeHtml(settings.home.heroAsset)}" alt="${escapeHtml(settings.brand.name)}" loading="lazy">`
+    : '';
+  const safeFeaturedLinks = settings.home.featuredLinks.filter((link) => link.label.trim().length > 0 && isSafePublicHref(link.url));
+  const featuredLinks = safeFeaturedLinks.length > 0
+    ? `<div class="featured-links">${safeFeaturedLinks.map((link) => `<a href="${escapeHtml(link.url)}">${escapeHtml(link.label)}</a>`).join('')}</div>`
+    : '';
+  const gallery = settings.home.galleryAssets.length > 0
+    ? `<div class="gallery">${settings.home.galleryAssets.map((asset) => `<img src="${escapeHtml(asset)}" alt="" loading="lazy">`).join('')}</div>`
+    : '';
+
   return page({
     title: settings.brand.name,
     themeName: settings.theme,
-    body: `<p><strong>${escapeHtml(settings.brand.headline)}</strong></p><p>${escapeHtml(settings.home.intro)}</p><p class="row"><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a><a href="/club">Informacion del club</a><a href="/feedback">Enviar feedback</a><a href="/admin">Administracion</a></p>`,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
+    body: `${hero}<p><strong>${escapeHtml(settings.brand.headline)}</strong></p><p>${escapeHtml(settings.home.intro)}</p>${featuredLinks}${gallery}`,
   });
 }
 
@@ -1115,6 +1382,8 @@ function clubPage(settings: WebSettings): string {
   return page({
     title: 'Informacion del club',
     themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
     body: `<p>${escapeHtml(settings.clubInfo.summary)}</p>${details}`,
   });
 }
@@ -1132,6 +1401,8 @@ function activitiesPage(settings: WebSettings, events: PublicScheduleEventRow[])
   return page({
     title: 'Actividades',
     themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
     body,
   });
 }
@@ -1157,6 +1428,8 @@ function catalogPage(
   return page({
     title: 'Catalogo',
     themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
     body: `${form}${list}`,
   });
 }
@@ -1165,13 +1438,45 @@ function webSettingsPage(settings: WebSettings, csrfToken: string): string {
   const themeOptions = listHttpThemes()
     .map((theme) => `<option value="${escapeHtml(theme.name)}"${theme.name === settings.theme ? ' selected' : ''}>${escapeHtml(theme.label)}</option>`)
     .join('');
+  const featuredLinkFields = Array.from({ length: 6 }, (_, index) => {
+    const link = settings.home.featuredLinks[index];
+    const labelNumber = index + 1;
+    return `<div class="asset-panel"><label>Texto enlace ${labelNumber}<input name="featuredLabel${labelNumber}" value="${escapeHtml(link?.label ?? '')}" maxlength="80"></label><label>URL enlace ${labelNumber}<input name="featuredUrl${labelNumber}" value="${escapeHtml(link?.url ?? '')}" maxlength="240" placeholder="/actividades"></label></div>`;
+  }).join('');
+  const assetPanels = [
+    renderAssetPanel('logo', 'Logo principal', settings.home.logoAsset, csrfToken),
+    renderAssetPanel('hero', 'Imagen de portada', settings.home.heroAsset, csrfToken),
+    renderAssetPanel('gallery1', 'Imagen auxiliar 1', settings.home.galleryAssets[0] ?? null, csrfToken),
+    renderAssetPanel('gallery2', 'Imagen auxiliar 2', settings.home.galleryAssets[1] ?? null, csrfToken),
+    renderAssetPanel('gallery3', 'Imagen auxiliar 3', settings.home.galleryAssets[2] ?? null, csrfToken),
+  ].join('');
 
   return page({
     title: 'Web publica',
     shell: 'admin',
     themeName: settings.theme,
-    body: `<form method="post" action="/admin/web">${csrfInput(csrfToken)}<section><h2>Marca</h2><label>Nombre publico<input name="brandName" value="${escapeHtml(settings.brand.name)}" maxlength="120" required></label><label>Titular<input name="brandHeadline" value="${escapeHtml(settings.brand.headline)}" maxlength="180" required></label><label>Color principal<input name="primaryColor" value="${escapeHtml(settings.brand.primaryColor)}" pattern="#[0-9a-fA-F]{6}" required></label><label>Tema<select name="theme">${themeOptions}</select></label></section><section><h2>Portada</h2><label>Texto introductorio<textarea name="homeIntro" maxlength="1000" required>${escapeHtml(settings.home.intro)}</textarea></label></section><section><h2>Informacion del club</h2><label>Resumen<textarea name="clubSummary" maxlength="2000" required>${escapeHtml(settings.clubInfo.summary)}</textarea></label><label>Direccion<input name="clubAddress" value="${escapeHtml(settings.clubInfo.address)}" maxlength="240"></label><label>Horarios<textarea name="clubOpeningHours" maxlength="500">${escapeHtml(settings.clubInfo.openingHours)}</textarea></label><label>Contacto<input name="clubContact" value="${escapeHtml(settings.clubInfo.contact)}" maxlength="240"></label><label>Normas basicas<textarea name="clubRules" maxlength="2000">${escapeHtml(settings.clubInfo.rules)}</textarea></label></section><p class="row"><button type="submit">Guardar web publica</button><a href="/">Ver portada</a><a href="/club">Ver club</a></p></form>`,
+    body: `<form method="post" action="/admin/web">${csrfInput(csrfToken)}<section><h2>Marca</h2><label>Nombre publico<input name="brandName" value="${escapeHtml(settings.brand.name)}" maxlength="120" required></label><label>Titular<input name="brandHeadline" value="${escapeHtml(settings.brand.headline)}" maxlength="180" required></label><label>Color principal<input name="primaryColor" value="${escapeHtml(settings.brand.primaryColor)}" pattern="#[0-9a-fA-F]{6}" required></label><label>Tema<select name="theme">${themeOptions}</select></label></section><section><h2>Portada</h2><label>Texto introductorio<textarea name="homeIntro" maxlength="1000" required>${escapeHtml(settings.home.intro)}</textarea></label><h3>Enlaces destacados</h3><div class="asset-grid">${featuredLinkFields}</div></section><section><h2>Informacion del club</h2><label>Resumen<textarea name="clubSummary" maxlength="2000" required>${escapeHtml(settings.clubInfo.summary)}</textarea></label><label>Direccion<input name="clubAddress" value="${escapeHtml(settings.clubInfo.address)}" maxlength="240"></label><label>Horarios<textarea name="clubOpeningHours" maxlength="500">${escapeHtml(settings.clubInfo.openingHours)}</textarea></label><label>Contacto<input name="clubContact" value="${escapeHtml(settings.clubInfo.contact)}" maxlength="240"></label><label>Normas basicas<textarea name="clubRules" maxlength="2000">${escapeHtml(settings.clubInfo.rules)}</textarea></label></section><p class="row"><button type="submit">Guardar web publica</button><a href="/">Ver portada</a><a href="/club">Ver club</a></p></form><section><h2>Imagenes</h2><p>PNG, JPG, WEBP o GIF. Maximo 2 MiB por archivo.</p><div class="asset-grid">${assetPanels}</div></section>`,
   });
+}
+
+function renderAssetPanel(target: WebAssetTarget, label: string, assetPath: string | null, csrfToken: string): string {
+  const preview = assetPath
+    ? `<img class="asset-preview" src="${escapeHtml(assetPath)}" alt="${escapeHtml(label)}" loading="lazy"><p><code>${escapeHtml(assetPath)}</code></p><form method="post" action="/admin/web/assets">${csrfInput(csrfToken)}<input type="hidden" name="target" value="${escapeHtml(target)}"><button name="action" value="clear" type="submit">Quitar</button></form>`
+    : '<p>No configurada.</p>';
+  return `<div class="asset-panel"><h3>${escapeHtml(label)}</h3>${preview}<form method="post" action="/admin/web/assets" enctype="multipart/form-data">${csrfInput(csrfToken)}<input type="hidden" name="target" value="${escapeHtml(target)}"><input type="file" name="asset" accept="image/png,image/jpeg,image/webp,image/gif" required><button type="submit">Subir imagen</button></form></div>`;
+}
+
+function isSafePublicHref(value: string): boolean {
+  if (/^\/(?!\/)[A-Za-z0-9/_?=&%#.-]*$/.test(value)) {
+    return true;
+  }
+
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function renderCatalogType(itemType: string): string {
@@ -1224,7 +1529,7 @@ function formatDateTime(value: Date | string): string {
   }).format(date);
 }
 
-function buildWebSettingsFromForm(form: URLSearchParams): WebSettings {
+function buildWebSettingsFromForm(form: URLSearchParams, currentSettings: WebSettings): WebSettings {
   return {
     theme: form.get('theme') as WebSettings['theme'],
     brand: {
@@ -1234,6 +1539,13 @@ function buildWebSettingsFromForm(form: URLSearchParams): WebSettings {
     },
     home: {
       intro: form.get('homeIntro') ?? '',
+      logoAsset: currentSettings.home.logoAsset,
+      heroAsset: currentSettings.home.heroAsset,
+      galleryAssets: currentSettings.home.galleryAssets,
+      featuredLinks: Array.from({ length: 6 }, (_, index) => ({
+        label: form.get(`featuredLabel${index + 1}`) ?? '',
+        url: form.get(`featuredUrl${index + 1}`) ?? '',
+      })),
     },
     clubInfo: {
       summary: form.get('clubSummary') ?? '',

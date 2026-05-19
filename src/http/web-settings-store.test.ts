@@ -12,6 +12,8 @@ test('createAppMetadataWebSettingsStore returns brand defaults when unset', asyn
   assert.equal(settings.brand.name, 'CAWA Girona');
   assert.equal(settings.brand.primaryColor, '#184b1f');
   assert.equal(settings.theme, 'classic');
+  assert.equal(settings.home.logoAsset, null);
+  assert.equal(settings.home.featuredLinks[0]?.url, '/actividades');
 });
 
 test('createAppMetadataWebSettingsStore saves normalized settings', async () => {
@@ -26,6 +28,16 @@ test('createAppMetadataWebSettingsStore saves normalized settings', async () => 
       headline: '  Mesa abierta  ',
       primaryColor: '#BAD',
     },
+    home: {
+      intro: defaultWebSettings.home.intro,
+      logoAsset: '/assets/logo-test.png',
+      heroAsset: '../secret.png',
+      galleryAssets: ['/assets/mesa.webp', '/tmp/private.jpg'],
+      featuredLinks: [
+        { label: ' Agenda ', url: '/actividades' },
+        { label: 'Bad', url: 'javascript:alert(1)' },
+      ],
+    },
   });
 
   const loaded = await store.load();
@@ -33,6 +45,10 @@ test('createAppMetadataWebSettingsStore saves normalized settings', async () => 
   assert.equal(loaded.brand.name, 'Club CAWA');
   assert.equal(loaded.brand.headline, 'Mesa abierta');
   assert.equal(loaded.brand.primaryColor, '#184b1f');
+  assert.equal(loaded.home.logoAsset, '/assets/logo-test.png');
+  assert.equal(loaded.home.heroAsset, null);
+  assert.deepEqual(loaded.home.galleryAssets, ['/assets/mesa.webp']);
+  assert.deepEqual(loaded.home.featuredLinks, [{ label: 'Agenda', url: '/actividades' }]);
 });
 
 test('parseWebSettings falls back safely on invalid payloads and theme names', () => {

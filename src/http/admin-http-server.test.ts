@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { createAdminHttpServer } from './admin-http-server.js';
 import { hashSecret } from '../security/password-hash.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
-import { defaultWebSettings, type WebSettings, type WebSettingsStore } from './web-settings-store.js';
+import { defaultWebSettings, normalizeWebSettings, type WebSettings, type WebSettingsStore } from './web-settings-store.js';
 
 test('admin http server exposes public feedback and protects admin pages', async () => {
   const tmp = await mkdtemp(join(tmpdir(), 'gameclub-http-'));
@@ -222,6 +222,37 @@ test('admin http server exposes public feedback and protects admin pages', async
     const webSettingsHtml = await webSettingsPage.text();
     assert.match(webSettingsHtml, /Web publica/);
     assert.match(webSettingsHtml, /CAWA Girona/);
+    assert.match(webSettingsHtml, /enctype="multipart\/form-data"/);
+    assert.match(webSettingsHtml, /Imagenes/);
+
+    const uploadBoundary = '----gameclub-test-boundary';
+    const uploadLogoResponse = await fetch(`${baseUrl}/admin/web/assets`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie, 'content-type': `multipart/form-data; boundary=${uploadBoundary}` },
+      body: buildMultipartBody(uploadBoundary, { csrfToken, target: 'logo' }, {
+        name: 'asset',
+        filename: 'logo.png',
+        contentType: 'image/png',
+        content: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      }) as unknown as BodyInit,
+    });
+    assert.equal(uploadLogoResponse.status, 303);
+    assert.equal(uploadLogoResponse.headers.get('location'), '/admin/web');
+
+    const invalidUploadBoundary = '----gameclub-invalid-upload';
+    const invalidUploadResponse = await fetch(`${baseUrl}/admin/web/assets`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie, 'content-type': `multipart/form-data; boundary=${invalidUploadBoundary}` },
+      body: buildMultipartBody(invalidUploadBoundary, { csrfToken, target: 'hero' }, {
+        name: 'asset',
+        filename: 'note.txt',
+        contentType: 'text/plain',
+        content: Buffer.from('not an image'),
+      }) as unknown as BodyInit,
+    });
+    assert.equal(invalidUploadResponse.status, 400);
 
     const saveWebSettingsResponse = await fetch(`${baseUrl}/admin/web`, {
       method: 'POST',
@@ -239,6 +270,10 @@ test('admin http server exposes public feedback and protects admin pages', async
         clubOpeningHours: 'Viernes tarde',
         clubContact: 'club@example.test',
         clubRules: 'Respeta el local',
+        featuredLabel1: 'Feedback publico',
+        featuredUrl1: '/feedback?from=home',
+        featuredLabel2: 'No se guarda',
+        featuredUrl2: 'javascript:alert(1)',
       }),
     });
     assert.equal(saveWebSettingsResponse.status, 303);
@@ -251,6 +286,14 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(updatedWelcomeHtml, /data-theme="tabletop"/);
     assert.doesNotMatch(updatedWelcomeHtml, /<b>Intro escapada<\/b>/);
     assert.match(updatedWelcomeHtml, /&lt;b&gt;Intro escapada&lt;\/b&gt;/);
+    assert.match(updatedWelcomeHtml, /class="brand-logo"/);
+    assert.match(updatedWelcomeHtml, /href="\/feedback\?from=home"/);
+    assert.doesNotMatch(updatedWelcomeHtml, /javascript:alert/);
+    const logoPath = updatedWelcomeHtml.match(/src="(\/assets\/logo-[^"]+\.png)"/)?.[1];
+    assert.ok(logoPath);
+    const logoResponse = await fetch(`${baseUrl}${logoPath}`);
+    assert.equal(logoResponse.status, 200);
+    assert.equal(logoResponse.headers.get('content-type'), 'image/png');
 
     const serviceResponse = await fetch(`${baseUrl}/admin/service`, {
       method: 'POST',
@@ -340,6 +383,21 @@ function extractCsrfToken(html: string): string {
   return match[1];
 }
 
+function buildMultipartBody(
+  boundary: string,
+  fields: Record<string, string>,
+  file: { name: string; filename: string; contentType: string; content: Buffer },
+): Buffer {
+  const chunks: Buffer[] = [];
+  for (const [name, value] of Object.entries(fields)) {
+    chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`, 'utf8'));
+  }
+  chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${file.name}"; filename="${file.filename}"\r\nContent-Type: ${file.contentType}\r\n\r\n`, 'utf8'));
+  chunks.push(file.content);
+  chunks.push(Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8'));
+  return Buffer.concat(chunks);
+}
+
 function createMemoryWebSettingsStore(): WebSettingsStore {
   let settings: WebSettings = defaultWebSettings;
 
@@ -348,7 +406,7 @@ function createMemoryWebSettingsStore(): WebSettingsStore {
       return settings;
     },
     async save(nextSettings) {
-      settings = nextSettings;
+      settings = normalizeWebSettings(nextSettings);
     },
   };
 }
