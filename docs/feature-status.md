@@ -16,7 +16,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Feature                                      | Estado               | Lectura actual                                                                                                                       |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 | Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, canarios/reintentos Telegram, systemd/tray y backups.           |
-| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, gestión detallada de usuarios/admins, avisos privados, `/status` y `/restart` operativo.          |
+| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, gestión detallada, avisos privados, `/status`, `/restart` y alta web inicial en `/alta`.          |
 | Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto y ayuda contextual por sección activa.                                                          |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
@@ -48,7 +48,7 @@ Implementado:
 - Canario de salud de Telegram API: detecta fallos transitorios, mantiene estado degradado temporal y añade aviso a mensajes de texto mientras dura la incidencia.
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
 - Herramienta `npm run opencode:image` y wrapper `scripts/opencode-cawa.sh` para enviar prompts/imagenes a OpenCode con el usuario operador; usa `openai/gpt-5.4-mini` por defecto y esta pensada como paso previo a búsquedas BGG o traducciones asistidas, no como fuente de metadatos.
-- Panel HTTP integrado en el servicio del bot (`src/http/admin-http-server.ts`): portada pública en `/`, feedback público en `/feedback`, información del club en `/club`, actividades futuras en `/actividades`, catálogo público en `/catalogo`, admin protegido en `/admin` y edición de marca/contenido/tema, enlaces destacados y assets de portada en `/admin/web`.
+- Panel HTTP integrado en el servicio del bot (`src/http/admin-http-server.ts`): portada pública en `/`, feedback público en `/feedback`, alta de socio en `/alta`, información del club en `/club`, actividades futuras en `/actividades`, catálogo público en `/catalogo`, admin protegido en `/admin` y edición de marca/contenido/tema, enlaces destacados y assets de portada en `/admin/web`.
 - El despliegue público usa Nginx como reverse proxy hacia `127.0.0.1:8787` con HTTPS de Let's Encrypt para `cawa.hopto.org`.
 
 Riesgos o pendientes:
@@ -70,6 +70,7 @@ Implementado:
 - La gestion de rol admin escribe auditoria en `user_permission_audit_log` y `audit_log`.
 - `/elevate_admin` eleva a admin usando hash de password runtime.
 - `/subscribe_requests` y `/unsubscribe_requests` permiten avisos privados de nuevas solicitudes.
+- `/alta` registra solicitudes de alta desde la web en `member_signup_requests`, avisa por privado a admins aprobados y publica en grupos suscritos al feed `nuevos_miembros`.
 - Las revocaciones notifican al usuario afectado y a admins suscritos.
 - Persistencia y auditoria en `users`, `user_status_audit_log`, `user_permission_assignments` y `user_permission_audit_log`.
 
@@ -206,7 +207,7 @@ Implementado:
 - Persistencia de grupos habilitados y suscripciones por categoria.
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
 - Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs y altas web (`nuevos_miembros`).
-- Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem).
+- Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem y altas web => `nuevos_miembros`).
 
 Pendiente:
 

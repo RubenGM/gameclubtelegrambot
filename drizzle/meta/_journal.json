@@ -204,6 +204,13 @@
       "when": 1779199200000,
       "tag": "0028_hide_catalog_media_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1779213857861,
+      "tag": "0029_fair_alex_wilder",
+      "breakpoints": true
     }
   ]
 }

@@ -10,8 +10,10 @@ import { createBackupOperations, type BackupOperations } from '../operations/bac
 import { createServiceControl, type ServiceControl } from '../operations/service-control.js';
 import { verifySecret } from '../security/verify-password-hash.js';
 import { createDatabaseAppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
+import { newMembersNewsGroupCategory } from '../news/news-group-catalog.js';
 import { escapeHtml, renderHttpPage, type RenderHttpPageOptions } from './http-pages.js';
 import { listHttpThemes } from './http-theme.js';
+import { createDatabaseMemberSignupStore, type MemberSignupRecord, type MemberSignupStore } from './member-signup-store.js';
 import { createAppMetadataWebSettingsStore, type WebSettings, type WebSettingsStore } from './web-settings-store.js';
 
 export interface AdminHttpServer {
@@ -32,6 +34,8 @@ export interface CreateAdminHttpServerOptions {
   backupOperations?: BackupOperations;
   serviceControl?: ServiceControl;
   webSettingsStore?: WebSettingsStore;
+  memberSignupStore?: MemberSignupStore;
+  telegramSender?: HttpTelegramSender;
 }
 
 interface Session {
@@ -43,6 +47,11 @@ interface Session {
 interface LoginAttempt {
   count: number;
   firstAttemptAt: number;
+}
+
+interface HttpTelegramSender {
+  sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+  sendGroupMessage?(chatId: number, message: string, options?: { parseMode?: 'HTML' }): Promise<void>;
 }
 
 type FieldType = 'string' | 'number' | 'boolean' | 'json' | 'timestamp';
@@ -219,6 +228,8 @@ export function createAdminHttpServer({
   backupOperations,
   serviceControl,
   webSettingsStore,
+  memberSignupStore,
+  telegramSender,
 }: CreateAdminHttpServerOptions): AdminHttpServer {
   const httpConfig = {
     ...defaultHttpServerConfig,
@@ -242,6 +253,9 @@ export function createAdminHttpServer({
   const settingsStore = webSettingsStore ?? createAppMetadataWebSettingsStore({
     storage: createDatabaseAppMetadataSessionStorage({ database: services.database.db }),
   });
+  const signups = memberSignupStore ?? createDatabaseMemberSignupStore({
+    database: services.database.db,
+  });
   let server: Server | undefined;
 
   const handler = async (request: IncomingMessage, response: ServerResponse) => {
@@ -260,6 +274,8 @@ export function createAdminHttpServer({
         feedbackFile,
         webSettingsStore: settingsStore,
         webAssetsDir,
+        memberSignupStore: signups,
+        ...(telegramSender ? { telegramSender } : {}),
       });
     } catch (error) {
       logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Admin HTTP request failed');
@@ -320,6 +336,8 @@ async function routeRequest(options: {
   feedbackFile: string;
   webSettingsStore: WebSettingsStore;
   webAssetsDir: string;
+  memberSignupStore: MemberSignupStore;
+  telegramSender?: HttpTelegramSender;
 }): Promise<void> {
   const { request, response } = options;
   const url = new URL(request.url ?? '/', 'http://localhost');
@@ -360,6 +378,37 @@ async function routeRequest(options: {
 
   if (request.method === 'GET' && url.pathname === '/feedback') {
     sendHtml(response, 200, feedbackPage());
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/alta') {
+    const settings = await options.webSettingsStore.load();
+    sendHtml(response, 200, memberSignupPage(settings));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/alta') {
+    const form = await readForm(request);
+    const validation = validateMemberSignupForm(form);
+    if (!validation.ok) {
+      const settings = await options.webSettingsStore.load();
+      sendHtml(response, 400, memberSignupPage(settings, validation.message));
+      return;
+    }
+
+    const signup = await options.memberSignupStore.create({
+      ...validation.value,
+      userAgent: String(request.headers['user-agent'] ?? '') || null,
+      remoteAddress: request.socket.remoteAddress ?? null,
+    });
+    const notificationSummary = await notifyMemberSignup({
+      services: options.services,
+      signup,
+      logger: options.logger,
+      ...(options.telegramSender ? { telegramSender: options.telegramSender } : {}),
+    });
+    await options.memberSignupStore.updateNotificationSummary(signup.id, { ...notificationSummary });
+    sendHtml(response, 200, memberSignupConfirmationPage(signup, notificationSummary));
     return;
   }
 
@@ -689,6 +738,156 @@ async function saveFeedback(filePath: string, input: Record<string, unknown>): P
   }
   await mkdir(dirname(filePath), { recursive: true });
   await appendFile(filePath, `${JSON.stringify({ ...input, message })}\n`, 'utf8');
+}
+
+interface ValidMemberSignupForm {
+  fullName: string;
+  telegramAlias: string | null;
+  contact: string;
+  message: string | null;
+  acceptedTerms: boolean;
+}
+
+function validateMemberSignupForm(form: URLSearchParams): { ok: true; value: ValidMemberSignupForm } | { ok: false; message: string } {
+  const fullName = normalizeFormText(form.get('fullName'), 255);
+  const telegramAlias = normalizeTelegramAlias(form.get('telegramAlias'));
+  const contact = normalizeFormText(form.get('contact'), 255);
+  const message = normalizeFormText(form.get('message'), 2000);
+  const acceptedTerms = form.get('acceptedTerms') === 'yes';
+
+  if (fullName.length < 2) {
+    return { ok: false, message: 'Indica tu nombre para poder gestionar la solicitud.' };
+  }
+  if (contact.length < 3) {
+    return { ok: false, message: 'Indica una forma de contacto.' };
+  }
+  if (!acceptedTerms) {
+    return { ok: false, message: 'Debes aceptar que el club contacte contigo para gestionar la solicitud.' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      fullName,
+      telegramAlias,
+      contact,
+      message: message.length > 0 ? message : null,
+      acceptedTerms,
+    },
+  };
+}
+
+function normalizeFormText(value: string | null, maxLength: number): string {
+  return (value ?? '').trim().replace(/\s+/g, ' ').slice(0, maxLength);
+}
+
+function normalizeTelegramAlias(value: string | null): string | null {
+  const normalized = normalizeFormText(value, 128).replace(/^@+/, '');
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized.replace(/^https?:\/\/t\.me\//i, '').replace(/[^\w]/g, '').slice(0, 64);
+}
+
+interface MemberSignupNotificationSummary {
+  privateSent: number;
+  privateFailed: number;
+  groupSent: number;
+  groupFailed: number;
+}
+
+async function notifyMemberSignup({
+  services,
+  telegramSender,
+  signup,
+  logger,
+}: {
+  services: InfrastructureRuntimeServices;
+  telegramSender?: HttpTelegramSender;
+  signup: MemberSignupRecord;
+  logger: CreateAdminHttpServerOptions['logger'];
+}): Promise<MemberSignupNotificationSummary> {
+  const summary: MemberSignupNotificationSummary = {
+    privateSent: 0,
+    privateFailed: 0,
+    groupSent: 0,
+    groupFailed: 0,
+  };
+
+  if (!telegramSender) {
+    return summary;
+  }
+
+  const message = formatMemberSignupNotification(signup);
+  for (const telegramUserId of await fetchApprovedAdminTelegramUserIds(services)) {
+    try {
+      await telegramSender.sendPrivateMessage(telegramUserId, message);
+      summary.privateSent += 1;
+    } catch (error) {
+      summary.privateFailed += 1;
+      logger.error({ telegramUserId, error: error instanceof Error ? error.message : String(error) }, 'Failed to notify admin of web member signup');
+    }
+  }
+
+  if (telegramSender.sendGroupMessage) {
+    for (const chatId of await fetchSubscribedNewsGroupChatIds(services, newMembersNewsGroupCategory)) {
+      try {
+        await telegramSender.sendGroupMessage(chatId, message);
+        summary.groupSent += 1;
+      } catch (error) {
+        summary.groupFailed += 1;
+        logger.error({ chatId, error: error instanceof Error ? error.message : String(error) }, 'Failed to notify news group of web member signup');
+      }
+    }
+  }
+
+  return summary;
+}
+
+async function fetchApprovedAdminTelegramUserIds(services: InfrastructureRuntimeServices): Promise<number[]> {
+  const result = await services.database.pool.query<{ telegram_user_id: number }>(
+    `
+      select telegram_user_id
+      from users
+      where status = 'approved' and is_admin = true
+      order by telegram_user_id asc
+    `,
+  );
+
+  return result.rows.map((row) => Number(row.telegram_user_id)).filter((telegramUserId) => Number.isFinite(telegramUserId));
+}
+
+async function fetchSubscribedNewsGroupChatIds(
+  services: InfrastructureRuntimeServices,
+  categoryKey: string,
+): Promise<number[]> {
+  const result = await services.database.pool.query<{ chat_id: number }>(
+    `
+      select groups.chat_id
+      from news_group_subscriptions subscriptions
+      inner join news_groups groups on groups.chat_id = subscriptions.chat_id
+      where subscriptions.category_key = $1 and groups.is_enabled = true
+      order by groups.chat_id asc
+    `,
+    [categoryKey],
+  );
+
+  return result.rows.map((row) => Number(row.chat_id)).filter((chatId) => Number.isFinite(chatId));
+}
+
+function formatMemberSignupNotification(signup: MemberSignupRecord): string {
+  return [
+    'Nueva solicitud de alta como socio',
+    '',
+    `Nombre: ${signup.fullName}`,
+    signup.telegramAlias ? `Telegram: @${signup.telegramAlias.replace(/^@/, '')}` : null,
+    `Contacto: ${signup.contact}`,
+    signup.message ? `Mensaje: ${signup.message}` : null,
+    `Origen: formulario web`,
+    `Fecha: ${formatDateTime(signup.createdAt)}`,
+    `Revision: /admin/member-signups`,
+  ].filter((line): line is string => line !== null).join('\n');
 }
 
 async function handleWebAssetAction({
@@ -1339,6 +1538,27 @@ function page(titleOrOptions: string | RenderHttpPageOptions, body = ''): string
 
 function feedbackPage(): string {
   return page({ title: 'Feedback', body: '<form method="post"><label>Sobre que es?<select name="topic"><option value="bot">Bot</option><option value="club">Club</option><option value="both">Bot i club</option></select></label><label>Nom opcional<input name="name" autocomplete="name"></label><label>Contacte opcional<input name="contact" autocomplete="email"></label><label>Feedback<textarea name="message" required maxlength="4000"></textarea></label><button type="submit">Enviar feedback</button></form>' });
+}
+
+function memberSignupPage(settings: WebSettings, error = ''): string {
+  const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
+  return page({
+    title: 'Alta como socio',
+    themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
+    body: `${errorHtml}<form method="post" action="/alta"><label>Nombre y apellidos<input name="fullName" autocomplete="name" maxlength="255" required></label><label>Alias o usuario de Telegram opcional<input name="telegramAlias" maxlength="128" placeholder="@usuario"></label><label>Contacto<input name="contact" autocomplete="email" maxlength="255" required></label><label>Motivo o mensaje<textarea name="message" maxlength="2000"></textarea></label><label><input class="inline" type="checkbox" name="acceptedTerms" value="yes" required> Acepto que el club contacte conmigo para gestionar esta solicitud.</label><button type="submit">Enviar solicitud</button></form>`,
+  });
+}
+
+function memberSignupConfirmationPage(
+  signup: MemberSignupRecord,
+  summary: MemberSignupNotificationSummary,
+): string {
+  return page({
+    title: 'Solicitud recibida',
+    body: `<p>Gracias, ${escapeHtml(signup.fullName)}. Hemos registrado tu solicitud de alta como socio.</p><p>Un administrador la revisara y contactara contigo.</p><p><small>Avisos enviados: ${summary.privateSent} privados y ${summary.groupSent} grupos. Fallos registrados: ${summary.privateFailed + summary.groupFailed}.</small></p><p><a href="/">Volver a la portada</a></p>`,
+  });
 }
 
 function loginPage(error = ''): string {

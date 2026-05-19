@@ -8,6 +8,7 @@ import { createServer } from 'node:http';
 import { createAdminHttpServer } from './admin-http-server.js';
 import { hashSecret } from '../security/password-hash.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
+import type { MemberSignupInput, MemberSignupRecord, MemberSignupStore } from './member-signup-store.js';
 import { defaultWebSettings, normalizeWebSettings, type WebSettings, type WebSettingsStore } from './web-settings-store.js';
 
 test('admin http server exposes public feedback and protects admin pages', async () => {
@@ -37,6 +38,8 @@ test('admin http server exposes public feedback and protects admin pages', async
   const serviceActions: string[] = [];
   const restored: string[] = [];
   const queries: Array<{ sql: string; params: unknown[] }> = [];
+  const privateMessages: Array<{ telegramUserId: number; message: string }> = [];
+  const groupMessages: Array<{ chatId: number; message: string }> = [];
   const backupPath = join(tmp, 'gameclub-backup-test.zip');
   await writeFile(backupPath, 'zip');
   const database = {
@@ -53,6 +56,21 @@ test('admin http server exposes public feedback and protects admin pages', async
               is_admin: false,
               is_approved: false,
             }],
+          };
+        }
+        if (sql.includes('from users') && sql.includes("status = 'approved'") && sql.includes('is_admin = true')) {
+          return {
+            rows: [
+              { telegram_user_id: 1001 },
+              { telegram_user_id: 1002 },
+            ],
+          };
+        }
+        if (sql.includes('from news_group_subscriptions')) {
+          return {
+            rows: [
+              { chat_id: -300 },
+            ],
           };
         }
         if (sql.includes('from schedule_events')) {
@@ -142,6 +160,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     readLastOperationLog: async () => 'ok',
   };
   const webSettingsStore = createMemoryWebSettingsStore();
+  const memberSignupStore = createMemoryMemberSignupStore();
 
   const server = createAdminHttpServer({
     config,
@@ -151,6 +170,18 @@ test('admin http server exposes public feedback and protects admin pages', async
     backupOperations,
     serviceControl,
     webSettingsStore,
+    memberSignupStore,
+    telegramSender: {
+      async sendPrivateMessage(telegramUserId, message) {
+        if (telegramUserId === 1002) {
+          throw new Error('telegram unavailable');
+        }
+        privateMessages.push({ telegramUserId, message });
+      },
+      async sendGroupMessage(chatId, message) {
+        groupMessages.push({ chatId, message });
+      },
+    },
   });
 
   await server.start();
@@ -166,6 +197,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(welcomeHtml, /href="\/actividades"/);
     assert.match(welcomeHtml, /href="\/catalogo"/);
     assert.match(welcomeHtml, /href="\/club"/);
+    assert.match(welcomeHtml, /href="\/alta"/);
 
     const clubPage = await fetch(`${baseUrl}/club`);
     assert.equal(clubPage.status, 200);
@@ -187,6 +219,37 @@ test('admin http server exposes public feedback and protects admin pages', async
     const feedbackPage = await fetch(`${baseUrl}/feedback`);
     assert.equal(feedbackPage.status, 200);
     assert.match(await feedbackPage.text(), /Enviar feedback/);
+
+    const signupPage = await fetch(`${baseUrl}/alta`);
+    assert.equal(signupPage.status, 200);
+    assert.match(await signupPage.text(), /Alta como socio/);
+
+    const invalidSignupResponse = await fetch(`${baseUrl}/alta`, {
+      method: 'POST',
+      body: new URLSearchParams({ fullName: 'A', contact: 'x' }),
+    });
+    assert.equal(invalidSignupResponse.status, 400);
+
+    const signupResponse = await fetch(`${baseUrl}/alta`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        fullName: 'Nueva Socia',
+        telegramAlias: '@nueva_socia',
+        contact: 'nueva@example.test',
+        message: 'Quiero jugar campañas',
+        acceptedTerms: 'yes',
+      }),
+    });
+    assert.equal(signupResponse.status, 200);
+    assert.match(await signupResponse.text(), /Solicitud recibida/);
+    assert.equal(memberSignupStore.__records.length, 1);
+    assert.equal(memberSignupStore.__summaries.length, 1);
+    assert.deepEqual(privateMessages.map((entry) => entry.telegramUserId), [1001]);
+    assert.deepEqual(groupMessages.map((entry) => entry.chatId), [-300]);
+    assert.equal(memberSignupStore.__summaries[0]?.summary.privateFailed, 1);
+    assert.match(privateMessages[0]!.message, /Nueva solicitud de alta como socio/);
+    assert.match(privateMessages[0]!.message, /Nueva Socia/);
+    assert.match(privateMessages[0]!.message, /@nueva_socia/);
 
     const adminRedirect = await fetch(`${baseUrl}/admin`, { redirect: 'manual' });
     assert.equal(adminRedirect.status, 303);
@@ -407,6 +470,36 @@ function createMemoryWebSettingsStore(): WebSettingsStore {
     },
     async save(nextSettings) {
       settings = normalizeWebSettings(nextSettings);
+    },
+  };
+}
+
+function createMemoryMemberSignupStore(): MemberSignupStore & {
+  __records: MemberSignupRecord[];
+  __summaries: Array<{ id: number; summary: Record<string, unknown> }>;
+} {
+  const records: MemberSignupRecord[] = [];
+  const summaries: Array<{ id: number; summary: Record<string, unknown> }> = [];
+
+  return {
+    __records: records,
+    __summaries: summaries,
+    async create(input: MemberSignupInput) {
+      const record: MemberSignupRecord = {
+        ...input,
+        id: records.length + 1,
+        status: 'pending',
+        source: 'web',
+        notificationSummary: null,
+        createdAt: '2026-05-19T18:00:00.000Z',
+        updatedAt: '2026-05-19T18:00:00.000Z',
+        resolvedAt: null,
+      };
+      records.push(record);
+      return record;
+    },
+    async updateNotificationSummary(id, summary) {
+      summaries.push({ id, summary });
     },
   };
 }

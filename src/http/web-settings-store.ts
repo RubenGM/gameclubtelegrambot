@@ -52,8 +52,8 @@ export const defaultWebSettings: WebSettings = {
       { label: 'Ver actividades', url: '/actividades' },
       { label: 'Ver catalogo', url: '/catalogo' },
       { label: 'Informacion del club', url: '/club' },
+      { label: 'Solicitar alta como socio', url: '/alta' },
       { label: 'Enviar feedback', url: '/feedback' },
-      { label: 'Administracion', url: '/admin' },
     ],
   },
   clubInfo: {

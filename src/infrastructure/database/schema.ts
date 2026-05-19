@@ -35,6 +35,30 @@ export const users = pgTable('users', {
   statusReason: text('status_reason'),
 });
 
+export const memberSignupRequests = pgTable(
+  'member_signup_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    fullName: varchar('full_name', { length: 255 }).notNull(),
+    telegramAlias: varchar('telegram_alias', { length: 128 }),
+    contact: varchar('contact', { length: 255 }).notNull(),
+    message: text('message'),
+    acceptedTerms: boolean('accepted_terms').notNull().default(false),
+    status: varchar('status', { length: 16 }).notNull().default('pending'),
+    source: varchar('source', { length: 32 }).notNull().default('web'),
+    userAgent: text('user_agent'),
+    remoteAddress: varchar('remote_address', { length: 128 }),
+    notificationSummary: jsonb('notification_summary'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (table) => ({
+    statusLookup: index('member_signup_requests_status_idx').on(table.status),
+    createdLookup: index('member_signup_requests_created_at_idx').on(table.createdAt),
+  }),
+);
+
 export const userPermissionAssignments = pgTable(
   'user_permission_assignments',
   {
