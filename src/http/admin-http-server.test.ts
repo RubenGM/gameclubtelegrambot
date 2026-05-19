@@ -132,7 +132,10 @@ test('admin http server exposes public feedback and protects admin pages', async
             }],
           };
         }
-        if (sql.includes('count(*)') && sql.includes('from catalog_items items')) {
+        if (sql.includes('from catalog_families')) {
+          return { rows: [{ id: 5, display_name: 'Juegos de mesa' }] };
+        }
+        if (sql.includes('count(') && sql.includes('from catalog_items items')) {
           return { rows: [{ count: 25 }] };
         }
         if (sql.includes('from catalog_items') && sql.includes('group by item_type')) {
@@ -143,15 +146,25 @@ test('admin http server exposes public feedback and protects admin pages', async
             rows: [{
               id: 11,
               display_name: 'Dune Imperium',
+              original_name: 'Dune: Imperium',
               item_type: 'board-game',
+              description: 'Juego de construccion de mazos, intriga y control de zonas.',
+              language: 'ES',
+              family_id: 5,
               family_name: 'Juegos de mesa',
+              group_id: 9,
               group_name: 'Estrategia',
+              owner_name: 'Ada',
               publisher: 'Dire Wolf',
               publication_year: 2020,
               player_count_min: 1,
               player_count_max: 4,
               recommended_age: 14,
               play_time_minutes: 120,
+              active_loan_borrower: null,
+              active_loan_due_at: null,
+              media_url: null,
+              media_alt_text: null,
             }],
           };
         }
@@ -282,7 +295,13 @@ test('admin http server exposes public feedback and protects admin pages', async
     const catalogHtml = await catalogPage.text();
     assert.match(catalogHtml, /Dune Imperium/);
     assert.match(catalogHtml, /Juego de mesa/);
-    assert.match(catalogHtml, /Jugadores: 1-4/);
+    assert.match(catalogHtml, /<dt>Jugadores<\/dt><dd>1-4<\/dd>/);
+    assert.match(catalogHtml, /Juego de construccion de mazos/);
+    assert.match(catalogHtml, /Propietario/);
+    assert.match(catalogHtml, /Disponible/);
+    assert.match(catalogHtml, /<h2>D<\/h2>/);
+    assert.match(catalogHtml, /name="players"/);
+    assert.match(catalogHtml, /name="availability"/);
     assert.match(catalogHtml, /Mostrando 1 de 25 articulos/);
     assert.match(catalogHtml, /Pagina 2 de 2/);
     assert.match(catalogHtml, /href="\/catalogo\?q=dune&amp;type=board-game&amp;page=1"/);

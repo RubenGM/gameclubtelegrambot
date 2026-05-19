@@ -383,9 +383,12 @@ async function routeRequest(options: {
     const settings = await options.webSettingsStore.load();
     const search = url.searchParams.get('q') ?? '';
     const itemType = url.searchParams.get('type') ?? '';
+    const familyId = parseOptionalPositiveInteger(url.searchParams.get('family'));
+    const playerCount = parseOptionalPositiveInteger(url.searchParams.get('players'));
+    const availability = url.searchParams.get('availability') ?? '';
     const pageNumber = parsePositiveInteger(url.searchParams.get('page'), 1);
-    const catalogResult = await fetchPublicCatalogItems(options.services, { search, itemType, page: pageNumber });
-    sendHtml(response, 200, catalogPage(settings, catalogResult, { search, itemType }));
+    const catalogResult = await fetchPublicCatalogItems(options.services, { search, itemType, familyId, playerCount, availability, page: pageNumber });
+    sendHtml(response, 200, catalogPage(settings, catalogResult, { search, itemType, familyId, playerCount, availability }));
     return;
   }
 
@@ -1423,6 +1426,14 @@ function parsePositiveInteger(value: string | null, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseOptionalPositiveInteger(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 interface PublicScheduleEventRow {
   id: number;
   title: string;
@@ -1452,19 +1463,35 @@ interface PublicScheduleEventRow {
 interface PublicCatalogItemRow {
   id: number;
   display_name: string;
+  original_name: string | null;
   item_type: string;
+  description: string | null;
+  language: string | null;
   family_name: string | null;
+  family_id: number | null;
   group_name: string | null;
+  group_id: number | null;
+  owner_name: string | null;
   publisher: string | null;
   publication_year: number | null;
   player_count_min: number | null;
   player_count_max: number | null;
   recommended_age: number | null;
   play_time_minutes: number | null;
+  active_loan_borrower: string | null;
+  active_loan_due_at: Date | string | null;
+  media_url: string | null;
+  media_alt_text: string | null;
+}
+
+interface PublicCatalogFamilyOption {
+  id: number;
+  display_name: string;
 }
 
 interface PublicCatalogPage {
   items: PublicCatalogItemRow[];
+  families: PublicCatalogFamilyOption[];
   totalItems: number;
   page: number;
   pageSize: number;
@@ -1718,7 +1745,7 @@ async function fetchAdminCatalogOverview(services: InfrastructureRuntimeServices
     safeCount(services, "select count(*)::int as count from catalog_items where lifecycle_status <> 'active'"),
     safeCount(services, 'select count(*)::int as count from catalog_loans where returned_at is null'),
     fetchAdminCatalogTypeCounts(services),
-    fetchPublicCatalogItems(services, { search: '', itemType: '', page: 1 }),
+    fetchPublicCatalogItems(services, { search: '', itemType: '', familyId: null, playerCount: null, availability: '', page: 1 }),
   ]);
 
   return {
@@ -1819,10 +1846,16 @@ async function fetchPublicCatalogItems(
   {
     search,
     itemType,
+    familyId,
+    playerCount,
+    availability,
     page,
   }: {
     search: string;
     itemType: string;
+    familyId: number | null;
+    playerCount: number | null;
+    availability: string;
     page: number;
   },
 ): Promise<PublicCatalogPage> {
@@ -1830,11 +1863,12 @@ async function fetchPublicCatalogItems(
   const params: unknown[] = [];
   const normalizedSearch = search.trim();
   const normalizedType = itemType.trim();
+  const normalizedAvailability = availability.trim();
   const normalizedPage = Math.max(1, page);
 
   if (normalizedSearch) {
     params.push(`%${normalizedSearch.toLowerCase()}%`);
-    filters.push(`lower(items.display_name) like $${params.length}`);
+    filters.push(`(lower(items.display_name) like $${params.length} or lower(coalesce(items.original_name, '')) like $${params.length} or lower(coalesce(items.publisher, '')) like $${params.length})`);
   }
 
   if (normalizedType && ['board-game', 'book', 'rpg-book', 'expansion', 'accessory'].includes(normalizedType)) {
@@ -1842,14 +1876,44 @@ async function fetchPublicCatalogItems(
     filters.push(`items.item_type = $${params.length}`);
   }
 
-  const countResult = await services.database.pool.query<{ count: number | string }>(
-    `
-      select count(*)::int as count
+  if (familyId !== null) {
+    params.push(familyId);
+    filters.push(`items.family_id = $${params.length}`);
+  }
+
+  if (playerCount !== null) {
+    params.push(playerCount);
+    filters.push(`(items.player_count_min is null or items.player_count_min <= $${params.length})`);
+    filters.push(`(items.player_count_max is null or items.player_count_max >= $${params.length})`);
+  }
+
+  if (normalizedAvailability === 'available') {
+    filters.push('active_loans.id is null');
+  } else if (normalizedAvailability === 'loaned') {
+    filters.push('active_loans.id is not null');
+  }
+
+  const fromClause = `
       from catalog_items items
-      where ${filters.join(' and ')}
-    `,
-    params,
-  );
+      left join catalog_loans active_loans on active_loans.item_id = items.id and active_loans.returned_at is null
+    `;
+  const [familiesResult, countResult] = await Promise.all([
+    services.database.pool.query<PublicCatalogFamilyOption>(
+      `
+        select id, display_name
+        from catalog_families
+        order by display_name asc
+      `,
+    ),
+    services.database.pool.query<{ count: number | string }>(
+      `
+        select count(distinct items.id)::int as count
+        ${fromClause}
+        where ${filters.join(' and ')}
+      `,
+      params,
+    ),
+  ]);
   const totalItems = Number(countResult.rows[0]?.count ?? 0);
   const totalPages = Math.max(1, Math.ceil(totalItems / publicCatalogPageSize));
   const resolvedPage = Math.min(normalizedPage, totalPages);
@@ -1859,18 +1923,36 @@ async function fetchPublicCatalogItems(
       select
         items.id,
         items.display_name,
+        items.original_name,
         items.item_type,
+        items.description,
+        items.language,
+        families.id as family_id,
         families.display_name as family_name,
+        groups.id as group_id,
         groups.display_name as group_name,
+        owners.display_name as owner_name,
         items.publisher,
         items.publication_year,
         items.player_count_min,
         items.player_count_max,
         items.recommended_age,
-        items.play_time_minutes
-      from catalog_items items
+        items.play_time_minutes,
+        active_loans.borrower_display_name as active_loan_borrower,
+        active_loans.due_at as active_loan_due_at,
+        media.url as media_url,
+        media.alt_text as media_alt_text
+      ${fromClause}
       left join catalog_families families on families.id = items.family_id
       left join catalog_groups groups on groups.id = items.group_id
+      left join users owners on owners.telegram_user_id = items.owner_telegram_user_id
+      left join lateral (
+        select url, alt_text
+        from catalog_media
+        where item_id = items.id and media_type = 'image'
+        order by sort_order asc, id asc
+        limit 1
+      ) media on true
       where ${filters.join(' and ')}
       order by items.display_name asc
       limit $${itemParams.length - 1}
@@ -1881,6 +1963,7 @@ async function fetchPublicCatalogItems(
 
   return {
     items: result.rows,
+    families: familiesResult.rows,
     totalItems,
     page: resolvedPage,
     pageSize: publicCatalogPageSize,
@@ -2308,7 +2391,7 @@ function formatActivityCatalogItem(event: PublicScheduleEventRow): string {
 function catalogPage(
   settings: WebSettings,
   catalogResult: PublicCatalogPage,
-  filters: { search: string; itemType: string },
+  filters: PublicCatalogFilters,
 ): string {
   const { items } = catalogResult;
   const typeOptions = [
@@ -2319,28 +2402,109 @@ function catalogPage(
     ['expansion', 'Expansiones'],
     ['accessory', 'Accesorios'],
   ].map(([value, label]) => `<option value="${escapeHtml(value)}"${value === filters.itemType ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
-  const form = `<form method="get" action="/catalogo" class="search-form"><label>Buscar<input name="q" value="${escapeHtml(filters.search)}" placeholder="Nombre del juego o libro"></label><label>Tipo<select name="type">${typeOptions}</select></label><button type="submit">Filtrar</button></form>`;
+  const familyOptions = [
+    `<option value="">Todas</option>`,
+    ...catalogResult.families.map((family) => `<option value="${family.id}"${filters.familyId === family.id ? ' selected' : ''}>${escapeHtml(family.display_name)}</option>`),
+  ].join('');
+  const availabilityOptions = [
+    ['', 'Todos'],
+    ['available', 'Disponibles'],
+    ['loaned', 'Prestados'],
+  ].map(([value, label]) => `<option value="${escapeHtml(value)}"${value === filters.availability ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  const form = `<form method="get" action="/catalogo" class="catalog-filter-panel"><label>Buscar<input name="q" value="${escapeHtml(filters.search)}" placeholder="Nombre, editorial u original"></label><label>Tipo<select name="type">${typeOptions}</select></label><label>Familia<select name="family">${familyOptions}</select></label><label>Jugadores<input name="players" inputmode="numeric" pattern="[0-9]*" value="${filters.playerCount ?? ''}" placeholder="Ej. 4"></label><label>Disponibilidad<select name="availability">${availabilityOptions}</select></label><button type="submit">Filtrar</button></form>`;
   const list = items.length === 0
     ? '<p>No hay artículos activos que coincidan con la búsqueda.</p>'
-    : `<div class="list">${items.map((item) => `<section><h2>${escapeHtml(item.display_name)}</h2><p>${escapeHtml(renderCatalogType(item.item_type))}${item.family_name ? ` · ${escapeHtml(item.family_name)}` : ''}${item.group_name ? ` · ${escapeHtml(item.group_name)}` : ''}</p>${renderCatalogItemFacts(item)}</section>`).join('')}</div>`;
+    : renderCatalogLetterGroups(items);
   const pagination = renderCatalogPagination(catalogResult, filters);
+  const summary = `<p class="catalog-summary">${escapeHtml(buildCatalogFilterSummary(catalogResult, filters))}</p>`;
 
   return page({
     title: 'Catalogo',
     themeName: settings.theme,
     headerBrandName: settings.brand.name,
     headerLogoAsset: settings.home.logoAsset,
-    body: `${form}${pagination}${list}${pagination}`,
+    body: `${form}${summary}${pagination}${list}${pagination}`,
   });
+}
+
+interface PublicCatalogFilters {
+  search: string;
+  itemType: string;
+  familyId: number | null;
+  playerCount: number | null;
+  availability: string;
+}
+
+function buildCatalogFilterSummary(catalogResult: PublicCatalogPage, filters: PublicCatalogFilters): string {
+  const activeFilters = [
+    filters.search.trim() ? `busqueda "${filters.search.trim()}"` : null,
+    filters.itemType.trim() ? renderCatalogType(filters.itemType.trim()) : null,
+    filters.familyId !== null ? 'familia seleccionada' : null,
+    filters.playerCount !== null ? `${filters.playerCount} jugadores` : null,
+    filters.availability === 'available' ? 'disponibles' : null,
+    filters.availability === 'loaned' ? 'prestados' : null,
+  ].filter((value): value is string => value !== null);
+  const suffix = activeFilters.length > 0 ? ` con ${activeFilters.join(', ')}` : '';
+  return `${catalogResult.totalItems} articulos activos${suffix}.`;
+}
+
+function renderCatalogLetterGroups(items: PublicCatalogItemRow[]): string {
+  const groups = new Map<string, PublicCatalogItemRow[]>();
+  for (const item of items) {
+    const letter = getCatalogLetter(item.display_name);
+    groups.set(letter, [...(groups.get(letter) ?? []), item]);
+  }
+
+  return `<div class="catalog-letter-groups">${Array.from(groups.entries()).map(([letter, groupItems]) => `<section class="catalog-letter-group"><h2>${escapeHtml(letter)}</h2><div class="catalog-grid">${groupItems.map(renderCatalogCard).join('')}</div></section>`).join('')}</div>`;
+}
+
+function renderCatalogCard(item: PublicCatalogItemRow): string {
+  const media = item.media_url && isPublicCatalogMediaUrl(item.media_url)
+    ? `<img class="catalog-cover" src="${escapeHtml(item.media_url)}" alt="${escapeHtml(item.media_alt_text ?? item.display_name)}" loading="lazy">`
+    : `<div class="catalog-cover catalog-cover-placeholder" aria-hidden="true">${escapeHtml(getCatalogLetter(item.display_name))}</div>`;
+  const subtitle = [
+    renderCatalogType(item.item_type),
+    item.family_name,
+    item.group_name,
+  ].filter((value): value is string => Boolean(value)).join(' · ');
+  const originalName = item.original_name && item.original_name !== item.display_name
+    ? `<p class="catalog-original">${escapeHtml(item.original_name)}</p>`
+    : '';
+  const description = item.description
+    ? `<p class="catalog-description">${escapeHtml(truncateText(item.description, 280))}</p>`
+    : '';
+  const status = item.active_loan_borrower
+    ? `<span class="catalog-status catalog-status-loaned">Prestado a ${escapeHtml(item.active_loan_borrower)}${item.active_loan_due_at ? ` · hasta ${escapeHtml(formatShortDate(item.active_loan_due_at))}` : ''}</span>`
+    : '<span class="catalog-status catalog-status-available">Disponible</span>';
+
+  return `<article class="catalog-card">${media}<div class="catalog-card-body"><div class="catalog-card-heading"><p>${escapeHtml(subtitle)}</p><h3>${escapeHtml(item.display_name)}</h3>${originalName}</div>${status}${description}<dl class="catalog-facts">${renderCatalogFactRows(item)}</dl></div></article>`;
+}
+
+function renderCatalogFactRows(item: PublicCatalogItemRow): string {
+  const facts = [
+    item.publisher ? ['Editorial', item.publisher] : null,
+    item.publication_year ? ['Año', String(item.publication_year)] : null,
+    item.language ? ['Idioma', item.language] : null,
+    item.player_count_min || item.player_count_max ? ['Jugadores', renderPlayerRange(item.player_count_min, item.player_count_max)] : null,
+    item.recommended_age ? ['Edad', `${item.recommended_age}+`] : null,
+    item.play_time_minutes ? ['Duracion', `${item.play_time_minutes} min`] : null,
+    item.owner_name ? ['Propietario', item.owner_name] : null,
+  ].filter((value): value is [string, string] => value !== null);
+
+  return facts.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('');
+}
+
+function isPublicCatalogMediaUrl(value: string): boolean {
+  return value.startsWith('/') || value.startsWith('http://') || value.startsWith('https://');
 }
 
 function renderCatalogPagination(
   catalogResult: PublicCatalogPage,
-  filters: { search: string; itemType: string },
+  filters: PublicCatalogFilters,
 ): string {
   const summary = `Mostrando ${catalogResult.items.length} de ${catalogResult.totalItems} articulos. Pagina ${catalogResult.page} de ${catalogResult.totalPages}.`;
   if (catalogResult.totalPages <= 1) {
-    return `<p>${escapeHtml(summary)}</p>`;
+    return `<p class="catalog-pagination">${escapeHtml(summary)}</p>`;
   }
 
   const links = [
@@ -2348,16 +2512,25 @@ function renderCatalogPagination(
     catalogResult.page < catalogResult.totalPages ? `<a href="${escapeHtml(buildCatalogPageUrl(filters, catalogResult.page + 1))}">Siguiente</a>` : '',
   ].filter(Boolean).join('');
 
-  return `<nav aria-label="Paginacion catalogo"><span>${escapeHtml(summary)}</span>${links}</nav>`;
+  return `<nav class="catalog-pagination" aria-label="Paginacion catalogo"><span>${escapeHtml(summary)}</span>${links}</nav>`;
 }
 
-function buildCatalogPageUrl(filters: { search: string; itemType: string }, pageNumber: number): string {
+function buildCatalogPageUrl(filters: PublicCatalogFilters, pageNumber: number): string {
   const params = new URLSearchParams();
   if (filters.search.trim()) {
     params.set('q', filters.search.trim());
   }
   if (filters.itemType.trim()) {
     params.set('type', filters.itemType.trim());
+  }
+  if (filters.familyId !== null) {
+    params.set('family', String(filters.familyId));
+  }
+  if (filters.playerCount !== null) {
+    params.set('players', String(filters.playerCount));
+  }
+  if (filters.availability.trim()) {
+    params.set('availability', filters.availability.trim());
   }
   params.set('page', String(pageNumber));
   return `/catalogo?${params.toString()}`;
@@ -2443,6 +2616,33 @@ function renderPlayerRange(min: number | null, max: number | null): string {
     return String(max);
   }
   return '-';
+}
+
+function getCatalogLetter(value: string): string {
+  const normalized = value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const first = normalized.charAt(0).toUpperCase();
+  return /^[A-Z]$/.test(first) ? first : '#';
+}
+
+function truncateText(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
+}
+
+function formatShortDate(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat('es-ES', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'Europe/Madrid',
+  }).format(date);
 }
 
 function formatDateTime(value: Date | string): string {
