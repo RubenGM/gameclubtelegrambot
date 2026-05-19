@@ -71,6 +71,7 @@ Implementado:
 - `/elevate_admin` eleva a admin usando hash de password runtime.
 - `/subscribe_requests` y `/unsubscribe_requests` permiten avisos privados de nuevas solicitudes.
 - `/alta` registra solicitudes de alta desde la web en `member_signup_requests`, avisa por privado a admins aprobados y publica en grupos suscritos al feed `nuevos_miembros`.
+- `/admin/member-signups` permite revisar desde el panel web las solicitudes de alta recibidas, su estado y el resumen de avisos enviados.
 - Las revocaciones notifican al usuario afectado y a admins suscritos.
 - Persistencia y auditoria en `users`, `user_status_audit_log`, `user_permission_assignments` y `user_permission_audit_log`.
 
@@ -283,7 +284,7 @@ Implementado:
 - TUI `npm run backup:console`.
 - Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
 - Panel web admin protegido por contraseña de elevación, sesión firmada, token CSRF en acciones POST y límite de intentos de login por IP.
-- `/admin` abre en un dashboard de estado y métricas principales; la pantalla cruda de servicio/config/backups/logs queda separada en `/admin/service`.
+- `/admin` abre en un dashboard de estado y métricas principales; la pantalla cruda de servicio/config/backups/logs queda separada en `/admin/service` y las altas web en `/admin/member-signups`.
 - Configuración de la web pública desde `/admin/web`, persistida en `app_metadata`, con marca CAWA Girona, temas allowlisted, enlaces destacados, contenido de `/club` y referencias a logo/hero/imagenes auxiliares.
 - Assets públicos de portada servidos desde `/assets/...`, guardados bajo `data/http-assets/` con nombre generado, validación de MIME/extensión y límite de 2 MiB.
 - Restaurar o eliminar backups desde el panel web exige pantalla intermedia y confirmación textual (`RESTORE`/`DELETE`) además de CSRF.

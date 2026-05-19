@@ -75,6 +75,20 @@ test('admin http server exposes public feedback and protects admin pages', async
             ],
           };
         }
+        if (sql.includes('from member_signup_requests') && sql.includes('full_name')) {
+          return {
+            rows: [{
+              id: 1,
+              full_name: 'Nueva Socia',
+              telegram_alias: 'nueva_socia',
+              contact: 'nueva@example.test',
+              message: 'Quiero jugar campañas',
+              status: 'pending',
+              notification_summary: { privateSent: 1, privateFailed: 1, groupSent: 1, groupFailed: 0 },
+              created_at: '2026-05-19T18:00:00.000Z',
+            }],
+          };
+        }
         if (sql.includes('from schedule_events')) {
           return {
             rows: [{
@@ -279,6 +293,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminHtml, /gameclubtelegrambot\.service/);
     assert.match(adminHtml, /Altas web pendientes/);
     assert.match(adminHtml, /Servicio, backups y logs/);
+    assert.match(adminHtml, /href="\/admin\/member-signups"/);
     assert.doesNotMatch(adminHtml, /Nou token de Telegram/);
     assert.doesNotMatch(adminHtml, /Restaurar/);
     const csrfToken = extractCsrfToken(adminHtml);
@@ -298,6 +313,14 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(webSettingsHtml, /CAWA Girona/);
     assert.match(webSettingsHtml, /enctype="multipart\/form-data"/);
     assert.match(webSettingsHtml, /Imagenes/);
+
+    const memberSignupsAdminPage = await fetch(`${baseUrl}/admin/member-signups`, { headers: { cookie } });
+    assert.equal(memberSignupsAdminPage.status, 200);
+    const memberSignupsAdminHtml = await memberSignupsAdminPage.text();
+    assert.match(memberSignupsAdminHtml, /Altas de socio/);
+    assert.match(memberSignupsAdminHtml, /Nueva Socia/);
+    assert.match(memberSignupsAdminHtml, /nueva@example\.test/);
+    assert.match(memberSignupsAdminHtml, /privados 1\/1 fallos/);
 
     const uploadBoundary = '----gameclub-test-boundary';
     const uploadLogoResponse = await fetch(`${baseUrl}/admin/web/assets`, {

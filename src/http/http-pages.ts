@@ -28,6 +28,7 @@ const publicNavItems: PageNavItem[] = [
 const adminNavItems: PageNavItem[] = [
   { href: '/admin', label: 'Dashboard' },
   { href: '/admin/web', label: 'Web publica' },
+  { href: '/admin/member-signups', label: 'Altas' },
   { href: '/admin/service', label: 'Servicio y logs' },
   { href: '/admin/resources', label: 'Recursos' },
   { href: '/', label: 'Ver web' },

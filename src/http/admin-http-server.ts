@@ -494,6 +494,12 @@ async function routeRequest(options: {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/admin/member-signups') {
+    const signups = await fetchMemberSignupRows(options.services);
+    sendHtml(response, 200, memberSignupsAdminPage(signups));
+    return;
+  }
+
   if (request.method === 'POST' && url.pathname === '/admin/web') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
@@ -1308,6 +1314,17 @@ interface AdminDashboardStats {
   pendingMemberSignups: number;
 }
 
+interface AdminMemberSignupRow {
+  id: number;
+  full_name: string;
+  telegram_alias: string | null;
+  contact: string;
+  message: string | null;
+  status: string;
+  notification_summary: Record<string, unknown> | null;
+  created_at: Date | string;
+}
+
 async function fetchAdminDashboardStats(services: InfrastructureRuntimeServices): Promise<AdminDashboardStats> {
   const [
     approvedUsers,
@@ -1348,6 +1365,24 @@ async function safeCount(services: InfrastructureRuntimeServices, sql: string): 
     return Number.isFinite(count) ? count : 0;
   } catch {
     return 0;
+  }
+}
+
+async function fetchMemberSignupRows(services: InfrastructureRuntimeServices): Promise<AdminMemberSignupRow[]> {
+  try {
+    const result = await services.database.pool.query<AdminMemberSignupRow>(
+      `
+        select id, full_name, telegram_alias, contact, message, status, notification_summary, created_at
+        from member_signup_requests
+        order by
+          case when status = 'pending' then 0 else 1 end,
+          created_at desc
+        limit 200
+      `,
+    );
+    return result.rows;
+  } catch {
+    return [];
   }
 }
 
@@ -1960,8 +1995,31 @@ function adminDashboardPage(
   return page({
     title: 'Admin',
     shell: 'admin',
-    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/service">Servicio, backups y logs</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
+    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/service">Servicio, backups y logs</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
   });
+}
+
+function memberSignupsAdminPage(signups: AdminMemberSignupRow[]): string {
+  const body = signups.length === 0
+    ? '<p>No hay solicitudes de alta web registradas.</p>'
+    : `<table><thead><tr><th>Fecha</th><th>Nombre</th><th>Telegram</th><th>Contacto</th><th>Estado</th><th>Avisos</th><th>Mensaje</th></tr></thead><tbody>${signups.map((signup) => `<tr><td>${escapeHtml(formatDateTime(signup.created_at))}</td><td>${escapeHtml(signup.full_name)}</td><td>${signup.telegram_alias ? `@${escapeHtml(signup.telegram_alias.replace(/^@/, ''))}` : ''}</td><td>${escapeHtml(signup.contact)}</td><td>${escapeHtml(signup.status)}</td><td>${escapeHtml(formatNotificationSummary(signup.notification_summary))}</td><td>${escapeHtml(signup.message ?? '')}</td></tr>`).join('')}</tbody></table>`;
+
+  return page({
+    title: 'Altas de socio',
+    shell: 'admin',
+    body,
+  });
+}
+
+function formatNotificationSummary(summary: Record<string, unknown> | null): string {
+  if (!summary) {
+    return '-';
+  }
+  const privateSent = Number(summary.privateSent ?? 0);
+  const privateFailed = Number(summary.privateFailed ?? 0);
+  const groupSent = Number(summary.groupSent ?? 0);
+  const groupFailed = Number(summary.groupFailed ?? 0);
+  return `privados ${privateSent}/${privateFailed} fallos · grupos ${groupSent}/${groupFailed} fallos`;
 }
 
 function adminMaintenancePage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, logs: string, csrfToken: string): string {
