@@ -42,6 +42,7 @@ interface Session {
   token: string;
   csrfToken: string;
   expiresAt: number;
+  pendingTelegramToken?: string;
 }
 
 interface LoginAttempt {
@@ -555,6 +556,13 @@ async function routeRequest(options: {
   }
 
   const resourceDeleteMatch = url.pathname.match(/^\/admin\/resources\/([^/]+)\/([^/]+)\/delete$/);
+  if (request.method === 'GET' && resourceDeleteMatch?.[1] && resourceDeleteMatch[2]) {
+    const resourceDef = requireResource(resourceDeleteMatch[1]);
+    const row = await fetchResourceDetail(options.services, resourceDef, resourceDeleteMatch[2]);
+    sendHtml(response, 200, resourceDeleteConfirmationPage(resourceDef, row, adminSession.csrfToken));
+    return;
+  }
+
   if (request.method === 'POST' && resourceDeleteMatch?.[1] && resourceDeleteMatch[2]) {
     const resourceDef = requireResource(resourceDeleteMatch[1]);
     const form = await readForm(request);
@@ -562,7 +570,13 @@ async function routeRequest(options: {
       sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
       return;
     }
-    await deleteResource(options.services, resourceDef, resourceDeleteMatch[2], form.get('mode') === 'hard');
+    const isHardDelete = form.get('mode') === 'hard';
+    if (isHardDelete && form.get('confirm') !== 'DELETE') {
+      const row = await fetchResourceDetail(options.services, resourceDef, resourceDeleteMatch[2]);
+      sendHtml(response, 400, resourceDeleteConfirmationPage(resourceDef, row, adminSession.csrfToken, 'Escribe DELETE para confirmar el borrado definitivo.'));
+      return;
+    }
+    await deleteResource(options.services, resourceDef, resourceDeleteMatch[2], isHardDelete);
     redirect(response, `/admin/resources/${resourceDef.key}`);
     return;
   }
@@ -585,8 +599,39 @@ async function routeRequest(options: {
       sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
       return;
     }
-    await updateTelegramToken(form.get('token') ?? '');
-    redirect(response, '/admin');
+    const token = normalizeTelegramToken(form.get('token') ?? '');
+    if (!token) {
+      sendHtml(response, 400, page({ title: 'Token invalid', body: '<p>El token de Telegram no tiene un formato valido.</p><p><a href="/admin/service">Volver</a></p>', shell: 'admin' }));
+      return;
+    }
+    adminSession.pendingTelegramToken = token;
+    sendHtml(response, 200, tokenChangeConfirmationPage(adminSession.csrfToken));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/admin/token-confirm') {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
+    if (!adminSession.pendingTelegramToken || form.get('confirm') !== 'CHANGE_TOKEN') {
+      sendHtml(response, 400, tokenChangeConfirmationPage(adminSession.csrfToken, 'Escribe CHANGE_TOKEN para confirmar el cambio.'));
+      return;
+    }
+    await updateTelegramToken(adminSession.pendingTelegramToken);
+    delete adminSession.pendingTelegramToken;
+    redirect(response, '/admin/service');
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/admin/service/confirm') {
+    const action = url.searchParams.get('action') ?? '';
+    if (action !== 'stop') {
+      sendHtml(response, 404, page('No trobat', '<p>Pagina no trobada.</p>'));
+      return;
+    }
+    sendHtml(response, 200, serviceStopConfirmationPage(adminSession.csrfToken));
     return;
   }
 
@@ -598,9 +643,15 @@ async function routeRequest(options: {
     }
     const action = form.get('action');
     if (action === 'start') await options.serviceControl.startService();
-    if (action === 'stop') await options.serviceControl.stopService();
+    if (action === 'stop') {
+      if (form.get('confirm') !== 'STOP') {
+        sendHtml(response, 400, serviceStopConfirmationPage(adminSession.csrfToken, 'Escribe STOP para confirmar la parada del servicio.'));
+        return;
+      }
+      await options.serviceControl.stopService();
+    }
     if (action === 'restart') await options.serviceControl.restartService();
-    redirect(response, '/admin');
+    redirect(response, '/admin/service');
     return;
   }
 
@@ -1578,8 +1629,8 @@ async function tableHasColumn(
 }
 
 async function updateTelegramToken(token: string): Promise<void> {
-  const trimmed = token.trim();
-  if (!/^\d+:[A-Za-z0-9_-]{20,}$/.test(trimmed)) {
+  const trimmed = normalizeTelegramToken(token);
+  if (!trimmed) {
     throw new Error('Invalid Telegram token format');
   }
   const paths = resolveRuntimeConfigPaths(process.env);
@@ -1591,6 +1642,11 @@ async function updateTelegramToken(token: string): Promise<void> {
   });
   await mkdir(dirname(paths.envPath), { recursive: true });
   await writeFile(paths.envPath, serializeEnvFile(existing, { GAMECLUB_TELEGRAM_TOKEN: trimmed }), 'utf8');
+}
+
+function normalizeTelegramToken(token: string): string | null {
+  const trimmed = token.trim();
+  return /^\d+:[A-Za-z0-9_-]{20,}$/.test(trimmed) ? trimmed : null;
 }
 
 async function findBackupArchive(operations: BackupOperations, backupFilePath: string): Promise<BackupArchive | null> {
@@ -1918,7 +1974,7 @@ function adminMaintenancePage(status: Awaited<ReturnType<BackupOperations['readB
   const archives = status.backups.archives.length === 0
     ? '<p>No hi ha backups disponibles.</p>'
     : `<ul>${status.backups.archives.map((archive) => `<li>${escapeHtml(archive.fileName)} · ${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)} <a href="/admin/restore?backupFilePath=${encodeURIComponent(archive.filePath)}">Restaurar</a> <a href="/admin/delete-backup?backupFilePath=${encodeURIComponent(archive.filePath)}">Eliminar</a></li>`).join('')}</ul>`;
-  return page({ title: 'Servicio y logs', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="stop">Aturar</button><button name="action" value="restart">Reiniciar</button></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Canviar token bot</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Backups</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup">${csrfInput(csrfToken)}<button type="submit">Crear backup complet</button></form>${archives}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
+  return page({ title: 'Servicio y logs', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="restart">Reiniciar</button><a href="/admin/service/confirm?action=stop">Aturar</a></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Backups</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup">${csrfInput(csrfToken)}<button type="submit">Crear backup complet</button></form>${archives}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
 }
 
 type BackupArchive = Awaited<ReturnType<BackupOperations['listBackupArchives']>>[number];
@@ -1945,6 +2001,24 @@ function backupConfirmationPage(
   });
 }
 
+function serviceStopConfirmationPage(csrfToken: string, error = ''): string {
+  const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
+  return page({
+    title: 'Confirmar parada del servicio',
+    shell: 'admin',
+    body: `${errorHtml}<section><h2>Detener gameclubtelegrambot.service</h2><p>El bot y la web integrada dejaran de responder hasta que el servicio vuelva a arrancar.</p><form method="post" action="/admin/service">${csrfInput(csrfToken)}<input type="hidden" name="action" value="stop"><label>Confirmacion<input name="confirm" autocomplete="off" placeholder="STOP" required></label><button type="submit">Detener servicio</button><a href="/admin/service">Cancelar</a></form></section>`,
+  });
+}
+
+function tokenChangeConfirmationPage(csrfToken: string, error = ''): string {
+  const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
+  return page({
+    title: 'Confirmar cambio de token',
+    shell: 'admin',
+    body: `${errorHtml}<section><h2>Cambiar token de Telegram</h2><p>Un token incorrecto puede dejar el bot sin conexion con Telegram. El token introducido queda pendiente en la sesion y no se muestra en esta pagina.</p><form method="post" action="/admin/token-confirm">${csrfInput(csrfToken)}<label>Confirmacion<input name="confirm" autocomplete="off" placeholder="CHANGE_TOKEN" required></label><button type="submit">Cambiar token</button><a href="/admin/service">Cancelar</a></form></section>`,
+  });
+}
+
 function resourcesIndexPage(): string {
   return page({ title: 'Recursos', body: `<ul>${resourceDefs.map((resourceDef) => `<li><a href="/admin/resources/${resourceDef.key}">${escapeHtml(resourceDef.label)}</a></li>`).join('')}</ul>`, shell: 'admin' });
 }
@@ -1955,9 +2029,28 @@ function resourceListPage(resourceDef: ResourceDef, rows: Array<Record<string, u
   const body = rows.map((row) => {
     const id = String(row[resourceDef.idColumn] ?? '');
     const cells = columns.map((column) => `<td>${escapeHtml(formatCell(row[column]))}</td>`).join('');
-    return `<tr>${cells}<td><a href="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/edit">Editar</a> <form method="post" action="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/delete" class="inline">${csrfInput(csrfToken)}<button name="mode" value="soft">Desactivar</button><button name="mode" value="hard">Borrar</button></form>${resourceDef.key === 'users' ? userActionForms(id, csrfToken) : ''}</td></tr>`;
+    const deleteActions = resourceDef.softDelete
+      ? `<form method="post" action="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/delete" class="inline">${csrfInput(csrfToken)}<button name="mode" value="soft">Desactivar</button></form> <a href="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/delete">Borrado definitivo</a>`
+      : `<a href="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/delete">Borrado definitivo</a>`;
+    return `<tr>${cells}<td><a href="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/edit">Editar</a> ${deleteActions}${resourceDef.key === 'users' ? userActionForms(id, csrfToken) : ''}</td></tr>`;
   }).join('');
   return page({ title: resourceDef.label, body: `<form method="get"><input name="q" value="${escapeHtml(search)}" placeholder="Buscar"><button type="submit">Buscar</button></form><table><thead><tr>${header}<th>Acciones</th></tr></thead><tbody>${body}</tbody></table>`, shell: 'admin' });
+}
+
+function resourceDeleteConfirmationPage(
+  resourceDef: ResourceDef,
+  row: Record<string, unknown>,
+  csrfToken: string,
+  error = '',
+): string {
+  const id = String(row[resourceDef.idColumn] ?? '');
+  const title = formatCell(row[resourceDef.titleColumn]) || id;
+  const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
+  return page({
+    title: 'Confirmar borrado definitivo',
+    shell: 'admin',
+    body: `${errorHtml}<section><h2>${escapeHtml(resourceDef.label)}: ${escapeHtml(title)}</h2><p>Esta accion elimina la fila y los dependientes configurados. Usa desactivar o archivar si existe esa opcion.</p><form method="post" action="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/delete">${csrfInput(csrfToken)}<input type="hidden" name="mode" value="hard"><label>Confirmacion<input name="confirm" autocomplete="off" placeholder="DELETE" required></label><button type="submit">Borrar definitivamente</button><a href="/admin/resources/${resourceDef.key}">Cancelar</a></form></section>`,
+  });
 }
 
 function resourceEditPage(resourceDef: ResourceDef, row: Record<string, unknown>, csrfToken: string): string {

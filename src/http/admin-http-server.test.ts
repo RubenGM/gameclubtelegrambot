@@ -31,7 +31,9 @@ test('admin http server exposes public feedback and protects admin pages', async
     startService: async () => {
       serviceActions.push('start');
     },
-    stopService: async () => {},
+    stopService: async () => {
+      serviceActions.push('stop');
+    },
     restartService: async () => {},
     readRecentLogs: async () => 'service logs',
   };
@@ -376,6 +378,27 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.equal(serviceResponse.status, 303);
     assert.deepEqual(serviceActions, ['start']);
 
+    const stopWithoutConfirmationResponse = await fetch(`${baseUrl}/admin/service`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, action: 'stop' }),
+    });
+    assert.equal(stopWithoutConfirmationResponse.status, 400);
+
+    const stopConfirmPage = await fetch(`${baseUrl}/admin/service/confirm?action=stop`, { headers: { cookie } });
+    assert.equal(stopConfirmPage.status, 200);
+    assert.match(await stopConfirmPage.text(), /STOP/);
+
+    const stopResponse = await fetch(`${baseUrl}/admin/service`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, action: 'stop', confirm: 'STOP' }),
+    });
+    assert.equal(stopResponse.status, 303);
+    assert.deepEqual(serviceActions, ['start', 'stop']);
+
     const csrfFailureResponse = await fetch(`${baseUrl}/admin/service`, {
       method: 'POST',
       redirect: 'manual',
@@ -411,6 +434,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     const resourcesHtml = await resourcesPage.text();
     assert.match(resourcesHtml, /Ada/);
     assert.match(resourcesHtml, /csrfToken/);
+    assert.match(resourcesHtml, /Borrado definitivo/);
 
     const editResponse = await fetch(`${baseUrl}/admin/resources/users/42/edit`, {
       method: 'POST',
@@ -430,16 +454,57 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.equal(userActionResponse.status, 303);
     assert.ok(queries.some((query) => query.sql.includes('insert into "user_status_audit_log"')));
 
+    const hardDeletePage = await fetch(`${baseUrl}/admin/resources/users/42/delete`, { headers: { cookie } });
+    assert.equal(hardDeletePage.status, 200);
+    assert.match(await hardDeletePage.text(), /DELETE/);
+
+    const hardDeleteWithoutConfirmationResponse = await fetch(`${baseUrl}/admin/resources/users/42/delete`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, mode: 'hard' }),
+    });
+    assert.equal(hardDeleteWithoutConfirmationResponse.status, 400);
+
+    const hardDeleteResponse = await fetch(`${baseUrl}/admin/resources/users/42/delete`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, mode: 'hard', confirm: 'DELETE' }),
+    });
+    assert.equal(hardDeleteResponse.status, 303);
+    assert.ok(queries.some((query) => query.sql.includes('delete from "users"')));
+
     const previousEnvPath = process.env.GAMECLUB_ENV_PATH;
     process.env.GAMECLUB_ENV_PATH = join(tmp, '.env');
     try {
+      const pendingToken = '123456789:ABCDEFGHIJKLMNOPQRST_uvwx';
       const tokenResponse = await fetch(`${baseUrl}/admin/token`, {
+        method: 'POST',
+        headers: { cookie },
+        body: new URLSearchParams({ csrfToken, token: pendingToken }),
+      });
+      assert.equal(tokenResponse.status, 200);
+      const tokenConfirmationHtml = await tokenResponse.text();
+      assert.match(tokenConfirmationHtml, /CHANGE_TOKEN/);
+      assert.equal(tokenConfirmationHtml.includes(pendingToken), false);
+      assert.rejects(readFile(join(tmp, '.env'), 'utf8'));
+
+      const tokenConfirmFailure = await fetch(`${baseUrl}/admin/token-confirm`, {
         method: 'POST',
         redirect: 'manual',
         headers: { cookie },
-        body: new URLSearchParams({ csrfToken, token: '123456789:ABCDEFGHIJKLMNOPQRST_uvwx' }),
+        body: new URLSearchParams({ csrfToken, confirm: 'WRONG' }),
       });
-      assert.equal(tokenResponse.status, 303);
+      assert.equal(tokenConfirmFailure.status, 400);
+
+      const tokenConfirmResponse = await fetch(`${baseUrl}/admin/token-confirm`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { cookie },
+        body: new URLSearchParams({ csrfToken, confirm: 'CHANGE_TOKEN' }),
+      });
+      assert.equal(tokenConfirmResponse.status, 303);
       assert.match(await readFile(join(tmp, '.env'), 'utf8'), /GAMECLUB_TELEGRAM_TOKEN/);
     } finally {
       if (previousEnvPath === undefined) {

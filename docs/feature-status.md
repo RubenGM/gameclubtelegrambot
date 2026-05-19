@@ -287,6 +287,7 @@ Implementado:
 - Configuración de la web pública desde `/admin/web`, persistida en `app_metadata`, con marca CAWA Girona, temas allowlisted, enlaces destacados, contenido de `/club` y referencias a logo/hero/imagenes auxiliares.
 - Assets públicos de portada servidos desde `/assets/...`, guardados bajo `data/http-assets/` con nombre generado, validación de MIME/extensión y límite de 2 MiB.
 - Restaurar o eliminar backups desde el panel web exige pantalla intermedia y confirmación textual (`RESTORE`/`DELETE`) además de CSRF.
+- Detener el servicio, cambiar el token de Telegram y hacer borrados hard en recursos avanzados requieren confirmación textual (`STOP`, `CHANGE_TOKEN` o `DELETE`); el token pendiente no se reimprime en HTML.
 - Secciones públicas iniciales: `/actividades` lista próximas actividades programadas y `/catalogo` lista artículos activos con búsqueda y filtro básico por tipo.
 - Comando Telegram admin `/restart` para limpiar estado temporal y reiniciar el servicio bajo systemd.
 - Deteccion/instalacion asistida de dependencias Debian como `pg_dump` y `psql`.
