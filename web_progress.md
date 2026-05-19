@@ -16,7 +16,7 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Configuracion de portada desde admin | Hecho | `/admin/web`, `web-settings-store`, uploads a `data/http-assets/` |
 | Navegacion publica | Hecho | Portada enlaza a admin, feedback, actividades, catalogo, club y alta |
 | Informacion del club | Hecho | `/club` configurable desde `/admin/web` |
-| Horarios de actividades | Hecho | `/actividades` lista actividades futuras por dia y fecha, con mesa, juego enlazado, asistentes confirmados, organizador, plazas y duracion |
+| Horarios de actividades | Hecho | `/actividades` lista actividades futuras por dia y fecha, con mesa, juego enlazado, asistentes confirmados solo cuando existen, organizador, plazas en mesas abiertas y duracion legible solo cuando esta configurada |
 | Catalogo publico | Hecho | `/catalogo` con busqueda por titulo/original/editorial, filtros por tipo, jugadores y disponibilidad, agrupacion por inicial, paginacion, portadas desde media interna de catalogo, tarjetas con datos principales y detalle publico con descripcion completa/enlace BGG |
 | Alta web como socio | Hecho | `/alta`, tabla `member_signup_requests`, avisos privados a admins, revision de estado desde `/admin/member-signups` |
 | Feed `nuevos_miembros` | Hecho | Categoria de noticias, aliases y panel `/admin/news` |

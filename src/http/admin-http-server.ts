@@ -2554,28 +2554,29 @@ function renderActivityCard(event: PublicScheduleEventRow): string {
     : 'sin aforo configurado';
   const attendanceMode = event.attendance_mode === 'closed' ? 'Mesa cerrada' : 'Mesa abierta';
   const attendeeNames = normalizeStringArray(event.attendee_names);
+  const timeLabel = formatActivityTimeRange(event.starts_at, event.duration_minutes);
   const catalogLink = event.catalog_item_name
     ? `<a class="activity-linked-game" href="/catalogo?q=${encodeURIComponent(event.catalog_item_name)}">${escapeHtml(event.catalog_item_name)}</a>`
     : '';
-  const attendees = attendeeNames.length > 0
-    ? attendeeNames.map((name) => `<li>${escapeHtml(name)}</li>`).join('')
-    : '<li>Sin asistentes confirmados desde Telegram</li>';
+  const attendeePanel = attendeeNames.length > 0
+    ? `<div class="activity-attendees"><strong>Asistentes confirmados</strong><ul>${attendeeNames.map((name) => `<li>${escapeHtml(name)}</li>`).join('')}</ul></div>`
+    : '';
+  const attendanceLabel = event.attendance_mode === 'closed' ? attendanceMode : `${attendanceMode} · ${seats}`;
   const facts = [
-    ['Horario', formatActivityTimeRange(event.starts_at, event.duration_minutes)],
-    ['Duracion', `${event.duration_minutes} min`],
-    ['Asistencia', `${attendanceMode} · ${seats}`],
+    ['Horario', timeLabel],
+    hasPublicActivityDuration(event.duration_minutes) ? ['Duracion', formatHumanDuration(event.duration_minutes)] : null,
+    ['Asistencia', attendanceLabel],
     event.catalog_item_name ? ['Juego enlazado', formatActivityCatalogItem(event)] : null,
     event.organizer_name ? ['Organiza', event.organizer_name] : null,
     event.table_name ? ['Mesa', formatActivityTable(event)] : null,
   ].filter((fact): fact is [string, string] => fact !== null);
 
-  return `<article class="activity-card"><div class="activity-card-main"><p class="activity-time">${escapeHtml(formatActivityTimeRange(event.starts_at, event.duration_minutes))}</p><h3>${escapeHtml(event.title)}</h3>${catalogLink}${event.description ? `<p>${escapeHtml(event.description)}</p>` : ''}</div><dl class="activity-facts">${facts.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl><div class="activity-attendees"><strong>Asistentes confirmados</strong><ul>${attendees}</ul></div></article>`;
+  return `<article class="activity-card"><div class="activity-card-main"><p class="activity-time">${escapeHtml(timeLabel)}</p><h3>${escapeHtml(event.title)}</h3>${catalogLink}${event.description ? `<p>${escapeHtml(event.description)}</p>` : ''}</div><dl class="activity-facts">${facts.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>${attendeePanel}</article>`;
 }
 
 function formatActivityTable(event: PublicScheduleEventRow): string {
   const details = [
     event.table_description,
-    event.table_recommended_capacity ? `capacidad recomendada ${event.table_recommended_capacity}` : null,
   ].filter((value): value is string => Boolean(value));
 
   return details.length > 0 ? `${event.table_name} (${details.join(' · ')})` : event.table_name ?? '';
@@ -2950,7 +2951,26 @@ function formatActivityTimeRange(value: Date | string, durationMinutes: number):
     timeZone: 'Europe/Madrid',
   });
 
+  if (!hasPublicActivityDuration(durationMinutes)) {
+    return formatter.format(startsAt);
+  }
+
   return `${formatter.format(startsAt)} - ${formatter.format(endsAt)}`;
+}
+
+function hasPublicActivityDuration(durationMinutes: number): boolean {
+  return Number.isFinite(durationMinutes) && durationMinutes > 0 && durationMinutes !== 120;
+}
+
+function formatHumanDuration(durationMinutes: number): string {
+  const minutes = Math.max(0, Math.round(durationMinutes));
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const parts = [
+    hours > 0 ? `${hours} h` : null,
+    remainingMinutes > 0 ? `${remainingMinutes} min` : null,
+  ].filter((value): value is string => value !== null);
+  return parts.length > 0 ? parts.join(' ') : '0 min';
 }
 
 function formatActivityDayHeading(value: Date | string): string {
@@ -2959,12 +2979,16 @@ function formatActivityDayHeading(value: Date | string): string {
     return String(value);
   }
 
-  return new Intl.DateTimeFormat('es-ES', {
+  return capitalizeFirstLetter(new Intl.DateTimeFormat('es-ES', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     timeZone: 'Europe/Madrid',
-  }).format(date);
+  }).format(date));
+}
+
+function capitalizeFirstLetter(value: string): string {
+  return value.length > 0 ? `${value.charAt(0).toLocaleUpperCase('es-ES')}${value.slice(1)}` : value;
 }
 
 function formatActivityDayKey(value: Date | string): string {

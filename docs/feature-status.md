@@ -291,7 +291,7 @@ Implementado:
 - Assets públicos de portada servidos desde `/assets/...`, guardados bajo `data/http-assets/` con nombre generado, validación de MIME/extensión y límite de 2 MiB.
 - Restaurar o eliminar backups desde el panel web exige pantalla intermedia y confirmación textual (`RESTORE`/`DELETE`) además de CSRF.
 - Detener el servicio, cambiar el token de Telegram y hacer borrados hard en recursos avanzados requieren confirmación textual (`STOP`, `CHANGE_TOKEN` o `DELETE`); el token pendiente no se reimprime en HTML.
-- Secciones públicas iniciales: `/actividades` lista próximas actividades programadas agrupadas por dia, ordenadas por fecha y con mesa, juego enlazado, asistentes, organizador, plazas y duracion; `/catalogo` lista artículos activos con búsqueda, filtro básico por tipo y paginación.
+- Secciones públicas iniciales: `/actividades` lista próximas actividades programadas agrupadas por dia, ordenadas por fecha y con mesa, juego enlazado, asistentes cuando existen, organizador, plazas en mesas abiertas y duracion legible cuando se ha configurado explicitamente; `/catalogo` lista artículos activos con búsqueda, filtro básico por tipo y paginación.
 - Comando Telegram admin `/restart` para limpiar estado temporal y reiniciar el servicio bajo systemd.
 - Deteccion/instalacion asistida de dependencias Debian como `pg_dump` y `psql`.
 - Documentacion en `docs/backup-restore-recovery.md`.

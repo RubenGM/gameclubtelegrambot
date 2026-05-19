@@ -129,6 +129,30 @@ test('admin http server exposes public feedback and protects admin pages', async
               organizer_name: 'Ada',
               confirmed_attendees: 2,
               attendee_names: ['Ada', 'Marta'],
+            }, {
+              id: 8,
+              title: 'Mesa cerrada',
+              description: null,
+              starts_at: '2026-05-23T19:00:00.000Z',
+              duration_minutes: 120,
+              capacity: 5,
+              initial_occupied_seats: 1,
+              attendance_mode: 'closed',
+              table_name: 'Mesa pequeña',
+              table_description: null,
+              table_recommended_capacity: 5,
+              catalog_item_id: null,
+              catalog_item_name: null,
+              catalog_item_type: null,
+              catalog_item_publisher: null,
+              catalog_item_publication_year: null,
+              catalog_item_player_count_min: null,
+              catalog_item_player_count_max: null,
+              catalog_item_recommended_age: null,
+              catalog_item_play_time_minutes: null,
+              organizer_name: null,
+              confirmed_attendees: 0,
+              attendee_names: [],
             }],
           };
         }
@@ -285,12 +309,20 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.equal(activitiesPage.status, 200);
     const activitiesHtml = await activitiesPage.text();
     assert.match(activitiesHtml, /Partida abierta/);
-    assert.match(activitiesHtml, /sábado, 23 de mayo/);
+    assert.match(activitiesHtml, /Sábado, 23 de mayo/);
     assert.match(activitiesHtml, /Dune Imperium/);
     assert.match(activitiesHtml, /Mesa grande/);
     assert.match(activitiesHtml, /Ada/);
     assert.match(activitiesHtml, /Marta/);
     assert.match(activitiesHtml, /4\/6 plazas/);
+    assert.match(activitiesHtml, /3 h/);
+    assert.match(activitiesHtml, /Mesa cerrada/);
+    assert.match(activitiesHtml, /19:00/);
+    assert.doesNotMatch(activitiesHtml, /19:00 - 21:00/);
+    assert.doesNotMatch(activitiesHtml, /<dt>Duracion<\/dt><dd>120 min<\/dd>/);
+    assert.doesNotMatch(activitiesHtml, /capacidad recomendada/);
+    assert.doesNotMatch(activitiesHtml, /Mesa cerrada · 1\/5 plazas/);
+    assert.equal((activitiesHtml.match(/Asistentes confirmados/g) ?? []).length, 1);
 
     const catalogPage = await fetch(`${baseUrl}/catalogo?q=dune&type=board-game&page=2`);
     assert.equal(catalogPage.status, 200);
