@@ -615,6 +615,17 @@ async function routeRequest(options: {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/admin/restore') {
+    const backupFilePath = url.searchParams.get('backupFilePath') ?? '';
+    const archive = await findBackupArchive(options.operations, backupFilePath);
+    if (!archive) {
+      sendHtml(response, 400, page('Backup invalid', '<p>El backup seleccionat no es valid.</p>'));
+      return;
+    }
+    sendHtml(response, 200, backupConfirmationPage('restore', archive, adminSession.csrfToken));
+    return;
+  }
+
   if (request.method === 'POST' && url.pathname === '/admin/restore') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
@@ -622,13 +633,28 @@ async function routeRequest(options: {
       return;
     }
     const backupFilePath = form.get('backupFilePath') ?? '';
-    const archives = await options.operations.listBackupArchives();
-    if (!archives.some((archive) => archive.filePath === backupFilePath)) {
+    const archive = await findBackupArchive(options.operations, backupFilePath);
+    if (!archive) {
       sendHtml(response, 400, page('Backup invalid', '<p>El backup seleccionat no es valid.</p>'));
+      return;
+    }
+    if (form.get('confirm') !== 'RESTORE') {
+      sendHtml(response, 400, backupConfirmationPage('restore', archive, adminSession.csrfToken, 'Escribe RESTORE para confirmar la restauracion.'));
       return;
     }
     await options.operations.restoreFullBackup({ backupFilePath });
     redirect(response, '/admin');
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/admin/delete-backup') {
+    const backupFilePath = url.searchParams.get('backupFilePath') ?? '';
+    const archive = await findBackupArchive(options.operations, backupFilePath);
+    if (!archive) {
+      sendHtml(response, 400, page('Backup invalid', '<p>El backup seleccionat no es valid.</p>'));
+      return;
+    }
+    sendHtml(response, 200, backupConfirmationPage('delete', archive, adminSession.csrfToken));
     return;
   }
 
@@ -639,9 +665,13 @@ async function routeRequest(options: {
       return;
     }
     const backupFilePath = form.get('backupFilePath') ?? '';
-    const archives = await options.operations.listBackupArchives();
-    if (!archives.some((archive) => archive.filePath === backupFilePath)) {
+    const archive = await findBackupArchive(options.operations, backupFilePath);
+    if (!archive) {
       sendHtml(response, 400, page('Backup invalid', '<p>El backup seleccionat no es valid.</p>'));
+      return;
+    }
+    if (form.get('confirm') !== 'DELETE') {
+      sendHtml(response, 400, backupConfirmationPage('delete', archive, adminSession.csrfToken, 'Escribe DELETE para confirmar la eliminacion.'));
       return;
     }
     await deleteBackupArchive(backupFilePath);
@@ -1563,6 +1593,11 @@ async function updateTelegramToken(token: string): Promise<void> {
   await writeFile(paths.envPath, serializeEnvFile(existing, { GAMECLUB_TELEGRAM_TOKEN: trimmed }), 'utf8');
 }
 
+async function findBackupArchive(operations: BackupOperations, backupFilePath: string): Promise<BackupArchive | null> {
+  const archives = await operations.listBackupArchives();
+  return archives.find((archive) => archive.filePath === backupFilePath) ?? null;
+}
+
 async function deleteBackupArchive(filePath: string): Promise<void> {
   if (!basename(filePath).startsWith('gameclub-backup-') || !filePath.endsWith('.zip')) {
     throw new Error('Refusing to delete a file that does not look like a gameclub backup');
@@ -1882,8 +1917,32 @@ function adminMaintenancePage(status: Awaited<ReturnType<BackupOperations['readB
     : '';
   const archives = status.backups.archives.length === 0
     ? '<p>No hi ha backups disponibles.</p>'
-    : `<ul>${status.backups.archives.map((archive) => `<li>${escapeHtml(archive.fileName)} · ${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)} <form method="post" action="/admin/restore" class="inline">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><button type="submit">Restaurar</button></form> <form method="post" action="/admin/delete-backup" class="inline">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><button type="submit">Eliminar</button></form></li>`).join('')}</ul>`;
+    : `<ul>${status.backups.archives.map((archive) => `<li>${escapeHtml(archive.fileName)} · ${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)} <a href="/admin/restore?backupFilePath=${encodeURIComponent(archive.filePath)}">Restaurar</a> <a href="/admin/delete-backup?backupFilePath=${encodeURIComponent(archive.filePath)}">Eliminar</a></li>`).join('')}</ul>`;
   return page({ title: 'Servicio y logs', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="stop">Aturar</button><button name="action" value="restart">Reiniciar</button></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Canviar token bot</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Backups</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup">${csrfInput(csrfToken)}<button type="submit">Crear backup complet</button></form>${archives}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
+}
+
+type BackupArchive = Awaited<ReturnType<BackupOperations['listBackupArchives']>>[number];
+
+function backupConfirmationPage(
+  action: 'restore' | 'delete',
+  archive: BackupArchive,
+  csrfToken: string,
+  error = '',
+): string {
+  const isRestore = action === 'restore';
+  const confirmValue = isRestore ? 'RESTORE' : 'DELETE';
+  const actionPath = isRestore ? '/admin/restore' : '/admin/delete-backup';
+  const title = isRestore ? 'Confirmar restauracion' : 'Confirmar eliminacion';
+  const warning = isRestore
+    ? 'Restaurar un backup puede sobrescribir la base de datos, configuracion o archivos runtime.'
+    : 'Eliminar un backup borra el archivo de recuperacion seleccionado.';
+  const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
+
+  return page({
+    title,
+    shell: 'admin',
+    body: `${errorHtml}<section><h2>${escapeHtml(archive.fileName)}</h2><p>${escapeHtml(warning)}</p><p>${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)}</p><form method="post" action="${actionPath}">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><label>Confirmacion<input name="confirm" autocomplete="off" placeholder="${confirmValue}" required></label><button type="submit">${escapeHtml(title)}</button><a href="/admin/service">Cancelar</a></form></section>`,
+  });
 }
 
 function resourcesIndexPage(): string {

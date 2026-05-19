@@ -287,6 +287,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(maintenanceHtml, /Runtime config/);
     assert.match(maintenanceHtml, /users/);
     assert.match(maintenanceHtml, /Restaurar/);
+    assert.match(maintenanceHtml, /\/admin\/restore\?backupFilePath=/);
 
     const webSettingsPage = await fetch(`${baseUrl}/admin/web`, { headers: { cookie } });
     assert.equal(webSettingsPage.status, 200);
@@ -389,7 +390,20 @@ test('admin http server exposes public feedback and protects admin pages', async
       headers: { cookie },
       body: new URLSearchParams({ csrfToken, backupFilePath: backupPath }),
     });
-    assert.equal(restoreResponse.status, 303);
+    assert.equal(restoreResponse.status, 400);
+    assert.deepEqual(restored, []);
+
+    const restoreConfirmPage = await fetch(`${baseUrl}/admin/restore?backupFilePath=${encodeURIComponent(backupPath)}`, { headers: { cookie } });
+    assert.equal(restoreConfirmPage.status, 200);
+    assert.match(await restoreConfirmPage.text(), /RESTORE/);
+
+    const confirmedRestoreResponse = await fetch(`${baseUrl}/admin/restore`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, backupFilePath: backupPath, confirm: 'RESTORE' }),
+    });
+    assert.equal(confirmedRestoreResponse.status, 303);
     assert.deepEqual(restored, [backupPath]);
 
     const resourcesPage = await fetch(`${baseUrl}/admin/resources/users`, { headers: { cookie } });
@@ -441,7 +455,19 @@ test('admin http server exposes public feedback and protects admin pages', async
       headers: { cookie },
       body: new URLSearchParams({ csrfToken, backupFilePath: backupPath }),
     });
-    assert.equal(deleteBackupResponse.status, 303);
+    assert.equal(deleteBackupResponse.status, 400);
+
+    const deleteBackupConfirmPage = await fetch(`${baseUrl}/admin/delete-backup?backupFilePath=${encodeURIComponent(backupPath)}`, { headers: { cookie } });
+    assert.equal(deleteBackupConfirmPage.status, 200);
+    assert.match(await deleteBackupConfirmPage.text(), /DELETE/);
+
+    const confirmedDeleteBackupResponse = await fetch(`${baseUrl}/admin/delete-backup`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, backupFilePath: backupPath, confirm: 'DELETE' }),
+    });
+    assert.equal(confirmedDeleteBackupResponse.status, 303);
   } finally {
     await server.stop();
     await rm(tmp, { recursive: true, force: true });
