@@ -2680,7 +2680,7 @@ function renderCatalogCard(item: PublicCatalogItemRow): string {
     ? `<span class="catalog-status catalog-status-loaned">Prestado a ${escapeHtml(item.active_loan_borrower)}${item.active_loan_due_at ? ` · hasta ${escapeHtml(formatShortDate(item.active_loan_due_at))}` : ''}</span>`
     : '<span class="catalog-status catalog-status-available">Disponible</span>';
   const bggUrl = resolveBoardGameGeekUrl(item);
-  const actions = `<p class="catalog-actions"><a href="/catalogo/${item.id}">Ver detalle</a>${bggUrl ? `<a href="${escapeHtml(bggUrl)}" rel="noopener noreferrer">BoardGameGeek</a>` : ''}</p>`;
+  const actions = `<p class="catalog-actions"><a href="/catalogo/${item.id}">Ver detalle</a>${bggUrl ? `<a href="${escapeHtml(bggUrl)}" target="_blank" rel="noopener noreferrer">BoardGameGeek</a>` : ''}</p>`;
 
   return `<article class="catalog-card">${media}<div class="catalog-card-body"><div class="catalog-card-heading"><p>${escapeHtml(subtitle)}</p><h3><a href="/catalogo/${item.id}">${escapeHtml(item.display_name)}</a></h3>${originalName}</div>${status}${description}<dl class="catalog-facts">${renderCatalogFactRows(item)}</dl>${actions}</div></article>`;
 }
@@ -2713,7 +2713,7 @@ function catalogDetailPage(settings: WebSettings, item: PublicCatalogItemRow): s
     ? `<span class="catalog-status catalog-status-loaned">Prestado a ${escapeHtml(item.active_loan_borrower)}${item.active_loan_due_at ? ` · hasta ${escapeHtml(formatShortDate(item.active_loan_due_at))}` : ''}</span>`
     : '<span class="catalog-status catalog-status-available">Disponible</span>';
   const bggUrl = resolveBoardGameGeekUrl(item);
-  const bggLink = bggUrl ? `<a href="${escapeHtml(bggUrl)}" rel="noopener noreferrer">Abrir en BoardGameGeek</a>` : '';
+  const bggLink = bggUrl ? `<a href="${escapeHtml(bggUrl)}" target="_blank" rel="noopener noreferrer">Abrir en BoardGameGeek</a>` : '';
   const originalName = item.original_name && item.original_name !== item.display_name
     ? `<p class="catalog-original">${escapeHtml(item.original_name)}</p>`
     : '';

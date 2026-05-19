@@ -308,6 +308,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(catalogHtml, /src="\/catalogo\/bgg-image\/316554"/);
     assert.match(catalogHtml, /href="\/catalogo\/11"/);
     assert.match(catalogHtml, /href="https:\/\/boardgamegeek\.com\/boardgame\/316554"/);
+    assert.match(catalogHtml, /target="_blank" rel="noopener noreferrer">BoardGameGeek/);
     assert.match(catalogHtml, /Mostrando 1 de 25 articulos/);
     assert.match(catalogHtml, /Pagina 2 de 2/);
     assert.match(catalogHtml, /href="\/catalogo\?q=dune&amp;type=board-game&amp;page=1"/);
@@ -317,6 +318,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     const catalogDetailHtml = await catalogDetailPage.text();
     assert.match(catalogDetailHtml, /Juego de construccion de mazos, intriga y control de zonas\./);
     assert.match(catalogDetailHtml, /Abrir en BoardGameGeek/);
+    assert.match(catalogDetailHtml, /target="_blank" rel="noopener noreferrer">Abrir en BoardGameGeek/);
 
     const feedbackPage = await fetch(`${baseUrl}/feedback`);
     assert.equal(feedbackPage.status, 200);
