@@ -33,9 +33,14 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Password admin runtime | Hecho local/deploy | `config/.env` y `config/runtime.local.json` validan `cawabotadmin`; login HTTP local devuelve 303 a `/admin` tras `./startup.sh` |
 | Admin por dominios completos | Hecho | `/admin/activities`, `/admin/catalog` y `/admin/users` agrupan resumenes operativos y enlazan a recursos avanzados concretos |
 | Revision de altas web | Hecho | `/admin/member-signups/:id/status` permite marcar solicitudes como contactadas, aprobadas, rechazadas o pendientes con CSRF |
-| Revision de feedback | Pendiente opcional | Añadir estado revisado/pendiente si el club quiere bandeja de seguimiento |
-| Comprobacion publica HTTPS | Pendiente | Verificar `https://cawa.hopto.org/`, `/admin` y nuevas rutas despues de `startup.sh` |
-| Validacion final del plan | Pendiente | Ejecutar suite acordada, revisar docs y crear commit final de cierre |
+| Comprobacion publica HTTPS | Hecho | `https://cawa.hopto.org/`, `/feedback`, `/actividades`, `/catalogo`, `/club`, `/alta`, `/brand/cawa_casco.svg` y login admin responden correctamente |
+| Validacion final del plan | Hecho | Suite HTTP/news, typecheck, feature-status audit, `startup.sh`, systemd y HTTPS verificados |
+
+## Opcional no bloqueante
+
+| Punto | Estado real | Siguiente accion |
+| --- | --- | --- |
+| Revision de feedback | No requerido para cerrar el plan actual | Añadir estado revisado/pendiente si el club quiere bandeja de seguimiento |
 
 ## Validaciones recientes
 
@@ -48,3 +53,6 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 - `GET /brand/cawa_casco.svg`: devuelve `200 image/svg+xml`.
 - `GET /`: devuelve `200` e incluye logo y favicon de marca por defecto.
 - `GET /admin/users`, `/admin/activities` y `/admin/catalog` con sesion admin: devuelven `200`.
+- `node --import tsx --test src/http/admin-http-server.test.ts src/http/http-theme.test.ts src/http/web-settings-store.test.ts src/telegram/news-group-flow.test.ts src/news/news-group-store.test.ts`: pasa.
+- `https://cawa.hopto.org/`, `/feedback`, `/actividades`, `/catalogo`, `/club`, `/alta` y `/brand/cawa_casco.svg`: devuelven `200`.
+- `https://cawa.hopto.org/admin`: devuelve `303 /admin/login`; login con `cawabotadmin` devuelve `303 /admin`.
