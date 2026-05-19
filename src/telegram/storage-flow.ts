@@ -283,7 +283,7 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
       context.runtime.session.current?.flowKey === storageSearchFlowKey &&
       context.runtime.session.current.stepKey === 'search-scope'
     ) {
-      return selectStorageSearchCategory(context, selectedCategoryId, language);
+      return showStorageSearchCategoryNode(context, selectedCategoryId, language);
     }
     if (
       context.runtime.session.current?.flowKey === storageUploadFlowKey &&
@@ -692,7 +692,7 @@ async function handleSelectedStorageCategoryCallback(
     current?.flowKey === storageSearchFlowKey &&
     current.stepKey === 'search-scope'
   ) {
-    return selectStorageSearchCategory(context, selectedCategoryId, language);
+    return showStorageSearchCategoryNode(context, selectedCategoryId, language);
   }
   if (
     current?.flowKey === storageUploadFlowKey &&
@@ -970,16 +970,16 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
     const categories = await listReadableCategories(context);
     await context.runtime.session.start({
       flowKey: storageSearchFlowKey,
-      stepKey: 'search-scope',
+      stepKey: categories.length === 0 ? 'search-query' : 'search-mode',
       data: {
         categories: toStorageCategoryChoices(categories),
       },
     });
     await context.reply(
       categories.length === 0
-        ? texts.askSearchQuery
-        : `${escapeHtml(texts.askSearchScope)}\n${formatStorageCategoryListMessage({ categories, language, linkMode: 'select' })}`,
-      categories.length === 0 ? buildSingleCancelOptions() : { ...buildSingleCancelOptions(), parseMode: 'HTML' },
+        ? formatStorageSearchQueryPrompt(language)
+        : formatStorageSearchModePrompt(language),
+      categories.length === 0 ? { ...buildSingleCancelOptions(), parseMode: 'HTML' } : buildStorageSearchModeOptions(language),
     );
     return true;
   }
@@ -2239,7 +2239,65 @@ async function handleActiveSearchFlow(context: StorageFlowContext, text: string,
     return false;
   }
 
+  const texts = createTelegramI18n(language).storage;
+  if (session.stepKey === 'search-mode') {
+    if (text === texts.searchByTextOrTag) {
+      await context.runtime.session.advance({
+        stepKey: 'search-query',
+        data: session.data,
+      });
+      await context.reply(formatStorageSearchQueryPrompt(language), { ...buildSingleCancelOptions(), parseMode: 'HTML' });
+      return true;
+    }
+
+    if (text === texts.exploreSearchCategories) {
+      const categories = asCategoryChoices(session.data.categories);
+      await context.runtime.session.advance({
+        stepKey: 'search-scope',
+        data: {
+          ...session.data,
+          currentMoveCategoryId: null,
+        },
+      });
+      await context.reply(
+        formatMoveEntryCategoryPrompt({ categories, currentCategoryId: null, language, prompt: texts.askSearchScope }),
+        buildSearchCategoryOptions({ categories, currentCategoryId: null, language }),
+      );
+      return true;
+    }
+
+    return runStorageSearch(context, text, language);
+  }
+
   if (session.stepKey === 'search-scope') {
+    const categories = asCategoryChoices(session.data.categories);
+    const selectedCategoryId = parseStartPayload(text, storageSelectCategoryStartPayloadPrefix);
+    if (selectedCategoryId !== null) {
+      return showStorageSearchCategoryNode(context, selectedCategoryId, language);
+    }
+
+    const currentCategoryId = asNullableNumber(session.data.currentMoveCategoryId);
+    const currentCategory = currentCategoryId === null ? null : categories.find((category) => category.id === currentCategoryId) ?? null;
+    if (text === texts.back && currentCategory) {
+      const parentCategoryId = currentCategory.parentCategoryId;
+      await context.runtime.session.advance({
+        stepKey: 'search-scope',
+        data: {
+          ...session.data,
+          currentMoveCategoryId: parentCategoryId,
+        },
+      });
+      await context.reply(
+        formatMoveEntryCategoryPrompt({ categories, currentCategoryId: parentCategoryId, language, prompt: texts.askSearchScope }),
+        buildSearchCategoryOptions({ categories, currentCategoryId: parentCategoryId, language }),
+      );
+      return true;
+    }
+
+    if (text === texts.selectCurrentSearchCategory && currentCategory) {
+      return selectStorageSearchCategory(context, currentCategory.id, language);
+    }
+
     return runStorageSearch(context, text, language);
   }
 
@@ -2249,6 +2307,43 @@ async function handleActiveSearchFlow(context: StorageFlowContext, text: string,
 
   const categoryIds = asNumberArray(session.data.categoryIds);
   return runStorageSearch(context, text, language, categoryIds.length > 0 ? categoryIds : undefined);
+}
+
+async function showStorageSearchCategoryNode(
+  context: StorageFlowContext,
+  categoryId: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  const texts = createTelegramI18n(language).storage;
+  if (!session || session.flowKey !== storageSearchFlowKey || session.stepKey !== 'search-scope') {
+    await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  const categories = asCategoryChoices(session.data.categories);
+  const selected = categories.find((category) => category.id === categoryId);
+  if (!selected) {
+    const currentCategoryId = asNullableNumber(session.data.currentMoveCategoryId);
+    await context.reply(
+      texts.invalidCategory,
+      buildSearchCategoryOptions({ categories, currentCategoryId, language }),
+    );
+    return true;
+  }
+
+  await context.runtime.session.advance({
+    stepKey: 'search-scope',
+    data: {
+      ...session.data,
+      currentMoveCategoryId: selected.id,
+    },
+  });
+  await context.reply(
+    formatMoveEntryCategoryPrompt({ categories, currentCategoryId: selected.id, language, prompt: texts.askSearchScope }),
+    buildSearchCategoryOptions({ categories, currentCategoryId: selected.id, language }),
+  );
+  return true;
 }
 
 async function selectStorageSearchCategory(
@@ -2288,9 +2383,10 @@ async function runStorageSearch(
   const texts = createTelegramI18n(language).storage;
   const categories = await listReadableCategories(context);
   const categoryIds = scopedCategoryIds ?? categories.map((category) => category.id);
+  const normalizedQuery = normalizeStorageSearchQuery(query);
   const details = await resolveRepository(context).searchEntryDetails({
     categoryIds,
-    query,
+    query: normalizedQuery,
   });
   const tagCounts = await buildReadableStorageTagCounts(context);
   await context.runtime.session.cancel();
@@ -2301,6 +2397,10 @@ async function runStorageSearch(
     details.length === 0 ? buildStorageMenuOptions(language, context) : { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
   );
   return true;
+}
+
+function normalizeStorageSearchQuery(query: string): string {
+  return query.trim().replace(/^#(?=[A-Za-z0-9_-]+$)/, '');
 }
 
 async function sendStorageEntryDetail(
@@ -4512,6 +4612,45 @@ function buildUploadCategoryOptions({
   };
 }
 
+function buildStorageSearchModeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).storage;
+  return {
+    replyKeyboard: [
+      [successButton(texts.searchByTextOrTag)],
+      [secondaryButton(texts.exploreSearchCategories)],
+      [dangerButton('/cancel')],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+    parseMode: 'HTML',
+  };
+}
+
+function buildSearchCategoryOptions({
+  categories,
+  currentCategoryId,
+  language,
+}: {
+  categories: StorageCategoryChoice[];
+  currentCategoryId: number | null;
+  language: 'ca' | 'es' | 'en';
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).storage;
+  const currentCategory = currentCategoryId === null ? null : categories.find((category) => category.id === currentCategoryId) ?? null;
+  const rows: Array<Array<string | TelegramReplyButton>> = [];
+  if (currentCategory) {
+    rows.push([successButton(texts.selectCurrentSearchCategory)]);
+    rows.push([secondaryButton(texts.back)]);
+  }
+  rows.push([dangerButton('/cancel')]);
+  return {
+    replyKeyboard: rows,
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+    parseMode: 'HTML',
+  };
+}
+
 function buildStorageSubscriptionScopeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).storage;
   return {
@@ -4663,6 +4802,26 @@ function formatUploadPreview(data: Record<string, unknown>, language: 'ca' | 'es
     escapeHtml(texts.uploadPreviewInstructions),
   ];
   return lines.join('\n');
+}
+
+function formatStorageSearchModePrompt(language: 'ca' | 'es' | 'en'): string {
+  const texts = createTelegramI18n(language).storage;
+  return [
+    escapeHtml(texts.askSearchMode),
+    '',
+    escapeHtml(texts.searchTelegramArchiveHint),
+    escapeHtml(texts.searchTagHint),
+  ].join('\n');
+}
+
+function formatStorageSearchQueryPrompt(language: 'ca' | 'es' | 'en'): string {
+  const texts = createTelegramI18n(language).storage;
+  const tagListUrl = escapeHtml(buildTelegramStartUrl('storage_tags'));
+  return [
+    escapeHtml(texts.askSearchQuery),
+    escapeHtml(texts.searchQueryExamples),
+    `<a href="${tagListUrl}">${escapeHtml(texts.openTagListLink)}</a>`,
+  ].join('\n');
 }
 
 function formatDraftStorageAttachment(message: DmUploadDraftMessage, language: 'ca' | 'es' | 'en'): string {

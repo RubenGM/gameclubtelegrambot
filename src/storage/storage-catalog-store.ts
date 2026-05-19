@@ -428,6 +428,7 @@ async function loadEntryDetail(
 
 function matchesStorageSearch(detail: StorageEntryDetailRecord, normalizedQuery: string): boolean {
   return (
+    detail.category.displayName.toLowerCase().includes(normalizedQuery) ||
     detail.entry.description?.toLowerCase().includes(normalizedQuery) === true ||
     detail.entry.tags.some((tag) => tag.toLowerCase().includes(normalizedQuery)) ||
     detail.messages.some((message) => message.originalFileName?.toLowerCase().includes(normalizedQuery) === true)

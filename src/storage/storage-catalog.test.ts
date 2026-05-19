@@ -229,6 +229,7 @@ function createRepository(initialCategories: StorageCategoryRecord[] = []): Stor
         entry.entry.lifecycleStatus === 'active' &&
         (
           entry.entry.description?.toLowerCase().includes(normalizedQuery) ||
+          entry.category.displayName.toLowerCase().includes(normalizedQuery) ||
           entry.entry.tags.some((tag) => tag.includes(normalizedQuery)) ||
           entry.messages.some((message) => message.originalFileName?.toLowerCase().includes(normalizedQuery))
         ),

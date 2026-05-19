@@ -284,6 +284,7 @@ function createRepository(initialCategories: StorageCategoryRecord[] = [createCa
         entry.entry.lifecycleStatus === 'active' &&
         (
           entry.entry.description?.toLowerCase().includes(normalizedQuery) ||
+          entry.category.displayName.toLowerCase().includes(normalizedQuery) ||
           entry.entry.tags.some((tag) => tag.includes(normalizedQuery)) ||
           entry.messages.some((message) => message.originalFileName?.toLowerCase().includes(normalizedQuery))
         ),
@@ -1259,9 +1260,13 @@ test('handleTelegramStorageText searches entries inside readable categories', as
 
   context.messageText = 'Buscar archivos';
   await handleTelegramStorageText(context as never);
-  assert.match(replies.at(-1)?.message ?? '', /Elige una categoría para limitar la búsqueda/);
-  assert.match(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_select_category_7/);
+  assert.match(replies.at(-1)?.message ?? '', /Telegram no siempre puede buscar dentro del Storage archivado/);
+  assert.match(replies.at(-1)?.message ?? '', /Puedes escribir tags con o sin #/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 2), [
+    [successButton('Buscar palabra o tag')],
+    [secondaryButton('Explorar categorías')],
+  ]);
 
   context.messageText = 'manual';
   const handled = await handleTelegramStorageText(context as never);
@@ -1277,6 +1282,18 @@ test('handleTelegramStorageText searches entries inside readable categories', as
       '- <a href="https://t.me/cawatest_bot?start=storage_entry_1">Manual de campana</a> · <a href="https://t.me/cawatest_bot?start=storage_tag_rol">#rol (1 archivos)</a>, <a href="https://t.me/cawatest_bot?start=storage_tag_pdf">#pdf (1 archivos)</a>',
     ].join('\n'),
   );
+
+  context.messageText = 'Buscar archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = '#rol';
+  await handleTelegramStorageText(context as never);
+  assert.match(replies.at(-1)?.message ?? '', /Manual de campana/);
+
+  context.messageText = 'Buscar archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Manuales';
+  await handleTelegramStorageText(context as never);
+  assert.match(replies.at(-1)?.message ?? '', /Manual de campana/);
 });
 
 test('handleTelegramStorageText lists tags and opens tag results from deep links', async () => {
@@ -1466,8 +1483,26 @@ test('handleTelegramStorageText can scope searches to a selected category', asyn
 
   context.messageText = 'Buscar archivos';
   await handleTelegramStorageText(context as never);
+  context.messageText = 'Explorar categorías';
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'search-scope');
+  assert.match(replies.at(-1)?.message ?? '', /storage_select_category_7/);
+  assert.match(replies.at(-1)?.message ?? '', /storage_select_category_8/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_select_category_9/);
+
   context.messageText = '/start storage_select_category_8';
   await handleTelegramStorageStartText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'search-scope');
+  assert.match(replies.at(-1)?.message ?? '', /<b>Mapas<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /storage_select_category_9/);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => typeof button === 'string' ? button : button.text), [
+    'Buscar aquí',
+    'Volver',
+    '/cancel',
+  ]);
+
+  context.messageText = 'Buscar aquí';
+  await handleTelegramStorageText(context as never);
 
   assert.equal(getCurrentSession()?.stepKey, 'search-query');
   assert.equal(replies.at(-1)?.message, 'Escribe el texto que quieres buscar en Mapas.');
