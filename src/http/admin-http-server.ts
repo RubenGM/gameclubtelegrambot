@@ -11,6 +11,7 @@ import { createServiceControl, type ServiceControl } from '../operations/service
 import { verifySecret } from '../security/verify-password-hash.js';
 import { createDatabaseAppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
 import { listNewsGroupCategories, newMembersNewsGroupCategory } from '../news/news-group-catalog.js';
+import { parseCatalogStorageEntryUrl } from '../catalog/catalog-media-storage.js';
 import { escapeHtml, renderHttpPage, type RenderHttpPageOptions } from './http-pages.js';
 import { listHttpThemes } from './http-theme.js';
 import { createDatabaseMemberSignupStore, type MemberSignupRecord, type MemberSignupStore } from './member-signup-store.js';
@@ -53,6 +54,12 @@ interface LoginAttempt {
 interface HttpTelegramSender {
   sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
   sendGroupMessage?(chatId: number, message: string, options?: { parseMode?: 'HTML' }): Promise<void>;
+}
+
+interface CatalogStorageMediaRow {
+  telegram_file_id: string;
+  mime_type: string | null;
+  attachment_kind: string;
 }
 
 type FieldType = 'string' | 'number' | 'boolean' | 'json' | 'timestamp';
@@ -383,12 +390,35 @@ async function routeRequest(options: {
     const settings = await options.webSettingsStore.load();
     const search = url.searchParams.get('q') ?? '';
     const itemType = url.searchParams.get('type') ?? '';
-    const familyId = parseOptionalPositiveInteger(url.searchParams.get('family'));
     const playerCount = parseOptionalPositiveInteger(url.searchParams.get('players'));
     const availability = url.searchParams.get('availability') ?? '';
     const pageNumber = parsePositiveInteger(url.searchParams.get('page'), 1);
-    const catalogResult = await fetchPublicCatalogItems(options.services, { search, itemType, familyId, playerCount, availability, page: pageNumber });
-    sendHtml(response, 200, catalogPage(settings, catalogResult, { search, itemType, familyId, playerCount, availability }));
+    const catalogResult = await fetchPublicCatalogItems(options.services, { search, itemType, playerCount, availability, page: pageNumber });
+    sendHtml(response, 200, catalogPage(settings, catalogResult, { search, itemType, playerCount, availability }));
+    return;
+  }
+
+  const catalogDetailMatch = request.method === 'GET' ? /^\/catalogo\/(\d+)$/.exec(url.pathname) : null;
+  if (catalogDetailMatch?.[1]) {
+    const settings = await options.webSettingsStore.load();
+    const item = await fetchPublicCatalogItemDetail(options.services, Number(catalogDetailMatch[1]));
+    if (!item) {
+      sendHtml(response, 404, notFoundPage());
+      return;
+    }
+    sendHtml(response, 200, catalogDetailPage(settings, item));
+    return;
+  }
+
+  const catalogMediaMatch = request.method === 'GET' ? /^\/catalogo\/media\/(\d+)$/.exec(url.pathname) : null;
+  if (catalogMediaMatch?.[1]) {
+    await sendCatalogStorageMedia(response, options, Number(catalogMediaMatch[1]));
+    return;
+  }
+
+  const catalogBggImageMatch = request.method === 'GET' ? /^\/catalogo\/bgg-image\/(\d+)$/.exec(url.pathname) : null;
+  if (catalogBggImageMatch?.[1]) {
+    await redirectToBoardGameGeekImage(response, options.appRoot, catalogBggImageMatch[1], options.config.bgg?.apiKey ?? null);
     return;
   }
 
@@ -1482,16 +1512,12 @@ interface PublicCatalogItemRow {
   active_loan_due_at: Date | string | null;
   media_url: string | null;
   media_alt_text: string | null;
-}
-
-interface PublicCatalogFamilyOption {
-  id: number;
-  display_name: string;
+  external_refs: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
 }
 
 interface PublicCatalogPage {
   items: PublicCatalogItemRow[];
-  families: PublicCatalogFamilyOption[];
   totalItems: number;
   page: number;
   pageSize: number;
@@ -1745,7 +1771,7 @@ async function fetchAdminCatalogOverview(services: InfrastructureRuntimeServices
     safeCount(services, "select count(*)::int as count from catalog_items where lifecycle_status <> 'active'"),
     safeCount(services, 'select count(*)::int as count from catalog_loans where returned_at is null'),
     fetchAdminCatalogTypeCounts(services),
-    fetchPublicCatalogItems(services, { search: '', itemType: '', familyId: null, playerCount: null, availability: '', page: 1 }),
+    fetchPublicCatalogItems(services, { search: '', itemType: '', playerCount: null, availability: '', page: 1 }),
   ]);
 
   return {
@@ -1846,14 +1872,12 @@ async function fetchPublicCatalogItems(
   {
     search,
     itemType,
-    familyId,
     playerCount,
     availability,
     page,
   }: {
     search: string;
     itemType: string;
-    familyId: number | null;
     playerCount: number | null;
     availability: string;
     page: number;
@@ -1876,11 +1900,6 @@ async function fetchPublicCatalogItems(
     filters.push(`items.item_type = $${params.length}`);
   }
 
-  if (familyId !== null) {
-    params.push(familyId);
-    filters.push(`items.family_id = $${params.length}`);
-  }
-
   if (playerCount !== null) {
     params.push(playerCount);
     filters.push(`(items.player_count_min is null or items.player_count_min <= $${params.length})`);
@@ -1897,23 +1916,14 @@ async function fetchPublicCatalogItems(
       from catalog_items items
       left join catalog_loans active_loans on active_loans.item_id = items.id and active_loans.returned_at is null
     `;
-  const [familiesResult, countResult] = await Promise.all([
-    services.database.pool.query<PublicCatalogFamilyOption>(
-      `
-        select id, display_name
-        from catalog_families
-        order by display_name asc
-      `,
-    ),
-    services.database.pool.query<{ count: number | string }>(
-      `
-        select count(distinct items.id)::int as count
-        ${fromClause}
-        where ${filters.join(' and ')}
-      `,
-      params,
-    ),
-  ]);
+  const countResult = await services.database.pool.query<{ count: number | string }>(
+    `
+      select count(distinct items.id)::int as count
+      ${fromClause}
+      where ${filters.join(' and ')}
+    `,
+    params,
+  );
   const totalItems = Number(countResult.rows[0]?.count ?? 0);
   const totalPages = Math.max(1, Math.ceil(totalItems / publicCatalogPageSize));
   const resolvedPage = Math.min(normalizedPage, totalPages);
@@ -1938,6 +1948,8 @@ async function fetchPublicCatalogItems(
         items.player_count_max,
         items.recommended_age,
         items.play_time_minutes,
+        items.external_refs,
+        items.metadata,
         active_loans.borrower_display_name as active_loan_borrower,
         active_loans.due_at as active_loan_due_at,
         media.url as media_url,
@@ -1963,12 +1975,65 @@ async function fetchPublicCatalogItems(
 
   return {
     items: result.rows,
-    families: familiesResult.rows,
     totalItems,
     page: resolvedPage,
     pageSize: publicCatalogPageSize,
     totalPages,
   };
+}
+
+async function fetchPublicCatalogItemDetail(
+  services: InfrastructureRuntimeServices,
+  itemId: number,
+): Promise<PublicCatalogItemRow | null> {
+  if (!Number.isInteger(itemId) || itemId <= 0) {
+    return null;
+  }
+
+  const result = await services.database.pool.query<PublicCatalogItemRow>(
+    `
+      select
+        items.id,
+        items.display_name,
+        items.original_name,
+        items.item_type,
+        items.description,
+        items.language,
+        families.id as family_id,
+        families.display_name as family_name,
+        groups.id as group_id,
+        groups.display_name as group_name,
+        owners.display_name as owner_name,
+        items.publisher,
+        items.publication_year,
+        items.player_count_min,
+        items.player_count_max,
+        items.recommended_age,
+        items.play_time_minutes,
+        items.external_refs,
+        items.metadata,
+        active_loans.borrower_display_name as active_loan_borrower,
+        active_loans.due_at as active_loan_due_at,
+        media.url as media_url,
+        media.alt_text as media_alt_text
+      from catalog_items items
+      left join catalog_loans active_loans on active_loans.item_id = items.id and active_loans.returned_at is null
+      left join catalog_families families on families.id = items.family_id
+      left join catalog_groups groups on groups.id = items.group_id
+      left join users owners on owners.telegram_user_id = items.owner_telegram_user_id
+      left join lateral (
+        select url, alt_text
+        from catalog_media
+        where item_id = items.id and media_type = 'image'
+        order by sort_order asc, id asc
+        limit 1
+      ) media on true
+      where items.lifecycle_status = 'active' and items.id = $1
+      limit 1
+    `,
+    [itemId],
+  );
+  return result.rows[0] ?? null;
 }
 
 async function fetchResourceRows(
@@ -2232,12 +2297,155 @@ function sendHtml(response: ServerResponse, statusCode: number, body: string): v
   response.end(body);
 }
 
+async function sendCatalogStorageMedia(
+  response: ServerResponse,
+  options: { config: RuntimeConfig; services: InfrastructureRuntimeServices; appRoot: string },
+  entryId: number,
+): Promise<void> {
+  if (!Number.isInteger(entryId) || entryId <= 0 || !options.config.telegram.token) {
+    response.writeHead(404);
+    response.end();
+    return;
+  }
+
+  const media = await fetchCatalogStorageMedia(options.services, entryId);
+  if (!media) {
+    response.writeHead(404);
+    response.end();
+    return;
+  }
+
+  const cachePath = resolve(options.appRoot, 'data/http-cache/catalog-media', `${entryId}.bin`);
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(cachePath);
+  } catch {
+    bytes = await downloadTelegramFile(options.config.telegram.token, media.telegram_file_id);
+    await mkdir(dirname(cachePath), { recursive: true });
+    await writeFile(cachePath, bytes);
+  }
+
+  response.writeHead(200, {
+    'Content-Type': normalizeCatalogMediaMimeType(media.mime_type, media.attachment_kind),
+    'Cache-Control': 'public, max-age=86400',
+  });
+  response.end(bytes);
+}
+
+async function fetchCatalogStorageMedia(
+  services: InfrastructureRuntimeServices,
+  entryId: number,
+): Promise<CatalogStorageMediaRow | null> {
+  const result = await services.database.pool.query<CatalogStorageMediaRow>(
+    `
+      select messages.telegram_file_id, messages.mime_type, messages.attachment_kind
+      from storage_entries entries
+      inner join storage_categories categories on categories.id = entries.category_id
+      inner join storage_entry_messages messages on messages.entry_id = entries.id
+      where entries.id = $1
+        and entries.lifecycle_status = 'active'
+        and categories.lifecycle_status = 'active'
+        and (categories.category_purpose = 'catalog_media' or categories.slug in ('catalog_media', 'catalog-media'))
+        and messages.telegram_file_id is not null
+      order by messages.sort_order asc, messages.id asc
+      limit 1
+    `,
+    [entryId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function downloadTelegramFile(token: string, fileId: string): Promise<Buffer> {
+  const fileResponse = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`);
+  if (!fileResponse.ok) {
+    throw new Error(`Telegram getFile failed with status ${fileResponse.status}`);
+  }
+  const fileJson = await fileResponse.json() as { ok?: boolean; result?: { file_path?: string } };
+  const filePath = fileJson.ok === true ? fileJson.result?.file_path : null;
+  if (!filePath) {
+    throw new Error('Telegram did not return a file path');
+  }
+
+  const downloadResponse = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+  if (!downloadResponse.ok) {
+    throw new Error(`Telegram file download failed with status ${downloadResponse.status}`);
+  }
+  return Buffer.from(await downloadResponse.arrayBuffer());
+}
+
+async function redirectToBoardGameGeekImage(
+  response: ServerResponse,
+  appRoot: string,
+  boardGameGeekId: string,
+  bggApiKey: string | null,
+): Promise<void> {
+  const normalizedApiKey = bggApiKey?.trim();
+  if (!/^\d+$/.test(boardGameGeekId) || !normalizedApiKey) {
+    response.writeHead(404);
+    response.end();
+    return;
+  }
+
+  const cachePath = resolve(appRoot, 'data/http-cache/catalog-bgg-images', `${boardGameGeekId}.txt`);
+  let imageUrl: string | null = null;
+  try {
+    imageUrl = (await readFile(cachePath, 'utf8')).trim() || null;
+  } catch {
+    imageUrl = null;
+  }
+
+  if (!imageUrl) {
+    const xmlResponse = await fetch(`https://boardgamegeek.com/xmlapi2/thing?id=${encodeURIComponent(boardGameGeekId)}`, {
+      headers: {
+        Accept: 'application/xml, text/xml;q=0.9, */*;q=0.1',
+        Authorization: `Bearer ${normalizedApiKey}`,
+      },
+    });
+    if (!xmlResponse.ok) {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    imageUrl = extractBoardGameGeekImageUrl(await xmlResponse.text());
+    if (!imageUrl) {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    await mkdir(dirname(cachePath), { recursive: true });
+    await writeFile(cachePath, imageUrl);
+  }
+
+  response.writeHead(302, {
+    Location: imageUrl,
+    'Cache-Control': 'public, max-age=86400',
+  });
+  response.end();
+}
+
+function extractBoardGameGeekImageUrl(xml: string): string | null {
+  const match = /<image>([^<]+)<\/image>/.exec(xml);
+  const imageUrl = match?.[1]?.trim().replaceAll('&amp;', '&') ?? null;
+  return imageUrl?.startsWith('https://') ? imageUrl : null;
+}
+
+function normalizeCatalogMediaMimeType(mimeType: string | null, attachmentKind: string): string {
+  if (mimeType?.startsWith('image/')) {
+    return mimeType;
+  }
+  return attachmentKind === 'photo' ? 'image/jpeg' : 'application/octet-stream';
+}
+
 function page(titleOrOptions: string | RenderHttpPageOptions, body = ''): string {
   if (typeof titleOrOptions === 'string') {
     return renderHttpPage({ title: titleOrOptions, body });
   }
 
   return renderHttpPage(titleOrOptions);
+}
+
+function notFoundPage(): string {
+  return page('No encontrado', '<p>No hemos encontrado la pagina solicitada.</p><p><a href="/">Volver al inicio</a></p>');
 }
 
 function feedbackPage(): string {
@@ -2402,16 +2610,12 @@ function catalogPage(
     ['expansion', 'Expansiones'],
     ['accessory', 'Accesorios'],
   ].map(([value, label]) => `<option value="${escapeHtml(value)}"${value === filters.itemType ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
-  const familyOptions = [
-    `<option value="">Todas</option>`,
-    ...catalogResult.families.map((family) => `<option value="${family.id}"${filters.familyId === family.id ? ' selected' : ''}>${escapeHtml(family.display_name)}</option>`),
-  ].join('');
   const availabilityOptions = [
     ['', 'Todos'],
     ['available', 'Disponibles'],
     ['loaned', 'Prestados'],
   ].map(([value, label]) => `<option value="${escapeHtml(value)}"${value === filters.availability ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
-  const form = `<form method="get" action="/catalogo" class="catalog-filter-panel"><label>Buscar<input name="q" value="${escapeHtml(filters.search)}" placeholder="Nombre, editorial u original"></label><label>Tipo<select name="type">${typeOptions}</select></label><label>Familia<select name="family">${familyOptions}</select></label><label>Jugadores<input name="players" inputmode="numeric" pattern="[0-9]*" value="${filters.playerCount ?? ''}" placeholder="Ej. 4"></label><label>Disponibilidad<select name="availability">${availabilityOptions}</select></label><button type="submit">Filtrar</button></form>`;
+  const form = `<form method="get" action="/catalogo" class="catalog-filter-panel"><label>Buscar<input name="q" value="${escapeHtml(filters.search)}" placeholder="Nombre, editorial u original"></label><label>Tipo<select name="type">${typeOptions}</select></label><label>Jugadores<input name="players" inputmode="numeric" pattern="[0-9]*" value="${filters.playerCount ?? ''}" placeholder="Ej. 4"></label><label>Disponibilidad<select name="availability">${availabilityOptions}</select></label><button type="submit">Filtrar</button></form>`;
   const list = items.length === 0
     ? '<p>No hay artículos activos que coincidan con la búsqueda.</p>'
     : renderCatalogLetterGroups(items);
@@ -2430,7 +2634,6 @@ function catalogPage(
 interface PublicCatalogFilters {
   search: string;
   itemType: string;
-  familyId: number | null;
   playerCount: number | null;
   availability: string;
 }
@@ -2439,7 +2642,6 @@ function buildCatalogFilterSummary(catalogResult: PublicCatalogPage, filters: Pu
   const activeFilters = [
     filters.search.trim() ? `busqueda "${filters.search.trim()}"` : null,
     filters.itemType.trim() ? renderCatalogType(filters.itemType.trim()) : null,
-    filters.familyId !== null ? 'familia seleccionada' : null,
     filters.playerCount !== null ? `${filters.playerCount} jugadores` : null,
     filters.availability === 'available' ? 'disponibles' : null,
     filters.availability === 'loaned' ? 'prestados' : null,
@@ -2459,8 +2661,9 @@ function renderCatalogLetterGroups(items: PublicCatalogItemRow[]): string {
 }
 
 function renderCatalogCard(item: PublicCatalogItemRow): string {
-  const media = item.media_url && isPublicCatalogMediaUrl(item.media_url)
-    ? `<img class="catalog-cover" src="${escapeHtml(item.media_url)}" alt="${escapeHtml(item.media_alt_text ?? item.display_name)}" loading="lazy">`
+  const mediaUrl = resolveCatalogCoverUrl(item);
+  const media = mediaUrl
+    ? `<img class="catalog-cover" src="${escapeHtml(mediaUrl)}" alt="${escapeHtml(item.media_alt_text ?? item.display_name)}" loading="lazy">`
     : `<div class="catalog-cover catalog-cover-placeholder" aria-hidden="true">${escapeHtml(getCatalogLetter(item.display_name))}</div>`;
   const subtitle = [
     renderCatalogType(item.item_type),
@@ -2476,8 +2679,10 @@ function renderCatalogCard(item: PublicCatalogItemRow): string {
   const status = item.active_loan_borrower
     ? `<span class="catalog-status catalog-status-loaned">Prestado a ${escapeHtml(item.active_loan_borrower)}${item.active_loan_due_at ? ` · hasta ${escapeHtml(formatShortDate(item.active_loan_due_at))}` : ''}</span>`
     : '<span class="catalog-status catalog-status-available">Disponible</span>';
+  const bggUrl = resolveBoardGameGeekUrl(item);
+  const actions = `<p class="catalog-actions"><a href="/catalogo/${item.id}">Ver detalle</a>${bggUrl ? `<a href="${escapeHtml(bggUrl)}" rel="noopener noreferrer">BoardGameGeek</a>` : ''}</p>`;
 
-  return `<article class="catalog-card">${media}<div class="catalog-card-body"><div class="catalog-card-heading"><p>${escapeHtml(subtitle)}</p><h3>${escapeHtml(item.display_name)}</h3>${originalName}</div>${status}${description}<dl class="catalog-facts">${renderCatalogFactRows(item)}</dl></div></article>`;
+  return `<article class="catalog-card">${media}<div class="catalog-card-body"><div class="catalog-card-heading"><p>${escapeHtml(subtitle)}</p><h3><a href="/catalogo/${item.id}">${escapeHtml(item.display_name)}</a></h3>${originalName}</div>${status}${description}<dl class="catalog-facts">${renderCatalogFactRows(item)}</dl>${actions}</div></article>`;
 }
 
 function renderCatalogFactRows(item: PublicCatalogItemRow): string {
@@ -2494,8 +2699,85 @@ function renderCatalogFactRows(item: PublicCatalogItemRow): string {
   return facts.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('');
 }
 
-function isPublicCatalogMediaUrl(value: string): boolean {
-  return value.startsWith('/') || value.startsWith('http://') || value.startsWith('https://');
+function catalogDetailPage(settings: WebSettings, item: PublicCatalogItemRow): string {
+  const mediaUrl = resolveCatalogCoverUrl(item);
+  const media = mediaUrl
+    ? `<img class="catalog-detail-cover" src="${escapeHtml(mediaUrl)}" alt="${escapeHtml(item.media_alt_text ?? item.display_name)}">`
+    : `<div class="catalog-detail-cover catalog-cover-placeholder" aria-hidden="true">${escapeHtml(getCatalogLetter(item.display_name))}</div>`;
+  const subtitle = [
+    renderCatalogType(item.item_type),
+    item.family_name,
+    item.group_name,
+  ].filter((value): value is string => Boolean(value)).join(' · ');
+  const status = item.active_loan_borrower
+    ? `<span class="catalog-status catalog-status-loaned">Prestado a ${escapeHtml(item.active_loan_borrower)}${item.active_loan_due_at ? ` · hasta ${escapeHtml(formatShortDate(item.active_loan_due_at))}` : ''}</span>`
+    : '<span class="catalog-status catalog-status-available">Disponible</span>';
+  const bggUrl = resolveBoardGameGeekUrl(item);
+  const bggLink = bggUrl ? `<a href="${escapeHtml(bggUrl)}" rel="noopener noreferrer">Abrir en BoardGameGeek</a>` : '';
+  const originalName = item.original_name && item.original_name !== item.display_name
+    ? `<p class="catalog-original">${escapeHtml(item.original_name)}</p>`
+    : '';
+  const description = item.description
+    ? `<section class="catalog-detail-description"><h2>Descripcion</h2><p>${escapeHtml(item.description)}</p></section>`
+    : '<section class="catalog-detail-description"><h2>Descripcion</h2><p>No hay descripcion disponible.</p></section>';
+
+  return page({
+    title: item.display_name,
+    themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
+    body: `<p class="row"><a href="/catalogo">Volver al catalogo</a>${bggLink}</p><section class="catalog-detail-hero">${media}<div><p class="catalog-detail-kicker">${escapeHtml(subtitle)}</p>${originalName}${status}<dl class="catalog-facts catalog-detail-facts">${renderCatalogFactRows(item)}</dl></div></section>${description}`,
+  });
+}
+
+function resolvePublicCatalogMediaUrl(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const storageEntryId = parseCatalogStorageEntryUrl(value);
+  if (storageEntryId !== null) {
+    return `/catalogo/media/${storageEntryId}`;
+  }
+  return value.startsWith('/') || value.startsWith('http://') || value.startsWith('https://') ? value : null;
+}
+
+function resolveCatalogCoverUrl(item: PublicCatalogItemRow): string | null {
+  const bggId = resolveBoardGameGeekId(item);
+  if (bggId) {
+    return `/catalogo/bgg-image/${bggId}`;
+  }
+  return resolvePublicCatalogMediaUrl(item.media_url);
+}
+
+function resolveBoardGameGeekUrl(item: PublicCatalogItemRow): string | null {
+  const externalRefsUrl = readStringProperty(item.external_refs, 'boardGameGeekUrl');
+  if (externalRefsUrl?.startsWith('https://boardgamegeek.com/')) {
+    return externalRefsUrl;
+  }
+  const metadataUrl = readStringProperty(item.metadata, 'boardGameGeekUrl');
+  if (metadataUrl?.startsWith('https://boardgamegeek.com/')) {
+    return metadataUrl;
+  }
+  const bggId = resolveBoardGameGeekId(item);
+  return bggId && /^\d+$/.test(bggId) ? `https://boardgamegeek.com/boardgame/${bggId}` : null;
+}
+
+function resolveBoardGameGeekId(item: PublicCatalogItemRow): string | null {
+  return readStringProperty(item.external_refs, 'boardGameGeekId')
+    ?? readStringProperty(item.external_refs, 'bggId')
+    ?? readStringProperty(item.metadata, 'boardGameGeekId')
+    ?? readStringProperty(item.metadata, 'bggId');
+}
+
+function readStringProperty(value: Record<string, unknown> | null, key: string): string | null {
+  const raw = value?.[key];
+  if (typeof raw === 'string' && raw.trim()) {
+    return raw.trim();
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return String(raw);
+  }
+  return null;
 }
 
 function renderCatalogPagination(
@@ -2522,9 +2804,6 @@ function buildCatalogPageUrl(filters: PublicCatalogFilters, pageNumber: number):
   }
   if (filters.itemType.trim()) {
     params.set('type', filters.itemType.trim());
-  }
-  if (filters.familyId !== null) {
-    params.set('family', String(filters.familyId));
   }
   if (filters.playerCount !== null) {
     params.set('players', String(filters.playerCount));

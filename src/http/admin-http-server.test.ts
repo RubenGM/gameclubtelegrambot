@@ -163,8 +163,10 @@ test('admin http server exposes public feedback and protects admin pages', async
               play_time_minutes: 120,
               active_loan_borrower: null,
               active_loan_due_at: null,
-              media_url: null,
+              media_url: 'storage:entry:99',
               media_alt_text: null,
+              external_refs: { boardGameGeekId: '316554', boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/316554' },
+              metadata: { source: 'boardgamegeek' },
             }],
           };
         }
@@ -302,9 +304,19 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(catalogHtml, /<h2>D<\/h2>/);
     assert.match(catalogHtml, /name="players"/);
     assert.match(catalogHtml, /name="availability"/);
+    assert.doesNotMatch(catalogHtml, /name="family"/);
+    assert.match(catalogHtml, /src="\/catalogo\/bgg-image\/316554"/);
+    assert.match(catalogHtml, /href="\/catalogo\/11"/);
+    assert.match(catalogHtml, /href="https:\/\/boardgamegeek\.com\/boardgame\/316554"/);
     assert.match(catalogHtml, /Mostrando 1 de 25 articulos/);
     assert.match(catalogHtml, /Pagina 2 de 2/);
     assert.match(catalogHtml, /href="\/catalogo\?q=dune&amp;type=board-game&amp;page=1"/);
+
+    const catalogDetailPage = await fetch(`${baseUrl}/catalogo/11`);
+    assert.equal(catalogDetailPage.status, 200);
+    const catalogDetailHtml = await catalogDetailPage.text();
+    assert.match(catalogDetailHtml, /Juego de construccion de mazos, intriga y control de zonas\./);
+    assert.match(catalogDetailHtml, /Abrir en BoardGameGeek/);
 
     const feedbackPage = await fetch(`${baseUrl}/feedback`);
     assert.equal(feedbackPage.status, 200);

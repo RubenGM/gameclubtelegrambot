@@ -163,7 +163,7 @@ Implementado:
 - En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; OpenCode sugiere el titulo y, si se crea el item, el bot pregunta si se guarda esa portada como imagen principal.
 - `/catalog_search` como consulta para usuarios aprobados.
 - Vista de lectura con indice por rangos de tres iniciales: cada bloque muestra total de articulos y desglose por juegos de mesa, libros y accesorios, con enlaces normales `t.me?...start=` en el texto; los grupos internos no aparecen en la navegacion principal.
-- Vista publica `/catalogo` con busqueda por titulo/original/editorial, filtros por tipo, familia, numero de jugadores y disponibilidad, paginacion, agrupacion por inicial y tarjetas con portada, descripcion, familia/grupo, propietario, disponibilidad/prestamo y datos principales.
+- Vista publica `/catalogo` con busqueda por titulo/original/editorial, filtros por tipo, numero de jugadores y disponibilidad, paginacion, agrupacion por inicial, tarjetas con portada, descripcion, familia/grupo, propietario, disponibilidad/prestamo y datos principales, detalle publico por item con descripcion completa y enlace a BoardGameGeek cuando el item conserva referencia BGG.
 - Creacion de actividad desde item del catalogo y aviso si el item esta prestado.
 - Los avisos de prestamo en grupos de noticias intentan publicar una sola imagen: la portada principal del item; si falla, mantienen el texto actual.
 
