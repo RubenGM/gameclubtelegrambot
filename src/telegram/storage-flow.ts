@@ -70,6 +70,8 @@ export const storageCallbackPrefixes = {
 const storageListPageSize = 20;
 const storageTagListPageSize = 20;
 const storageCategoryListPageSize = 50;
+const internalStorageCategorySlugs = new Set(['catalog-media', 'catalog_media']);
+const internalStorageCategoryDisplayNames = new Set(['imagenes de catalogo', 'imágenes de catálogo']);
 const storageListFlowKey = 'storage-list';
 const storageSearchFlowKey = 'storage-search';
 const storageTagListFlowKey = 'storage-tag-list';
@@ -212,7 +214,7 @@ export async function handleTelegramStorageCommand(context: StorageFlowContext):
 async function listMenuCategories(context: StorageFlowContext): Promise<StorageCategoryRecord[]> {
   try {
     return canManageStorageCategories(context)
-      ? (await resolveRepository(context).listCategories()).filter((category) => category.lifecycleStatus === 'active')
+      ? (await resolveRepository(context).listCategories()).filter(isVisibleUserStorageCategory)
       : await listReadableCategories(context);
   } catch {
     return [];
@@ -938,7 +940,7 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
 
   if (text === texts.listCategories) {
     const categories = canManageStorageCategories(context)
-      ? (await resolveRepository(context).listCategories()).filter((category) => category.lifecycleStatus === 'active')
+      ? (await resolveRepository(context).listCategories()).filter(isVisibleUserStorageCategory)
       : await listReadableCategories(context);
     const rootCategories = filterStorageCategoriesByParent(categories, null);
     const summaries = await buildStorageCategorySummaries(context, categories);
@@ -4213,7 +4215,14 @@ async function listUploadableCategories(context: StorageFlowContext): Promise<St
 
 async function listActiveCategories(context: StorageFlowContext): Promise<StorageCategoryRecord[]> {
   const categories = await resolveRepository(context).listCategories();
-  return categories.filter((category) => category.lifecycleStatus === 'active' && category.categoryPurpose === 'user_uploads');
+  return categories.filter(isVisibleUserStorageCategory);
+}
+
+function isVisibleUserStorageCategory(category: StorageCategoryRecord): boolean {
+  return category.lifecycleStatus === 'active'
+    && category.categoryPurpose === 'user_uploads'
+    && !internalStorageCategorySlugs.has(category.slug.toLowerCase())
+    && !internalStorageCategoryDisplayNames.has(category.displayName.trim().toLowerCase());
 }
 
 async function findVisibleStorageCategoryByDisplayName(

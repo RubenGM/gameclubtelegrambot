@@ -2208,6 +2208,64 @@ test('handleTelegramStorageText hides archived categories from admins in categor
   );
 });
 
+test('handleTelegramStorageText hides catalog media category from storage navigation', async () => {
+  const repository = createRepository([
+    createCategory(),
+    createCategory({
+      id: 8,
+      slug: 'catalog-media',
+      displayName: 'Imagenes de catalogo',
+      storageThreadId: 11,
+      categoryPurpose: 'user_uploads',
+    }),
+  ]);
+  await repository.createEntry({
+    categoryId: 8,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Catalog media: Azul',
+    tags: ['catalog', 'catalog-media'],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 908,
+      storageThreadId: 11,
+      telegramFileId: 'catalog-file',
+      telegramFileUniqueId: 'catalog-unique',
+      attachmentKind: 'photo',
+      caption: null,
+      originalFileName: 'cover.jpg',
+      mimeType: 'image/jpeg',
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+  const { context, replies } = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [7, 8],
+    canUploadCategoryIds: [7, 8],
+  });
+
+  context.messageText = 'Almacenamiento';
+  await handleTelegramStorageText(context as never);
+
+  assert.match(replies.at(-1)?.message ?? '', /Manuales/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Imagenes de catalogo/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_category_8/);
+
+  context.messageText = 'Listar categorías';
+  await handleTelegramStorageText(context as never);
+
+  assert.match(replies.at(-1)?.message ?? '', /Manuales/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Imagenes de catalogo/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_category_8/);
+
+  context.messageText = 'Listar tags';
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(replies.at(-1)?.message, 'Todavía no hay tags en ningún archivo visible.');
+});
+
 test('handleTelegramStorageText lets admins reactivate an archived category', async () => {
   const repository = createRepository([createCategory({ lifecycleStatus: 'archived', archivedAt: '2026-04-21T11:00:00.000Z' })]);
   const { context, replies, getCurrentSession } = createContext(repository, { isAdmin: true, canReadCategoryIds: [7], canUploadCategoryIds: [] });
