@@ -87,6 +87,7 @@ const sessionCookieName = 'gameclub_admin_session';
 const maxBodyBytes = 64 * 1024;
 const maxAssetUploadBytes = 2 * 1024 * 1024;
 const publicCatalogPageSize = 24;
+const bundledBrandAssetNames = new Set(['cawa_logo.svg', 'cawa_casco.svg']);
 const defaultHttpServerConfig = {
   enabled: true,
   host: '127.0.0.1',
@@ -276,6 +277,7 @@ export function createAdminHttpServer({
         feedbackFile,
         webSettingsStore: settingsStore,
         webAssetsDir,
+        appRoot,
         memberSignupStore: signups,
         ...(telegramSender ? { telegramSender } : {}),
       });
@@ -338,6 +340,7 @@ async function routeRequest(options: {
   feedbackFile: string;
   webSettingsStore: WebSettingsStore;
   webAssetsDir: string;
+  appRoot: string;
   memberSignupStore: MemberSignupStore;
   telegramSender?: HttpTelegramSender;
 }): Promise<void> {
@@ -347,6 +350,12 @@ async function routeRequest(options: {
   const assetMatch = url.pathname.match(/^\/assets\/([A-Za-z0-9][A-Za-z0-9._-]{0,160})$/);
   if (request.method === 'GET' && assetMatch?.[1]) {
     await sendWebAsset(response, options.webAssetsDir, assetMatch[1]);
+    return;
+  }
+
+  const brandAssetMatch = url.pathname.match(/^\/brand\/([A-Za-z0-9][A-Za-z0-9._-]{0,80}\.svg)$/);
+  if (request.method === 'GET' && brandAssetMatch?.[1]) {
+    await sendBundledBrandAsset(response, options.appRoot, brandAssetMatch[1]);
     return;
   }
 
@@ -490,6 +499,12 @@ async function routeRequest(options: {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/admin/config') {
+    const status = await options.operations.readBackupConsoleStatus();
+    sendHtml(response, 200, adminConfigPage(status, adminSession.csrfToken));
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/admin/backups') {
     const status = await options.operations.readBackupConsoleStatus();
     sendHtml(response, 200, adminBackupsPage(status, adminSession.csrfToken));
@@ -627,7 +642,7 @@ async function routeRequest(options: {
     }
     const token = normalizeTelegramToken(form.get('token') ?? '');
     if (!token) {
-      sendHtml(response, 400, page({ title: 'Token invalid', body: '<p>El token de Telegram no tiene un formato valido.</p><p><a href="/admin/service">Volver</a></p>', shell: 'admin' }));
+      sendHtml(response, 400, page({ title: 'Token invalid', body: '<p>El token de Telegram no tiene un formato valido.</p><p><a href="/admin/config">Volver</a></p>', shell: 'admin' }));
       return;
     }
     adminSession.pendingTelegramToken = token;
@@ -647,7 +662,7 @@ async function routeRequest(options: {
     }
     await updateTelegramToken(adminSession.pendingTelegramToken);
     delete adminSession.pendingTelegramToken;
-    redirect(response, '/admin/service');
+    redirect(response, '/admin/config');
     return;
   }
 
@@ -1179,6 +1194,28 @@ async function sendWebAsset(response: ServerResponse, webAssetsDir: string, file
     const content = await readFile(filePath);
     response.writeHead(200, {
       'Content-Type': webAssetContentType(fileName),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    });
+    response.end(content);
+  } catch {
+    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>'));
+  }
+}
+
+async function sendBundledBrandAsset(response: ServerResponse, appRoot: string, fileName: string): Promise<void> {
+  if (!bundledBrandAssetNames.has(fileName)) {
+    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>'));
+    return;
+  }
+  try {
+    const content = await readFile(resolve(appRoot, fileName)).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+      return readFile(resolve(process.cwd(), fileName));
+    });
+    response.writeHead(200, {
+      'Content-Type': 'image/svg+xml; charset=utf-8',
       'Cache-Control': 'public, max-age=31536000, immutable',
     });
     response.end(content);
@@ -2167,7 +2204,7 @@ function adminDashboardPage(
   return page({
     title: 'Admin',
     shell: 'admin',
-    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/feedback">Feedback</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/news">Noticias y feeds</a><a href="/admin/backups">Backups</a><a href="/admin/service">Servicio y logs</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
+    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/feedback">Feedback</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/news">Noticias y feeds</a><a href="/admin/backups">Backups</a><a href="/admin/service">Servicio y logs</a><a href="/admin/config">Configuracion tecnica</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
   });
 }
 
@@ -2225,7 +2262,15 @@ function adminMaintenancePage(status: Awaited<ReturnType<BackupOperations['readB
   const tableCounts = status.database.state === 'connected'
     ? `<ul>${status.database.knownTableCounts.map((item) => `<li>${escapeHtml(item.tableName)}: ${item.rowCount}</li>`).join('')}</ul>`
     : '';
-  return page({ title: 'Servicio y logs', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="restart">Reiniciar</button><a href="/admin/service/confirm?action=stop">Aturar</a></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
+  return page({ title: 'Servicio y logs', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="restart">Reiniciar</button><a href="/admin/service/confirm?action=stop">Aturar</a></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
+}
+
+function adminConfigPage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, csrfToken: string): string {
+  return page({
+    title: 'Configuracion tecnica',
+    shell: 'admin',
+    body: `<section><h2>Runtime config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Token de Telegram</h2><p>Cambiar este token reinicia la conexion real del bot con Telegram. Revisa el valor antes de confirmar.</p><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section>`,
+  });
 }
 
 function adminBackupsPage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, csrfToken: string): string {
@@ -2278,7 +2323,7 @@ function tokenChangeConfirmationPage(csrfToken: string, error = ''): string {
   return page({
     title: 'Confirmar cambio de token',
     shell: 'admin',
-    body: `${errorHtml}<section><h2>Cambiar token de Telegram</h2><p>Un token incorrecto puede dejar el bot sin conexion con Telegram. El token introducido queda pendiente en la sesion y no se muestra en esta pagina.</p><form method="post" action="/admin/token-confirm">${csrfInput(csrfToken)}<label>Confirmacion<input name="confirm" autocomplete="off" placeholder="CHANGE_TOKEN" required></label><button type="submit">Cambiar token</button><a href="/admin/service">Cancelar</a></form></section>`,
+    body: `${errorHtml}<section><h2>Cambiar token de Telegram</h2><p>Un token incorrecto puede dejar el bot sin conexion con Telegram. El token introducido queda pendiente en la sesion y no se muestra en esta pagina.</p><form method="post" action="/admin/token-confirm">${csrfInput(csrfToken)}<label>Confirmacion<input name="confirm" autocomplete="off" placeholder="CHANGE_TOKEN" required></label><button type="submit">Cambiar token</button><a href="/admin/config">Cancelar</a></form></section>`,
   });
 }
 

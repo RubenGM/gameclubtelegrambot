@@ -13,7 +13,11 @@ export interface RenderHttpPageOptions {
   shell?: 'public' | 'admin';
   headerBrandName?: string;
   headerLogoAsset?: string | null;
+  faviconAsset?: string | null;
 }
+
+const defaultBrandLogoAsset = '/brand/cawa_logo.svg';
+const defaultFaviconAsset = '/brand/cawa_casco.svg';
 
 const publicNavItems: PageNavItem[] = [
   { href: '/', label: 'Inicio' },
@@ -33,6 +37,7 @@ const adminNavItems: PageNavItem[] = [
   { href: '/admin/news', label: 'Noticias' },
   { href: '/admin/backups', label: 'Backups' },
   { href: '/admin/service', label: 'Servicio y logs' },
+  { href: '/admin/config', label: 'Config tecnica' },
   { href: '/admin/resources', label: 'Recursos' },
   { href: '/', label: 'Ver web' },
 ];
@@ -45,10 +50,12 @@ export function renderHttpPage({
   shell = 'public',
   headerBrandName = 'CAWA Girona',
   headerLogoAsset = null,
+  faviconAsset = defaultFaviconAsset,
 }: RenderHttpPageOptions): string {
   const theme = resolveHttpTheme(themeName);
   const resolvedNavItems = navItems ?? (shell === 'admin' ? adminNavItems : publicNavItems);
-  return `<!doctype html><html lang="ca" data-theme="${escapeHtml(theme.name)}" data-shell="${escapeHtml(shell)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${renderHttpThemeCss(theme.name)}${baseCss()}</style></head><body><header class="site-header">${renderBrand(headerBrandName, headerLogoAsset)}${renderNav(resolvedNavItems)}</header><main class="page-shell"><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
+  const favicon = faviconAsset ? `<link rel="icon" href="${escapeHtml(faviconAsset)}" type="image/svg+xml">` : '';
+  return `<!doctype html><html lang="ca" data-theme="${escapeHtml(theme.name)}" data-shell="${escapeHtml(shell)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${favicon}<title>${escapeHtml(title)}</title><style>${renderHttpThemeCss(theme.name)}${baseCss()}</style></head><body><header class="site-header">${renderBrand(headerBrandName, headerLogoAsset ?? defaultBrandLogoAsset)}${renderNav(resolvedNavItems)}</header><main class="page-shell"><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
 }
 
 export function renderNav(items: PageNavItem[]): string {

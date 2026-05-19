@@ -26,7 +26,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Grupos de noticias                           | 🟢 Operativo         | `/news` y `/admin/news` gestionan/visibilizan suscripciones por categoría, incluyendo el feed `nuevos_miembros` para altas web.          |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas y procesos de carga (DM y topic).                                              |
-| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, estado de servicio, gestión Debian, dashboard web admin, temas CAWA, assets y secciones públicas.             |
+| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, temas CAWA, assets y secciones públicas.             |
 | Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 ```
@@ -271,7 +271,6 @@ Limitaciones aceptadas de la v1:
 
 Documentacion relacionada:
 
-- `STORAGE.md` describe la v1 implementada.
 - `improvements/storage_tui_management_plan.md` describe el alcance usado para el gestor TUI de Storage.
 - `docs/superpowers/specs/2026-04-21-telegram-storage-design.md` contiene el diseño original.
 
@@ -285,8 +284,9 @@ Implementado:
 - TUI `npm run backup:console`.
 - Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
 - Panel web admin protegido por contraseña de elevación, sesión firmada, token CSRF en acciones POST y límite de intentos de login por IP.
-- `/admin` abre en un dashboard de estado y métricas principales; la pantalla cruda de servicio/config/logs queda separada en `/admin/service`, backups en `/admin/backups`, feedback en `/admin/feedback`, feeds en `/admin/news` y altas web en `/admin/member-signups`.
+- `/admin` abre en un dashboard de estado y métricas principales; la operación queda separada en secciones: servicio/logs en `/admin/service`, configuración técnica y cambio de token en `/admin/config`, backups en `/admin/backups`, feedback en `/admin/feedback`, feeds en `/admin/news` y altas web en `/admin/member-signups`.
 - Configuración de la web pública desde `/admin/web`, persistida en `app_metadata`, con marca CAWA Girona, temas allowlisted, enlaces destacados, contenido de `/club` y referencias a logo/hero/imagenes auxiliares.
+- La shell pública/admin usa los SVG de marca incluidos (`/brand/cawa_logo.svg` como logo por defecto y `/brand/cawa_casco.svg` como favicon), manteniendo los assets subidos desde `/admin/web` como override.
 - Assets públicos de portada servidos desde `/assets/...`, guardados bajo `data/http-assets/` con nombre generado, validación de MIME/extensión y límite de 2 MiB.
 - Restaurar o eliminar backups desde el panel web exige pantalla intermedia y confirmación textual (`RESTORE`/`DELETE`) además de CSRF.
 - Detener el servicio, cambiar el token de Telegram y hacer borrados hard en recursos avanzados requieren confirmación textual (`STOP`, `CHANGE_TOKEN` o `DELETE`); el token pendiente no se reimprime en HTML.

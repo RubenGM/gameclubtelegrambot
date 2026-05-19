@@ -219,10 +219,16 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(welcomeHtml, /Club de juegos, rol y wargames en Girona/);
     assert.match(welcomeHtml, /data-theme="classic"/);
     assert.match(welcomeHtml, /--cawa-brand:#184b1f/);
+    assert.match(welcomeHtml, /rel="icon" href="\/brand\/cawa_casco\.svg"/);
+    assert.match(welcomeHtml, /class="brand-logo" src="\/brand\/cawa_logo\.svg"/);
     assert.match(welcomeHtml, /href="\/actividades"/);
     assert.match(welcomeHtml, /href="\/catalogo"/);
     assert.match(welcomeHtml, /href="\/club"/);
     assert.match(welcomeHtml, /href="\/alta"/);
+
+    const faviconResponse = await fetch(`${baseUrl}/brand/cawa_casco.svg`);
+    assert.equal(faviconResponse.status, 200);
+    assert.match(faviconResponse.headers.get('content-type') ?? '', /image\/svg\+xml/);
 
     const clubPage = await fetch(`${baseUrl}/club`);
     assert.equal(clubPage.status, 200);
@@ -309,6 +315,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminHtml, /href="\/admin\/feedback"/);
     assert.match(adminHtml, /href="\/admin\/member-signups"/);
     assert.match(adminHtml, /href="\/admin\/news"/);
+    assert.match(adminHtml, /href="\/admin\/config"/);
     assert.doesNotMatch(adminHtml, /Nou token de Telegram/);
     assert.doesNotMatch(adminHtml, /Restaurar/);
     const csrfToken = extractCsrfToken(adminHtml);
@@ -316,9 +323,18 @@ test('admin http server exposes public feedback and protects admin pages', async
     const maintenancePage = await fetch(`${baseUrl}/admin/service`, { headers: { cookie } });
     assert.equal(maintenancePage.status, 200);
     const maintenanceHtml = await maintenancePage.text();
-    assert.match(maintenanceHtml, /Runtime config/);
+    assert.doesNotMatch(maintenanceHtml, /Runtime config/);
+    assert.doesNotMatch(maintenanceHtml, /Nou token de Telegram/);
     assert.match(maintenanceHtml, /users/);
     assert.doesNotMatch(maintenanceHtml, /Restaurar/);
+
+    const configPage = await fetch(`${baseUrl}/admin/config`, { headers: { cookie } });
+    assert.equal(configPage.status, 200);
+    const configHtml = await configPage.text();
+    assert.match(configHtml, /Configuracion tecnica/);
+    assert.match(configHtml, /Runtime config/);
+    assert.match(configHtml, /Nou token de Telegram/);
+    assert.doesNotMatch(configHtml, /Logs/);
 
     const backupsPage = await fetch(`${baseUrl}/admin/backups`, { headers: { cookie } });
     assert.equal(backupsPage.status, 200);
@@ -564,6 +580,7 @@ test('admin http server exposes public feedback and protects admin pages', async
         body: new URLSearchParams({ csrfToken, confirm: 'CHANGE_TOKEN' }),
       });
       assert.equal(tokenConfirmResponse.status, 303);
+      assert.equal(tokenConfirmResponse.headers.get('location'), '/admin/config');
       assert.match(await readFile(join(tmp, '.env'), 'utf8'), /GAMECLUB_TELEGRAM_TOKEN/);
     } finally {
       if (previousEnvPath === undefined) {
