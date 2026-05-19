@@ -3231,6 +3231,15 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
 
+  context.messageText = 'Añadir tags';
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-tags');
+  context.messageText = '#rol #pdf';
+  await handleTelegramStorageText(context as never);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
+  assert.match(replies.at(-1)?.message ?? '', /#pdf \(0 archivos\)/);
+  assert.match(replies.at(-1)?.message ?? '', /#rol \(0 archivos\)/);
+
   context.messageText = 'Aceptar';
   await handleTelegramStorageText(context as never);
 
@@ -3239,7 +3248,7 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   assert.deepEqual(copiedMessages[1], { fromChatId: 42, messageId: 78, toChatId: -100123, messageThreadId: 10 });
   assert.equal(repository.__entries.length, 1);
   assert.equal(repository.__entries[0]?.entry.description, 'Manual de campana');
-  assert.deepEqual(repository.__entries[0]?.entry.tags, []);
+  assert.deepEqual(repository.__entries[0]?.entry.tags, ['rol', 'pdf']);
   assert.match(replies.at(-2)?.message ?? '', /Subida en curso/);
   assert.match(replies.at(-2)?.message ?? '', /Copiando adjuntos al topic de Storage/);
   assert.equal(editedMessages.length, 6);

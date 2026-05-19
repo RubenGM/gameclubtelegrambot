@@ -1,6 +1,6 @@
 # Estado real de features
 
-Ultima revision: 2026-05-10.
+Ultima revision: 2026-05-18.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -240,7 +240,7 @@ Implementado:
 - Alta de categorias usando automaticamente el supergrupo por defecto vigente: el bot valida chat/permisos, crea el topic y guarda los ids sin pedir confirmacion al crear cada categoria.
 - Listado incremental de categorias principales/subcategorias con resumen agregado de subcategorias y archivos, enlaces normales `t.me?...start=` en el texto, breadcrumbs clicables, acciones contextuales, cambio guiado de categoria padre, movimiento de entradas por selector nivel a nivel y listado de entradas por categoria.
 - Tags visibles como enlaces `#tag (X archivos)` hacia busqueda por tag, listado paginado de tags y gestion desde el detalle de archivo para propietario o admin.
-- Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, añade descripcion/tags y el bot muestra progreso editable con estado por adjunto mientras copia al topic canonico, indexa, notifica suscripciones y refresca la categoria.
+- Subida por DM: el usuario elige categoria, envia adjuntos, finaliza, revisa una vista previa con opciones para editar descripcion, añadir tags o completar, y el bot muestra progreso editable con estado por adjunto mientras copia al topic canonico, indexa, notifica suscripciones y refresca la categoria.
 - Subida por reenvio de mensajes de Telegram en privado: en modo neutral el bot pregunta que hacer, permite "Añadir a almacenamiento", pide categoria y precarga descripcion/tags/adjuntos/texto desde el mensaje reenviado.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
 - Soporte de `document`, `photo`, `video` y `audio`.

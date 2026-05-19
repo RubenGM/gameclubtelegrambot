@@ -3220,6 +3220,15 @@ async function handleActiveUploadFlow(context: StorageFlowContext, text: string,
       return true;
     }
 
+    if (text === texts.addTagsButton) {
+      await context.runtime.session.advance({
+        stepKey: 'upload-tags',
+        data: session.data,
+      });
+      await context.reply(texts.askTags, buildSkipOptionalOptions(language));
+      return true;
+    }
+
     if (text === texts.addImages) {
       await context.runtime.session.advance({
         stepKey: 'upload-preview-images',
@@ -3238,6 +3247,19 @@ async function handleActiveUploadFlow(context: StorageFlowContext, text: string,
     const data = {
       ...session.data,
       description: text === texts.skipOptional ? resolveDefaultUploadDescription(messages, language) : text,
+    };
+    await context.runtime.session.advance({
+      stepKey: 'upload-preview',
+      data,
+    });
+    await context.reply(formatUploadPreview(data, language), { ...buildUploadPreviewOptions(language), parseMode: 'HTML' });
+    return true;
+  }
+
+  if (session.stepKey === 'upload-tags') {
+    const data = {
+      ...session.data,
+      tags: text === texts.skipOptional ? asStringArray(session.data.tags) : parseStorageCaptionMetadata(text).tags,
     };
     await context.runtime.session.advance({
       stepKey: 'upload-preview',
@@ -4273,7 +4295,8 @@ function buildUploadPreviewOptions(language: 'ca' | 'es' | 'en'): TelegramReplyO
   return {
     replyKeyboard: [
       [successButton(texts.uploadAccept)],
-      [secondaryButton(texts.uploadModifyDescription), successButton(texts.addImages)],
+      [secondaryButton(texts.uploadModifyDescription), successButton(texts.addTagsButton)],
+      [successButton(texts.addImages)],
       [dangerButton('/cancel')],
     ],
     resizeKeyboard: true,
