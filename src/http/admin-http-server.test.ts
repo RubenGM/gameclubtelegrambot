@@ -124,7 +124,10 @@ test('admin http server exposes public feedback and protects admin pages', async
     const baseUrl = `http://127.0.0.1:${port}`;
     const welcomePage = await fetch(`${baseUrl}/`);
     assert.equal(welcomePage.status, 200);
-    assert.match(await welcomePage.text(), /Benvingut al panell web de Cawa/);
+    const welcomeHtml = await welcomePage.text();
+    assert.match(welcomeHtml, /Benvingut al panell web de Cawa/);
+    assert.match(welcomeHtml, /data-theme="classic"/);
+    assert.match(welcomeHtml, /--cawa-brand:#184b1f/);
 
     const feedbackPage = await fetch(`${baseUrl}/feedback`);
     assert.equal(feedbackPage.status, 200);

@@ -9,6 +9,7 @@ import { resolveRuntimeConfigPaths, serializeEnvFile } from '../config/runtime-c
 import { createBackupOperations, type BackupOperations } from '../operations/backup-operations.js';
 import { createServiceControl, type ServiceControl } from '../operations/service-control.js';
 import { verifySecret } from '../security/verify-password-hash.js';
+import { escapeHtml, renderHttpPage, type RenderHttpPageOptions } from './http-pages.js';
 
 export interface AdminHttpServer {
   start(): Promise<void>;
@@ -931,24 +932,28 @@ function sendHtml(response: ServerResponse, statusCode: number, body: string): v
   response.end(body);
 }
 
-function page(title: string, body: string): string {
-  return `<!doctype html><html lang="ca"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>body{font-family:system-ui,sans-serif;max-width:1120px;margin:32px auto;padding:0 16px;line-height:1.45}nav{display:flex;gap:12px;margin-bottom:24px}input,textarea,select,button{font:inherit}input,textarea,select{box-sizing:border-box;width:100%;padding:8px;margin:4px 0 12px}textarea{min-height:140px}button{padding:8px 12px}table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid #ddd;padding:6px;text-align:left;vertical-align:top}section{border-top:1px solid #ddd;padding-top:16px;margin-top:16px}.row{display:flex;gap:8px;flex-wrap:wrap}.inline{display:inline}pre{white-space:pre-wrap;background:#f6f6f6;padding:12px;overflow:auto}</style></head><body><nav><a href="/feedback">Feedback</a><a href="/admin">Admin</a><a href="/admin/resources">Recursos</a></nav><h1>${escapeHtml(title)}</h1>${body}</body></html>`;
+function page(titleOrOptions: string | RenderHttpPageOptions, body = ''): string {
+  if (typeof titleOrOptions === 'string') {
+    return renderHttpPage({ title: titleOrOptions, body });
+  }
+
+  return renderHttpPage(titleOrOptions);
 }
 
 function feedbackPage(): string {
-  return page('Feedback', '<form method="post"><label>Sobre que es?<select name="topic"><option value="bot">Bot</option><option value="club">Club</option><option value="both">Bot i club</option></select></label><label>Nom opcional<input name="name" autocomplete="name"></label><label>Contacte opcional<input name="contact" autocomplete="email"></label><label>Feedback<textarea name="message" required maxlength="4000"></textarea></label><button type="submit">Enviar feedback</button></form>');
+  return page({ title: 'Feedback', body: '<form method="post"><label>Sobre que es?<select name="topic"><option value="bot">Bot</option><option value="club">Club</option><option value="both">Bot i club</option></select></label><label>Nom opcional<input name="name" autocomplete="name"></label><label>Contacte opcional<input name="contact" autocomplete="email"></label><label>Feedback<textarea name="message" required maxlength="4000"></textarea></label><button type="submit">Enviar feedback</button></form>' });
 }
 
 function loginPage(error = ''): string {
   const errorHtml = error ? `<p>${escapeHtml(error)}</p>` : '';
-  return page('Admin', `${errorHtml}<form method="post"><label>Contrasenya admin<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Entrar</button></form>`);
+  return page({ title: 'Admin', body: `${errorHtml}<form method="post"><label>Contrasenya admin<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Entrar</button></form>`, shell: 'admin' });
 }
 
 function welcomePage(): string {
-  return page(
-    'Cawa',
-    '<p>Benvingut al panell web de Cawa. Des d&apos;aqui pots enviar feedback del bot o entrar a l&apos;administracio si tens permisos.</p><p class="row"><a href="/feedback">Enviar feedback</a><a href="/admin">Administracio</a></p>',
-  );
+  return page({
+    title: 'Cawa',
+    body: '<p>Benvingut al panell web de Cawa. Des d&apos;aqui pots enviar feedback del bot o entrar a l&apos;administracio si tens permisos.</p><p class="row"><a href="/feedback">Enviar feedback</a><a href="/admin">Administracio</a></p>',
+  });
 }
 
 function adminPage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, logs: string, csrfToken: string): string {
@@ -961,11 +966,11 @@ function adminPage(status: Awaited<ReturnType<BackupOperations['readBackupConsol
   const archives = status.backups.archives.length === 0
     ? '<p>No hi ha backups disponibles.</p>'
     : `<ul>${status.backups.archives.map((archive) => `<li>${escapeHtml(archive.fileName)} · ${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)} <form method="post" action="/admin/restore" class="inline">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><button type="submit">Restaurar</button></form> <form method="post" action="/admin/delete-backup" class="inline">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><button type="submit">Eliminar</button></form></li>`).join('')}</ul>`;
-  return page('Admin', `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="stop">Aturar</button><button name="action" value="restart">Reiniciar</button></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Canviar token bot</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Backups</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup">${csrfInput(csrfToken)}<button type="submit">Crear backup complet</button></form>${archives}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`);
+  return page({ title: 'Admin', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="stop">Aturar</button><button name="action" value="restart">Reiniciar</button></form></section><section><h2>Config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Canviar token bot</button></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Backups</h2><p>${status.backups.totalCount} arxius a ${escapeHtml(status.backups.directory)}</p><form method="post" action="/admin/backup">${csrfInput(csrfToken)}<button type="submit">Crear backup complet</button></form>${archives}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
 }
 
 function resourcesIndexPage(): string {
-  return page('Recursos', `<ul>${resourceDefs.map((resourceDef) => `<li><a href="/admin/resources/${resourceDef.key}">${escapeHtml(resourceDef.label)}</a></li>`).join('')}</ul>`);
+  return page({ title: 'Recursos', body: `<ul>${resourceDefs.map((resourceDef) => `<li><a href="/admin/resources/${resourceDef.key}">${escapeHtml(resourceDef.label)}</a></li>`).join('')}</ul>`, shell: 'admin' });
 }
 
 function resourceListPage(resourceDef: ResourceDef, rows: Array<Record<string, unknown>>, search: string, csrfToken: string): string {
@@ -976,15 +981,15 @@ function resourceListPage(resourceDef: ResourceDef, rows: Array<Record<string, u
     const cells = columns.map((column) => `<td>${escapeHtml(formatCell(row[column]))}</td>`).join('');
     return `<tr>${cells}<td><a href="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/edit">Editar</a> <form method="post" action="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/delete" class="inline">${csrfInput(csrfToken)}<button name="mode" value="soft">Desactivar</button><button name="mode" value="hard">Borrar</button></form>${resourceDef.key === 'users' ? userActionForms(id, csrfToken) : ''}</td></tr>`;
   }).join('');
-  return page(resourceDef.label, `<form method="get"><input name="q" value="${escapeHtml(search)}" placeholder="Buscar"><button type="submit">Buscar</button></form><table><thead><tr>${header}<th>Acciones</th></tr></thead><tbody>${body}</tbody></table>`);
+  return page({ title: resourceDef.label, body: `<form method="get"><input name="q" value="${escapeHtml(search)}" placeholder="Buscar"><button type="submit">Buscar</button></form><table><thead><tr>${header}<th>Acciones</th></tr></thead><tbody>${body}</tbody></table>`, shell: 'admin' });
 }
 
 function resourceEditPage(resourceDef: ResourceDef, row: Record<string, unknown>, csrfToken: string): string {
   if (resourceDef.editableFields.length === 0) {
-    return page(resourceDef.label, '<p>Aquest recurs no te camps editables.</p>');
+    return page({ title: resourceDef.label, body: '<p>Aquest recurs no te camps editables.</p>', shell: 'admin' });
   }
   const fields = resourceDef.editableFields.map((field) => `<label>${escapeHtml(field.label)} <small>${escapeHtml(field.column)} · ${escapeHtml(field.type)}</small><textarea name="${escapeHtml(field.column)}">${escapeHtml(formatCell(row[field.column]))}</textarea></label>`).join('');
-  return page(resourceDef.label, `<form method="post">${csrfInput(csrfToken)}${fields}<button type="submit">Guardar</button></form>`);
+  return page({ title: resourceDef.label, body: `<form method="post">${csrfInput(csrfToken)}${fields}<button type="submit">Guardar</button></form>`, shell: 'admin' });
 }
 
 function userActionForms(id: string, csrfToken: string): string {
@@ -1011,15 +1016,6 @@ function formatCell(value: unknown): string {
     return JSON.stringify(value);
   }
   return String(value);
-}
-
-function escapeHtml(value: unknown): string {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
 }
 
 function formatBytes(bytes: number): string {
