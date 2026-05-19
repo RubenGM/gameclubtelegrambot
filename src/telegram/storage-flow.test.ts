@@ -642,7 +642,9 @@ test('persisting a private storage upload notifies subscribers with open and uns
   assert.equal(await handleTelegramStorageMessage(context as never), true);
   context.messageText = 'Terminar adjuntos';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Aceptar';
+  context.messageText = 'Completar';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Completar sin tags';
   assert.equal(await handleTelegramStorageText(context as never), true);
 
   assert.equal(privateMessages.length, 1);
@@ -2099,14 +2101,27 @@ test('handleTelegramStorageText accepts a category deep link while choosing an u
 
   assert.equal(getCurrentSession()?.stepKey, 'upload-category');
   assert.match(replies.at(-1)?.message ?? '', /storage_select_category_7"><b>Mutant Chronicles<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /storage_select_category_8"><b>Libros<\/b>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_select_category_8"><b>Libros<\/b>/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Mutant Chronicles \/ Libros/);
 
-  context.messageText = '/start storage_select_category_8';
+  context.messageText = '/start storage_select_category_7';
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-category');
+  assert.match(replies.at(-1)?.message ?? '', /Mutant Chronicles/);
+  assert.match(replies.at(-1)?.message ?? '', /storage_select_category_8"><b>Libros<\/b>/);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => typeof button === 'string' ? button : button.text), [
+    'Guardar aquí',
+    'Volver',
+    '/cancel',
+  ]);
+
+  context.messageText = '/start storage_select_category_8';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Guardar aquí';
+  await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'upload-media');
   assert.equal(getCurrentSession()?.data.categoryId, 8);
   assert.equal(getCurrentSession()?.data.categoryDisplayName, 'Libros');
@@ -2127,6 +2142,9 @@ test('handleTelegramStorageStartText selects a category deep link while choosing
   const handled = await handleTelegramStorageStartText(context as never);
 
   assert.equal(handled, true);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-category');
+  context.messageText = 'Guardar aquí';
+  await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'upload-media');
   assert.equal(getCurrentSession()?.data.categoryId, 8);
 });
@@ -2429,7 +2447,9 @@ test('handleTelegramStorageText cleans copied topic messages when DM upload fail
   await handleTelegramStorageText(context as never);
   context.messageText = 'Guardar juntos';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Aceptar';
+  context.messageText = 'Completar';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Completar sin tags';
 
   await assert.rejects(() => handleTelegramStorageText(context as never), /No se ha podido guardar la entrada en Telegram/);
   assert.equal(repository.__entries.length, 0);
@@ -2464,7 +2484,9 @@ test('handleTelegramStorageText forwards large DM uploads to storage instead of 
   context.messageText = 'Terminar adjuntos';
   delete context.messageMedia;
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Aceptar';
+  context.messageText = 'Completar';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Completar sin tags';
   await handleTelegramStorageText(context as never);
 
   assert.deepEqual(copiedMessages, []);
@@ -2532,7 +2554,9 @@ test('handleTelegramStorageText falls back to forwarding when Telegram copy fail
   context.messageText = 'Terminar adjuntos';
   delete context.messageMedia;
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Aceptar';
+  context.messageText = 'Completar';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Completar sin tags';
   await handleTelegramStorageText(context as never);
 
   assert.deepEqual(copiedMessages, []);
@@ -3240,7 +3264,7 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   assert.match(replies.at(-1)?.message ?? '', /#pdf \(0 archivos\)/);
   assert.match(replies.at(-1)?.message ?? '', /#rol \(0 archivos\)/);
 
-  context.messageText = 'Aceptar';
+  context.messageText = 'Completar';
   await handleTelegramStorageText(context as never);
 
   assert.equal(copiedMessages.length, 2);
@@ -3315,7 +3339,7 @@ test('handleTelegramStorageMessage imports forwarded text messages into storage'
   assert.match(replies.at(-1)?.message ?? '', /Manual reenviado/);
   assert.match(replies.at(-1)?.message ?? '', /#rol \(0 archivos\)/);
 
-  context.messageText = 'Aceptar';
+  context.messageText = 'Completar';
   await handleTelegramStorageText(context as never);
 
   assert.deepEqual(copiedMessages.at(0), { fromChatId: 42, messageId: 501, toChatId: -100123, messageThreadId: 11 });
@@ -3359,7 +3383,9 @@ test('handleTelegramStorageMessage uses forwarded media captions as upload descr
   assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
   assert.match(replies.at(-1)?.message ?? '', /Descripción:<\/b> Printable Scenery - Rise of the Halflings; Warlock/);
 
-  context.messageText = 'Aceptar';
+  context.messageText = 'Completar';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Completar sin tags';
   await handleTelegramStorageText(context as never);
 
   assert.equal(repository.__entries[0]?.entry.description, 'Printable Scenery - Rise of the Halflings; Warlock');
@@ -3398,7 +3424,9 @@ test('handleTelegramStorageText uses the normalized file name as the default upl
   assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
   assert.match(replies.at(-1)?.message ?? '', /Manual de Campana final/);
 
-  context.messageText = 'Aceptar';
+  context.messageText = 'Completar';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Completar sin tags';
   await handleTelegramStorageText(context as never);
 
   assert.equal(repository.__entries[0]?.entry.description, 'Manual de Campana final');
@@ -3459,7 +3487,9 @@ test('handleTelegramStorageText adds images to the upload draft from the preview
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
 
-  context.messageText = 'Aceptar';
+  context.messageText = 'Completar';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Completar sin tags';
   await handleTelegramStorageText(context as never);
 
   assert.equal(repository.__entries.length, 1);
