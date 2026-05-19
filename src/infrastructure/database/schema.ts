@@ -244,31 +244,38 @@ export const catalogLoanReminders = pgTable(
   }),
 );
 
-export const scheduleEvents = pgTable('schedule_events', {
-  id: bigserial('id', { mode: 'number' }).primaryKey(),
-  title: varchar('title', { length: 255 }).notNull(),
-  description: text('description'),
-  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
-  durationMinutes: integer('duration_minutes').notNull().default(180),
-  organizerTelegramUserId: bigint('organizer_telegram_user_id', { mode: 'number' })
-    .notNull()
-    .references(() => users.telegramUserId),
-  createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
-    .notNull()
-    .references(() => users.telegramUserId),
-  tableId: bigint('table_id', { mode: 'number' }).references(() => clubTables.id),
-  attendanceMode: varchar('attendance_mode', { length: 16 }).notNull().default('open'),
-  initialOccupiedSeats: integer('initial_occupied_seats').notNull().default(0),
-  capacity: integer('capacity').notNull(),
-  lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('scheduled'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
-  cancelledByTelegramUserId: bigint('cancelled_by_telegram_user_id', { mode: 'number' }).references(
-    () => users.telegramUserId,
-  ),
-  cancellationReason: text('cancellation_reason'),
-});
+export const scheduleEvents = pgTable(
+  'schedule_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    title: varchar('title', { length: 255 }).notNull(),
+    description: text('description'),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    durationMinutes: integer('duration_minutes').notNull().default(180),
+    organizerTelegramUserId: bigint('organizer_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    tableId: bigint('table_id', { mode: 'number' }).references(() => clubTables.id),
+    catalogItemId: bigint('catalog_item_id', { mode: 'number' }).references(() => catalogItems.id),
+    attendanceMode: varchar('attendance_mode', { length: 16 }).notNull().default('open'),
+    initialOccupiedSeats: integer('initial_occupied_seats').notNull().default(0),
+    capacity: integer('capacity').notNull(),
+    lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('scheduled'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelledByTelegramUserId: bigint('cancelled_by_telegram_user_id', { mode: 'number' }).references(
+      () => users.telegramUserId,
+    ),
+    cancellationReason: text('cancellation_reason'),
+  },
+  (table) => ({
+    catalogItemLookup: index('schedule_events_catalog_item_id_idx').on(table.catalogItemId),
+  }),
+);
 
 export const scheduleEventParticipants = pgTable(
   'schedule_event_participants',

@@ -3045,7 +3045,7 @@ test('handleTelegramCatalogAdminCallback starts activity creation from a board g
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create',
     stepKey: 'date',
-    data: { title: 'Root' },
+    data: { title: 'Root', catalogItemId: 3 },
   });
   assert.match(replies.at(-1)?.message ?? '', /Escribe la fecha de inicio/i);
   assert.equal(replies.at(-1)?.options?.resizeKeyboard, true);
@@ -3105,7 +3105,7 @@ test('handleTelegramCatalogAdminCallback warns when creating activity from a loa
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create',
     stepKey: 'date',
-    data: { title: 'Root' },
+    data: { title: 'Root', catalogItemId: 3 },
   });
   assert.match(replies.at(-1)?.message ?? '', /Atenció: aquest joc està prestat a Marta fins 10\/05/i);
   assert.match(replies.at(-1)?.message ?? '', /Pots continuar creant l'activitat igualment/i);

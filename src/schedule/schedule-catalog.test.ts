@@ -37,6 +37,7 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         organizerTelegramUserId: input.organizerTelegramUserId,
         createdByTelegramUserId: input.createdByTelegramUserId,
         tableId: input.tableId,
+        catalogItemId: input.catalogItemId ?? null,
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
         initialOccupiedSeats: input.initialOccupiedSeats,
@@ -71,6 +72,7 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
+        catalogItemId: input.catalogItemId ?? existing.catalogItemId ?? null,
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
         initialOccupiedSeats: input.initialOccupiedSeats,
@@ -141,6 +143,7 @@ test('createScheduleEvent creates a scheduled activity with organizer ownership 
     organizerTelegramUserId: 42,
     createdByTelegramUserId: 99,
     tableId: 7,
+    catalogItemId: 12,
     durationMinutes: 180,
     capacity: 5,
     attendanceMode: 'open',
@@ -153,6 +156,7 @@ test('createScheduleEvent creates a scheduled activity with organizer ownership 
   assert.equal(event.organizerTelegramUserId, 42);
   assert.equal(event.createdByTelegramUserId, 99);
   assert.equal(event.tableId, 7);
+  assert.equal(event.catalogItemId, 12);
   assert.equal(event.durationMinutes, 180);
   assert.equal(event.capacity, 5);
   assert.equal((event as { attendanceMode: string }).attendanceMode, 'open');

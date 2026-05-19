@@ -114,6 +114,21 @@ test('admin http server exposes public feedback and protects admin pages', async
               capacity: 6,
               initial_occupied_seats: 2,
               attendance_mode: 'open',
+              table_name: 'Mesa grande',
+              table_description: 'Zona central',
+              table_recommended_capacity: 6,
+              catalog_item_id: 11,
+              catalog_item_name: 'Dune Imperium',
+              catalog_item_type: 'board-game',
+              catalog_item_publisher: 'Dire Wolf',
+              catalog_item_publication_year: 2020,
+              catalog_item_player_count_min: 1,
+              catalog_item_player_count_max: 4,
+              catalog_item_recommended_age: 14,
+              catalog_item_play_time_minutes: 120,
+              organizer_name: 'Ada',
+              confirmed_attendees: 2,
+              attendee_names: ['Ada', 'Marta'],
             }],
           };
         }
@@ -255,7 +270,12 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.equal(activitiesPage.status, 200);
     const activitiesHtml = await activitiesPage.text();
     assert.match(activitiesHtml, /Partida abierta/);
-    assert.match(activitiesHtml, /2\/6 plazas/);
+    assert.match(activitiesHtml, /sábado, 23 de mayo/);
+    assert.match(activitiesHtml, /Dune Imperium/);
+    assert.match(activitiesHtml, /Mesa grande/);
+    assert.match(activitiesHtml, /Ada/);
+    assert.match(activitiesHtml, /Marta/);
+    assert.match(activitiesHtml, /4\/6 plazas/);
 
     const catalogPage = await fetch(`${baseUrl}/catalogo?q=dune&type=board-game&page=2`);
     assert.equal(catalogPage.status, 200);

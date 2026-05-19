@@ -1,5 +1,6 @@
 import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
 import type { TelegramActor } from './actor-store.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
@@ -96,6 +97,7 @@ export function formatScheduleEventDetails({
   const attendanceLabel = event.attendanceMode === 'open' ? texts.openDetailTag : texts.closedDetailTag;
   return [
     `<b>${escapeHtml(event.title)}</b>`,
+    ...(event.catalogItemId ? [formatHtmlField(resolveLinkedGameLabel(language), `<a href="${escapeHtml(buildTelegramStartUrl(`catalog_read_item_${event.catalogItemId}`))}">${escapeHtml(event.title)}</a>`)] : []),
     formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
     formatHtmlField(texts.detailsDuration, formatDurationMinutes(event.durationMinutes)),
     formatHtmlField(texts.detailsAttendanceMode, escapeHtml(attendanceLabel)),
@@ -106,6 +108,12 @@ export function formatScheduleEventDetails({
     formatHtmlField(texts.detailsTable, escapeHtml(tableName ?? texts.noTable)),
     formatHtmlField(texts.detailsDescription, escapeHtml(event.description ?? texts.noDescription)),
   ].join('\n');
+}
+
+function resolveLinkedGameLabel(language: BotLanguage): string {
+  if (language === 'es') return 'Juego enlazado';
+  if (language === 'en') return 'Linked game';
+  return 'Joc enllaçat';
 }
 
 export function formatDurationMinutes(durationMinutes: number): string {

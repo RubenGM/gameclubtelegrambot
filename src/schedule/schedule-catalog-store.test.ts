@@ -30,6 +30,7 @@ test('createDatabaseScheduleRepository lists only scheduled events by default', 
                   organizerTelegramUserId: 42,
                   createdByTelegramUserId: 42,
                   tableId: null,
+                  catalogItemId: null,
                   attendanceMode: 'open',
                   initialOccupiedSeats: 0,
                   capacity: 5,
@@ -71,6 +72,7 @@ test('createDatabaseScheduleRepository persists attendance mode and initial occu
           values: (values: Record<string, unknown>) => {
             assert.equal(values.attendanceMode, 'open');
             assert.equal(values.initialOccupiedSeats, 2);
+            assert.equal(values.catalogItemId, null);
 
             return {
               returning: async () => [
@@ -83,6 +85,7 @@ test('createDatabaseScheduleRepository persists attendance mode and initial occu
                   organizerTelegramUserId: 42,
                   createdByTelegramUserId: 42,
                   tableId: null,
+                  catalogItemId: null,
                   attendanceMode: 'open',
                   initialOccupiedSeats: 2,
                   capacity: 5,

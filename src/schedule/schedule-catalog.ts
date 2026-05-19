@@ -11,6 +11,7 @@ export interface ScheduleEventRecord {
   organizerTelegramUserId: number;
   createdByTelegramUserId: number;
   tableId: number | null;
+  catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
   initialOccupiedSeats: number;
   capacity: number;
@@ -50,6 +51,7 @@ export interface ScheduleRepository {
     organizerTelegramUserId: number;
     createdByTelegramUserId: number;
     tableId: number | null;
+    catalogItemId?: number | null;
     attendanceMode: ScheduleAttendanceMode;
     initialOccupiedSeats: number;
     capacity: number;
@@ -75,6 +77,7 @@ export interface ScheduleRepository {
     durationMinutes: number;
     organizerTelegramUserId: number;
     tableId: number | null;
+    catalogItemId?: number | null;
     attendanceMode: ScheduleAttendanceMode;
     initialOccupiedSeats: number;
     capacity: number;
@@ -105,6 +108,7 @@ export async function createScheduleEvent({
   organizerTelegramUserId,
   createdByTelegramUserId,
   tableId,
+  catalogItemId,
   attendanceMode,
   initialOccupiedSeats,
   capacity,
@@ -117,6 +121,7 @@ export async function createScheduleEvent({
   organizerTelegramUserId: number;
   createdByTelegramUserId: number;
   tableId?: number | null;
+  catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
   initialOccupiedSeats: number;
   capacity: number;
@@ -129,6 +134,7 @@ export async function createScheduleEvent({
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
     createdByTelegramUserId: normalizeTelegramUserId(createdByTelegramUserId, 'creador'),
     tableId: normalizeTableId(tableId),
+    catalogItemId: normalizeCatalogItemId(catalogItemId),
     attendanceMode: normalizeAttendanceMode(attendanceMode),
     initialOccupiedSeats: normalizeInitialOccupiedSeats({
       attendanceMode,
@@ -193,6 +199,7 @@ export async function updateScheduleEvent({
   durationMinutes,
   organizerTelegramUserId,
   tableId,
+  catalogItemId,
   attendanceMode,
   initialOccupiedSeats,
   capacity,
@@ -205,6 +212,7 @@ export async function updateScheduleEvent({
   durationMinutes: number;
   organizerTelegramUserId: number;
   tableId?: number | null;
+  catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
   initialOccupiedSeats: number;
   capacity: number;
@@ -226,6 +234,7 @@ export async function updateScheduleEvent({
     durationMinutes: normalizeDurationMinutes(durationMinutes),
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
     tableId: normalizeTableId(tableId),
+    catalogItemId: normalizeCatalogItemId(catalogItemId),
     attendanceMode: normalizeAttendanceMode(attendanceMode),
     initialOccupiedSeats: normalizeInitialOccupiedSeats({
       attendanceMode,
@@ -526,6 +535,18 @@ function normalizeTableId(tableId: number | null | undefined): number | null {
   }
 
   return tableId;
+}
+
+function normalizeCatalogItemId(catalogItemId: number | null | undefined): number | null {
+  if (catalogItemId === undefined || catalogItemId === null) {
+    return null;
+  }
+
+  if (!Number.isInteger(catalogItemId) || catalogItemId <= 0) {
+    throw new Error('El joc associat ha de ser un enter positiu');
+  }
+
+  return catalogItemId;
 }
 
 function normalizeCapacity(capacity: number): number {

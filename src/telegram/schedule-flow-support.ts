@@ -605,6 +605,7 @@ async function handleCreateSession(
       organizerTelegramUserId: context.runtime.actor.telegramUserId,
       createdByTelegramUserId: context.runtime.actor.telegramUserId,
       tableId: asNullableNumber(data.tableId),
+      catalogItemId: asNullableNumber(data.catalogItemId),
       attendanceMode: String(data.attendanceMode) === 'closed' ? 'closed' : 'open',
       initialOccupiedSeats: Number(data.initialOccupiedSeats ?? 0),
       capacity: Number(data.capacity),
@@ -620,6 +621,7 @@ async function handleCreateSession(
         startsAt: created.startsAt,
         capacity: created.capacity,
         tableId: created.tableId,
+        catalogItemId: created.catalogItemId ?? null,
       },
     });
     await context.runtime.session.cancel();
@@ -706,6 +708,7 @@ async function handleCreateSessionBack(
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).schedule;
   const descriptionPatch = data.description === undefined ? {} : { description: data.description };
+  const linkedCatalogPatch = data.catalogItemId === undefined ? {} : { catalogItemId: data.catalogItemId };
 
   if (stepKey === 'title') {
     await context.runtime.session.cancel();
@@ -719,7 +722,7 @@ async function handleCreateSessionBack(
   }
 
   if (stepKey === 'date') {
-    await context.runtime.session.advance({ stepKey: 'title', data: {} });
+    await context.runtime.session.advance({ stepKey: 'title', data: linkedCatalogPatch });
     await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
     return true;
   }
@@ -733,7 +736,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'time-minute') {
     await context.runtime.session.advance({
       stepKey: 'time',
-      data: { title: data.title, ...descriptionPatch, date: data.date },
+      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date },
     });
     await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
     return true;
@@ -742,7 +745,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'duration-mode') {
     await context.runtime.session.advance({
       stepKey: 'time',
-      data: { title: data.title, ...descriptionPatch, date: data.date },
+      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date },
     });
     await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
     return true;
@@ -751,7 +754,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'duration-hours' || stepKey === 'duration-hours-minutes' || stepKey === 'duration') {
     await context.runtime.session.advance({
       stepKey: 'duration-mode',
-      data: { title: data.title, ...descriptionPatch, date: data.date, time: data.time },
+      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date, time: data.time },
     });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
@@ -760,7 +763,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'attendance-mode') {
     await context.runtime.session.advance({
       stepKey: 'duration-mode',
-      data: { title: data.title, ...descriptionPatch, date: data.date, time: data.time },
+      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date, time: data.time },
     });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
@@ -772,6 +775,7 @@ async function handleCreateSessionBack(
       data: {
         title: data.title,
         ...descriptionPatch,
+        ...linkedCatalogPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -787,6 +791,7 @@ async function handleCreateSessionBack(
       data: {
         title: data.title,
         ...descriptionPatch,
+        ...linkedCatalogPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -804,6 +809,7 @@ async function handleCreateSessionBack(
         data: {
           title: data.title,
           ...descriptionPatch,
+          ...linkedCatalogPatch,
           date: data.date,
           time: data.time,
           durationMinutes: data.durationMinutes,
@@ -820,6 +826,7 @@ async function handleCreateSessionBack(
       data: {
         title: data.title,
         ...descriptionPatch,
+        ...linkedCatalogPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -836,6 +843,7 @@ async function handleCreateSessionBack(
       data: {
         title: data.title,
         ...descriptionPatch,
+        ...linkedCatalogPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -1128,6 +1136,7 @@ async function persistEditedScheduleEvent(
     durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
     organizerTelegramUserId: event.organizerTelegramUserId,
     tableId: asNullableNumber(data.tableId),
+    catalogItemId: event.catalogItemId ?? null,
     attendanceMode: event.attendanceMode,
     initialOccupiedSeats: Number(data.initialOccupiedSeats ?? event.initialOccupiedSeats),
     capacity: Number(data.capacity ?? event.capacity),

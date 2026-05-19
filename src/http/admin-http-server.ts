@@ -162,12 +162,13 @@ const resourceDefs: ResourceDef[] = [
     { column: 'recommended_capacity', label: 'Capacity', type: 'number', nullable: true },
     { column: 'lifecycle_status', label: 'Lifecycle', type: 'string' },
   ], { column: 'lifecycle_status', value: 'inactive', timestampColumn: 'deactivated_at' }),
-  resource('schedule_events', 'Actividades', 'schedule_events', 'id', 'title', ['starts_at', 'lifecycle_status'], ['id', 'title', 'starts_at', 'capacity', 'lifecycle_status'], [
+  resource('schedule_events', 'Actividades', 'schedule_events', 'id', 'title', ['starts_at', 'lifecycle_status'], ['id', 'title', 'starts_at', 'capacity', 'catalog_item_id', 'lifecycle_status'], [
     { column: 'title', label: 'Title', type: 'string' },
     { column: 'description', label: 'Description', type: 'string', nullable: true },
     { column: 'starts_at', label: 'Starts at', type: 'timestamp' },
     { column: 'duration_minutes', label: 'Duration', type: 'number' },
     { column: 'capacity', label: 'Capacity', type: 'number' },
+    { column: 'catalog_item_id', label: 'Catalog item ID', type: 'number', nullable: true },
     { column: 'attendance_mode', label: 'Attendance', type: 'string' },
     { column: 'lifecycle_status', label: 'Lifecycle', type: 'string' },
     { column: 'cancellation_reason', label: 'Cancellation reason', type: 'string', nullable: true },
@@ -1431,6 +1432,21 @@ interface PublicScheduleEventRow {
   capacity: number;
   initial_occupied_seats: number;
   attendance_mode: string;
+  table_name: string | null;
+  table_description: string | null;
+  table_recommended_capacity: number | null;
+  catalog_item_id: number | null;
+  catalog_item_name: string | null;
+  catalog_item_type: string | null;
+  catalog_item_publisher: string | null;
+  catalog_item_publication_year: number | null;
+  catalog_item_player_count_min: number | null;
+  catalog_item_player_count_max: number | null;
+  catalog_item_recommended_age: number | null;
+  catalog_item_play_time_minutes: number | null;
+  organizer_name: string | null;
+  confirmed_attendees: number;
+  attendee_names: string[];
 }
 
 interface PublicCatalogItemRow {
@@ -1734,10 +1750,63 @@ async function fetchPublicScheduleEvents(
 ): Promise<PublicScheduleEventRow[]> {
   const result = await services.database.pool.query<PublicScheduleEventRow>(
     `
-      select id, title, description, starts_at, duration_minutes, capacity, initial_occupied_seats, attendance_mode
-      from schedule_events
-      where lifecycle_status = 'scheduled' and starts_at >= now()
-      order by starts_at asc
+      select
+        events.id,
+        events.title,
+        events.description,
+        events.starts_at,
+        events.duration_minutes,
+        events.capacity,
+        events.initial_occupied_seats,
+        events.attendance_mode,
+        tables.display_name as table_name,
+        tables.description as table_description,
+        tables.recommended_capacity as table_recommended_capacity,
+        catalog_items.id as catalog_item_id,
+        catalog_items.display_name as catalog_item_name,
+        catalog_items.item_type as catalog_item_type,
+        catalog_items.publisher as catalog_item_publisher,
+        catalog_items.publication_year as catalog_item_publication_year,
+        catalog_items.player_count_min as catalog_item_player_count_min,
+        catalog_items.player_count_max as catalog_item_player_count_max,
+        catalog_items.recommended_age as catalog_item_recommended_age,
+        catalog_items.play_time_minutes as catalog_item_play_time_minutes,
+        organizers.display_name as organizer_name,
+        coalesce(count(participants.participant_telegram_user_id) filter (where participants.status = 'active'), 0)::int as confirmed_attendees,
+        coalesce(
+          array_remove(array_agg(participant_users.display_name order by participant_users.display_name) filter (where participants.status = 'active'), null),
+          '{}'
+        ) as attendee_names
+      from schedule_events events
+      left join club_tables tables on tables.id = events.table_id
+      left join catalog_items on catalog_items.id = events.catalog_item_id
+      left join users organizers on organizers.telegram_user_id = events.organizer_telegram_user_id
+      left join schedule_event_participants participants on participants.schedule_event_id = events.id
+      left join users participant_users on participant_users.telegram_user_id = participants.participant_telegram_user_id
+      where events.lifecycle_status = 'scheduled' and events.starts_at >= now()
+      group by
+        events.id,
+        events.title,
+        events.description,
+        events.starts_at,
+        events.duration_minutes,
+        events.capacity,
+        events.initial_occupied_seats,
+        events.attendance_mode,
+        tables.display_name,
+        tables.description,
+        tables.recommended_capacity,
+        catalog_items.id,
+        catalog_items.display_name,
+        catalog_items.item_type,
+        catalog_items.publisher,
+        catalog_items.publication_year,
+        catalog_items.player_count_min,
+        catalog_items.player_count_max,
+        catalog_items.recommended_age,
+        catalog_items.play_time_minutes,
+        organizers.display_name
+      order by events.starts_at asc
       limit 50
     `,
   );
@@ -2163,12 +2232,7 @@ function clubPage(settings: WebSettings): string {
 function activitiesPage(settings: WebSettings, events: PublicScheduleEventRow[]): string {
   const body = events.length === 0
     ? '<p>No hay actividades futuras publicadas ahora mismo.</p>'
-    : `<div class="list">${events.map((event) => {
-      const occupiedSeats = event.initial_occupied_seats;
-      const capacity = event.capacity;
-      const seats = capacity > 0 ? `${occupiedSeats}/${capacity} plazas` : 'sin plazas configuradas';
-      return `<section><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(formatDateTime(event.starts_at))} · ${event.duration_minutes} min · ${escapeHtml(seats)}</p>${event.description ? `<p>${escapeHtml(event.description)}</p>` : ''}</section>`;
-    }).join('')}</div>`;
+    : renderActivityDayGroups(events);
 
   return page({
     title: 'Actividades',
@@ -2177,6 +2241,68 @@ function activitiesPage(settings: WebSettings, events: PublicScheduleEventRow[])
     headerLogoAsset: settings.home.logoAsset,
     body,
   });
+}
+
+function renderActivityDayGroups(events: PublicScheduleEventRow[]): string {
+  const sortedEvents = [...events].sort((left, right) => getTimestamp(left.starts_at) - getTimestamp(right.starts_at));
+  const dayGroups = new Map<string, PublicScheduleEventRow[]>();
+
+  for (const event of sortedEvents) {
+    const key = formatActivityDayKey(event.starts_at);
+    dayGroups.set(key, [...(dayGroups.get(key) ?? []), event]);
+  }
+
+  return `<div class="activity-days">${Array.from(dayGroups.entries()).map(([dayKey, dayEvents]) => `<section class="activity-day"><h2>${escapeHtml(formatActivityDayHeading(dayEvents[0]?.starts_at ?? dayKey))}</h2><div class="activity-grid">${dayEvents.map(renderActivityCard).join('')}</div></section>`).join('')}</div>`;
+}
+
+function renderActivityCard(event: PublicScheduleEventRow): string {
+  const confirmedAttendees = Number(event.confirmed_attendees ?? 0);
+  const occupiedSeats = event.initial_occupied_seats + confirmedAttendees;
+  const seats = event.capacity > 0
+    ? `${occupiedSeats}/${event.capacity} plazas`
+    : 'sin aforo configurado';
+  const attendanceMode = event.attendance_mode === 'closed' ? 'Mesa cerrada' : 'Mesa abierta';
+  const attendeeNames = normalizeStringArray(event.attendee_names);
+  const catalogLink = event.catalog_item_name
+    ? `<a class="activity-linked-game" href="/catalogo?q=${encodeURIComponent(event.catalog_item_name)}">${escapeHtml(event.catalog_item_name)}</a>`
+    : '';
+  const attendees = attendeeNames.length > 0
+    ? attendeeNames.map((name) => `<li>${escapeHtml(name)}</li>`).join('')
+    : '<li>Sin asistentes confirmados desde Telegram</li>';
+  const facts = [
+    ['Horario', formatActivityTimeRange(event.starts_at, event.duration_minutes)],
+    ['Duracion', `${event.duration_minutes} min`],
+    ['Asistencia', `${attendanceMode} · ${seats}`],
+    event.catalog_item_name ? ['Juego enlazado', formatActivityCatalogItem(event)] : null,
+    event.organizer_name ? ['Organiza', event.organizer_name] : null,
+    event.table_name ? ['Mesa', formatActivityTable(event)] : null,
+  ].filter((fact): fact is [string, string] => fact !== null);
+
+  return `<article class="activity-card"><div class="activity-card-main"><p class="activity-time">${escapeHtml(formatActivityTimeRange(event.starts_at, event.duration_minutes))}</p><h3>${escapeHtml(event.title)}</h3>${catalogLink}${event.description ? `<p>${escapeHtml(event.description)}</p>` : ''}</div><dl class="activity-facts">${facts.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl><div class="activity-attendees"><strong>Asistentes confirmados</strong><ul>${attendees}</ul></div></article>`;
+}
+
+function formatActivityTable(event: PublicScheduleEventRow): string {
+  const details = [
+    event.table_description,
+    event.table_recommended_capacity ? `capacidad recomendada ${event.table_recommended_capacity}` : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return details.length > 0 ? `${event.table_name} (${details.join(' · ')})` : event.table_name ?? '';
+}
+
+function formatActivityCatalogItem(event: PublicScheduleEventRow): string {
+  const facts = [
+    event.catalog_item_type ? renderCatalogType(event.catalog_item_type) : null,
+    event.catalog_item_publisher,
+    event.catalog_item_publication_year ? String(event.catalog_item_publication_year) : null,
+    event.catalog_item_player_count_min || event.catalog_item_player_count_max
+      ? `${renderPlayerRange(event.catalog_item_player_count_min, event.catalog_item_player_count_max)} jugadores`
+      : null,
+    event.catalog_item_recommended_age ? `${event.catalog_item_recommended_age}+` : null,
+    event.catalog_item_play_time_minutes ? `${event.catalog_item_play_time_minutes} min` : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return facts.length > 0 ? `${event.catalog_item_name} (${facts.join(' · ')})` : event.catalog_item_name ?? '';
 }
 
 function catalogPage(
@@ -2330,6 +2456,66 @@ function formatDateTime(value: Date | string): string {
     timeStyle: 'short',
     timeZone: 'Europe/Madrid',
   }).format(date);
+}
+
+function formatActivityTimeRange(value: Date | string, durationMinutes: number): string {
+  const startsAt = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(startsAt.getTime())) {
+    return String(value);
+  }
+
+  const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
+  const formatter = new Intl.DateTimeFormat('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Europe/Madrid',
+  });
+
+  return `${formatter.format(startsAt)} - ${formatter.format(endsAt)}`;
+}
+
+function formatActivityDayHeading(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat('es-ES', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'Europe/Madrid',
+  }).format(date);
+}
+
+function formatActivityDayKey(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Europe/Madrid',
+  }).formatToParts(date);
+  const getPart = (type: string) => parts.find((part) => part.type === type)?.value ?? '00';
+
+  return `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
+}
+
+function getTimestamp(value: Date | string): number {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).filter((item) => item.trim().length > 0);
+  }
+
+  return [];
 }
 
 function buildWebSettingsFromForm(form: URLSearchParams, currentSettings: WebSettings): WebSettings {

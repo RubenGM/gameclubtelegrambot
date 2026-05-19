@@ -588,7 +588,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     await context.runtime.session.start({
       flowKey: 'schedule-create',
       stepKey: 'date',
-      data: { title: item.displayName },
+      data: { title: item.displayName, catalogItemId: item.id },
     });
     await context.reply(loanWarning ? `${loanWarning}\n\n${datePrompt}` : datePrompt, buildDateOptions(context.runtime.bot.language ?? language));
     return true;
