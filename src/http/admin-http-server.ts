@@ -10,7 +10,7 @@ import { createBackupOperations, type BackupOperations } from '../operations/bac
 import { createServiceControl, type ServiceControl } from '../operations/service-control.js';
 import { verifySecret } from '../security/verify-password-hash.js';
 import { createDatabaseAppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
-import { newMembersNewsGroupCategory } from '../news/news-group-catalog.js';
+import { listNewsGroupCategories, newMembersNewsGroupCategory } from '../news/news-group-catalog.js';
 import { escapeHtml, renderHttpPage, type RenderHttpPageOptions } from './http-pages.js';
 import { listHttpThemes } from './http-theme.js';
 import { createDatabaseMemberSignupStore, type MemberSignupRecord, type MemberSignupStore } from './member-signup-store.js';
@@ -511,6 +511,12 @@ async function routeRequest(options: {
   if (request.method === 'GET' && url.pathname === '/admin/member-signups') {
     const signups = await fetchMemberSignupRows(options.services);
     sendHtml(response, 200, memberSignupsAdminPage(signups));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/admin/news') {
+    const newsSummary = await fetchNewsAdminSummary(options.services);
+    sendHtml(response, 200, newsAdminPage(newsSummary));
     return;
   }
 
@@ -1399,6 +1405,20 @@ interface AdminMemberSignupRow {
   created_at: Date | string;
 }
 
+interface NewsAdminCategorySummary {
+  key: string;
+  label: string;
+  description: string;
+  defaultSubscribed: boolean;
+  subscribedGroups: number;
+}
+
+interface NewsAdminSummary {
+  enabledGroups: number;
+  totalGroups: number;
+  categories: NewsAdminCategorySummary[];
+}
+
 async function fetchAdminDashboardStats(services: InfrastructureRuntimeServices): Promise<AdminDashboardStats> {
   const [
     approvedUsers,
@@ -1458,6 +1478,31 @@ async function fetchMemberSignupRows(services: InfrastructureRuntimeServices): P
   } catch {
     return [];
   }
+}
+
+async function fetchNewsAdminSummary(services: InfrastructureRuntimeServices): Promise<NewsAdminSummary> {
+  const [enabledGroups, totalGroups] = await Promise.all([
+    safeCount(services, 'select count(*)::int as count from news_groups where is_enabled = true'),
+    safeCount(services, 'select count(*)::int as count from news_groups'),
+  ]);
+  const categories = await Promise.all(listNewsGroupCategories().map(async (category) => ({
+    key: category.key,
+    label: category.label.es,
+    description: category.description.es,
+    defaultSubscribed: category.defaultSubscribed,
+    subscribedGroups: await safeCount(services, `
+      select count(*)::int as count
+      from news_group_subscriptions subscriptions
+      inner join news_groups groups on groups.chat_id = subscriptions.chat_id
+      where subscriptions.category_key = '${category.key.replaceAll("'", "''")}' and groups.is_enabled = true
+    `),
+  })));
+
+  return {
+    enabledGroups,
+    totalGroups,
+    categories,
+  };
 }
 
 async function fetchPublicScheduleEvents(
@@ -2122,7 +2167,7 @@ function adminDashboardPage(
   return page({
     title: 'Admin',
     shell: 'admin',
-    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/feedback">Feedback</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/backups">Backups</a><a href="/admin/service">Servicio y logs</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
+    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/feedback">Feedback</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/news">Noticias y feeds</a><a href="/admin/backups">Backups</a><a href="/admin/service">Servicio y logs</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
   });
 }
 
@@ -2147,6 +2192,18 @@ function memberSignupsAdminPage(signups: AdminMemberSignupRow[]): string {
     title: 'Altas de socio',
     shell: 'admin',
     body,
+  });
+}
+
+function newsAdminPage(summary: NewsAdminSummary): string {
+  const categoryRows = summary.categories
+    .map((category) => `<tr><td>${escapeHtml(category.label)}</td><td>${escapeHtml(category.description)}</td><td>${category.subscribedGroups}</td><td>${category.defaultSubscribed ? 'si' : 'no'}</td></tr>`)
+    .join('');
+
+  return page({
+    title: 'Noticias y feeds',
+    shell: 'admin',
+    body: `<section><h2>Grupos</h2><p>${summary.enabledGroups} grupos activos de ${summary.totalGroups} registrados.</p></section><section><h2>Categorias</h2><table><thead><tr><th>Feed</th><th>Descripcion</th><th>Grupos suscritos</th><th>Default</th></tr></thead><tbody>${categoryRows}</tbody></table></section>`,
   });
 }
 

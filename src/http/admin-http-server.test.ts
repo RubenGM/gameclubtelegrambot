@@ -123,6 +123,12 @@ test('admin http server exposes public feedback and protects admin pages', async
             }],
           };
         }
+        if (sql.includes('count(*)') && sql.includes('from news_groups')) {
+          return { rows: [{ count: 2 }] };
+        }
+        if (sql.includes('count(*)') && sql.includes('news_group_subscriptions subscriptions')) {
+          return { rows: [{ count: 1 }] };
+        }
         if (sql.includes('select * from "users"')) {
           return {
             rows: [{
@@ -302,6 +308,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminHtml, /href="\/admin\/backups"/);
     assert.match(adminHtml, /href="\/admin\/feedback"/);
     assert.match(adminHtml, /href="\/admin\/member-signups"/);
+    assert.match(adminHtml, /href="\/admin\/news"/);
     assert.doesNotMatch(adminHtml, /Nou token de Telegram/);
     assert.doesNotMatch(adminHtml, /Restaurar/);
     const csrfToken = extractCsrfToken(adminHtml);
@@ -342,6 +349,13 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(memberSignupsAdminHtml, /Nueva Socia/);
     assert.match(memberSignupsAdminHtml, /nueva@example\.test/);
     assert.match(memberSignupsAdminHtml, /privados 1\/1 fallos/);
+
+    const newsAdminPage = await fetch(`${baseUrl}/admin/news`, { headers: { cookie } });
+    assert.equal(newsAdminPage.status, 200);
+    const newsAdminHtml = await newsAdminPage.text();
+    assert.match(newsAdminHtml, /Noticias y feeds/);
+    assert.match(newsAdminHtml, /2 grupos activos/);
+    assert.match(newsAdminHtml, /nuevos_miembros/);
 
     const uploadBoundary = '----gameclub-test-boundary';
     const uploadLogoResponse = await fetch(`${baseUrl}/admin/web/assets`, {
