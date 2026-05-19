@@ -23,8 +23,8 @@ Este archivo acompaña `SHINY_TESTING.md` y debe reflejar el estado real de cada
 | 5 | Búsqueda: separar buscar vs explorar | Completado y validado | `a09d155 Redesign storage search entry flow`; `npm run typecheck` pasó; `node --import tsx --test src/storage/storage-catalog.test.ts src/telegram/storage-flow.test.ts` pasó; `./startup.sh` pasó el 2026-05-19 | Ninguna |
 | 6 | Búsqueda: evitar listas largas de categorías | Completado y validado | `a09d155 Redesign storage search entry flow`; exploración nivel a nivel sin listar todos los descendientes de inicio; tests Storage y `./startup.sh` pasaron | Ninguna |
 | 7 | Descubribilidad de tags en búsqueda | Completado y validado | `a09d155 Redesign storage search entry flow`; copy de búsqueda, enlace a tags, normalización `#tag`; tests Storage y `./startup.sh` pasaron | Ninguna |
-| 8 | Taxonomía categorías vs tags | Completado y validado; commit pendiente | Criterio añadido a `docs/feature-status.md`; copy de subida ya guía categorías vs tags; `./scripts/feature-status-audit.sh` pasó; `./startup.sh` pasó el 2026-05-19 | Commit |
-| 9 | Validación final del goal | Pendiente | No ejecutado | `npm run typecheck`, tests Storage, `./scripts/feature-status-audit.sh`, `./startup.sh`, auditoría contra `SHINY_TESTING.md` |
+| 8 | Taxonomía categorías vs tags | Completado y validado | `3ece3ae Document storage category tag taxonomy`; criterio añadido a `docs/feature-status.md`; copy de subida ya guía categorías vs tags; `./scripts/feature-status-audit.sh` pasó; `./startup.sh` pasó el 2026-05-19 | Ninguna |
+| 9 | Validación final del goal | Completado | `npm run typecheck` pasó; `node --import tsx --test src/storage/storage-catalog.test.ts src/telegram/storage-flow.test.ts` pasó; `./scripts/feature-status-audit.sh` pasó; `./startup.sh` pasó; auditoría contra `SHINY_TESTING.md` sin pendientes funcionales | Ninguna |
 
 ## Notas operativas
 
