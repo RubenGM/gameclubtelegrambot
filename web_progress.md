@@ -12,7 +12,7 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Base de layout y temas | Hecho | `src/http/http-pages.ts`, `src/http/http-theme.ts`, tests `http-theme` |
 | Marca CAWA y guidelines | Hecho | `docs/brand-guidelines.md`, defaults de marca en web settings |
 | Logo, casco y favicon base | Hecho | `cawa_logo.svg`, `cawa_casco.svg`, rutas `/brand/cawa_logo.svg` y `/brand/cawa_casco.svg` |
-| Mejora estetica visual | Hecho | CSS base con textura sutil, cabecera con profundidad, hero de marca por defecto, tarjetas métricas, formularios/tablas refinados y diferenciacion publica/admin |
+| Mejora estetica visual | Hecho | CSS base con textura sutil, cabecera con profundidad, hero de marca por defecto, dashboard admin con toolbar, metricas compactas, secciones descriptivas, formularios/tablas refinados y diferenciacion publica/admin |
 | Configuracion de portada desde admin | Hecho | `/admin/web`, `web-settings-store`, uploads a `data/http-assets/` |
 | Navegacion publica | Hecho | Portada enlaza a admin, feedback, actividades, catalogo, club y alta |
 | Informacion del club | Hecho | `/club` configurable desde `/admin/web` |
@@ -21,6 +21,7 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Alta web como socio | Hecho | `/alta`, tabla `member_signup_requests`, avisos privados a admins, revision de estado desde `/admin/member-signups` |
 | Feed `nuevos_miembros` | Hecho | Categoria de noticias, aliases y panel `/admin/news` |
 | Dashboard admin inicial | Hecho | `/admin` muestra estadisticas e informacion relevante |
+| Jerarquia visual admin | Hecho | `/admin` usa toolbar operativa, grid de metricas compacto y tarjetas de secciones con descripcion |
 | Secciones admin separadas | Hecho | Hechas: web, actividades, catalogo, socios/usuarios, feedback, altas, noticias, backups, servicio/logs, configuracion tecnica y recursos avanzados |
 | Confirmaciones destructivas | Hecho | Restore/delete backup, stop service, cambio de token y hard delete requieren confirmacion textual |
 | Seguridad admin | Hecho | Sesiones firmadas, CSRF en POST admin, login rate-limit, token pendiente no se imprime |

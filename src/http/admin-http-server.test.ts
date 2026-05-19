@@ -325,8 +325,12 @@ test('admin http server exposes public feedback and protects admin pages', async
     const adminPage = await fetch(`${baseUrl}/admin`, { headers: { cookie } });
     assert.equal(adminPage.status, 200);
     const adminHtml = await adminPage.text();
-    assert.match(adminHtml, /gameclubtelegrambot\.service/);
+    assert.match(adminHtml, /gameclubtelegrambot/);
     assert.match(adminHtml, /Altas web pendientes/);
+    assert.match(adminHtml, /class="admin-toolbar"/);
+    assert.match(adminHtml, /class="admin-metrics"/);
+    assert.match(adminHtml, /class="admin-section-grid"/);
+    assert.match(adminHtml, /Panel operativo/);
     assert.match(adminHtml, /Servicio y logs/);
     assert.match(adminHtml, /href="\/admin\/backups"/);
     assert.match(adminHtml, /href="\/admin\/feedback"/);

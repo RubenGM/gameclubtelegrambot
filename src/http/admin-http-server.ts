@@ -2366,32 +2366,56 @@ function adminDashboardPage(
   csrfToken: string,
 ): string {
   const latestBackup = status.backups.latestBackup
-    ? `${escapeHtml(status.backups.latestBackup.fileName)} · ${formatBytes(status.backups.latestBackup.sizeBytes)}`
+    ? status.backups.latestBackup.fileName
     : 'Sin backups';
+  const latestBackupSize = status.backups.latestBackup
+    ? formatBytes(status.backups.latestBackup.sizeBytes)
+    : '';
   const database = status.database.state === 'connected'
-    ? `${escapeHtml(status.database.databaseName)} · ${status.database.totalTables} tablas`
-    : escapeHtml(status.database.message);
+    ? status.database.databaseName
+    : status.database.message;
+  const databaseDetail = status.database.state === 'connected'
+    ? `${status.database.totalTables} tablas`
+    : '';
 
   const metricRows = [
-    ['Servicio', `${status.service.serviceName}: ${status.service.state}`],
-    ['Base de datos', database],
-    ['Ultimo backup', latestBackup],
-    ['Socios aprobados', String(stats.approvedUsers)],
-    ['Pendientes Telegram', String(stats.pendingUsers)],
-    ['Admins', String(stats.adminUsers)],
-    ['Actividades futuras', String(stats.futureActivities)],
-    ['Catalogo activo', String(stats.activeCatalogItems)],
-    ['Prestamos activos', `${stats.activeLoans} (${stats.overdueLoans} vencidos)`],
-    ['Altas web pendientes', String(stats.pendingMemberSignups)],
+    ['Servicio', status.service.state, status.service.serviceName.replace(/\.service$/, '')],
+    ['Base de datos', database, databaseDetail],
+    ['Ultimo backup', latestBackupSize || latestBackup, latestBackupSize ? latestBackup : ''],
+    ['Socios aprobados', String(stats.approvedUsers), ''],
+    ['Pendientes Telegram', String(stats.pendingUsers), ''],
+    ['Admins', String(stats.adminUsers), ''],
+    ['Actividades futuras', String(stats.futureActivities), ''],
+    ['Catalogo activo', String(stats.activeCatalogItems), ''],
+    ['Prestamos activos', String(stats.activeLoans), `${stats.overdueLoans} vencidos`],
+    ['Altas web pendientes', String(stats.pendingMemberSignups), ''],
   ];
   const metrics = metricRows
-    .map(([label, value]) => `<section><h2>${escapeHtml(label)}</h2><p>${value}</p></section>`)
+    .map(([label, value, detail]) => `<article class="admin-metric-card"><h2>${escapeHtml(label)}</h2><p>${escapeHtml(value)}</p>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</article>`)
+    .join('');
+  const adminSections = [
+    ['Contenido publico', 'Web publica', 'Portada, logos, imagenes, enlaces destacados y textos del club.', '/admin/web'],
+    ['Operacion diaria', 'Actividades', 'Resumen de agenda y acceso a eventos programados.', '/admin/activities'],
+    ['Operacion diaria', 'Catalogo', 'Juegos, libros, prestamos activos y recursos de catalogo.', '/admin/catalog'],
+    ['Comunidad', 'Socios y usuarios', 'Altas Telegram, aprobaciones, admins y estado de miembros.', '/admin/users'],
+    ['Comunidad', 'Feedback', 'Mensajes enviados desde el formulario publico.', '/admin/feedback'],
+    ['Comunidad', 'Altas de socio', 'Solicitudes web pendientes y seguimiento de contacto.', '/admin/member-signups'],
+    ['Comunicacion', 'Noticias y feeds', 'Suscripciones por feed, incluido nuevos_miembros.', '/admin/news'],
+    ['Sistema', 'Backups', 'Copias, restauracion protegida y borrado confirmado.', '/admin/backups'],
+    ['Sistema', 'Servicio y logs', 'Estado systemd, logs recientes y acciones de servicio.', '/admin/service'],
+    ['Sistema', 'Configuracion tecnica', 'Token Telegram y ajustes sensibles con confirmacion.', '/admin/config'],
+    ['Avanzado', 'Recursos avanzados', 'Edicion directa de tablas permitidas para administracion puntual.', '/admin/resources'],
+    ['Vista publica', 'Ver actividades', 'Comprobar la agenda como la ve un visitante.', '/actividades'],
+    ['Vista publica', 'Ver catalogo', 'Comprobar el catalogo publico publicado.', '/catalogo'],
+  ];
+  const sections = adminSections
+    .map(([group, title, description, href]) => `<a class="admin-section-card" href="${escapeHtml(href)}"><span>${escapeHtml(group)}</span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(description)}</small></a>`)
     .join('');
 
   return page({
     title: 'Admin',
     shell: 'admin',
-    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/activities">Actividades</a><a href="/admin/catalog">Catalogo</a><a href="/admin/users">Socios y usuarios</a><a href="/admin/feedback">Feedback</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/news">Noticias y feeds</a><a href="/admin/backups">Backups</a><a href="/admin/service">Servicio y logs</a><a href="/admin/config">Configuracion tecnica</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
+    body: `<div class="admin-dashboard-shell"><div class="admin-toolbar"><p><strong>Panel operativo</strong><span>Estado del bot, comunidad y recursos principales.</span></p><form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Salir</button></form></div><div class="admin-metrics">${metrics}</div><section class="admin-section-panel"><h2>Secciones</h2><div class="admin-section-grid">${sections}</div></section></div>`,
   });
 }
 
