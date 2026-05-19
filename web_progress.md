@@ -26,7 +26,7 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Inventario de features | Hecho por corte | `docs/feature-status.md` actualizado en cada avance |
 | Validacion runtime | Hecho por corte | Tests/typecheck/audit pasan; `./startup.sh` completado y `gameclubtelegrambot.service` activo |
 
-## Pendiente
+## Cierre y comprobaciones
 
 | Punto | Estado real | Siguiente accion |
 | --- | --- | --- |
