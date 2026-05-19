@@ -535,6 +535,24 @@ async function routeRequest(options: {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/admin/users') {
+    const usersOverview = await fetchAdminUsersOverview(options.services);
+    sendHtml(response, 200, adminUsersPage(usersOverview));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/admin/activities') {
+    const activitiesOverview = await fetchAdminActivitiesOverview(options.services);
+    sendHtml(response, 200, adminActivitiesPage(activitiesOverview));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/admin/catalog') {
+    const catalogOverview = await fetchAdminCatalogOverview(options.services);
+    sendHtml(response, 200, adminCatalogPage(catalogOverview));
+    return;
+  }
+
   if (request.method === 'POST' && url.pathname === '/admin/web') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
@@ -1442,6 +1460,53 @@ interface AdminMemberSignupRow {
   created_at: Date | string;
 }
 
+interface AdminUserRow {
+  telegram_user_id: number;
+  display_name: string;
+  username: string | null;
+  status: string;
+  is_admin: boolean;
+  is_approved: boolean;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+interface AdminUsersOverview {
+  counts: {
+    total: number;
+    approved: number;
+    pending: number;
+    admins: number;
+    blocked: number;
+    revoked: number;
+  };
+  recentUsers: AdminUserRow[];
+}
+
+interface AdminActivitiesOverview {
+  counts: {
+    future: number;
+    scheduledTotal: number;
+    cancelledTotal: number;
+  };
+  upcomingEvents: PublicScheduleEventRow[];
+}
+
+interface AdminCatalogTypeCount {
+  item_type: string;
+  count: number | string;
+}
+
+interface AdminCatalogOverview {
+  counts: {
+    active: number;
+    inactive: number;
+    loaned: number;
+  };
+  typeCounts: AdminCatalogTypeCount[];
+  sampleItems: PublicCatalogItemRow[];
+}
+
 interface NewsAdminCategorySummary {
   key: string;
   label: string;
@@ -1540,6 +1605,86 @@ async function fetchNewsAdminSummary(services: InfrastructureRuntimeServices): P
     totalGroups,
     categories,
   };
+}
+
+async function fetchAdminUsersOverview(services: InfrastructureRuntimeServices): Promise<AdminUsersOverview> {
+  const [total, approved, pending, admins, blocked, revoked, recentUsers] = await Promise.all([
+    safeCount(services, 'select count(*)::int as count from users'),
+    safeCount(services, "select count(*)::int as count from users where status = 'approved'"),
+    safeCount(services, "select count(*)::int as count from users where status = 'pending'"),
+    safeCount(services, "select count(*)::int as count from users where status = 'approved' and is_admin = true"),
+    safeCount(services, "select count(*)::int as count from users where status = 'blocked'"),
+    safeCount(services, "select count(*)::int as count from users where status = 'revoked'"),
+    fetchRecentAdminUsers(services),
+  ]);
+
+  return {
+    counts: { total, approved, pending, admins, blocked, revoked },
+    recentUsers,
+  };
+}
+
+async function fetchRecentAdminUsers(services: InfrastructureRuntimeServices): Promise<AdminUserRow[]> {
+  try {
+    const result = await services.database.pool.query<AdminUserRow>(
+      `
+        select telegram_user_id, display_name, username, status, is_admin, is_approved, created_at, updated_at
+        from users
+        order by updated_at desc
+        limit 50
+      `,
+    );
+    return result.rows;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchAdminActivitiesOverview(services: InfrastructureRuntimeServices): Promise<AdminActivitiesOverview> {
+  const [future, scheduledTotal, cancelledTotal, upcomingEvents] = await Promise.all([
+    safeCount(services, "select count(*)::int as count from schedule_events where lifecycle_status = 'scheduled' and starts_at >= now()"),
+    safeCount(services, "select count(*)::int as count from schedule_events where lifecycle_status = 'scheduled'"),
+    safeCount(services, "select count(*)::int as count from schedule_events where lifecycle_status = 'cancelled'"),
+    fetchPublicScheduleEvents(services),
+  ]);
+
+  return {
+    counts: { future, scheduledTotal, cancelledTotal },
+    upcomingEvents,
+  };
+}
+
+async function fetchAdminCatalogOverview(services: InfrastructureRuntimeServices): Promise<AdminCatalogOverview> {
+  const [active, inactive, loaned, typeCounts, catalogPage] = await Promise.all([
+    safeCount(services, "select count(*)::int as count from catalog_items where lifecycle_status = 'active'"),
+    safeCount(services, "select count(*)::int as count from catalog_items where lifecycle_status <> 'active'"),
+    safeCount(services, 'select count(*)::int as count from catalog_loans where returned_at is null'),
+    fetchAdminCatalogTypeCounts(services),
+    fetchPublicCatalogItems(services, { search: '', itemType: '', page: 1 }),
+  ]);
+
+  return {
+    counts: { active, inactive, loaned },
+    typeCounts,
+    sampleItems: catalogPage.items,
+  };
+}
+
+async function fetchAdminCatalogTypeCounts(services: InfrastructureRuntimeServices): Promise<AdminCatalogTypeCount[]> {
+  try {
+    const result = await services.database.pool.query<AdminCatalogTypeCount>(
+      `
+        select item_type, count(*)::int as count
+        from catalog_items
+        where lifecycle_status = 'active'
+        group by item_type
+        order by item_type asc
+      `,
+    );
+    return result.rows;
+  } catch {
+    return [];
+  }
 }
 
 async function fetchPublicScheduleEvents(
@@ -2204,7 +2349,7 @@ function adminDashboardPage(
   return page({
     title: 'Admin',
     shell: 'admin',
-    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/feedback">Feedback</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/news">Noticias y feeds</a><a href="/admin/backups">Backups</a><a href="/admin/service">Servicio y logs</a><a href="/admin/config">Configuracion tecnica</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
+    body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><div class="asset-grid">${metrics}</div><section><h2>Secciones</h2><p class="row"><a href="/admin/web">Web publica</a><a href="/admin/activities">Actividades</a><a href="/admin/catalog">Catalogo</a><a href="/admin/users">Socios y usuarios</a><a href="/admin/feedback">Feedback</a><a href="/admin/member-signups">Altas de socio</a><a href="/admin/news">Noticias y feeds</a><a href="/admin/backups">Backups</a><a href="/admin/service">Servicio y logs</a><a href="/admin/config">Configuracion tecnica</a><a href="/admin/resources">Recursos avanzados</a><a href="/actividades">Ver actividades</a><a href="/catalogo">Ver catalogo</a></p></section>`,
   });
 }
 
@@ -2241,6 +2386,63 @@ function newsAdminPage(summary: NewsAdminSummary): string {
     title: 'Noticias y feeds',
     shell: 'admin',
     body: `<section><h2>Grupos</h2><p>${summary.enabledGroups} grupos activos de ${summary.totalGroups} registrados.</p></section><section><h2>Categorias</h2><table><thead><tr><th>Feed</th><th>Descripcion</th><th>Grupos suscritos</th><th>Default</th></tr></thead><tbody>${categoryRows}</tbody></table></section>`,
+  });
+}
+
+function adminUsersPage(overview: AdminUsersOverview): string {
+  const metrics = [
+    ['Total', overview.counts.total],
+    ['Aprobados', overview.counts.approved],
+    ['Pendientes', overview.counts.pending],
+    ['Admins', overview.counts.admins],
+    ['Bloqueados', overview.counts.blocked],
+    ['Revocados', overview.counts.revoked],
+  ].map(([label, value]) => `<section><h2>${escapeHtml(label)}</h2><p>${value}</p></section>`).join('');
+  const rows = overview.recentUsers.length === 0
+    ? '<p>No hay usuarios registrados.</p>'
+    : `<table><thead><tr><th>Usuario</th><th>Telegram</th><th>Estado</th><th>Rol</th><th>Actualizado</th></tr></thead><tbody>${overview.recentUsers.map((user) => `<tr><td>${escapeHtml(user.display_name)}</td><td>${user.username ? `@${escapeHtml(user.username)}` : escapeHtml(user.telegram_user_id)}</td><td>${escapeHtml(user.status)}</td><td>${user.is_admin ? 'admin' : 'socio'}</td><td>${escapeHtml(formatDateTime(user.updated_at))}</td></tr>`).join('')}</tbody></table>`;
+
+  return page({
+    title: 'Socios y usuarios',
+    shell: 'admin',
+    body: `<div class="asset-grid">${metrics}</div><section><h2>Gestion</h2><p class="row"><a href="/admin/member-signups">Altas web</a><a href="/admin/resources/users">Editar usuarios</a></p></section><section><h2>Usuarios recientes</h2>${rows}</section>`,
+  });
+}
+
+function adminActivitiesPage(overview: AdminActivitiesOverview): string {
+  const metrics = [
+    ['Futuras', overview.counts.future],
+    ['Programadas', overview.counts.scheduledTotal],
+    ['Canceladas', overview.counts.cancelledTotal],
+  ].map(([label, value]) => `<section><h2>${escapeHtml(label)}</h2><p>${value}</p></section>`).join('');
+  const rows = overview.upcomingEvents.length === 0
+    ? '<p>No hay actividades futuras programadas.</p>'
+    : `<table><thead><tr><th>Actividad</th><th>Fecha</th><th>Duracion</th><th>Plazas</th><th>Modo</th></tr></thead><tbody>${overview.upcomingEvents.map((event) => `<tr><td>${escapeHtml(event.title)}</td><td>${escapeHtml(formatDateTime(event.starts_at))}</td><td>${event.duration_minutes} min</td><td>${event.capacity > 0 ? `${event.initial_occupied_seats}/${event.capacity}` : '-'}</td><td>${escapeHtml(event.attendance_mode)}</td></tr>`).join('')}</tbody></table>`;
+
+  return page({
+    title: 'Actividades admin',
+    shell: 'admin',
+    body: `<div class="asset-grid">${metrics}</div><section><h2>Gestion</h2><p class="row"><a href="/admin/resources/schedule_events">Editar actividades</a><a href="/actividades">Ver pagina publica</a></p></section><section><h2>Proximas actividades</h2>${rows}</section>`,
+  });
+}
+
+function adminCatalogPage(overview: AdminCatalogOverview): string {
+  const metrics = [
+    ['Activos', overview.counts.active],
+    ['Inactivos', overview.counts.inactive],
+    ['Prestados', overview.counts.loaned],
+  ].map(([label, value]) => `<section><h2>${escapeHtml(label)}</h2><p>${value}</p></section>`).join('');
+  const typeRows = overview.typeCounts.length === 0
+    ? '<p>No hay articulos activos agrupados por tipo.</p>'
+    : `<table><thead><tr><th>Tipo</th><th>Articulos activos</th></tr></thead><tbody>${overview.typeCounts.map((item) => `<tr><td>${escapeHtml(renderCatalogType(item.item_type))}</td><td>${Number(item.count)}</td></tr>`).join('')}</tbody></table>`;
+  const sampleRows = overview.sampleItems.length === 0
+    ? '<p>No hay articulos activos.</p>'
+    : `<table><thead><tr><th>Articulo</th><th>Tipo</th><th>Familia</th><th>Datos</th></tr></thead><tbody>${overview.sampleItems.map((item) => `<tr><td>${escapeHtml(item.display_name)}</td><td>${escapeHtml(renderCatalogType(item.item_type))}</td><td>${escapeHtml(item.family_name ?? item.group_name ?? '-')}</td><td>${renderCatalogItemFacts(item) || '-'}</td></tr>`).join('')}</tbody></table>`;
+
+  return page({
+    title: 'Catalogo admin',
+    shell: 'admin',
+    body: `<div class="asset-grid">${metrics}</div><section><h2>Gestion</h2><p class="row"><a href="/admin/resources/catalog_items">Editar catalogo</a><a href="/catalogo">Ver catalogo publico</a></p></section><section><h2>Tipos</h2>${typeRows}</section><section><h2>Muestra de articulos activos</h2>${sampleRows}</section>`,
   });
 }
 

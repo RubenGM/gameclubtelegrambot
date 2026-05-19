@@ -60,6 +60,20 @@ test('admin http server exposes public feedback and protects admin pages', async
             }],
           };
         }
+        if (sql.includes('from users') && sql.includes('order by updated_at desc')) {
+          return {
+            rows: [{
+              telegram_user_id: 42,
+              display_name: 'Ada',
+              username: 'ada',
+              status: 'pending',
+              is_admin: false,
+              is_approved: false,
+              created_at: '2026-05-18T18:00:00.000Z',
+              updated_at: '2026-05-19T18:00:00.000Z',
+            }],
+          };
+        }
         if (sql.includes('from users') && sql.includes("status = 'approved'") && sql.includes('is_admin = true')) {
           return {
             rows: [
@@ -105,6 +119,9 @@ test('admin http server exposes public feedback and protects admin pages', async
         }
         if (sql.includes('count(*)') && sql.includes('from catalog_items items')) {
           return { rows: [{ count: 25 }] };
+        }
+        if (sql.includes('from catalog_items') && sql.includes('group by item_type')) {
+          return { rows: [{ item_type: 'board-game', count: 18 }, { item_type: 'book', count: 7 }] };
         }
         if (sql.includes('from catalog_items items')) {
           return {
@@ -316,6 +333,9 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminHtml, /href="\/admin\/member-signups"/);
     assert.match(adminHtml, /href="\/admin\/news"/);
     assert.match(adminHtml, /href="\/admin\/config"/);
+    assert.match(adminHtml, /href="\/admin\/activities"/);
+    assert.match(adminHtml, /href="\/admin\/catalog"/);
+    assert.match(adminHtml, /href="\/admin\/users"/);
     assert.doesNotMatch(adminHtml, /Nou token de Telegram/);
     assert.doesNotMatch(adminHtml, /Restaurar/);
     const csrfToken = extractCsrfToken(adminHtml);
@@ -372,6 +392,28 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(newsAdminHtml, /Noticias y feeds/);
     assert.match(newsAdminHtml, /2 grupos activos/);
     assert.match(newsAdminHtml, /nuevos_miembros/);
+
+    const adminUsersPage = await fetch(`${baseUrl}/admin/users`, { headers: { cookie } });
+    assert.equal(adminUsersPage.status, 200);
+    const adminUsersHtml = await adminUsersPage.text();
+    assert.match(adminUsersHtml, /Socios y usuarios/);
+    assert.match(adminUsersHtml, /Ada/);
+    assert.match(adminUsersHtml, /\/admin\/resources\/users/);
+
+    const adminActivitiesPage = await fetch(`${baseUrl}/admin/activities`, { headers: { cookie } });
+    assert.equal(adminActivitiesPage.status, 200);
+    const adminActivitiesHtml = await adminActivitiesPage.text();
+    assert.match(adminActivitiesHtml, /Actividades admin/);
+    assert.match(adminActivitiesHtml, /Partida abierta/);
+    assert.match(adminActivitiesHtml, /\/admin\/resources\/schedule_events/);
+
+    const adminCatalogPage = await fetch(`${baseUrl}/admin/catalog`, { headers: { cookie } });
+    assert.equal(adminCatalogPage.status, 200);
+    const adminCatalogHtml = await adminCatalogPage.text();
+    assert.match(adminCatalogHtml, /Catalogo admin/);
+    assert.match(adminCatalogHtml, /Dune Imperium/);
+    assert.match(adminCatalogHtml, /Juego de mesa/);
+    assert.match(adminCatalogHtml, /\/admin\/resources\/catalog_items/);
 
     const uploadBoundary = '----gameclub-test-boundary';
     const uploadLogoResponse = await fetch(`${baseUrl}/admin/web/assets`, {

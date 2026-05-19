@@ -32,6 +32,9 @@ const publicNavItems: PageNavItem[] = [
 const adminNavItems: PageNavItem[] = [
   { href: '/admin', label: 'Dashboard' },
   { href: '/admin/web', label: 'Web publica' },
+  { href: '/admin/activities', label: 'Actividades' },
+  { href: '/admin/catalog', label: 'Catalogo' },
+  { href: '/admin/users', label: 'Socios' },
   { href: '/admin/feedback', label: 'Feedback' },
   { href: '/admin/member-signups', label: 'Altas' },
   { href: '/admin/news', label: 'Noticias' },

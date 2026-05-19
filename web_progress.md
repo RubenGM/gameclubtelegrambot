@@ -20,7 +20,7 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Alta web como socio | Hecho | `/alta`, tabla `member_signup_requests`, avisos privados a admins |
 | Feed `nuevos_miembros` | Hecho | Categoria de noticias, aliases y panel `/admin/news` |
 | Dashboard admin inicial | Hecho | `/admin` muestra estadisticas e informacion relevante |
-| Secciones admin separadas | En curso | Hechas: web, feedback, altas, noticias, backups, servicio/logs, configuracion tecnica y recursos avanzados |
+| Secciones admin separadas | Hecho | Hechas: web, actividades, catalogo, socios/usuarios, feedback, altas, noticias, backups, servicio/logs, configuracion tecnica y recursos avanzados |
 | Confirmaciones destructivas | Hecho | Restore/delete backup, stop service, cambio de token y hard delete requieren confirmacion textual |
 | Seguridad admin | Hecho | Sesiones firmadas, CSRF en POST admin, login rate-limit, token pendiente no se imprime |
 | Inventario de features | Hecho por corte | `docs/feature-status.md` actualizado en cada avance |
@@ -31,7 +31,7 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Punto | Estado real | Siguiente accion |
 | --- | --- | --- |
 | Password admin runtime | Hecho local/deploy | `config/.env` y `config/runtime.local.json` validan `cawabotadmin`; login HTTP local devuelve 303 a `/admin` tras `./startup.sh` |
-| Admin por dominios completos | Pendiente | Decidir si crear secciones admin dedicadas para actividades, catalogo y socios o enlazar a las superficies existentes |
+| Admin por dominios completos | Hecho | `/admin/activities`, `/admin/catalog` y `/admin/users` agrupan resumenes operativos y enlazan a recursos avanzados concretos |
 | Revision de altas web | Pendiente opcional | Implementar cambio de estado/resolucion desde `/admin/member-signups` si se quiere gestionar el ciclo completo desde web |
 | Revision de feedback | Pendiente opcional | Añadir estado revisado/pendiente si el club quiere bandeja de seguimiento |
 | Comprobacion publica HTTPS | Pendiente | Verificar `https://cawa.hopto.org/`, `/admin` y nuevas rutas despues de `startup.sh` |
@@ -47,3 +47,4 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 - `POST /admin/login` con `cawabotadmin`: devuelve `303 Location: /admin`.
 - `GET /brand/cawa_casco.svg`: devuelve `200 image/svg+xml`.
 - `GET /`: devuelve `200` e incluye logo y favicon de marca por defecto.
+- `GET /admin/users`, `/admin/activities` y `/admin/catalog` con sesion admin: devuelven `200`.
