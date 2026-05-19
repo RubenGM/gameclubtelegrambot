@@ -1449,10 +1449,10 @@ async function selectForwardedStorageCategory(
   };
   await context.runtime.session.start({
     flowKey: storageUploadFlowKey,
-    stepKey: 'upload-preview',
+    stepKey: 'upload-tags',
     data,
   });
-  await context.reply(formatUploadPreview(data, language), { ...buildUploadPreviewOptions(language), parseMode: 'HTML' });
+  await context.reply(texts.askTags, buildSkipOptionalOptions(language));
   return true;
 }
 
@@ -4790,10 +4790,10 @@ async function advanceUploadPreview(
     tags: [],
   };
   await context.runtime.session.advance({
-    stepKey: 'upload-preview',
+    stepKey: 'upload-tags',
     data,
   });
-  await context.reply(formatUploadPreview(data, language), { ...buildUploadPreviewOptions(language), parseMode: 'HTML' });
+  await context.reply(createTelegramI18n(language).storage.askTags, buildSkipOptionalOptions(language));
 }
 
 function formatUploadPreview(data: Record<string, unknown>, language: 'ca' | 'es' | 'en'): string {

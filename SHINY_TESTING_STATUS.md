@@ -25,6 +25,7 @@ Este archivo acompaña `SHINY_TESTING.md` y debe reflejar el estado real de cada
 | 7 | Descubribilidad de tags en búsqueda | Completado y validado | `a09d155 Redesign storage search entry flow`; copy de búsqueda, enlace a tags, normalización `#tag`; tests Storage y `./startup.sh` pasaron | Ninguna |
 | 8 | Taxonomía categorías vs tags | Completado y validado | `3ece3ae Document storage category tag taxonomy`; criterio añadido a `docs/feature-status.md`; copy de subida ya guía categorías vs tags; `./scripts/feature-status-audit.sh` pasó; `./startup.sh` pasó el 2026-05-19 | Ninguna |
 | 9 | Validación final del goal | Completado | `npm run typecheck` pasó; `node --import tsx --test src/storage/storage-catalog.test.ts src/telegram/storage-flow.test.ts` pasó; `./scripts/feature-status-audit.sh` pasó; `./startup.sh` pasó; auditoría contra `SHINY_TESTING.md` sin pendientes funcionales | Ninguna |
+| 10 | Variante: pedir tags antes de la vista previa | Completado y validado | Flujo normal y flujo de mensajes reenviados pasan por `upload-tags`; `Omitir` conserva tags detectados en captions; `node --import tsx --test src/telegram/storage-flow.test.ts`, `npm run typecheck`, `./scripts/feature-status-audit.sh` y `./startup.sh` pasaron el 2026-05-19 | Commitear |
 
 ## Notas operativas
 
