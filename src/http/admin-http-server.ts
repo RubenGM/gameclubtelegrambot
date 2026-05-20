@@ -611,9 +611,9 @@ async function routeRequest(options: {
     return;
   }
 
-  const adminStorageMediaMatch = request.method === 'GET' ? /^\/admin\/storage\/media\/(\d+)$/.exec(url.pathname) : null;
+  const adminStorageMediaMatch = request.method === 'GET' ? /^\/admin\/storage\/media\/(\d+)(?:\/(\d+))?$/.exec(url.pathname) : null;
   if (adminStorageMediaMatch?.[1]) {
-    await sendAdminStorageMedia(response, options, Number(adminStorageMediaMatch[1]));
+    await sendAdminStorageMedia(response, options, Number(adminStorageMediaMatch[1]), adminStorageMediaMatch[2] ? Number(adminStorageMediaMatch[2]) : 0);
     return;
   }
 
@@ -1795,6 +1795,7 @@ interface StorageEntryAdminRow {
   lifecycle_status: string;
   created_by_name: string | null;
   message_count: number;
+  image_count: number;
   preview_telegram_file_id: string | null;
   preview_mime_type: string | null;
   preview_attachment_kind: string | null;
@@ -2135,6 +2136,10 @@ async function fetchStorageEntryAdminRows(
           entries.lifecycle_status,
           users.display_name as created_by_name,
           coalesce(count(messages.id), 0)::int as message_count,
+          coalesce(count(messages.id) filter (
+            where messages.telegram_file_id is not null
+              and (messages.attachment_kind = 'photo' or messages.mime_type like 'image/%')
+          ), 0)::int as image_count,
           preview.telegram_file_id as preview_telegram_file_id,
           preview.mime_type as preview_mime_type,
           preview.attachment_kind as preview_attachment_kind,
@@ -2238,6 +2243,10 @@ async function fetchStorageEntryAdminDetail(services: InfrastructureRuntimeServi
           entries.lifecycle_status,
           users.display_name as created_by_name,
           coalesce(count(messages.id), 0)::int as message_count,
+          coalesce(count(messages.id) filter (
+            where messages.telegram_file_id is not null
+              and (messages.attachment_kind = 'photo' or messages.mime_type like 'image/%')
+          ), 0)::int as image_count,
           preview.telegram_file_id as preview_telegram_file_id,
           preview.mime_type as preview_mime_type,
           preview.attachment_kind as preview_attachment_kind,
@@ -2954,21 +2963,22 @@ async function sendAdminStorageMedia(
   response: ServerResponse,
   options: { config: RuntimeConfig; services: InfrastructureRuntimeServices; appRoot: string },
   entryId: number,
+  imageIndex: number,
 ): Promise<void> {
-  if (!Number.isInteger(entryId) || entryId <= 0 || !options.config.telegram.token) {
+  if (!Number.isInteger(entryId) || entryId <= 0 || !Number.isInteger(imageIndex) || imageIndex < 0 || !options.config.telegram.token) {
     response.writeHead(404);
     response.end();
     return;
   }
 
-  const media = await fetchAdminStorageMedia(options.services, entryId);
+  const media = await fetchAdminStorageMedia(options.services, entryId, imageIndex);
   if (!media) {
     response.writeHead(404);
     response.end();
     return;
   }
 
-  const cachePath = resolve(options.appRoot, 'data/http-cache/admin-storage-media', `${entryId}.bin`);
+  const cachePath = resolve(options.appRoot, 'data/http-cache/admin-storage-media', `${entryId}-${imageIndex}.bin`);
   let bytes: Buffer;
   try {
     bytes = await readFile(cachePath);
@@ -3011,6 +3021,7 @@ async function fetchCatalogStorageMedia(
 async function fetchAdminStorageMedia(
   services: InfrastructureRuntimeServices,
   entryId: number,
+  imageIndex: number,
 ): Promise<AdminStorageMediaRow | null> {
   const result = await services.database.pool.query<AdminStorageMediaRow>(
     `
@@ -3022,8 +3033,9 @@ async function fetchAdminStorageMedia(
         and (messages.attachment_kind = 'photo' or messages.mime_type like 'image/%')
       order by messages.sort_order asc, messages.id asc
       limit 1
+      offset $2
     `,
-    [entryId],
+    [entryId, imageIndex],
   );
   return result.rows[0] ?? null;
 }
@@ -3927,6 +3939,7 @@ function adminStoragePage(
   const entryRows = overview.entries.length === 0
     ? `<p class="muted">${overview.mode === 'search' ? 'No hay entradas de Storage para esta busqueda.' : overview.selectedCategory ? 'No hay entradas directas en esta categoria.' : 'Elige una categoria para ver sus entradas.'}</p>`
     : `<div class="storage-entry-list">${overview.entries.map(renderStorageEntryAdminCard).join('')}</div>`;
+  const lightbox = overview.entries.some((entry) => Number(entry.image_count) > 0) ? renderStorageImageLightbox() : '';
   const selectedActions = overview.selectedCategory
     ? `<p class="row"><a href="/admin/storage/categories/${encodeURIComponent(String(storageCategoryNumericId(overview.selectedCategory)))}/edit">Editar categoria</a><a href="/admin/storage/categories/${encodeURIComponent(String(storageCategoryNumericId(overview.selectedCategory)))}/archive">Archivar categoria</a></p>`
     : '';
@@ -3944,23 +3957,77 @@ function adminStoragePage(
   return page({
     title: 'Storage admin',
     shell: 'admin',
-    body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section><h2>Buscar</h2>${searchForm}</section><section class="admin-table-shell"><h2>${categoryHeading}</h2>${breadcrumb}${selectedActions}${overview.mode === 'search' ? '<p class="muted">La busqueda es global; borra el filtro para volver a navegar por categorias.</p>' : categoryCards}</section><section class="admin-table-shell"><h2>${entryHeading}</h2>${entryRows}</section><p class="muted">La web permite editar, mover, retaggear, archivar y eliminar logicamente. La creacion de entradas sigue limitada a Telegram.</p><form hidden>${csrfInput(csrfToken)}</form>`,
+    body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section><h2>Buscar</h2>${searchForm}</section><section class="admin-table-shell"><h2>${categoryHeading}</h2>${breadcrumb}${selectedActions}${overview.mode === 'search' ? '<p class="muted">La busqueda es global; borra el filtro para volver a navegar por categorias.</p>' : categoryCards}</section><section class="admin-table-shell"><h2>${entryHeading}</h2>${entryRows}</section><p class="muted">La web permite editar, mover, retaggear, archivar y eliminar logicamente. La creacion de entradas sigue limitada a Telegram.</p><form hidden>${csrfInput(csrfToken)}</form>${lightbox}`,
   });
 }
 
 function renderStorageEntryAdminCard(entry: StorageEntryAdminRow): string {
   const description = entry.description?.trim() || 'Sin descripcion';
+  const imageCount = Number(entry.image_count) > 0 ? Number(entry.image_count) : 0;
+  const previewUrl = `/admin/storage/media/${encodeURIComponent(String(entry.id))}/0`;
   const preview = entry.preview_telegram_file_id
-    ? `<img class="storage-entry-thumb" src="/admin/storage/media/${encodeURIComponent(String(entry.id))}" alt="" loading="lazy">`
+    ? `<button class="storage-entry-preview-button" type="button" data-storage-gallery data-entry-id="${escapeHtml(entry.id)}" data-image-count="${escapeHtml(imageCount)}" data-entry-title="${escapeHtml(description)}" aria-label="Abrir imagenes de ${escapeHtml(description)}"><img class="storage-entry-thumb" src="${previewUrl}" alt="" loading="lazy">${imageCount > 1 ? `<span>${imageCount} imagenes</span>` : ''}</button>`
     : `<div class="storage-entry-thumb storage-entry-thumb-empty" aria-hidden="true">${escapeHtml(renderStorageSourceInitial(entry.source_kind))}</div>`;
   const tags = renderTagChips(asTagArray(entry.tags));
   const createdBy = entry.created_by_name ? `Subido por ${entry.created_by_name}` : 'Autor no disponible';
-  return `<article class="storage-entry-card">${preview}<div class="storage-entry-main"><div class="storage-entry-title-row"><h3>${escapeHtml(description)}</h3>${renderStatusBadge(entry.lifecycle_status)}</div><p class="muted">${escapeHtml(entry.category_name)} · ${entry.message_count} adjuntos · ${escapeHtml(entry.source_kind)} · ${escapeHtml(createdBy)} · ${escapeHtml(formatDateTime(entry.updated_at))}</p>${tags}</div><div class="storage-entry-actions"><small>#${escapeHtml(entry.id)}</small><a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/edit">Editar</a><a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/delete">Eliminar</a></div></article>`;
+  const imageSummary = imageCount > 0 ? ` · ${imageCount} imagen${imageCount === 1 ? '' : 'es'}` : '';
+  return `<article class="storage-entry-card">${preview}<div class="storage-entry-main"><div class="storage-entry-title-row"><h3>${escapeHtml(description)}</h3>${renderStatusBadge(entry.lifecycle_status)}</div><p class="muted">${escapeHtml(entry.category_name)} · ${entry.message_count} adjuntos${escapeHtml(imageSummary)} · ${escapeHtml(entry.source_kind)} · ${escapeHtml(createdBy)} · ${escapeHtml(formatDateTime(entry.updated_at))}</p>${tags}</div><div class="storage-entry-actions"><small>#${escapeHtml(entry.id)}</small><a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/edit">Editar</a><a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/delete">Eliminar</a></div></article>`;
 }
 
 function renderStorageSourceInitial(sourceKind: string): string {
   const trimmed = sourceKind.trim();
   return trimmed.length > 0 ? trimmed.charAt(0).toLocaleUpperCase('es-ES') : 'A';
+}
+
+function renderStorageImageLightbox(): string {
+  return `<dialog class="storage-lightbox" id="storage-lightbox" aria-labelledby="storage-lightbox-title"><div class="storage-lightbox-panel"><button class="storage-lightbox-close" type="button" data-storage-lightbox-close aria-label="Cerrar">&times;</button><button class="storage-lightbox-nav storage-lightbox-prev" type="button" data-storage-lightbox-prev aria-label="Imagen anterior">&lsaquo;</button><figure><img data-storage-lightbox-image alt=""><figcaption><strong id="storage-lightbox-title"></strong><span data-storage-lightbox-count></span></figcaption></figure><button class="storage-lightbox-nav storage-lightbox-next" type="button" data-storage-lightbox-next aria-label="Imagen siguiente">&rsaquo;</button></div></dialog><script>
+(() => {
+  const dialog = document.getElementById('storage-lightbox');
+  if (!dialog) return;
+  const image = dialog.querySelector('[data-storage-lightbox-image]');
+  const title = dialog.querySelector('#storage-lightbox-title');
+  const count = dialog.querySelector('[data-storage-lightbox-count]');
+  const previous = dialog.querySelector('[data-storage-lightbox-prev]');
+  const next = dialog.querySelector('[data-storage-lightbox-next]');
+  let entryId = '';
+  let imageCount = 0;
+  let imageIndex = 0;
+  function render() {
+    if (!entryId || !image) return;
+    image.src = '/admin/storage/media/' + encodeURIComponent(entryId) + '/' + imageIndex;
+    if (count) count.textContent = imageCount > 1 ? String(imageIndex + 1) + ' / ' + String(imageCount) : '';
+    if (previous) previous.hidden = imageCount < 2;
+    if (next) next.hidden = imageCount < 2;
+  }
+  document.querySelectorAll('[data-storage-gallery]').forEach((button) => {
+    button.addEventListener('click', () => {
+      entryId = button.getAttribute('data-entry-id') || '';
+      imageCount = Number(button.getAttribute('data-image-count') || '1');
+      imageIndex = 0;
+      if (title) title.textContent = button.getAttribute('data-entry-title') || '';
+      render();
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', 'open');
+    });
+  });
+  previous?.addEventListener('click', () => {
+    imageIndex = imageCount > 0 ? (imageIndex + imageCount - 1) % imageCount : 0;
+    render();
+  });
+  next?.addEventListener('click', () => {
+    imageIndex = imageCount > 0 ? (imageIndex + 1) % imageCount : 0;
+    render();
+  });
+  dialog.querySelector('[data-storage-lightbox-close]')?.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowLeft') previous?.click();
+    if (event.key === 'ArrowRight') next?.click();
+  });
+})();
+</script>`;
 }
 
 function renderStorageAdminBreadcrumbs(overview: AdminStorageOverview): string {

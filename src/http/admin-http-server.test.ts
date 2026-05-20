@@ -147,6 +147,7 @@ test('admin http server exposes public feedback and protects admin pages', async
               lifecycle_status: 'active',
               created_by_name: 'Ada',
               message_count: 1,
+              image_count: 3,
               preview_telegram_file_id: 'photo-file-id',
               preview_mime_type: 'image/jpeg',
               preview_attachment_kind: 'photo',
@@ -605,7 +606,11 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminStorageCategoryHtml, /Ayudas de juego/);
     assert.match(adminStorageCategoryHtml, /Manual de campaña/);
     assert.match(adminStorageCategoryHtml, /Entradas directas/);
-    assert.match(adminStorageCategoryHtml, /src="\/admin\/storage\/media\/55"/);
+    assert.match(adminStorageCategoryHtml, /data-storage-gallery/);
+    assert.match(adminStorageCategoryHtml, /data-image-count="3"/);
+    assert.match(adminStorageCategoryHtml, /src="\/admin\/storage\/media\/55\/0"/);
+    assert.match(adminStorageCategoryHtml, /3 imagenes/);
+    assert.match(adminStorageCategoryHtml, /id="storage-lightbox"/);
     assert.match(adminStorageCategoryHtml, /Subido por Ada/);
     assert.match(adminStorageCategoryHtml, /\/admin\/storage\/entries\/55\/edit/);
     assert.match(adminStorageCategoryHtml, /\/admin\/storage\/categories\/3\/edit/);
@@ -618,6 +623,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminStorageHtml, /Manual de campaña/);
     assert.match(adminStorageHtml, /Reglamentos/);
     assert.match(adminStorageHtml, /#rol/);
+    assert.match(adminStorageHtml, /\/admin\/storage\/media\/55\/0/);
     assert.doesNotMatch(adminStorageHtml, /<strong>#55<\/strong>/);
     assert.match(adminStorageHtml, /\/admin\/storage\/entries\/55\/edit/);
 
