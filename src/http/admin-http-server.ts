@@ -62,6 +62,12 @@ interface CatalogStorageMediaRow {
   attachment_kind: string;
 }
 
+interface AdminStorageMediaRow {
+  telegram_file_id: string;
+  mime_type: string | null;
+  attachment_kind: string;
+}
+
 type FieldType = 'string' | 'number' | 'boolean' | 'json' | 'timestamp';
 
 interface FieldDef {
@@ -602,6 +608,12 @@ async function routeRequest(options: {
   if (request.method === 'GET' && url.pathname === '/admin/catalog') {
     const catalogOverview = await fetchAdminCatalogOverview(options.services);
     sendHtml(response, 200, adminCatalogPage(catalogOverview));
+    return;
+  }
+
+  const adminStorageMediaMatch = request.method === 'GET' ? /^\/admin\/storage\/media\/(\d+)$/.exec(url.pathname) : null;
+  if (adminStorageMediaMatch?.[1]) {
+    await sendAdminStorageMedia(response, options, Number(adminStorageMediaMatch[1]));
     return;
   }
 
@@ -1783,6 +1795,9 @@ interface StorageEntryAdminRow {
   lifecycle_status: string;
   created_by_name: string | null;
   message_count: number;
+  preview_telegram_file_id: string | null;
+  preview_mime_type: string | null;
+  preview_attachment_kind: string | null;
   updated_at: Date | string;
 }
 
@@ -2120,13 +2135,25 @@ async function fetchStorageEntryAdminRows(
           entries.lifecycle_status,
           users.display_name as created_by_name,
           coalesce(count(messages.id), 0)::int as message_count,
+          preview.telegram_file_id as preview_telegram_file_id,
+          preview.mime_type as preview_mime_type,
+          preview.attachment_kind as preview_attachment_kind,
           entries.updated_at
         from storage_entries entries
         inner join storage_categories categories on categories.id = entries.category_id
         left join users on users.telegram_user_id = entries.created_by_telegram_user_id
         left join storage_entry_messages messages on messages.entry_id = entries.id
+        left join lateral (
+          select preview_messages.telegram_file_id, preview_messages.mime_type, preview_messages.attachment_kind
+          from storage_entry_messages preview_messages
+          where preview_messages.entry_id = entries.id
+            and preview_messages.telegram_file_id is not null
+            and (preview_messages.attachment_kind = 'photo' or preview_messages.mime_type like 'image/%')
+          order by preview_messages.sort_order asc, preview_messages.id asc
+          limit 1
+        ) preview on true
         ${where}
-        group by entries.id, categories.display_name, users.display_name
+        group by entries.id, categories.display_name, users.display_name, preview.telegram_file_id, preview.mime_type, preview.attachment_kind
         order by
           case when entries.lifecycle_status = 'active' then 0 else 1 end,
           entries.updated_at desc
@@ -2211,13 +2238,25 @@ async function fetchStorageEntryAdminDetail(services: InfrastructureRuntimeServi
           entries.lifecycle_status,
           users.display_name as created_by_name,
           coalesce(count(messages.id), 0)::int as message_count,
+          preview.telegram_file_id as preview_telegram_file_id,
+          preview.mime_type as preview_mime_type,
+          preview.attachment_kind as preview_attachment_kind,
           entries.updated_at
         from storage_entries entries
         inner join storage_categories categories on categories.id = entries.category_id
         left join users on users.telegram_user_id = entries.created_by_telegram_user_id
         left join storage_entry_messages messages on messages.entry_id = entries.id
+        left join lateral (
+          select preview_messages.telegram_file_id, preview_messages.mime_type, preview_messages.attachment_kind
+          from storage_entry_messages preview_messages
+          where preview_messages.entry_id = entries.id
+            and preview_messages.telegram_file_id is not null
+            and (preview_messages.attachment_kind = 'photo' or preview_messages.mime_type like 'image/%')
+          order by preview_messages.sort_order asc, preview_messages.id asc
+          limit 1
+        ) preview on true
         where entries.id = $1
-        group by entries.id, categories.display_name, users.display_name
+        group by entries.id, categories.display_name, users.display_name, preview.telegram_file_id, preview.mime_type, preview.attachment_kind
       `,
       [entryId],
     );
@@ -2911,6 +2950,41 @@ async function sendCatalogStorageMedia(
   response.end(bytes);
 }
 
+async function sendAdminStorageMedia(
+  response: ServerResponse,
+  options: { config: RuntimeConfig; services: InfrastructureRuntimeServices; appRoot: string },
+  entryId: number,
+): Promise<void> {
+  if (!Number.isInteger(entryId) || entryId <= 0 || !options.config.telegram.token) {
+    response.writeHead(404);
+    response.end();
+    return;
+  }
+
+  const media = await fetchAdminStorageMedia(options.services, entryId);
+  if (!media) {
+    response.writeHead(404);
+    response.end();
+    return;
+  }
+
+  const cachePath = resolve(options.appRoot, 'data/http-cache/admin-storage-media', `${entryId}.bin`);
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(cachePath);
+  } catch {
+    bytes = await downloadTelegramFile(options.config.telegram.token, media.telegram_file_id);
+    await mkdir(dirname(cachePath), { recursive: true });
+    await writeFile(cachePath, bytes);
+  }
+
+  response.writeHead(200, {
+    'Content-Type': normalizeCatalogMediaMimeType(media.mime_type, media.attachment_kind),
+    'Cache-Control': 'private, max-age=86400',
+  });
+  response.end(bytes);
+}
+
 async function fetchCatalogStorageMedia(
   services: InfrastructureRuntimeServices,
   entryId: number,
@@ -2926,6 +3000,26 @@ async function fetchCatalogStorageMedia(
         and categories.lifecycle_status = 'active'
         and (categories.category_purpose = 'catalog_media' or categories.slug in ('catalog_media', 'catalog-media'))
         and messages.telegram_file_id is not null
+      order by messages.sort_order asc, messages.id asc
+      limit 1
+    `,
+    [entryId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function fetchAdminStorageMedia(
+  services: InfrastructureRuntimeServices,
+  entryId: number,
+): Promise<AdminStorageMediaRow | null> {
+  const result = await services.database.pool.query<AdminStorageMediaRow>(
+    `
+      select messages.telegram_file_id, messages.mime_type, messages.attachment_kind
+      from storage_entries entries
+      inner join storage_entry_messages messages on messages.entry_id = entries.id
+      where entries.id = $1
+        and messages.telegram_file_id is not null
+        and (messages.attachment_kind = 'photo' or messages.mime_type like 'image/%')
       order by messages.sort_order asc, messages.id asc
       limit 1
     `,
@@ -3832,7 +3926,7 @@ function adminStoragePage(
     : `<div class="admin-action-grid">${overview.visibleCategories.map((category) => renderStorageCategoryCard(category, overview.summaries)).join('')}</div>`;
   const entryRows = overview.entries.length === 0
     ? `<p class="muted">${overview.mode === 'search' ? 'No hay entradas de Storage para esta busqueda.' : overview.selectedCategory ? 'No hay entradas directas en esta categoria.' : 'Elige una categoria para ver sus entradas.'}</p>`
-    : `<table><thead><tr><th>Entrada</th><th>Categoria</th><th>Tags</th><th>Estado</th><th>Adjuntos</th><th>Actualizada</th><th>Acciones</th></tr></thead><tbody>${overview.entries.map((entry) => `<tr><td><strong>#${entry.id}</strong><br><small>${escapeHtml(truncateText(entry.description ?? 'Sin descripcion', 90))}</small></td><td>${escapeHtml(entry.category_name)}</td><td>${renderTagChips(asTagArray(entry.tags))}</td><td>${renderStatusBadge(entry.lifecycle_status)}</td><td>${entry.message_count} ${escapeHtml(entry.source_kind)}</td><td>${escapeHtml(formatDateTime(entry.updated_at))}</td><td><a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/edit">Editar</a> <a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/delete">Eliminar</a></td></tr>`).join('')}</tbody></table>`;
+    : `<div class="storage-entry-list">${overview.entries.map(renderStorageEntryAdminCard).join('')}</div>`;
   const selectedActions = overview.selectedCategory
     ? `<p class="row"><a href="/admin/storage/categories/${encodeURIComponent(String(storageCategoryNumericId(overview.selectedCategory)))}/edit">Editar categoria</a><a href="/admin/storage/categories/${encodeURIComponent(String(storageCategoryNumericId(overview.selectedCategory)))}/archive">Archivar categoria</a></p>`
     : '';
@@ -3852,6 +3946,21 @@ function adminStoragePage(
     shell: 'admin',
     body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section><h2>Buscar</h2>${searchForm}</section><section class="admin-table-shell"><h2>${categoryHeading}</h2>${breadcrumb}${selectedActions}${overview.mode === 'search' ? '<p class="muted">La busqueda es global; borra el filtro para volver a navegar por categorias.</p>' : categoryCards}</section><section class="admin-table-shell"><h2>${entryHeading}</h2>${entryRows}</section><p class="muted">La web permite editar, mover, retaggear, archivar y eliminar logicamente. La creacion de entradas sigue limitada a Telegram.</p><form hidden>${csrfInput(csrfToken)}</form>`,
   });
+}
+
+function renderStorageEntryAdminCard(entry: StorageEntryAdminRow): string {
+  const description = entry.description?.trim() || 'Sin descripcion';
+  const preview = entry.preview_telegram_file_id
+    ? `<img class="storage-entry-thumb" src="/admin/storage/media/${encodeURIComponent(String(entry.id))}" alt="" loading="lazy">`
+    : `<div class="storage-entry-thumb storage-entry-thumb-empty" aria-hidden="true">${escapeHtml(renderStorageSourceInitial(entry.source_kind))}</div>`;
+  const tags = renderTagChips(asTagArray(entry.tags));
+  const createdBy = entry.created_by_name ? `Subido por ${entry.created_by_name}` : 'Autor no disponible';
+  return `<article class="storage-entry-card">${preview}<div class="storage-entry-main"><div class="storage-entry-title-row"><h3>${escapeHtml(description)}</h3>${renderStatusBadge(entry.lifecycle_status)}</div><p class="muted">${escapeHtml(entry.category_name)} · ${entry.message_count} adjuntos · ${escapeHtml(entry.source_kind)} · ${escapeHtml(createdBy)} · ${escapeHtml(formatDateTime(entry.updated_at))}</p>${tags}</div><div class="storage-entry-actions"><small>#${escapeHtml(entry.id)}</small><a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/edit">Editar</a><a href="/admin/storage/entries/${encodeURIComponent(String(entry.id))}/delete">Eliminar</a></div></article>`;
+}
+
+function renderStorageSourceInitial(sourceKind: string): string {
+  const trimmed = sourceKind.trim();
+  return trimmed.length > 0 ? trimmed.charAt(0).toLocaleUpperCase('es-ES') : 'A';
 }
 
 function renderStorageAdminBreadcrumbs(overview: AdminStorageOverview): string {

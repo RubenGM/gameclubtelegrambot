@@ -255,7 +255,7 @@ Implementado:
 - Albums por `media_group_id` agrupados en una sola entrada mediante ventana corta en memoria.
 - Admin: crear, mover, archivar y reactivar categorias; borrar logicamente entradas; ver, conceder y revocar acceso por categoria.
 - Consola Textual `Storage gestor`: editar categorias/archivos existentes, mover categorias dentro de otras o a raiz, mover archivos a otra categoria, archivar/reactivar categorias y eliminar/restaurar archivos sin crear contenido nuevo.
-- Panel web `/admin/storage`: navega por categorias/subcategorias como el flujo Telegram, gestiona entradas y categorias existentes con busqueda, cambio de descripcion, categoria, tags y estado, movimiento logico de entradas/categorias y borrado logico/archivado con confirmacion; no permite crear contenido nuevo, que sigue entrando por Telegram.
+- Panel web `/admin/storage`: navega por categorias/subcategorias como el flujo Telegram, muestra entradas con descripcion como dato principal, metadatos y miniatura cuando hay imagen, gestiona entradas y categorias existentes con busqueda, cambio de descripcion, categoria, tags y estado, movimiento logico de entradas/categorias y borrado logico/archivado con confirmacion; no permite crear contenido nuevo, que sigue entrando por Telegram.
 - Permisos aplicados por recurso para `storage.entry.read` y `storage.entry.upload`.
 - Auditoria de altas de categoria, cambios de estado, borrado logico y permisos.
 

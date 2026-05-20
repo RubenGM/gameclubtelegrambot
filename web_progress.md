@@ -38,7 +38,7 @@ actualiza a medida que se completa cada punto del plan `web_integrada_plan.md`.
 | Comprobacion publica HTTPS | Hecho | `https://cawa.hopto.org/`, `/feedback`, `/actividades`, `/catalogo`, `/club`, `/alta`, `/brand/cawa_casco.svg` y login admin responden correctamente |
 | Validacion final del plan | Hecho | Suite HTTP/news, typecheck, feature-status audit, `startup.sh`, systemd y HTTPS verificados |
 | Mejora funcional admin por dominio | Hecho | `/admin/users`, `/admin/activities` y `/admin/catalog` pasan a hubs con metricas, acciones directas, badges de estado y tablas con enlaces de edicion/verificacion |
-| Gestion web completa de Storage existente | Hecho | `/admin/storage` navega por categorias/subcategorias como Telegram, lista entradas directas por categoria, mantiene busqueda global, permite editar descripcion/categoria/tags/estado, mover categorias, archivar categorias y eliminar logicamente entradas; no permite crear desde web |
+| Gestion web completa de Storage existente | Hecho | `/admin/storage` navega por categorias/subcategorias como Telegram, lista entradas directas como tarjetas con descripcion, metadatos y miniatura cuando hay imagen, mantiene busqueda global, permite editar descripcion/categoria/tags/estado, mover categorias, archivar categorias y eliminar logicamente entradas; no permite crear desde web |
 
 ## Opcional no bloqueante
 
