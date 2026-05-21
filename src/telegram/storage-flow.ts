@@ -4800,17 +4800,39 @@ function formatUploadPreview(data: Record<string, unknown>, language: 'ca' | 'es
   const texts = createTelegramI18n(language).storage;
   const messages = asDraftMessages(data.messages);
   const tags = asStringArray(data.tags);
+  const attachmentLines = formatUploadPreviewAttachmentLines(messages, language);
   const lines = [
     `<b>${escapeHtml(texts.uploadPreviewHeader)}</b>`,
     `<b>${escapeHtml(texts.uploadPreviewCategory)}:</b> ${escapeHtml(String(data.categoryDisplayName ?? ''))}`,
     `<b>${escapeHtml(texts.entryFieldDescription)}:</b> ${escapeHtml(asNullableString(data.description) ?? texts.entryNoDescription)}`,
     `<b>${escapeHtml(texts.entryFieldTags)}:</b> ${tags.length > 0 ? formatStorageTagLinks(tags, new Map(), language) : escapeHtml(texts.entryNoTags)}`,
     `<b>${escapeHtml(texts.entryFieldAttachments)}:</b> ${messages.length}`,
-    ...messages.map((message, index) => `  ${index + 1}. ${formatDraftStorageAttachment(message, language)}`),
+    ...attachmentLines,
     '',
     escapeHtml(texts.uploadPreviewInstructions),
   ];
   return lines.join('\n');
+}
+
+function formatUploadPreviewAttachmentLines(messages: DmUploadDraftMessage[], language: 'ca' | 'es' | 'en'): string[] {
+  const texts = createTelegramI18n(language).storage;
+  const maxVisibleAttachments = 12;
+  const visibleMessages = messages.slice(0, maxVisibleAttachments);
+  const lines = visibleMessages.map((message, index) =>
+    `  ${index + 1}. ${truncateStoragePreviewLine(formatDraftStorageAttachment(message, language), 180)}`,
+  );
+  const hiddenCount = messages.length - visibleMessages.length;
+  if (hiddenCount > 0) {
+    lines.push(`  ${texts.uploadPreviewMoreAttachments.replace('{count}', String(hiddenCount))}`);
+  }
+  return lines;
+}
+
+function truncateStoragePreviewLine(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
 function formatStorageSearchModePrompt(language: 'ca' | 'es' | 'en'): string {

@@ -230,6 +230,52 @@ test('createMiddlewarePipeline logs command text from grammy msg before command 
   });
 });
 
+test('createMiddlewarePipeline replies with sanitized exact unexpected errors', async () => {
+  const replies: string[] = [];
+  const middlewares = [
+    ...createMiddlewarePipeline({
+      config: {
+        ...runtimeConfig,
+        bot: {
+          ...runtimeConfig.bot,
+          language: 'es',
+        },
+      },
+      services: {
+        database: {
+          pool: undefined as never,
+          db: createMembershipDatabaseStub() as never,
+          close: async () => {},
+        },
+      } satisfies InfrastructureRuntimeServices,
+      bot: createBotStub(),
+      logger: createLoggerStub(),
+      isNewsEnabledGroup: async () => false,
+      loadActor: async ({ telegramUserId }) => createApprovedActor(telegramUserId),
+      conversationSessionStore: createConversationSessionStoreStub(),
+      languagePreferenceStore: {
+        loadLanguage: async () => null,
+      },
+    }),
+    async () => {
+      throw new Error('Call to sendMessage failed with token=bot123:SECRET and password=hidden');
+    },
+  ];
+  const context = {
+    ...createTextContext(),
+    reply: async (message: string) => {
+      replies.push(message);
+    },
+  };
+
+  await runMiddlewares(middlewares, context);
+
+  assert.equal(
+    replies.at(-1),
+    'No se ha podido completar la acción. Error exacto: Call to sendMessage failed with token=<redacted> and password=<redacted>',
+  );
+});
+
 function createMembershipDatabaseStub() {
   return {
     select: () => ({

@@ -3387,6 +3387,48 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
 });
 
+test('handleTelegramStorageText keeps large upload previews below Telegram message limits after tags', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, replies, getCurrentSession } = createContext(repository);
+
+  context.messageText = 'Subir archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Manuales';
+  await handleTelegramStorageText(context as never);
+
+  for (let index = 0; index < 25; index += 1) {
+    context.messageMedia = {
+      attachmentKind: 'photo',
+      fileId: `private-file-${index}`,
+      fileUniqueId: `private-unique-${index}`,
+      caption: `Escenografia de Tatooine ${index} ${'detalle '.repeat(80)}`,
+      originalFileName: null,
+      mimeType: null,
+      fileSizeBytes: 2048,
+      mediaGroupId: null,
+      messageId: 700 + index,
+    };
+    delete context.messageText;
+    await handleTelegramStorageMessage(context as never);
+  }
+
+  context.messageText = 'Terminar adjuntos';
+  delete context.messageMedia;
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'Guardar juntos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'tatooine, escenografía';
+  await handleTelegramStorageText(context as never);
+
+  assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
+  const preview = replies.at(-1)?.message ?? '';
+  assert.ok(preview.length < 4096);
+  assert.match(preview, /<b>Adjuntos:<\/b> 25/);
+  assert.match(preview, /\.\.\. 13 adjunto\(s\) más en esta subida\./);
+  assert.match(preview, /#tatooine/);
+  assert.match(preview, /#escenografía/);
+});
+
 test('handleTelegramStorageMessage imports forwarded text messages into storage', async () => {
   const repository = createRepository([
     createCategory(),

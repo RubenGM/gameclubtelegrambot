@@ -1,6 +1,7 @@
 export const commonTexts = {
   ca: {
     unexpectedError: "S'ha produït un error inesperat. Torna-ho a provar en uns moments.",
+    unexpectedErrorWithDetails: "No s'ha pogut completar l'acció. Error exacte: {error}",
     accessDeniedApproved:
       "Encara no tens l'accés aprovat. La teva sol·licitud està pendent de revisió. Quan un administrador l'aprovi, podràs fer servir activitats, calendari, catàleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t'has registrat al bot.",
     accessDeniedAdmin: 'Aquesta acció només està disponible per a administradors del club.',
@@ -103,6 +104,7 @@ export const commonTexts = {
   },
   es: {
     unexpectedError: 'Se ha producido un error inesperado. Vuelve a intentarlo en unos momentos.',
+    unexpectedErrorWithDetails: 'No se ha podido completar la acción. Error exacto: {error}',
     accessDeniedApproved:
       'Todavía no tienes el acceso aprobado. Tu solicitud está pendiente de revisión. Cuando un administrador la apruebe, ya podrás usar actividades, calendario, catálogo y mesas. Si quieres agilizarlo, avisa a un administrador y dile que ya te has registrado en el bot.',
     accessDeniedAdmin: 'Esta acción solo está disponible para administradores del club.',
@@ -205,6 +207,7 @@ export const commonTexts = {
   },
   en: {
     unexpectedError: 'An unexpected error occurred. Please try again in a few moments.',
+    unexpectedErrorWithDetails: 'The action could not be completed. Exact error: {error}',
     accessDeniedApproved:
       'Your access is still pending approval. Ask a club administrator to approve your request so you can use activities, calendar, catalog, and tables.',
     accessDeniedAdmin: 'This action is only available to club administrators.',
