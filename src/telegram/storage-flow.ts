@@ -30,6 +30,7 @@ import {
   type AppMetadataSessionStorage,
 } from './conversation-session-store.js';
 import { buildTelegramStartUrl } from './deep-links.js';
+import { resumeTelegramEditableProgress, startTelegramEditableProgress } from './editable-progress.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { TelegramInlineButton, TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { escapeHtml } from './schedule-presentation.js';
@@ -3585,14 +3586,34 @@ async function handlePrivateUploadMedia(context: StorageFlowContext): Promise<bo
     sortOrder: draftMessages.length,
   });
 
+  const receiptMessage = texts.uploadRecorded.replace('{count}', String(draftMessages.length));
+  const currentReceiptMessageId = asOptionalNumber(session.data.uploadReceiptMessageId);
+  let uploadReceiptMessageId = currentReceiptMessageId;
+  if (currentReceiptMessageId) {
+    const progress = resumeTelegramEditableProgress(context, currentReceiptMessageId, {
+      editFailedEvent: 'storage.upload.receipt-edit.failed',
+    });
+    if (!(await progress.update(receiptMessage))) {
+      const fallbackProgress = await startTelegramEditableProgress(context, receiptMessage, {
+        editFailedEvent: 'storage.upload.receipt-edit.failed',
+      });
+      uploadReceiptMessageId = fallbackProgress.messageId ?? currentReceiptMessageId;
+    }
+  } else {
+    const progress = await startTelegramEditableProgress(context, receiptMessage, {
+      editFailedEvent: 'storage.upload.receipt-edit.failed',
+    });
+    uploadReceiptMessageId = progress.messageId;
+  }
+
   await context.runtime.session.advance({
     stepKey: session.stepKey,
     data: {
       ...session.data,
       messages: draftMessages,
+      ...(uploadReceiptMessageId ? { uploadReceiptMessageId } : {}),
     },
   });
-  await context.reply(texts.uploadRecorded.replace('{count}', String(draftMessages.length)), buildUploadMediaOptions(language));
   return true;
 }
 
@@ -3610,11 +3631,33 @@ async function handleForwardedStorageMessage(context: StorageFlowContext): Promi
   if (session?.flowKey === storageForwardedImportFlowKey && session.stepKey === 'forwarded-action') {
     const currentMessages = asDraftMessages(session.data.messages);
     const messages = [...currentMessages, { ...draft, sortOrder: currentMessages.length }];
+    const receiptMessage = texts.forwardedMessageRecorded.replace('{count}', String(messages.length));
+    const currentReceiptMessageId = asOptionalNumber(session.data.forwardedReceiptMessageId);
+    let forwardedReceiptMessageId = currentReceiptMessageId;
+    if (currentReceiptMessageId) {
+      const progress = resumeTelegramEditableProgress(context, currentReceiptMessageId, {
+        editFailedEvent: 'storage.forwarded-import.receipt-edit.failed',
+      });
+      if (!(await progress.update(receiptMessage))) {
+        const fallbackProgress = await startTelegramEditableProgress(context, receiptMessage, {
+          editFailedEvent: 'storage.forwarded-import.receipt-edit.failed',
+        });
+        forwardedReceiptMessageId = fallbackProgress.messageId ?? currentReceiptMessageId;
+      }
+    } else {
+      const progress = await startTelegramEditableProgress(context, receiptMessage, {
+        editFailedEvent: 'storage.forwarded-import.receipt-edit.failed',
+      });
+      forwardedReceiptMessageId = progress.messageId;
+    }
     await context.runtime.session.advance({
       stepKey: 'forwarded-action',
-      data: { ...session.data, messages },
+      data: {
+        ...session.data,
+        messages,
+        ...(forwardedReceiptMessageId ? { forwardedReceiptMessageId } : {}),
+      },
     });
-    await context.reply(texts.forwardedMessageRecorded.replace('{count}', String(messages.length)), buildForwardedImportActionOptions(language));
     return true;
   }
   if (session) {

@@ -104,6 +104,10 @@ Expected pattern:
 Use the existing catalog autocorrect and Storage upload flows as reference
 implementations for this UX.
 
+For implementation details, helper usage, session storage patterns and Telegram
+reply-keyboard caveats, read `docs/telegram-editable-progress.md` before adding
+or changing editable receipt/progress messages.
+
 ## Índice de features del bot de Telegram
 
 `docs/feature-status.md` es el inventario operativo del bot de Telegram.

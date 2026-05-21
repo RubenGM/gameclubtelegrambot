@@ -1219,6 +1219,50 @@ test('handleTelegramStorageMessage starts an upload when media arrives in a cate
   assert.equal(Array.isArray(messages), true);
   assert.deepEqual((messages as Array<{ fromMessageId: number }>).map((message) => message.fromMessageId), [77]);
   assert.equal(replies.at(-1)?.message, 'Adjunto añadido al lote actual. Total: 1.');
+  assert.equal(session?.data.uploadReceiptMessageId, 2);
+});
+
+test('handleTelegramStorageMessage updates the upload batch receipt message', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, replies, editedMessages, getCurrentSession } = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [7],
+    supportsEditMessageText: true,
+  });
+
+  context.messageText = '/start storage_category_7';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+
+  delete context.messageText;
+  for (const messageId of [77, 78, 79]) {
+    context.messageMedia = {
+      attachmentKind: 'document',
+      fileId: `private-file-${messageId}`,
+      fileUniqueId: `private-unique-${messageId}`,
+      caption: null,
+      originalFileName: `manual-${messageId}.pdf`,
+      mimeType: 'application/pdf',
+      fileSizeBytes: 2048,
+      mediaGroupId: null,
+      messageId,
+    };
+    assert.equal(await handleTelegramStorageMessage(context as never), true);
+  }
+
+  assert.equal(replies.at(-1)?.message, 'Adjunto añadido al lote actual. Total: 1.');
+  assert.equal(replies.length, 2);
+  assert.deepEqual(editedMessages.map((message) => ({
+    chatId: message.chatId,
+    messageId: message.messageId,
+    text: message.text,
+    options: message.options,
+  })), [
+    { chatId: 42, messageId: 2, text: 'Adjunto añadido al lote actual. Total: 2.', options: undefined },
+    { chatId: 42, messageId: 2, text: 'Adjunto añadido al lote actual. Total: 3.', options: undefined },
+  ]);
+  assert.equal(replies.at(-1)?.options, undefined);
+  assert.equal(getCurrentSession()?.data.uploadReceiptMessageId, 2);
+  assert.equal((getCurrentSession()?.data.messages as unknown[] | undefined)?.length, 3);
 });
 
 test('handleTelegramStorageText shows categories directly in the storage menu', async () => {
@@ -3374,15 +3418,17 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   assert.deepEqual(repository.__entries[0]?.entry.tags, ['rol', 'pdf']);
   assert.match(replies.at(-2)?.message ?? '', /Subida en curso/);
   assert.match(replies.at(-2)?.message ?? '', /Copiando adjuntos al topic de Storage/);
-  assert.equal(editedMessages.length, 6);
-  assert.match(editedMessages[0]?.text ?? '', /✅ campana\.pdf/);
-  assert.match(editedMessages[0]?.text ?? '', /⏳ mapa\.pdf/);
-  assert.match(editedMessages[1]?.text ?? '', /✅ mapa\.pdf/);
-  assert.match(editedMessages[2]?.text ?? '', /Registrando la entrada en el índice/);
-  assert.match(editedMessages[3]?.text ?? '', /Avisando suscripciones/);
-  assert.match(editedMessages[4]?.text ?? '', /✅ Avisando suscripciones/);
-  assert.equal(editedMessages[5]?.text, 'Archivo guardado en Manuales con 2 adjunto(s).');
-  assert.deepEqual(editedMessages[5]?.options?.replyKeyboard, [[{ text: '/cancel', semanticRole: 'danger' }]]);
+  assert.equal(editedMessages.length, 7);
+  assert.equal(editedMessages[0]?.text, 'Adjunto añadido al lote actual. Total: 2.');
+  const uploadProgressEdits = editedMessages.slice(1);
+  assert.match(uploadProgressEdits[0]?.text ?? '', /✅ campana\.pdf/);
+  assert.match(uploadProgressEdits[0]?.text ?? '', /⏳ mapa\.pdf/);
+  assert.match(uploadProgressEdits[1]?.text ?? '', /✅ mapa\.pdf/);
+  assert.match(uploadProgressEdits[2]?.text ?? '', /Registrando la entrada en el índice/);
+  assert.match(uploadProgressEdits[3]?.text ?? '', /Avisando suscripciones/);
+  assert.match(uploadProgressEdits[4]?.text ?? '', /✅ Avisando suscripciones/);
+  assert.equal(uploadProgressEdits[5]?.text, 'Archivo guardado en Manuales con 2 adjunto(s).');
+  assert.deepEqual(uploadProgressEdits[5]?.options?.replyKeyboard, [[{ text: '/cancel', semanticRole: 'danger' }]]);
   assert.match(replies.at(-1)?.message ?? '', /Manual de campana/);
   assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
 });
@@ -3499,6 +3545,36 @@ test('handleTelegramStorageMessage imports forwarded text messages into storage'
   assert.deepEqual(repository.__entries[0]?.entry.tags, ['rol']);
   assert.equal(repository.__entries[0]?.messages[0]?.attachmentKind, 'text');
   assert.equal(repository.__entries[0]?.messages[0]?.caption, 'Manual reenviado #rol');
+});
+
+test('handleTelegramStorageMessage updates the forwarded batch receipt message', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, replies, editedMessages, getCurrentSession } = createContext(repository, { supportsEditMessageText: true });
+
+  context.messageText = 'Manual 1 #rol';
+  context.messageId = 501;
+  context.isForwardedMessage = true;
+  await handleTelegramStorageMessage(context as never);
+
+  context.messageText = 'Manual 2 #rol';
+  context.messageId = 502;
+  await handleTelegramStorageMessage(context as never);
+
+  assert.equal(replies.at(-1)?.message, 'Mensaje reenviado añadido al lote. Total: 2.');
+  assert.equal(getCurrentSession()?.data.forwardedReceiptMessageId, 2);
+
+  context.messageText = 'Manual 3 #rol';
+  context.messageId = 503;
+  await handleTelegramStorageMessage(context as never);
+
+  assert.equal(replies.length, 2);
+  assert.equal(editedMessages.at(-1)?.chatId, 42);
+  assert.equal(editedMessages.at(-1)?.messageId, 2);
+  assert.equal(editedMessages.at(-1)?.text, 'Mensaje reenviado añadido al lote. Total: 3.');
+  assert.equal(editedMessages.at(-1)?.options, undefined);
+  assert.equal(replies.at(-1)?.options, undefined);
+  assert.equal(getCurrentSession()?.data.forwardedReceiptMessageId, 2);
+  assert.equal((getCurrentSession()?.data.messages as unknown[] | undefined)?.length, 3);
 });
 
 test('handleTelegramStorageMessage uses forwarded media captions as upload description', async () => {
