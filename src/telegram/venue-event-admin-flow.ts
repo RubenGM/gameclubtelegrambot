@@ -18,6 +18,7 @@ import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
+import { startTelegramEditableProgress } from './editable-progress.js';
 
 const createFlowKey = 'venue-event-admin-create';
 const editFlowKey = 'venue-event-admin-edit';
@@ -71,6 +72,12 @@ export interface TelegramVenueEventAdminContext {
       clubName: string;
       language?: string;
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+      editMessageText?(input: {
+        chatId: number;
+        messageId: number;
+        text: string;
+        options?: TelegramReplyOptions;
+      }): Promise<void>;
     };
   };
   venueEventRepository?: VenueEventRepository;
@@ -738,16 +745,56 @@ async function notifyVenueEventImpact({
       ? 'Ja no hi ha impacte actiu del local per aquest esdeveniment.'
       : 'S ha detectat un possible conflicte amb l ocupacio del local.';
 
-  await Promise.all(
-    signal.impactedTelegramUserIds.map((telegramUserId) =>
-      context.runtime.bot.sendPrivateMessage(
+  const language = normalizeBotLanguage(resolveBotLanguage(context), 'ca');
+  const progress = await startTelegramEditableProgress(
+    context,
+    formatVenueEventImpactProgress(language, 0, signal.impactedTelegramUserIds.length),
+    { editFailedEvent: 'venue-event.impact.progress-edit.failed' },
+  );
+  let sent = 0;
+  try {
+    for (const telegramUserId of signal.impactedTelegramUserIds) {
+      await context.runtime.bot.sendPrivateMessage(
         telegramUserId,
         [
           intro,
           `Esdeveniment del local: ${signal.venueEvent.name} (${formatTimestamp(signal.venueEvent.startsAt)} - ${formatTimestamp(signal.venueEvent.endsAt)})`,
           `Activitats afectades:\n- ${affectedSchedules}`,
         ].join('\n'),
-      ),
-    ),
-  );
+      );
+      sent += 1;
+      await progress.update(formatVenueEventImpactProgress(language, sent, signal.impactedTelegramUserIds.length));
+    }
+  } catch (error) {
+    await progress.complete(formatVenueEventImpactFailed(language, sent, signal.impactedTelegramUserIds.length));
+    throw error;
+  }
+  await progress.complete(formatVenueEventImpactDone(language, sent));
+}
+
+function formatVenueEventImpactProgress(language: 'ca' | 'es' | 'en', sent: number, total: number): string {
+  const messages = {
+    ca: `Avisant activitats afectades (${sent}/${total})...`,
+    es: `Avisando actividades afectadas (${sent}/${total})...`,
+    en: `Notifying affected activities (${sent}/${total})...`,
+  } as const;
+  return messages[language];
+}
+
+function formatVenueEventImpactDone(language: 'ca' | 'es' | 'en', sent: number): string {
+  const messages = {
+    ca: `Avisos d'impacte enviats: ${sent}.`,
+    es: `Avisos de impacto enviados: ${sent}.`,
+    en: `Impact notices sent: ${sent}.`,
+  } as const;
+  return messages[language];
+}
+
+function formatVenueEventImpactFailed(language: 'ca' | 'es' | 'en', sent: number, total: number): string {
+  const messages = {
+    ca: `No he pogut completar tots els avisos d'impacte (${sent}/${total}).`,
+    es: `No he podido completar todos los avisos de impacto (${sent}/${total}).`,
+    en: `Could not complete all impact notices (${sent}/${total}).`,
+  } as const;
+  return messages[language];
 }

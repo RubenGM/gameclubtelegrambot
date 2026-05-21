@@ -3306,7 +3306,11 @@ test('handleTelegramStorageCallback lets the uploader add images from the edit f
       sortOrder: 0,
     }],
   });
-  const { context, copiedMessages, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [] });
+  const { context, copiedMessages, editedMessages, getCurrentSession } = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [],
+    supportsEditMessageText: true,
+  });
 
   context.callbackData = `${storageCallbackPrefixes.editEntry}1`;
   await handleTelegramStorageCallback(context as never);
@@ -3329,13 +3333,32 @@ test('handleTelegramStorageCallback lets the uploader add images from the edit f
     messageId: 777,
   };
   await handleTelegramStorageMessage(context as never);
+  const receiptMessageId = getCurrentSession()?.data.addImagesReceiptMessageId;
+  assert.equal(receiptMessageId, 3);
+  assert.equal(editedMessages.length, 0);
+
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'photo-file-2',
+    fileUniqueId: 'photo-unique-2',
+    caption: null,
+    originalFileName: null,
+    mimeType: null,
+    fileSizeBytes: 100,
+    mediaGroupId: null,
+    messageId: 778,
+  };
+  await handleTelegramStorageMessage(context as never);
+  assert.equal(editedMessages.at(-1)?.messageId, receiptMessageId);
+  assert.match(editedMessages.at(-1)?.text ?? '', /Total: 2/);
 
   delete context.messageMedia;
   context.messageText = 'Terminar adjuntos';
   await handleTelegramStorageText(context as never);
 
-  assert.equal(repository.__entries[0]?.messages.length, 2);
-  assert.deepEqual(copiedMessages.at(-1), { fromChatId: 42, messageId: 777, toChatId: -100123, messageThreadId: 10 });
+  assert.equal(repository.__entries[0]?.messages.length, 3);
+  assert.deepEqual(copiedMessages.at(-2), { fromChatId: 42, messageId: 777, toChatId: -100123, messageThreadId: 10 });
+  assert.deepEqual(copiedMessages.at(-1), { fromChatId: 42, messageId: 778, toChatId: -100123, messageThreadId: 10 });
   assert.equal(getCurrentSession()?.stepKey, 'edit-entry-action');
 });
 

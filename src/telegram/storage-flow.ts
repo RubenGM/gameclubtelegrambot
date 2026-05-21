@@ -3520,7 +3520,9 @@ async function completeStorageUpload(
   const texts = createTelegramI18n(language).storage;
   const messages = asDraftMessages(data.messages);
   const progressState = createStorageUploadProgressState(messages, language);
-  const progress = await startStorageEditableProgress(context, formatStorageUploadProgress(texts, progressState));
+  const progress = await startTelegramEditableProgress(context, formatStorageUploadProgress(texts, progressState), {
+    editFailedEvent: 'storage.upload.progress-edit.failed',
+  });
   const saved = await persistPrivateUpload({
     context,
     categoryId: asNumber(data.categoryId),
@@ -3763,7 +3765,33 @@ async function handlePrivateAddImagesMedia(context: StorageFlowContext): Promise
       messages: draftMessages,
     },
   });
-  await context.reply(texts.imageRecorded.replace('{count}', String(draftMessages.length)), buildUploadMediaOptions(language));
+  const receiptMessage = texts.imageRecorded.replace('{count}', String(draftMessages.length));
+  const currentReceiptMessageId = asOptionalNumber(session.data.addImagesReceiptMessageId);
+  let addImagesReceiptMessageId = currentReceiptMessageId;
+  if (currentReceiptMessageId) {
+    const progress = resumeTelegramEditableProgress(context, currentReceiptMessageId, {
+      editFailedEvent: 'storage.add-images.receipt-edit.failed',
+    });
+    if (!(await progress.update(receiptMessage))) {
+      const fallbackProgress = await startTelegramEditableProgress(context, receiptMessage, {
+        editFailedEvent: 'storage.add-images.receipt-edit.failed',
+      });
+      addImagesReceiptMessageId = fallbackProgress.messageId ?? currentReceiptMessageId;
+    }
+  } else {
+    const progress = await startTelegramEditableProgress(context, receiptMessage, {
+      editFailedEvent: 'storage.add-images.receipt-edit.failed',
+    });
+    addImagesReceiptMessageId = progress.messageId;
+  }
+  await context.runtime.session.advance({
+    stepKey: 'add-images-media',
+    data: {
+      ...session.data,
+      messages: draftMessages,
+      ...(addImagesReceiptMessageId ? { addImagesReceiptMessageId } : {}),
+    },
+  });
   return true;
 }
 
@@ -6101,7 +6129,7 @@ function updateStorageUploadCopyProgress(
 }
 
 async function moveStorageUploadProgress(
-  progress: { update(message: string): Promise<void> },
+  progress: { update(message: string): Promise<unknown> },
   texts: ReturnType<typeof createTelegramI18n>['storage'],
   state: StorageUploadProgressState,
   nextStep: StorageUploadProgressStep,
@@ -6194,54 +6222,6 @@ function resolveStorageUploadProgressStepLabel(
 
 function formatStorageUploadDuration(milliseconds: number): string {
   return `${Math.max(0, Math.round(milliseconds))} ms`;
-}
-
-async function startStorageEditableProgress(
-  context: StorageFlowContext,
-  message: string,
-): Promise<{ update(message: string): Promise<void>; complete(message: string, options?: TelegramReplyOptions): Promise<void> }> {
-  const sent = await context.reply(message);
-  const messageId = extractTelegramReplyMessageId(sent);
-  const chatId = context.runtime.chat?.chatId;
-  const editMessageText = context.runtime.bot.editMessageText;
-  let canEdit = Boolean(messageId && chatId && editMessageText);
-
-  const tryEdit = async (nextMessage: string, options?: TelegramReplyOptions): Promise<boolean> => {
-    if (!canEdit || !messageId || !chatId || !editMessageText) {
-      return false;
-    }
-    try {
-      await editMessageText({ chatId, messageId, text: nextMessage, ...(options ? { options } : {}) });
-      return true;
-    } catch (error) {
-      canEdit = false;
-      console.warn(JSON.stringify({
-        event: 'storage.upload.progress-edit.failed',
-        error: error instanceof Error ? error.message : String(error),
-      }));
-      return false;
-    }
-  };
-
-  return {
-    update: async (nextMessage) => {
-      await tryEdit(nextMessage);
-    },
-    complete: async (nextMessage, options) => {
-      if (!(await tryEdit(nextMessage, options))) {
-        await context.reply(nextMessage, options);
-      }
-    },
-  };
-}
-
-function extractTelegramReplyMessageId(value: unknown): number | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-  const candidate = (value as Record<string, unknown>).message_id
-    ?? (value as Record<string, unknown>).messageId;
-  return typeof candidate === 'number' && Number.isInteger(candidate) ? candidate : null;
 }
 
 function formatStorageUploaderLabel(detail: StorageEntryDetailRecord, language: 'ca' | 'es' | 'en'): string {

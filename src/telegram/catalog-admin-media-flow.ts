@@ -6,6 +6,7 @@ import {
 import type { CatalogMediaType } from '../catalog/catalog-model.js';
 import { appendAuditEvent } from '../audit/audit-log.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
+import type { TelegramEditableProgress, TelegramEditableProgressOptions } from './editable-progress.js';
 import { createTelegramI18n } from './i18n.js';
 import {
   buildCatalogAdminMenuOptions,
@@ -50,6 +51,7 @@ export async function handleCatalogAdminMediaSession({
   messageMedia,
   storeAttachment,
   storeExternalImage,
+  startEditableProgress,
 }: {
   session: SessionRuntime;
   reply: (message: string, options?: TelegramReplyOptions) => Promise<unknown>;
@@ -66,6 +68,7 @@ export async function handleCatalogAdminMediaSession({
   messageMedia?: CatalogMediaAttachmentInput | null;
   storeAttachment?: (attachment: CatalogMediaAttachmentInput) => Promise<{ catalogMediaUrl: string } | Error>;
   storeExternalImage?: (url: string) => Promise<{ catalogMediaUrl: string } | Error>;
+  startEditableProgress?: (message: string, options: TelegramEditableProgressOptions) => Promise<TelegramEditableProgress>;
 }): Promise<boolean> {
   const texts = createTelegramI18n(language).catalogAdmin;
   const isEditing = typeof data.mediaId === 'number';
@@ -85,12 +88,19 @@ export async function handleCatalogAdminMediaSession({
       await reply(texts.invalidMediaAttachment, buildCatalogAdminMenuOptions(menuLanguage));
       return true;
     }
+    const progress = startEditableProgress
+      ? await startEditableProgress(formatCatalogMediaProgress(language, 'saving'), {
+          editFailedEvent: 'catalog.media.storage.progress-edit.failed',
+        })
+      : null;
     const stored = await storeAttachment(attachment);
     if (stored instanceof Error) {
+      await progress?.complete(stored.message);
       await session.cancel();
       await reply(stored.message, buildCatalogAdminMenuOptions(menuLanguage));
       return true;
     }
+    await progress?.update(formatCatalogMediaProgress(language, 'registering'));
     const media = await createCatalogMedia({
       repository,
       familyId: null,
@@ -110,6 +120,7 @@ export async function handleCatalogAdminMediaSession({
       details: { itemId: media.itemId, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
     });
     await session.cancel();
+    await progress?.complete(formatCatalogMediaProgress(language, 'done'));
     await reply(`${texts.mediaAdded} #${media.itemId}.`, buildCatalogAdminMenuOptions(menuLanguage));
     return true;
   }
@@ -126,6 +137,7 @@ export async function handleCatalogAdminMediaSession({
       messageMedia,
       storeAttachment,
       storeExternalImage,
+      startEditableProgress,
     });
   }
   if (!isEditing && stepKey === 'attachment') {
@@ -141,6 +153,7 @@ export async function handleCatalogAdminMediaSession({
       messageMedia,
       storeAttachment,
       storeExternalImage,
+      startEditableProgress,
     });
   }
   if (!isEditing && stepKey === 'url') {
@@ -156,6 +169,7 @@ export async function handleCatalogAdminMediaSession({
       messageMedia,
       storeAttachment,
       storeExternalImage,
+      startEditableProgress,
     });
   }
   if (!isEditing && (stepKey === 'alt-text' || stepKey === 'sort-order' || stepKey === 'confirm')) {
@@ -224,14 +238,23 @@ export async function handleCatalogAdminMediaSession({
     }
     const draftSortOrder = asNullableNumber(data.sortOrder);
     let storageUrl: string | null = null;
+    const shouldUseProgress = !isEditing
+      && (data.source === 'attachment' || (data.source === 'url' && String(data.mediaType) === 'image' && Boolean(storeExternalImage)));
+    const progress = shouldUseProgress && startEditableProgress
+      ? await startEditableProgress(formatCatalogMediaProgress(language, 'saving'), {
+          editFailedEvent: 'catalog.media.storage.progress-edit.failed',
+        })
+      : null;
     if (!isEditing && data.source === 'attachment') {
       const attachment = asCatalogMediaAttachment(data.attachment);
       if (!attachment || !storeAttachment) {
+        await progress?.complete(texts.invalidMediaAttachment);
         await reply(texts.invalidMediaAttachment, buildSingleCancelKeyboard(language));
         return true;
       }
       const stored = await storeAttachment(attachment);
       if (stored instanceof Error) {
+        await progress?.complete(stored.message);
         await reply(`${stored.message}\n\n${texts.askMediaAttachment}`, buildSingleCancelKeyboard(language));
         return true;
       }
@@ -243,6 +266,7 @@ export async function handleCatalogAdminMediaSession({
         storageUrl = stored.catalogMediaUrl;
       }
     }
+    await progress?.update(formatCatalogMediaProgress(language, 'registering'));
     const media = isEditing
       ? await updateCatalogMedia({
         repository,
@@ -271,6 +295,7 @@ export async function handleCatalogAdminMediaSession({
       details: { itemId: media.itemId, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
     });
     await session.cancel();
+    await progress?.complete(formatCatalogMediaProgress(language, 'done'));
     await reply(
       isEditing ? `${texts.mediaUpdated} (#${media.id}).` : `${texts.mediaAdded} #${media.itemId}.`,
       buildCatalogAdminMenuOptions(menuLanguage),
@@ -292,6 +317,7 @@ async function createCatalogMediaFromDirectInput({
   messageMedia,
   storeAttachment,
   storeExternalImage,
+  startEditableProgress,
 }: {
   session: SessionRuntime;
   reply: (message: string, options?: TelegramReplyOptions) => Promise<unknown>;
@@ -304,17 +330,25 @@ async function createCatalogMediaFromDirectInput({
   messageMedia: CatalogMediaAttachmentInput | null | undefined;
   storeAttachment: ((attachment: CatalogMediaAttachmentInput) => Promise<{ catalogMediaUrl: string } | Error>) | undefined;
   storeExternalImage: ((url: string) => Promise<{ catalogMediaUrl: string } | Error>) | undefined;
+  startEditableProgress: ((message: string, options: TelegramEditableProgressOptions) => Promise<TelegramEditableProgress>) | undefined;
 }): Promise<boolean> {
   const texts = createTelegramI18n(language).catalogAdmin;
   let mediaUrl: string | null = null;
+  let progress: TelegramEditableProgress | null = null;
 
   if (messageMedia) {
     if (!isCatalogImageAttachment(messageMedia) || !storeAttachment) {
       await reply(texts.invalidMediaAttachment, buildSingleCancelKeyboard(language));
       return true;
     }
+    progress = startEditableProgress
+      ? await startEditableProgress(formatCatalogMediaProgress(language, 'saving'), {
+          editFailedEvent: 'catalog.media.storage.progress-edit.failed',
+        })
+      : null;
     const stored = await storeAttachment(messageMedia);
     if (stored instanceof Error) {
+      await progress?.complete(stored.message);
       await reply(`${stored.message}\n\n${texts.mediaSourcePrompt}`, buildSingleCancelKeyboard(language));
       return true;
     }
@@ -327,8 +361,14 @@ async function createCatalogMediaFromDirectInput({
     }
     mediaUrl = url;
     if (storeExternalImage) {
+      progress = startEditableProgress
+        ? await startEditableProgress(formatCatalogMediaProgress(language, 'saving'), {
+            editFailedEvent: 'catalog.media.storage.progress-edit.failed',
+          })
+        : null;
       const stored = await storeExternalImage(url);
       if (stored instanceof Error) {
+        await progress?.complete(stored.message);
         await reply(`${stored.message}\n\n${texts.mediaSourcePrompt}`, buildSingleCancelKeyboard(language));
         return true;
       }
@@ -336,6 +376,7 @@ async function createCatalogMediaFromDirectInput({
     }
   }
 
+  await progress?.update(formatCatalogMediaProgress(language, 'registering'));
   const media = await createCatalogMedia({
     repository,
     familyId: null,
@@ -355,8 +396,30 @@ async function createCatalogMediaFromDirectInput({
     details: { itemId: media.itemId, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
   });
   await session.cancel();
+  await progress?.complete(formatCatalogMediaProgress(language, 'done'));
   await reply(`${texts.mediaAdded} #${media.itemId}.`, buildCatalogAdminMenuOptions(menuLanguage));
   return true;
+}
+
+function formatCatalogMediaProgress(language: 'ca' | 'es' | 'en', step: 'saving' | 'registering' | 'done'): string {
+  const messages = {
+    ca: {
+      saving: 'Desant media a Storage...',
+      registering: 'Registrant media al cataleg...',
+      done: 'Media processat.',
+    },
+    es: {
+      saving: 'Guardando media en Storage...',
+      registering: 'Registrando media en el catálogo...',
+      done: 'Media procesado.',
+    },
+    en: {
+      saving: 'Saving media to Storage...',
+      registering: 'Registering media in the catalog...',
+      done: 'Media processed.',
+    },
+  } as const;
+  return messages[language][step];
 }
 
 function asCatalogMediaAttachment(value: unknown): CatalogMediaAttachmentInput | null {

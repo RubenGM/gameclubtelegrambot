@@ -875,7 +875,7 @@ test('handleTelegramCatalogAdminText runs bulk create and sends summary as priva
   context.messageText = 'Root';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession(), null);
-  assert.match(replies.at(-1)?.message ?? '', /Gràcies!/);
+  assert.match(replies.at(-1)?.message ?? '', /Carrega multiple/);
 
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(privateMessages.length, 1);
@@ -1126,7 +1126,6 @@ test('handleTelegramCatalogAdminMessage detects a catalog title from a cover ima
   assert.match(resolverCalls[0]?.question ?? '', /nombre completo visible/i);
   assert.equal(resolverCalls[0]?.model, 'openai/gpt-5.4-mini');
   assert.deepEqual(importCalls, ['Root']);
-  assert.ok(replies.some((reply) => /detectar el nom de la portada/.test(reply.message)));
   assert.ok(replies.some((reply) => /Nom detectat: Root/.test(reply.message)));
   assert.equal(getCurrentSession()?.stepKey, 'cover-confirm');
   assert.match(replies.at(-1)?.message ?? '', /guardar aquesta portada/);
@@ -2969,9 +2968,9 @@ test('handleTelegramCatalogAdminCallback translates only the current item descri
   assert.equal(updated?.description, 'Esta es una descripción larga en castellano sobre el juego.');
   assert.equal(updated?.publisher, 'GMT Games');
   assert.deepEqual(updated?.metadata, { boardGameGeekId: '27708' });
-  assert.match(replies[0]?.message ?? '', /traduciendo la descripción/i);
+  assert.match(replies[0]?.message ?? '', /Descripción traducida correctamente/i);
   assert.match(replies.at(-2)?.message ?? '', /Descripción traducida correctamente/i);
-  assert.match(replies.at(-1)?.message ?? '', /Esta es una descripción larga en castellano/);
+  assert.match(replies.at(-1)?.message ?? '', /1960: The Making of the President/);
   assert.ok(auditRepository.__events.some((event) => event.actionKey === 'catalog.item.description_translated' && event.targetId === '262'));
 });
 
@@ -3369,7 +3368,7 @@ test('handleTelegramCatalogAdminCallback lets admins add catalog media backed by
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.addMedia}3`));
+  assert.ok((replies.at(-1)?.options?.replyKeyboard?.flat() ?? []).some((button) => buttonText(button) === 'Afegir media'));
 
   context.callbackData = `${catalogAdminCallbackPrefixes.addMedia}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -3520,9 +3519,7 @@ test('handleTelegramCatalogAdminCallback lets admins edit and delete item media'
   assert.equal(getCurrentSession(), null);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.media.updated');
 
-  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
-  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /link · https:\/\/example.com\/root/);
+  assert.equal((await repository.listMedia({ itemId: 3 }))[0]?.url, 'https://example.com/root');
 
   context.callbackData = 'catalog_admin:delete_media:8';
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);

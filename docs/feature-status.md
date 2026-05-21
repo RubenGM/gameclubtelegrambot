@@ -20,8 +20,8 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto y ayuda contextual por sección activa.                                                          |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
-| Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario.                                                           |
-| Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y detección de título por portada.       |
+| Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario, avisando impacto con progreso editable.                    |
+| Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y procesos largos con progreso editable. |
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
 | Grupos de noticias                           | 🟢 Operativo         | `/news` y `/admin/news` gestionan/visibilizan suscripciones por categoría, incluyendo el feed `nuevos_miembros` para altas web.          |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
@@ -135,7 +135,7 @@ Estado: `operativo`.
 Implementado:
 
 - `/venue_events` para admins con crear, listar, editar y cancelar.
-- Soporta eventos de dia completo o con horario, ocupacion parcial/total e impacto bajo/medio/alto.
+- Soporta eventos de dia completo o con horario, ocupacion parcial/total e impacto bajo/medio/alto; los avisos privados por impacto se envian con un mensaje de progreso editable para el admin.
 - Impacto usado por agenda y resumen `Hoy en el club`.
 
 Riesgos o pendientes:
@@ -149,14 +149,14 @@ Estado: `operativo`.
 Implementado:
 
 - `/catalog` para crear, listar, buscar, inspeccionar, editar y desactivar items.
-- `/catalog_bulk` y el botón de menú "Añadir múltiples" para importar varios items en lote en background (separados por coma) con resumen final.
+- `/catalog_bulk` y el botón de menú "Añadir múltiples" para importar varios items en lote en background (separados por coma) con progreso editable y resumen final.
 - Tipos: juegos de mesa, expansiones, libros, libros RPG y accesorios.
 - Familias y grupos para agrupar lineas, colecciones o expansiones.
 - Campos principales: titulo, original, descripcion, idioma, editorial, año, jugadores, edad, duracion, referencias externas y metadata.
 - Propietario opcional por item: un usuario puede asignarse como propietario desde el detalle; los admins pueden asignar otro usuario con selector paginado y quitar el propietario. El detalle muestra el nombre enlazado.
 - Media por URL con tipo `image`, `link` o `document`.
 - Los admins pueden añadir imagen a un item existente desde el detalle usando URL o adjunto Telegram.
-- Los admins pueden autocorregir datos de juegos/expansiones y libros desde el detalle: el bot reconsulta BGG/Open Library con el titulo o ID disponible, si BGG devuelve varias coincidencias muestra opciones para elegir manualmente, intenta traducir al castellano las descripciones BGG cuando el bot esta en español usando DeepL si esta configurado y OpenCode como fallback, actualiza campos, limpia referencias externas/metadata visibles, edita un mensaje de progreso con duracion por paso (API, traduccion, guardado, descarga/subida de portada y detalle) y reporta si la portada se ha importado, ya existia o no estaba disponible. Tambien pueden traducir solo la descripcion actual del item sin tocar el resto de datos.
+- Los admins pueden autocorregir datos de juegos/expansiones y libros desde el detalle: el bot reconsulta BGG/Open Library con el titulo o ID disponible, si BGG devuelve varias coincidencias muestra opciones para elegir manualmente, intenta traducir al castellano las descripciones BGG cuando el bot esta en español usando DeepL si esta configurado y OpenCode como fallback, actualiza campos, limpia referencias externas/metadata visibles, edita un mensaje de progreso con duracion por paso (API, traduccion, guardado, descarga/subida de portada y detalle) y reporta si la portada se ha importado, ya existia o no estaba disponible. Tambien pueden traducir solo la descripcion actual del item sin tocar el resto de datos usando progreso editable.
 - Las imagenes reales del catalogo se guardan como entradas de Storage en una categoria interna `catalog_media`, oculta de la navegacion normal de `/storage`.
 - La media principal de un item es la primera imagen por `sortOrder`, usando `0` como portada.
 - Al abrir el detalle de un item, el bot intenta mostrar primero la portada principal y despues una ficha resumida con breadcrumbs, titulo, propietario si existe, disponibilidad, prestatario si existe, jugadores, duracion y enlace "Ver detalles" a la ficha completa.
@@ -172,14 +172,14 @@ Integraciones reales:
 
 - Juegos de mesa: BGG es la fuente principal cuando `bgg.apiKey` esta configurada, con Wikipedia como fallback operativo.
 - Libros y RPG: lookup HTTP hacia Open Library desde `catalog-lookup-service`, incluyendo portada cuando Open Library expone `cover_i`, `cover_edition_key` o ISBN utilizable.
-- BoardGameGeek: importacion individual, autocorreccion desde detalle y coleccion operativas; cuando BGG devuelve portada, el bot descarga la `imageUrl`/`coverUrl` y la sube a Storage como portada.
+- BoardGameGeek: importacion individual, autocorreccion desde detalle y coleccion operativas; la importacion de coleccion usa progreso editable durante la reconciliacion y, cuando BGG devuelve portada, el bot descarga la `imageUrl`/`coverUrl` y la sube a Storage como portada.
 - Open Library: cuando devuelve portada, el alta intenta guardarla como portada.
-- OpenCode: solo se usa para leer el titulo visible desde la portada; los metadatos completos siguen viniendo de APIs catalogadas como BGG/Open Library/Wikipedia.
+- OpenCode: solo se usa para leer el titulo visible desde la portada con progreso editable; los metadatos completos siguen viniendo de APIs catalogadas como BGG/Open Library/Wikipedia.
 
 Riesgos o pendientes:
 
 - El nombre historico `wikipedia-boardgame-import-service.ts` mezcla Wikipedia, Open Library y BGG collection, lo que puede confundir mantenimiento.
-- La importacion automatica de imagenes externas es best-effort: si Telegram no acepta la URL o no hay Storage por defecto configurado, el item se crea igual.
+- La importacion automatica de imagenes externas es best-effort y muestra progreso editable cuando guarda media en Storage: si Telegram no acepta la URL o no hay Storage por defecto configurado, el item se crea igual.
 
 ## Prestamos
 
@@ -249,7 +249,7 @@ Implementado:
 - Tags visibles como enlaces `#tag (X archivos)` hacia busqueda por tag, listado paginado de tags, entrada flexible sin `#` en prompts explicitos y gestion desde el detalle de archivo para propietario o admin.
 - Criterio de organizacion visible en los flujos de subida: categorias para ubicacion/tipo general del contenido y tags para rasgos cruzados como criaturas, facciones, formatos, campañas o packs mixtos.
 - Busqueda de Storage con entrada guiada para buscar por palabra/tag o explorar categorias nivel a nivel, normalizando `#tag` y buscando tambien por nombre de categoria.
-- Subida por DM: el usuario elige categoria con selector nivel a nivel, envia adjuntos con recibo editable del total del lote, finaliza, revisa tags con opcion de omitir, revisa una vista previa acotada para no superar el limite de Telegram con botones visibles para editar descripcion, añadir tags, añadir imagenes o completar, recibe aviso antes de completar sin tags y el bot muestra progreso editable con estado por adjunto mientras copia al topic canonico, indexa, notifica suscripciones y refresca la categoria.
+- Subida por DM: el usuario elige categoria con selector nivel a nivel, envia adjuntos con recibo editable del total del lote, finaliza, revisa tags con opcion de omitir, revisa una vista previa acotada para no superar el limite de Telegram con botones visibles para editar descripcion, añadir tags, añadir imagenes o completar, acumula imagenes adicionales con recibo editable, recibe aviso antes de completar sin tags y el bot muestra progreso editable con estado por adjunto mientras copia al topic canonico, indexa, notifica suscripciones y refresca la categoria.
 - Subida por reenvio de mensajes de Telegram en privado: en modo neutral el bot pregunta que hacer, permite "Añadir a almacenamiento", acumula mensajes reenviados con un recibo editable del total del lote, pide categoria, precarga descripcion/tags/adjuntos/texto desde el mensaje reenviado y confirma tags antes de mostrar la vista previa.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
 - Soporte de `document`, `photo`, `video` y `audio`.

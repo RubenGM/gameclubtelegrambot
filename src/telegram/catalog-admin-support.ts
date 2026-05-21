@@ -180,6 +180,7 @@ import {
   createDatabaseAppMetadataSessionStorage,
   type AppMetadataSessionStorage,
 } from './conversation-session-store.js';
+import { startTelegramEditableProgress, type TelegramEditableProgress } from './editable-progress.js';
 import type { TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 
 const createFlowKey = 'catalog-admin-create';
@@ -730,7 +731,9 @@ async function handleCatalogAdminAutocorrectItem(
   const texts = createTelegramI18n(language).catalogAdmin;
   const repository = resolveCatalogRepository(context);
   const progressState = createAutocorrectProgressState('api');
-  const progress = await startEditableProgress(context, formatAutocorrectProgress(texts, progressState));
+  const progress = await startTelegramEditableProgress(context, formatAutocorrectProgress(texts, progressState), {
+    editFailedEvent: 'catalog.autocorrect.progress-edit.failed',
+  });
 
   const importResult = await importCatalogAutocorrectDraft(context, item, options);
   if (!importResult.ok) {
@@ -831,7 +834,9 @@ async function handleCatalogAdminTranslateDescription(
     return;
   }
 
-  await context.reply(texts.translatingDescription);
+  const progress = await startTelegramEditableProgress(context, texts.translatingDescription, {
+    editFailedEvent: 'catalog.description.translation.progress-edit.failed',
+  });
 
   try {
     const translator = resolveCatalogDescriptionTranslator(context);
@@ -841,7 +846,7 @@ async function handleCatalogAdminTranslateDescription(
       targetLanguage: 'es',
     }));
     if (!translated) {
-      await context.reply(texts.translateDescriptionFailed.replace('{reason}', 'OpenCode no ha devuelto una traduccion valida.'));
+      await progress.complete(texts.translateDescriptionFailed.replace('{reason}', 'OpenCode no ha devuelto una traduccion valida.'));
       return;
     }
 
@@ -887,7 +892,7 @@ async function handleCatalogAdminTranslateDescription(
       originalLength: description.length,
       translatedLength: translated.length,
     }));
-    await context.reply(texts.translateDescriptionUpdated);
+    await progress.complete(texts.translateDescriptionUpdated);
     await replyWithCatalogAdminItemDetail(context, updated, language);
   } catch (error) {
     const reason = formatTranslationErrorReason(error);
@@ -898,7 +903,7 @@ async function handleCatalogAdminTranslateDescription(
       title: item.displayName,
       error: reason,
     }));
-    await context.reply(texts.translateDescriptionFailed.replace('{reason}', reason));
+    await progress.complete(texts.translateDescriptionFailed.replace('{reason}', reason));
   }
 }
 
@@ -1240,7 +1245,7 @@ function createAutocorrectProgressState(activeStep: CatalogAutocorrectProgressSt
 }
 
 async function moveAutocorrectProgress(
-  progress: { update(message: string): Promise<void> },
+  progress: { update(message: string): Promise<unknown> },
   texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
   state: CatalogAutocorrectProgressState,
   nextStep: CatalogAutocorrectProgressStep,
@@ -1356,53 +1361,6 @@ function mapExternalImageProgressStep(step: CatalogMediaExternalImageProgressSte
   return step === 'download' ? 'coverDownload' : 'coverUpload';
 }
 
-async function startEditableProgress(
-  context: TelegramCatalogAdminContext,
-  message: string,
-): Promise<{ update(message: string): Promise<void>; complete(message: string, options?: TelegramReplyOptions): Promise<void> }> {
-  const sent = await context.reply(message);
-  const messageId = extractTelegramReplyMessageId(sent);
-  const chatId = context.runtime.chat?.chatId;
-  const editMessageText = context.runtime.bot.editMessageText;
-  let canEdit = Boolean(messageId && chatId && editMessageText);
-
-  const tryEdit = async (nextMessage: string, options?: TelegramReplyOptions): Promise<boolean> => {
-    if (!canEdit || !messageId || !chatId || !editMessageText) {
-      return false;
-    }
-    try {
-      await editMessageText({ chatId, messageId, text: nextMessage, ...(options ? { options } : {}) });
-      return true;
-    } catch (error) {
-      canEdit = false;
-      console.warn(JSON.stringify({
-        event: 'catalog.autocorrect.progress-edit.failed',
-        error: error instanceof Error ? error.message : String(error),
-      }));
-      return false;
-    }
-  };
-  return {
-    update: async (nextMessage) => {
-      await tryEdit(nextMessage);
-    },
-    complete: async (nextMessage, options) => {
-      if (!(await tryEdit(nextMessage, options))) {
-        await context.reply(nextMessage, options);
-      }
-    },
-  };
-}
-
-function extractTelegramReplyMessageId(value: unknown): number | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-  const candidate = (value as Record<string, unknown>).message_id
-    ?? (value as Record<string, unknown>).messageId;
-  return typeof candidate === 'number' && Number.isInteger(candidate) ? candidate : null;
-}
-
 function canAccessCatalog(context: TelegramCatalogAdminContext): boolean {
   return context.runtime.actor.isApproved && !context.runtime.actor.isBlocked;
 }
@@ -1461,6 +1419,7 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
       messageMedia: toCatalogMediaAttachment(context),
       storeAttachment: (attachment) => storeCatalogAttachmentMedia(context, attachment),
       storeExternalImage: (url) => storeCatalogExternalImageMedia(context, url),
+      startEditableProgress: (message, options) => startTelegramEditableProgress(context, message, options),
     });
   }
   if (session.flowKey === mediaDeleteFlowKey) {
@@ -1534,7 +1493,9 @@ async function handleBulkCreateSession(
 
     const skippedInputCount = parsedItemNames.length - itemNames.length;
     await context.runtime.session.cancel();
-    await context.reply(texts.bulkCreateAcknowledged);
+    const progress = await startTelegramEditableProgress(context, texts.bulkCreateAcknowledged, {
+      editFailedEvent: 'catalog.bulk-create.progress-edit.failed',
+    });
     void runCatalogBulkCreateJob({
       context,
       actorTelegramUserId: context.runtime.actor.telegramUserId,
@@ -1542,6 +1503,7 @@ async function handleBulkCreateSession(
       itemType,
       itemNames,
       skippedInputCount,
+      progress,
     });
     return true;
   }
@@ -1556,6 +1518,7 @@ async function runCatalogBulkCreateJob({
   itemType,
   itemNames,
   skippedInputCount,
+  progress,
 }: {
   context: TelegramCatalogAdminContext;
   actorTelegramUserId: number;
@@ -1563,6 +1526,7 @@ async function runCatalogBulkCreateJob({
   itemType: CatalogItemType;
   itemNames: string[];
   skippedInputCount: number;
+  progress?: TelegramEditableProgress;
 }): Promise<void> {
   const texts = createTelegramI18n(language).catalogAdmin;
   const summaryItems: BulkCreateSummaryItem[] = [];
@@ -1572,6 +1536,7 @@ async function runCatalogBulkCreateJob({
     if (!input) {
       continue;
     }
+    await progress?.update(formatCatalogBulkCreateProgress(language, index + 1, itemNames.length, input));
 
     try {
       summaryItems.push(await resolveCatalogBulkCreateItem(context, itemType, input));
@@ -1605,6 +1570,7 @@ async function runCatalogBulkCreateJob({
   }
 
   const summaryOptions = buildBulkCreateSummaryOptions(language, hasManualItems);
+  await progress?.complete(formatCatalogBulkCreateDone(language));
 
   try {
     await context.runtime.bot.sendPrivateMessage(actorTelegramUserId, summaryMessage, summaryOptions);
@@ -1841,6 +1807,24 @@ function formatCatalogBulkCreateSummary({
   return sections.join('\n');
 }
 
+function formatCatalogBulkCreateProgress(language: 'ca' | 'es' | 'en', current: number, total: number, itemName: string): string {
+  const messages = {
+    ca: `Carrega multiple en curs (${current}/${total}): ${itemName}`,
+    es: `Carga múltiple en curso (${current}/${total}): ${itemName}`,
+    en: `Bulk load in progress (${current}/${total}): ${itemName}`,
+  } as const;
+  return messages[language];
+}
+
+function formatCatalogBulkCreateDone(language: 'ca' | 'es' | 'en'): string {
+  const messages = {
+    ca: 'Carrega multiple completada. Enviant resum...',
+    es: 'Carga múltiple completada. Enviando resumen...',
+    en: 'Bulk load completed. Sending summary...',
+  } as const;
+  return messages[language];
+}
+
 function formatBulkManualSummaryLine(item: BulkCreateSummaryItem): string {
   return `- <code>${escapeHtml(item.input)}</code>`;
 }
@@ -1955,6 +1939,7 @@ async function handleCreateSession(
     importWikipediaBoardGameDraft: (title) => importWikipediaBoardGameDraft(context, title),
     createWikipediaImportedBoardGame: (baseData, draft, sourceTitle) => createWikipediaImportedBoardGame(context, baseData, draft, sourceTitle),
     detectDisplayNameFromAttachment: () => detectDisplayNameFromAttachment(context),
+    startEditableProgress: (message, options) => startTelegramEditableProgress(context, message, options),
     importWikipediaErrorMessage,
     formatDraftSummary: (draftData) => formatDraftSummary(context, draftData),
   });
@@ -3756,7 +3741,9 @@ async function importBggCollectionSelection(
   },
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).catalogAdmin;
-  await context.reply(texts.importingBggCollection, buildSingleCancelKeyboard(language));
+  const progress = await startTelegramEditableProgress(context, texts.importingBggCollection, {
+    editFailedEvent: 'catalog.bgg-collection.progress-edit.failed',
+  });
   const importResult = await resolveBoardGameGeekCollectionImportService(context).importCollection({
     username,
     ...(collectionKey ? { collectionKey } : {}),
@@ -3768,6 +3755,7 @@ async function importBggCollectionSelection(
         stepKey: 'bgg-collection-manual-name',
         data: { username },
       });
+      await progress.complete(formatBggCollectionImportProgress(language, 'failed'));
       await context.reply(
         `${formatBggCollectionImportError(texts, importResult.error)} ${texts.askBggCollectionManualName}`,
         buildSingleCancelKeyboard(language),
@@ -3776,12 +3764,15 @@ async function importBggCollectionSelection(
     }
 
     await context.runtime.session.cancel();
+    await progress.complete(formatBggCollectionImportProgress(language, 'failed'));
     await context.reply(formatBggCollectionImportError(texts, importResult.error), buildCatalogAdminMenuOptions(language));
     return true;
   }
 
-  const summary = await reconcileBoardGameGeekCollectionImport(context, importResult);
+  await progress.update(formatBggCollectionImportReconciling(language, 0, importResult.items.length));
+  const summary = await reconcileBoardGameGeekCollectionImport(context, importResult, { progress, language });
   await context.runtime.session.cancel();
+  await progress.complete(formatBggCollectionImportProgress(language, 'done'));
   await context.reply(
     texts.bggCollectionImportSummary
       .replace('{username}', importResult.username)
@@ -3842,9 +3833,37 @@ function formatBggCollectionImportError(
   return `${texts.bggCollectionImportFailed} Falló al ${stageLabel} para ${error.username}${statusLabel}.`;
 }
 
+function formatBggCollectionImportReconciling(language: 'ca' | 'es' | 'en', current: number, total: number): string {
+  const messages = {
+    ca: `Reconciliant col.leccio BGG (${current}/${total})...`,
+    es: `Reconciliando colección BGG (${current}/${total})...`,
+    en: `Reconciling BGG collection (${current}/${total})...`,
+  } as const;
+  return messages[language];
+}
+
+function formatBggCollectionImportProgress(language: 'ca' | 'es' | 'en', state: 'done' | 'failed'): string {
+  const messages = {
+    ca: {
+      done: 'Importacio BGG completada. Preparant resum...',
+      failed: 'Importacio BGG aturada.',
+    },
+    es: {
+      done: 'Importación BGG completada. Preparando resumen...',
+      failed: 'Importación BGG detenida.',
+    },
+    en: {
+      done: 'BGG import completed. Preparing summary...',
+      failed: 'BGG import stopped.',
+    },
+  } as const;
+  return messages[language][state];
+}
+
 async function reconcileBoardGameGeekCollectionImport(
   context: TelegramCatalogAdminContext,
   importResult: Extract<BoardGameGeekCollectionImportResult, { ok: true }>,
+  progressOptions: { progress?: TelegramEditableProgress; language: 'ca' | 'es' | 'en' },
 ): Promise<{ created: number; updated: number; skipped: number; errors: number }> {
   const repository = resolveCatalogRepository(context);
   const allItems = await listCatalogItems({ repository, includeDeactivated: true });
@@ -3853,7 +3872,9 @@ async function reconcileBoardGameGeekCollectionImport(
   let skipped = 0;
   let errors = importResult.errors.length;
 
-  for (const rawDraft of importResult.items) {
+  for (let index = 0; index < importResult.items.length; index += 1) {
+    const rawDraft = importResult.items[index]!;
+    await progressOptions.progress?.update(formatBggCollectionImportReconciling(progressOptions.language, index + 1, importResult.items.length));
     const draft = await translateBggDraftDescriptionIfNeeded(context, rawDraft);
     const bggId = readBoardGameGeekId(draft.externalRefs);
     if (!bggId) {
