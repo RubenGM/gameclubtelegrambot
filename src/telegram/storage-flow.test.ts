@@ -3505,7 +3505,7 @@ test('handleTelegramStorageMessage imports forwarded text messages into storage'
   ]);
   const { context, replies, copiedMessages, getCurrentSession } = createContext(repository);
 
-  context.messageText = 'Manual reenviado #rol';
+  context.messageText = 'Manual reenviado #rol\nhttps://t.me/spam_channel\nt.me/otro_canal';
   context.messageId = 501;
   context.isForwardedMessage = true;
   const handled = await handleTelegramStorageMessage(context as never);
@@ -3570,6 +3570,19 @@ test('handleTelegramStorageMessage imports forwarded text messages into storage'
   assert.equal(repository.__entries[0]?.messages[0]?.caption, 'Manual reenviado #rol');
 });
 
+test('handleTelegramStorageMessage ignores forwarded text that only contains t.me links', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, replies, getCurrentSession } = createContext(repository);
+
+  context.messageText = 'https://t.me/spam_channel';
+  context.messageId = 501;
+  context.isForwardedMessage = true;
+
+  assert.equal(await handleTelegramStorageMessage(context as never), false);
+  assert.equal(getCurrentSession(), null);
+  assert.equal(replies.length, 0);
+});
+
 test('handleTelegramStorageMessage updates the forwarded batch receipt message', async () => {
   const repository = createRepository([createCategory()]);
   const { context, replies, editedMessages, getCurrentSession } = createContext(repository, { supportsEditMessageText: true });
@@ -3610,7 +3623,7 @@ test('handleTelegramStorageMessage uses forwarded media captions as upload descr
     attachmentKind: 'photo',
     fileId: 'photo-file',
     fileUniqueId: 'photo-unique',
-    caption: 'Printable Scenery - Rise of the Halflings; Warlock',
+    caption: 'Printable Scenery - Rise of the Halflings; Warlock\nhttps://t.me/spam_channel',
     originalFileName: null,
     mimeType: null,
     fileSizeBytes: 109 * 1024,

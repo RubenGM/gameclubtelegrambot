@@ -3683,13 +3683,14 @@ function buildForwardedStorageDraftMessage(context: StorageFlowContext): DmUploa
     if (!isSupportedAttachmentKind(media.attachmentKind) || isOversizedStorageAttachment(media.fileSizeBytes ?? null)) {
       return null;
     }
+    const caption = sanitizeForwardedStorageText(media.caption ?? context.messageText ?? null);
     return {
       fromChatId: context.runtime.chat.chatId,
       fromMessageId: media.messageId,
       attachmentKind: media.attachmentKind,
       telegramFileId: media.fileId ?? null,
       telegramFileUniqueId: media.fileUniqueId ?? null,
-      caption: media.caption ?? context.messageText ?? null,
+      caption,
       originalFileName: media.originalFileName ?? null,
       mimeType: media.mimeType ?? null,
       fileSizeBytes: media.fileSizeBytes ?? null,
@@ -3697,7 +3698,7 @@ function buildForwardedStorageDraftMessage(context: StorageFlowContext): DmUploa
       sortOrder: 0,
     };
   }
-  const messageText = context.messageText?.trim();
+  const messageText = sanitizeForwardedStorageText(context.messageText ?? null);
   if (!messageText || context.messageId === undefined) {
     return null;
   }
@@ -3714,6 +3715,17 @@ function buildForwardedStorageDraftMessage(context: StorageFlowContext): DmUploa
     mediaGroupId: null,
     sortOrder: 0,
   };
+}
+
+function sanitizeForwardedStorageText(value: string | null): string | null {
+  const cleaned = value
+    ?.replace(/(?:https?:\/\/)?(?:www\.)?t\.me\/[^\s<>()]+/gi, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return cleaned && cleaned.length > 0 ? cleaned : null;
 }
 
 function isForwardedTextStorageMessage(context: StorageFlowContext): boolean {
