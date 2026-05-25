@@ -48,6 +48,7 @@ import {
   formatHtmlField,
   formatParticipantCount,
   formatScheduleEventDetails,
+  hasScheduleDetailsMessage,
   formatScheduleListMessage,
   formatTimestamp,
   groupScheduleEventsByDay,
@@ -108,6 +109,7 @@ const editFlowKey = 'schedule-edit';
 const cancelFlowKey = 'schedule-cancel';
 const joinReminderFlowKey = 'schedule-join-reminder';
 const scheduleStartPayloadPrefix = 'schedule_event_';
+const scheduleDetailsStartPayloadPrefix = 'schedule_details_';
 
 export const scheduleCallbackPrefixes = {
   inspect: 'schedule:inspect:',
@@ -141,6 +143,11 @@ function parseAttendanceModeSelection(
 
 export interface TelegramScheduleContext {
   messageText?: string | undefined;
+  messageId?: number | undefined;
+  messageMedia?: {
+    caption?: string | null;
+    messageId: number;
+  } | null;
   callbackData?: string | undefined;
   reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: {
@@ -159,6 +166,8 @@ export interface TelegramScheduleContext {
       language?: string;
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
       sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+      copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+      forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     };
   };
   scheduleRepository?: ScheduleRepository;
@@ -209,6 +218,13 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
 }
 
 export async function handleTelegramScheduleStartText(context: TelegramScheduleContext): Promise<boolean> {
+  const detailsEventId = parseScheduleStartPayload(context.messageText, scheduleDetailsStartPayloadPrefix);
+  if (detailsEventId !== null && context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved) {
+    const event = await loadEventOrThrow(context, detailsEventId);
+    await sendScheduleDetailsMessage(context, event);
+    return true;
+  }
+
   const eventId = parseScheduleStartPayload(context.messageText, scheduleStartPayloadPrefix);
   if (eventId === null || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
     return false;
@@ -226,6 +242,35 @@ export async function handleTelegramScheduleStartText(context: TelegramScheduleC
     parseMode: 'HTML',
   });
   return true;
+}
+
+export async function handleTelegramScheduleMessage(context: TelegramScheduleContext): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
+    return false;
+  }
+
+  const session = context.runtime.session.current;
+  if (!session || !isScheduleSession(session.flowKey) || session.stepKey !== 'description') {
+    return false;
+  }
+
+  if (session.flowKey === createFlowKey) {
+    await replyCreateConfirm(context, {
+      ...session.data,
+      ...buildDetailsMessagePatch(context),
+    });
+    return true;
+  }
+
+  if (session.flowKey === editFlowKey) {
+    const event = await loadEventOrThrow(context, Number(session.data.eventId));
+    return returnToEditMenu(context, event, session.data, {
+      ...buildDetailsMessagePatch(context),
+      title: session.data.title ?? event.title,
+    });
+  }
+
+  return false;
 }
 
 export async function handleTelegramScheduleCallback(context: TelegramScheduleContext): Promise<boolean> {
@@ -402,7 +447,9 @@ async function handleCreateSession(
   if (stepKey === 'description') {
     await replyCreateConfirm(context, {
       ...data,
-      description: text === texts.skipOptional || text === scheduleLabels.skipOptional ? null : text,
+      ...(text === texts.skipOptional || text === scheduleLabels.skipOptional
+        ? clearDetailsMessagePatch()
+        : buildDetailsMessagePatch(context, text)),
     });
     return true;
   }
@@ -600,6 +647,8 @@ async function handleCreateSession(
       repository: resolveScheduleRepository(context),
       title: String(data.title ?? ''),
       description: asNullableString(data.description),
+      detailsMessageChatId: asNullableNumber(data.detailsMessageChatId),
+      detailsMessageId: asNullableNumber(data.detailsMessageId),
       startsAt: buildStartsAt(String(data.date ?? ''), String(data.time ?? '')),
       durationMinutes: Number(data.durationMinutes),
       organizerTelegramUserId: context.runtime.actor.telegramUserId,
@@ -922,8 +971,18 @@ async function handleEditSession(
     return returnToEditMenu(context, event, data, { title });
   }
   if (stepKey === 'description') {
-    const description = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? event.description : text === texts.skipOptional || text === scheduleLabels.skipOptional ? null : text;
-    return returnToEditMenu(context, event, data, { description, title: data.title ?? event.title });
+    if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
+      return returnToEditMenu(context, event, data, {
+        description: event.description,
+        detailsMessageChatId: event.detailsMessageChatId,
+        detailsMessageId: event.detailsMessageId,
+        title: data.title ?? event.title,
+      });
+    }
+    const patch = text === texts.skipOptional || text === scheduleLabels.skipOptional
+      ? clearDetailsMessagePatch()
+      : buildDetailsMessagePatch(context, text);
+    return returnToEditMenu(context, event, data, { ...patch, title: data.title ?? event.title });
   }
   if (stepKey === 'date') {
     const currentDate = formatLocalDateInput(event.startsAt);
@@ -1132,6 +1191,12 @@ async function persistEditedScheduleEvent(
     description: Object.prototype.hasOwnProperty.call(data, 'description')
       ? asNullableString(data.description)
       : event.description,
+    detailsMessageChatId: Object.prototype.hasOwnProperty.call(data, 'detailsMessageChatId')
+      ? asNullableNumber(data.detailsMessageChatId)
+      : event.detailsMessageChatId,
+    detailsMessageId: Object.prototype.hasOwnProperty.call(data, 'detailsMessageId')
+      ? asNullableNumber(data.detailsMessageId)
+      : event.detailsMessageId,
     startsAt: buildStartsAt(String(data.date ?? formatLocalDateInput(event.startsAt)), String(data.time ?? formatLocalTimeInput(event.startsAt))),
     durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
     organizerTelegramUserId: event.organizerTelegramUserId,
@@ -1460,6 +1525,72 @@ async function formatScheduleEventView(
         ]
       : []),
   ].join('\n');
+}
+
+async function sendScheduleDetailsMessage(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  if (!hasScheduleDetailsMessage(event)) {
+    await context.reply(texts.detailsUnavailable, buildScheduleMenuOptions(language));
+    return;
+  }
+
+  const input = {
+    fromChatId: event.detailsMessageChatId!,
+    messageId: event.detailsMessageId!,
+    toChatId: context.runtime.chat.chatId,
+  };
+
+  try {
+    if (context.runtime.bot.forwardMessage) {
+      await context.runtime.bot.forwardMessage(input);
+      return;
+    }
+    if (context.runtime.bot.copyMessage) {
+      await context.runtime.bot.copyMessage(input);
+      return;
+    }
+  } catch {
+    if (context.runtime.bot.copyMessage) {
+      try {
+        await context.runtime.bot.copyMessage(input);
+        return;
+      } catch {
+        // Fall through to a user-visible explanation.
+      }
+    }
+  }
+
+  await context.reply(texts.detailsUnavailable, buildScheduleMenuOptions(language));
+}
+
+function buildDetailsMessagePatch(
+  context: TelegramScheduleContext,
+  textOverride?: string,
+): { description: string | null; detailsMessageChatId: number | null; detailsMessageId: number | null } {
+  const description = normalizeDetailsDescription(textOverride ?? context.messageMedia?.caption ?? context.messageText ?? null);
+  const messageId = context.messageMedia?.messageId ?? context.messageId ?? null;
+  return {
+    description,
+    detailsMessageChatId: messageId ? context.runtime.chat.chatId : null,
+    detailsMessageId: messageId,
+  };
+}
+
+function clearDetailsMessagePatch(): { description: null; detailsMessageChatId: null; detailsMessageId: null } {
+  return {
+    description: null,
+    detailsMessageChatId: null,
+    detailsMessageId: null,
+  };
+}
+
+function normalizeDetailsDescription(value: string | null): string | null {
+  const normalized = value?.trim();
+  return normalized && normalized.length > 0 ? normalized : null;
 }
 
 async function replyWithInspectableEventList(

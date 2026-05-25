@@ -7,6 +7,7 @@ import type {
   NewsGroupRepository,
   NewsGroupSubscriptionRecord,
 } from './news-group-catalog.js';
+import { resolveNewsGroupCategory } from './news-group-catalog.js';
 
 export function createDatabaseNewsGroupRepository({
   database,
@@ -118,7 +119,23 @@ export function createDatabaseNewsGroupRepository({
         .where(and(eq(newsGroupSubscriptions.categoryKey, categoryKey), eq(newsGroups.isEnabled, true)))
         .orderBy(asc(newsGroups.chatId));
 
-      return result.map(mapNewsGroupRow);
+      const explicitGroups = result.map(mapNewsGroupRow);
+      const category = resolveNewsGroupCategory(categoryKey);
+      if (!category?.defaultSubscribed) {
+        return explicitGroups;
+      }
+
+      const enabledGroups = await database
+        .select()
+        .from(newsGroups)
+        .where(eq(newsGroups.isEnabled, true))
+        .orderBy(asc(newsGroups.chatId));
+      const explicitChatIds = new Set(explicitGroups.map((group) => group.chatId));
+      const defaultSubscribedGroups = enabledGroups
+        .map(mapNewsGroupRow)
+        .filter((group) => !explicitChatIds.has(group.chatId));
+
+      return [...explicitGroups, ...defaultSubscribedGroups].sort((left, right) => left.chatId - right.chatId);
     },
     async isNewsEnabledGroup(chatId) {
       const result = await database

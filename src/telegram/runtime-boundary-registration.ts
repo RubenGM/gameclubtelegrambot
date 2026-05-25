@@ -96,6 +96,7 @@ import {
 } from './storage-flow.js';
 import {
   handleTelegramScheduleCallback,
+  handleTelegramScheduleMessage,
   handleTelegramScheduleStartText,
   handleTelegramScheduleText,
   scheduleCallbackPrefixes,
@@ -262,6 +263,10 @@ function registerMessageHandlers({
 }): void {
   bot.onMessage?.(async (context) => {
     if (await handleTelegramCatalogAdminMessage(context)) {
+      return;
+    }
+
+    if (await handleTelegramScheduleMessage(context)) {
       return;
     }
 

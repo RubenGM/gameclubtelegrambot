@@ -15,8 +15,8 @@ import {
   type ScheduleRepository,
 } from './schedule-catalog.js';
 
-type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'> &
-  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'>>;
+type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
+  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'>>;
 
 function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleRepository {
   const events = new Map(initialEvents.map((event) => {
@@ -33,6 +33,8 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         id: nextEventId,
         title: input.title,
         description: input.description,
+        detailsMessageChatId: input.detailsMessageChatId ?? null,
+        detailsMessageId: input.detailsMessageId ?? null,
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         createdByTelegramUserId: input.createdByTelegramUserId,
@@ -69,6 +71,8 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         ...existing,
         title: input.title,
         description: input.description,
+        detailsMessageChatId: input.detailsMessageChatId ?? null,
+        detailsMessageId: input.detailsMessageId ?? null,
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
@@ -129,6 +133,8 @@ function normalizeScheduleEventFixture(event: ScheduleEventFixture): ScheduleEve
     ...event,
     attendanceMode: event.attendanceMode ?? 'open',
     initialOccupiedSeats: event.initialOccupiedSeats ?? 0,
+    detailsMessageChatId: event.detailsMessageChatId ?? null,
+    detailsMessageId: event.detailsMessageId ?? null,
   };
 }
 

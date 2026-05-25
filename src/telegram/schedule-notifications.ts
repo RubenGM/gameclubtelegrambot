@@ -104,7 +104,12 @@ export async function publishCalendarSnapshotToNewsGroups({
     groups.map(async (group) => {
       try {
         await sendGroupMessage(group.chatId, `${message}\n\n${footer}`, { parseMode: 'HTML' });
-      } catch {
+      } catch (error) {
+        console.warn(JSON.stringify({
+          event: 'schedule.calendar-broadcast.group-send.failed',
+          chatId: group.chatId,
+          error: error instanceof Error ? error.message : String(error),
+        }));
         // La notificació de grup no ha de bloquejar l'edició de l'activitat.
       }
     }),

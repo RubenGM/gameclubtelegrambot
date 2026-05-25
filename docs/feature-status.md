@@ -117,11 +117,12 @@ Estado: `operativo`.
 Implementado:
 
 - `/schedule` con crear, listar, editar, cancelar, detalle por deep link, unirse y salir.
-- Soporte de fecha, hora, duracion, mesa opcional, juego de catalogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, plazas iniciales ocupadas y capacidad.
+- Soporte de fecha, hora, duracion, mesa opcional, juego de catalogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, plazas iniciales ocupadas, capacidad y mensaje extra opcional con adjuntos para detalles.
 - Preferencia de recordatorio al apuntarse y worker persistente de recordatorios.
 - Avisos de conflicto y capacidad al crear/editar.
 - Integracion con eventos del local para mostrar impacto.
-- Publicacion de snapshot a grupos de noticias suscritos.
+- Listado y snapshots de grupo con enlace `Ver detalles` solo cuando la actividad tiene mensaje extra guardado; en ese caso no imprimen la descripcion larga en linea y el deep link reenvia el mensaje original al usuario.
+- Publicacion de snapshot a grupos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados aunque el grupo tenga otras suscripciones explicitas.
 
 Riesgos o pendientes:
 
@@ -210,7 +211,7 @@ Implementado:
 - Persistencia de grupos habilitados y suscripciones por categoria.
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
 - Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs y altas web (`nuevos_miembros`).
-- Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem y altas web => `nuevos_miembros`).
+- Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem y altas web => `nuevos_miembros`); los grupos habilitados reciben los feeds marcados por defecto como `events` aunque tengan otras suscripciones explicitas.
 - `/admin/news` muestra los feeds disponibles y cuántos grupos activos hay suscritos a cada categoría.
 
 Pendiente:

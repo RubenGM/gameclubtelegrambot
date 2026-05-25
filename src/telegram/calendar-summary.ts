@@ -25,6 +25,7 @@ export type CalendarEntry =
       attendanceMode: ScheduleAttendanceMode;
       capacity: number;
       availableSeats: number;
+      hasDetails: boolean;
     }
   | {
       kind: 'venue';
@@ -71,6 +72,7 @@ export async function loadUpcomingCalendarEntries({
         attendanceMode: event.attendanceMode,
         capacity: event.capacity,
         availableSeats: attendance.snapshot.availableSeats,
+        hasDetails: event.detailsMessageChatId !== null && event.detailsMessageId !== null,
       };
     }),
   );
@@ -111,16 +113,21 @@ export function formatCalendarMessage(entries: CalendarEntry[], language: string
 
 function formatCalendarEntry(entry: CalendarEntry, language: string): string {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
-  const descriptionLine = entry.description ? `\n  <i>${escapeHtml(entry.description)}</i>` : '';
 
   if (entry.kind === 'schedule') {
+    const descriptionLine = entry.description && !entry.hasDetails ? `\n  <i>${escapeHtml(entry.description)}</i>` : '';
     const modeSuffix = entry.attendanceMode === 'open' ? ' · Mesa abierta' : '';
     const seatsSuffix = entry.attendanceMode === 'open'
       ? ` · ${entry.capacity}p (${entry.availableSeats} libres)`
       : ` · ${entry.capacity}p`;
     const tableSuffix = entry.tableName ? ` · ${escapeHtml(entry.tableName)}` : '';
-    return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${entry.id}`))}"><b>${escapeHtml(entry.title)}</b></a>${modeSuffix}${seatsSuffix}${tableSuffix}${descriptionLine}`;
+    const detailsSuffix = entry.hasDetails
+      ? ` · <a href="${escapeHtml(buildTelegramStartUrl(`schedule_details_${entry.id}`))}">${escapeHtml(resolveDetailsLabel(language))}</a>`
+      : '';
+    return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${entry.id}`))}"><b>${escapeHtml(entry.title)}</b></a>${modeSuffix}${seatsSuffix}${tableSuffix}${detailsSuffix}${descriptionLine}`;
   }
+
+  const descriptionLine = entry.description ? `\n  <i>${escapeHtml(entry.description)}</i>` : '';
 
   if (entry.allDay) {
     return `- ${texts.calendar.allDay} ${escapeHtml(entry.title)}${descriptionLine}`;
@@ -135,6 +142,10 @@ function formatCalendarDayHeader(dayKey: string, language: string): string {
   const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(date);
   const month = new Intl.DateTimeFormat(locale, { month: 'long' }).format(date);
   return `${capitalizeFirstLetter(weekday)} ${date.getDate()} ${month}`;
+}
+
+function resolveDetailsLabel(language: string): string {
+  return createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule.detailsButton;
 }
 
 function formatTimeRange(startsAt: string, endsAt: string): string {

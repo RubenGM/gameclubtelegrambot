@@ -6,6 +6,8 @@ export interface ScheduleEventRecord {
   id: number;
   title: string;
   description: string | null;
+  detailsMessageChatId: number | null;
+  detailsMessageId: number | null;
   startsAt: string;
   durationMinutes: number;
   organizerTelegramUserId: number;
@@ -46,6 +48,8 @@ export interface ScheduleRepository {
   createEvent(input: {
     title: string;
     description: string | null;
+    detailsMessageChatId?: number | null;
+    detailsMessageId?: number | null;
     startsAt: string;
     durationMinutes: number;
     organizerTelegramUserId: number;
@@ -73,6 +77,8 @@ export interface ScheduleRepository {
     eventId: number;
     title: string;
     description: string | null;
+    detailsMessageChatId?: number | null;
+    detailsMessageId?: number | null;
     startsAt: string;
     durationMinutes: number;
     organizerTelegramUserId: number;
@@ -103,6 +109,8 @@ export async function createScheduleEvent({
   repository,
   title,
   description,
+  detailsMessageChatId,
+  detailsMessageId,
   startsAt,
   durationMinutes,
   organizerTelegramUserId,
@@ -116,6 +124,8 @@ export async function createScheduleEvent({
   repository: ScheduleRepository;
   title: string;
   description?: string | null;
+  detailsMessageChatId?: number | null;
+  detailsMessageId?: number | null;
   startsAt: string;
   durationMinutes: number;
   organizerTelegramUserId: number;
@@ -129,6 +139,8 @@ export async function createScheduleEvent({
   return repository.createEvent({
     title: normalizeTitle(title),
     description: normalizeDescription(description),
+    detailsMessageChatId: normalizeDetailsMessageChatId(detailsMessageChatId),
+    detailsMessageId: normalizeDetailsMessageId(detailsMessageId),
     startsAt: normalizeStartsAt(startsAt),
     durationMinutes: normalizeDurationMinutes(durationMinutes),
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
@@ -195,6 +207,8 @@ export async function updateScheduleEvent({
   eventId,
   title,
   description,
+  detailsMessageChatId,
+  detailsMessageId,
   startsAt,
   durationMinutes,
   organizerTelegramUserId,
@@ -208,6 +222,8 @@ export async function updateScheduleEvent({
   eventId: number;
   title: string;
   description?: string | null;
+  detailsMessageChatId?: number | null;
+  detailsMessageId?: number | null;
   startsAt: string;
   durationMinutes: number;
   organizerTelegramUserId: number;
@@ -230,6 +246,8 @@ export async function updateScheduleEvent({
     eventId,
     title: normalizeTitle(title),
     description: normalizeDescription(description),
+    detailsMessageChatId: normalizeDetailsMessageChatId(detailsMessageChatId),
+    detailsMessageId: normalizeDetailsMessageId(detailsMessageId),
     startsAt: normalizeStartsAt(startsAt),
     durationMinutes: normalizeDurationMinutes(durationMinutes),
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
@@ -506,6 +524,20 @@ function normalizeTitle(title: string): string {
 function normalizeDescription(description: string | null | undefined): string | null {
   const normalized = description?.trim();
   return normalized ? normalized : null;
+}
+
+function normalizeDetailsMessageChatId(value: number | null | undefined): number | null {
+  return value === null || value === undefined ? null : normalizeTelegramUserId(value, 'chat de detalles');
+}
+
+function normalizeDetailsMessageId(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error('El missatge de detalls no es valid');
+  }
+  return value;
 }
 
 function normalizeStartsAt(startsAt: string): string {

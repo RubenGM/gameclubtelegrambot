@@ -12,6 +12,7 @@ import type { ConversationSessionRecord } from './conversation-session.js';
 import { normalizeDisplayName } from '../membership/display-name.js';
 import {
   handleTelegramScheduleCallback,
+  handleTelegramScheduleMessage,
   handleTelegramScheduleStartText,
   handleTelegramScheduleText,
   scheduleCallbackPrefixes,
@@ -37,8 +38,8 @@ function formatCalendarRange(startsAt: string, endsAt: string): string {
   return `${formatCalendarTime(startsAt)}-${formatCalendarTime(endsAt)}`;
 }
 
-type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'> &
-  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'>>;
+type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
+  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'>>;
 
 test.beforeEach((t: any) => {
   t.mock.timers.enable({
@@ -63,6 +64,8 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
         id: nextEventId,
         title: input.title,
         description: input.description,
+        detailsMessageChatId: input.detailsMessageChatId ?? null,
+        detailsMessageId: input.detailsMessageId ?? null,
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         createdByTelegramUserId: input.createdByTelegramUserId,
@@ -101,6 +104,8 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
         ...existing,
         title: input.title,
         description: input.description,
+        detailsMessageChatId: input.detailsMessageChatId ?? null,
+        detailsMessageId: input.detailsMessageId ?? null,
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
@@ -167,6 +172,8 @@ function normalizeScheduleEventFixture(event: ScheduleEventFixture): ScheduleEve
     ...event,
     attendanceMode: event.attendanceMode ?? 'open',
     initialOccupiedSeats: event.initialOccupiedSeats ?? 0,
+    detailsMessageChatId: event.detailsMessageChatId ?? null,
+    detailsMessageId: event.detailsMessageId ?? null,
   };
 }
 
@@ -371,6 +378,8 @@ function createContext({
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const privateMessages: Array<{ telegramUserId: number; message: string }> = [];
   const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const copiedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number }> = [];
+  const forwardedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number }> = [];
   let currentSession: { flowKey: string; stepKey: string; data: Record<string, unknown> } | null = null;
 
   const context: TelegramScheduleContext = {
@@ -443,6 +452,14 @@ function createContext({
         sendGroupMessage: async (chatId: number, message: string, options?: TelegramReplyOptions) => {
           groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
         },
+        copyMessage: async ({ fromChatId, messageId, toChatId }: { fromChatId: number; messageId: number; toChatId: number }) => {
+          copiedMessages.push({ fromChatId, messageId, toChatId });
+          return { messageId: 9000 + copiedMessages.length };
+        },
+        forwardMessage: async ({ fromChatId, messageId, toChatId }: { fromChatId: number; messageId: number; toChatId: number }) => {
+          forwardedMessages.push({ fromChatId, messageId, toChatId });
+          return { messageId: 8000 + forwardedMessages.length };
+        },
       },
     },
     scheduleRepository,
@@ -457,7 +474,7 @@ function createContext({
     privateMessages.push({ telegramUserId, message });
   };
 
-  return { context, replies, privateMessages, groupMessages, getCurrentSession: () => currentSession };
+  return { context, replies, privateMessages, groupMessages, copiedMessages, forwardedMessages, getCurrentSession: () => currentSession };
 }
 
 function createNewsGroupRepository(
@@ -541,6 +558,8 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
       id: 4,
       title: 'Wingspan',
       description: 'Ocells i engines',
+      detailsMessageChatId: 1,
+      detailsMessageId: 444,
       startsAt: '2026-04-05T16:00:00.000Z',
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
@@ -563,7 +582,8 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
   assert.equal(handled, true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Diumenge 5 abril<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /18h-21h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(3 libres\)/);
-  assert.match(replies.at(-1)?.message ?? '', /<i>Ocells i engines<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_details_4">Veure detalls<\/a>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ocells i engines/);
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
     replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
@@ -608,6 +628,8 @@ test('handleTelegramScheduleText accepts the Spanish edit menu label', async () 
       id: 4,
       title: 'Wingspan',
       description: 'Ocells i engines',
+      detailsMessageChatId: 1,
+      detailsMessageId: 444,
       startsAt: '2026-04-05T16:00:00.000Z',
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
@@ -657,6 +679,35 @@ test('handleTelegramScheduleStartText opens an activity detail from a deep link 
   assert.equal(await handleTelegramScheduleStartText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Wingspan<\/b>/);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar activitat'));
+});
+
+test('handleTelegramScheduleStartText forwards the saved details message from a deep link payload', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Wingspan',
+      description: 'Ocells i engines',
+      detailsMessageChatId: 1,
+      detailsMessageId: 444,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, forwardedMessages } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+
+  context.messageText = '/start schedule_details_4';
+  assert.equal(await handleTelegramScheduleStartText(context), true);
+  assert.deepEqual(forwardedMessages, [{ fromChatId: 1, messageId: 444, toChatId: 1 }]);
 });
 
 test('handleTelegramScheduleText creates an activity through keyboard-guided conversation steps', async () => {
@@ -805,13 +856,60 @@ test('handleTelegramScheduleText adds an optional description only from the fina
   });
 
   context.messageText = 'Campanya narrativa';
+  context.messageId = 777;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'confirm');
   assert.match(replies.at(-1)?.message ?? '', /Descripció: Campanya narrativa/);
 
   context.messageText = scheduleLabels.confirmCreate;
   assert.equal(await handleTelegramScheduleText(context), true);
-  assert.equal((await scheduleRepository.findEventById(1))?.description, 'Campanya narrativa');
+  const event = await scheduleRepository.findEventById(1);
+  assert.equal(event?.description, 'Campanya narrativa');
+  assert.equal(event?.detailsMessageChatId, 1);
+  assert.equal(event?.detailsMessageId, 777);
+  assert.match(replies.at(-1)?.message ?? '', /schedule_details_1/);
+});
+
+test('handleTelegramScheduleMessage stores an attachment details message during activity creation', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const { context, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Mansions of Madness';
+  await handleTelegramScheduleText(context);
+  context.messageText = '05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.durationNone;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.attendanceClosed;
+  await handleTelegramScheduleText(context);
+  context.messageText = '5';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.noTable;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.editFieldDescription;
+  await handleTelegramScheduleText(context);
+
+  context.messageText = undefined;
+  context.messageId = 778;
+  context.messageMedia = {
+    caption: 'Traed investigador pintado',
+    messageId: 778,
+  };
+
+  assert.equal(await handleTelegramScheduleMessage(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'confirm');
+
+  context.messageMedia = null;
+  context.messageText = scheduleLabels.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  const event = await scheduleRepository.findEventById(1);
+  assert.equal(event?.description, 'Traed investigador pintado');
+  assert.equal(event?.detailsMessageChatId, 1);
+  assert.equal(event?.detailsMessageId, 778);
 });
 
 test('handleTelegramScheduleText goes back to the previous create step without losing entered data', async () => {
@@ -1216,6 +1314,11 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
   await handleTelegramScheduleText(context);
   context.messageText = 'Mesa TV';
   await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.editFieldDescription;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Traed promo pack';
+  context.messageId = 777;
+  await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.confirmCreate;
   await handleTelegramScheduleText(context);
 
@@ -1227,9 +1330,10 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
   assert.match(
     groupMessages[0]?.message ?? '',
     new RegExp(
-      `- ${formatCalendarRange(event?.startsAt ?? '2026-04-05T16:00:00.000Z', event ? new Date(new Date(event.startsAt).getTime() + event.durationMinutes * 60000).toISOString() : '2026-04-05T19:00:00.000Z')} <a href="https:\\/\\/t\\.me\\/cawa_management_bot\\?start=schedule_event_1"><b>Dune Imperium<\\/b><\\/a> · Mesa abierta · 5p \\(5 libres\\) · Mesa TV`,
+      `- ${formatCalendarRange(event?.startsAt ?? '2026-04-05T16:00:00.000Z', event ? new Date(new Date(event.startsAt).getTime() + event.durationMinutes * 60000).toISOString() : '2026-04-05T19:00:00.000Z')} <a href="https:\\/\\/t\\.me\\/cawa_management_bot\\?start=schedule_event_1"><b>Dune Imperium<\\/b><\\/a> · Mesa abierta · 5p \\(5 libres\\) · Mesa TV · <a href="https:\\/\\/t\\.me\\/cawa_management_bot\\?start=schedule_details_1">Veure detalls<\\/a>`,
     ),
   );
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /Traed promo pack/);
   assert.match(groupMessages[0]?.message ?? '', /ha creado la actividad Dune Imperium del Diumenge 5 abril/i);
 });
 
@@ -1590,6 +1694,8 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
       id: 4,
       title: 'Wingspan',
       description: 'Ocells i engines',
+      detailsMessageChatId: 1,
+      detailsMessageId: 444,
       startsAt: '2026-04-05T16:00:00.000Z',
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
@@ -1659,7 +1765,10 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
   assert.equal(scheduleRepository.__cancelledEventIds.includes(5), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Diumenge 5 abril<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /18h-21h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_4"><b>Wingspan<\/b><\/a> · Mesa abierta · 3p \(2 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_details_4">Veure detalls<\/a>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ocells i engines/);
   assert.match(replies.at(-1)?.message ?? '', /20:30h-23:30h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_6"><b>Ravenloft<\/b><\/a> · Mesa abierta · 4p \(3 libres\)/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /schedule_details_6/);
   assert.deepEqual(replies.at(-1)?.options, { parseMode: 'HTML' });
 });
 

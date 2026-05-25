@@ -21,6 +21,8 @@ export function createDatabaseScheduleRepository({
         .values({
           title: input.title,
           description: input.description,
+          detailsMessageChatId: input.detailsMessageChatId ?? null,
+          detailsMessageId: input.detailsMessageId ?? null,
           startsAt: new Date(input.startsAt),
           durationMinutes: input.durationMinutes,
           organizerTelegramUserId: input.organizerTelegramUserId,
@@ -104,6 +106,8 @@ export function createDatabaseScheduleRepository({
         .set({
           title: input.title,
           description: input.description,
+          detailsMessageChatId: input.detailsMessageChatId ?? null,
+          detailsMessageId: input.detailsMessageId ?? null,
           startsAt: new Date(input.startsAt),
           durationMinutes: input.durationMinutes,
           organizerTelegramUserId: input.organizerTelegramUserId,
@@ -218,6 +222,8 @@ function mapScheduleEventRow(row: typeof scheduleEvents.$inferSelect): ScheduleE
     id: row.id,
     title: row.title,
     description: row.description,
+    detailsMessageChatId: row.detailsMessageChatId,
+    detailsMessageId: row.detailsMessageId,
     startsAt: row.startsAt.toISOString(),
     durationMinutes: row.durationMinutes,
     organizerTelegramUserId: row.organizerTelegramUserId,
