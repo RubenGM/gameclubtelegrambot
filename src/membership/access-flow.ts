@@ -25,6 +25,10 @@ export interface MembershipAccessRepository {
     username?: string | null;
     displayName: string;
   }): Promise<MembershipUserRecord | null>;
+  updateDisplayName?(input: {
+    telegramUserId: number;
+    displayName: string;
+  }): Promise<MembershipUserRecord | null>;
   backfillDisplayNames(): Promise<number>;
   upsertPendingUser(input: {
     telegramUserId: number;
@@ -60,6 +64,46 @@ export interface MembershipAccessRepository {
     changedByTelegramUserId: number;
     reason: string;
   }): Promise<MembershipUserRecord>;
+}
+
+export async function updateMembershipDisplayName({
+  repository,
+  telegramUserId,
+  displayName,
+}: {
+  repository: MembershipAccessRepository;
+  telegramUserId: number;
+  displayName: string;
+}): Promise<{ outcome: 'updated' | 'missing' | 'invalid'; message: string; user?: MembershipUserRecord }> {
+  const normalized = normalizeDisplayName(displayName);
+  if (!normalized) {
+    return {
+      outcome: 'invalid',
+      message: 'El nom no pot estar buit.',
+    };
+  }
+
+  const user = repository.updateDisplayName
+    ? await repository.updateDisplayName({
+        telegramUserId,
+        displayName: normalized,
+      })
+    : await repository.syncUserProfile({
+        telegramUserId,
+        displayName: normalized,
+      });
+  if (!user) {
+    return {
+      outcome: 'missing',
+      message: 'No s ha trobat cap usuari amb aquest identificador.',
+    };
+  }
+
+  return {
+    outcome: 'updated',
+    message: `Nom actualitzat: ${user.displayName}`,
+    user,
+  };
 }
 
 export async function requestMembershipAccess({

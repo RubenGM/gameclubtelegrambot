@@ -10,6 +10,11 @@ import { createBackupOperations, type BackupOperations } from '../operations/bac
 import { createServiceControl, type ServiceControl } from '../operations/service-control.js';
 import { verifySecret } from '../security/verify-password-hash.js';
 import { createDatabaseAppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
+import {
+  createAppMetadataWelcomeTemplateStore,
+  renderWelcomeTemplate,
+  type WelcomeMessageTemplate,
+} from '../membership/welcome-template-store.js';
 import { listNewsGroupCategories, newMembersNewsGroupCategory } from '../news/news-group-catalog.js';
 import { parseCatalogStorageEntryUrl } from '../catalog/catalog-media-storage.js';
 import { escapeHtml, renderHttpPage, type RenderHttpPageOptions } from './http-pages.js';
@@ -596,6 +601,35 @@ async function routeRequest(options: {
   if (request.method === 'GET' && url.pathname === '/admin/users') {
     const usersOverview = await fetchAdminUsersOverview(options.services);
     sendHtml(response, 200, adminUsersPage(usersOverview));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/admin/welcome') {
+    const templates = await loadWelcomeTemplatesForAdmin(options.services);
+    sendHtml(response, 200, adminWelcomeTemplatesPage(templates, adminSession.csrfToken));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/admin/welcome') {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
+    await saveWelcomeTemplateFromForm(options.services, form);
+    redirect(response, '/admin/welcome');
+    return;
+  }
+
+  const welcomeDeleteMatch = url.pathname.match(/^\/admin\/welcome\/([^/]+)\/delete$/);
+  if (request.method === 'POST' && welcomeDeleteMatch?.[1]) {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      return;
+    }
+    await deleteWelcomeTemplate(options.services, welcomeDeleteMatch[1]);
+    redirect(response, '/admin/welcome');
     return;
   }
 
@@ -3773,6 +3807,7 @@ function adminDashboardPage(
     ['Operacion diaria', 'Catalogo', 'Juegos, libros, prestamos activos y recursos de catalogo.', '/admin/catalog'],
     ['Operacion diaria', 'Storage', 'Editar, mover, retaggear y eliminar logicamente archivos existentes.', '/admin/storage'],
     ['Comunidad', 'Socios y usuarios', 'Altas Telegram, aprobaciones, admins y estado de miembros.', '/admin/users'],
+    ['Comunidad', 'Bienvenidas', 'Plantillas aleatorias con $USERNAME y GIF de Telegram opcional.', '/admin/welcome'],
     ['Comunidad', 'Feedback', 'Mensajes enviados desde el formulario publico.', '/admin/feedback'],
     ['Comunidad', 'Altas de socio', 'Solicitudes web pendientes y seguimiento de contacto.', '/admin/member-signups'],
     ['Comunicacion', 'Noticias y feeds', 'Suscripciones por feed, incluido nuevos_miembros.', '/admin/news'],
@@ -3825,6 +3860,54 @@ function renderMemberSignupStatusActions(signup: AdminMemberSignupRow, csrfToken
   return actions
     .map(([status, label]) => `<form method="post" action="/admin/member-signups/${signup.id}/status" class="inline">${csrfInput(csrfToken)}<button name="status" value="${escapeHtml(status)}" type="submit">${escapeHtml(label)}</button></form>`)
     .join(' ');
+}
+
+async function loadWelcomeTemplatesForAdmin(services: InfrastructureRuntimeServices): Promise<WelcomeMessageTemplate[]> {
+  const storage = createDatabaseAppMetadataSessionStorage({ database: services.database.db });
+  return createAppMetadataWelcomeTemplateStore({ storage }).listTemplates();
+}
+
+async function saveWelcomeTemplateFromForm(services: InfrastructureRuntimeServices, form: URLSearchParams): Promise<void> {
+  const storage = createDatabaseAppMetadataSessionStorage({ database: services.database.db });
+  const store = createAppMetadataWelcomeTemplateStore({ storage });
+  const id = normalizeOptionalAdminText(form.get('id'));
+  const animationFileId = normalizeOptionalAdminText(form.get('animationFileId'));
+  await store.saveTemplate({
+    ...(id ? { id } : {}),
+    templateText: String(form.get('templateText') ?? ''),
+    ...(animationFileId ? { animationFileId } : {}),
+    targetTelegramUserId: parseOptionalPositiveInteger(form.get('targetTelegramUserId')),
+    isEnabled: form.get('isEnabled') !== 'false',
+    sortOrder: Number(form.get('sortOrder') ?? '0'),
+  });
+}
+
+async function deleteWelcomeTemplate(services: InfrastructureRuntimeServices, id: string): Promise<void> {
+  const storage = createDatabaseAppMetadataSessionStorage({ database: services.database.db });
+  await createAppMetadataWelcomeTemplateStore({ storage }).deleteTemplate(id);
+}
+
+function adminWelcomeTemplatesPage(templates: WelcomeMessageTemplate[], csrfToken: string): string {
+  const rows = templates.length === 0
+    ? '<p>No hay plantillas configuradas. Si no hay plantillas activas, el bot no enviara bienvenida de grupo.</p>'
+    : `<table><thead><tr><th>Orden</th><th>Estado</th><th>Usuario</th><th>Texto</th><th>GIF</th><th>Acciones</th></tr></thead><tbody>${templates.map((template) => `<tr><td>${template.sortOrder}</td><td>${template.isEnabled ? renderStatusBadge('activa') : renderStatusBadge('pausada')}</td><td>${template.targetTelegramUserId ? escapeHtml(String(template.targetTelegramUserId)) : 'global'}</td><td>${escapeHtml(template.templateText)}<br><small>Vista previa: ${escapeHtml(renderWelcomeTemplate(template.templateText, 'CrazyShini'))}</small></td><td>${template.animationFileId ? escapeHtml(template.animationFileId) : '-'}</td><td><form method="post" action="/admin/welcome/${encodeURIComponent(template.id)}/delete" class="inline">${csrfInput(csrfToken)}<button type="submit">Eliminar</button></form></td></tr>`).join('')}</tbody></table>`;
+  const editForms = templates.map((template) => welcomeTemplateForm(template, csrfToken, 'Guardar plantilla')).join('');
+
+  return page({
+    title: 'Bienvenidas de grupo',
+    shell: 'admin',
+    body: `<section><h2>Plantillas activas</h2><p>El bot elige una plantilla al azar cuando Telegram avisa de nuevos miembros en un grupo. Usa <code>$USERNAME</code> para insertar el nombre visible del usuario. Si rellenas Telegram user ID, esa plantilla tiene prioridad para ese usuario.</p>${rows}</section><section><h2>Nueva plantilla</h2>${welcomeTemplateForm(null, csrfToken, 'Crear plantilla')}</section>${editForms ? `<section><h2>Editar existentes</h2>${editForms}</section>` : ''}`,
+  });
+}
+
+function welcomeTemplateForm(template: WelcomeMessageTemplate | null, csrfToken: string, submitLabel: string): string {
+  const idInput = template ? `<input type="hidden" name="id" value="${escapeHtml(template.id)}">` : '';
+  return `<form method="post" action="/admin/welcome">${csrfInput(csrfToken)}${idInput}<div class="admin-form-grid"><label>Orden<input name="sortOrder" type="number" value="${escapeHtml(String(template?.sortOrder ?? 0))}"></label><label>Telegram user ID opcional<input name="targetTelegramUserId" type="number" value="${escapeHtml(template?.targetTelegramUserId ? String(template.targetTelegramUserId) : '')}" placeholder="global si queda vacio"></label><label>Telegram animation file ID<input name="animationFileId" value="${escapeHtml(template?.animationFileId ?? '')}" placeholder="opcional para GIF"></label><label>Estado<select name="isEnabled"><option value="true"${template?.isEnabled === false ? '' : ' selected'}>Activa</option><option value="false"${template?.isEnabled === false ? ' selected' : ''}>Pausada</option></select></label></div><label>Texto de bienvenida<textarea name="templateText" required placeholder="Ya esta aqui $USERNAME, y trae pizza">${escapeHtml(template?.templateText ?? '')}</textarea></label><button type="submit">${escapeHtml(submitLabel)}</button></form>`;
+}
+
+function normalizeOptionalAdminText(value: string | null): string | undefined {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || undefined;
 }
 
 function newsAdminPage(summary: NewsAdminSummary): string {

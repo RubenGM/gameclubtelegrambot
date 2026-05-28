@@ -184,6 +184,38 @@ test('createDatabaseMembershipAccessRepository skips user profile writes when th
   assert.equal(state.userUpdateCalls, 0);
 });
 
+test('createDatabaseMembershipAccessRepository preserves custom display names when Telegram profile changes', async () => {
+  const state: MembershipStoreTestState = {
+    user: {
+      telegramUserId: 10,
+      username: 'old_username',
+      displayName: 'Nom de club',
+      status: 'approved',
+      isAdmin: false,
+      isApproved: true,
+    },
+    userUpdateCalls: 0,
+    statusAuditRows: [],
+    auditRows: [],
+  };
+
+  const repository = createDatabaseMembershipAccessRepository({
+    database: createMembershipDatabaseDouble(state),
+  });
+
+  const updated = await repository.syncUserProfile({
+    telegramUserId: 10,
+    username: 'new_username',
+    displayName: 'Telegram Profile',
+  });
+
+  assert.equal(updated?.username, 'new_username');
+  assert.equal(updated?.displayName, 'Nom de club');
+  assert.equal(state.user.username, 'new_username');
+  assert.equal(state.user.displayName, 'Nom de club');
+  assert.equal(state.userUpdateCalls, 1);
+});
+
 function createMembershipDatabaseDouble(
   state: MembershipStoreTestState,
   options: {

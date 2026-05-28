@@ -1,6 +1,6 @@
 # Estado real de features
 
-Ultima revision: 2026-05-19.
+Ultima revision: 2026-05-28.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -16,8 +16,8 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Feature                                      | Estado               | Lectura actual                                                                                                                       |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 | Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, canarios/reintentos Telegram, systemd/tray y backups.           |
-| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, gestión detallada, avisos privados, `/status`, `/restart` y alta web inicial en `/alta`.          |
-| Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto y ayuda contextual por sección activa.                                                          |
+| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, nickname visible, bienvenidas configurables, avisos privados y alta web inicial en `/alta`.          |
+| Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, LFG etiquetado como buscar grupo y ayuda contextual por sección activa.                         |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario, avisando impacto con progreso editable.                    |
@@ -26,7 +26,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Grupos de noticias                           | 🟢 Operativo         | `/news` y `/admin/news` gestionan/visibilizan suscripciones por categoría, incluyendo el feed `nuevos_miembros` para altas web.          |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
-| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, temas CAWA y secciones públicas.        |
+| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
 | Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 ```
@@ -63,6 +63,8 @@ Estado: `operativo`.
 
 Implementado:
 
+- `/access` pide primero el nombre visible con el que el usuario quiere ser conocido en el bot; ese nickname se guarda en `users.display_name` y se usa en avisos y bienvenidas.
+- Los socios aprobados tienen la accion "Cambiar nombre de usuario" en el teclado principal para actualizar su nombre visible sin depender del username de Telegram.
 - `/access` crea solicitudes y soporta reintentos segun estado del usuario.
 - `/review_access`, `/approve`, `/reject` y callbacks inline resuelven solicitudes.
 - `/manage_users` abre una pantalla de gestion: lista usuarios registrados con nombre enlazado al detalle, username clicable, estado y rol.
@@ -73,6 +75,10 @@ Implementado:
 - `/subscribe_requests` y `/unsubscribe_requests` permiten avisos privados de nuevas solicitudes.
 - `/alta` registra solicitudes de alta desde la web en `member_signup_requests`, avisa por privado a admins aprobados y publica en grupos suscritos al feed `nuevos_miembros`.
 - `/admin/member-signups` permite revisar desde el panel web las solicitudes de alta recibidas, su estado, el resumen de avisos enviados y marcar cada solicitud como contactada, aprobada, rechazada o pendiente.
+- `/admin/welcome` permite a admins configurar plantillas aleatorias de bienvenida de grupo, con placeholder `$USERNAME`, GIF opcional mediante Telegram animation file ID, plantillas globales y plantillas especificas por Telegram user ID.
+- El teclado privado de admins incluye `Bienvenidas`, que lista las plantillas actuales con paginacion y enlaces inline en el texto para ver, editar texto, editar GIF/video, activar/pausar, eliminar y crear una bienvenida nueva directamente desde Telegram enviando el texto con formato Telegram conservado (negrita, cursiva, etc.) y despues un GIF/video opcional como adjunto, aceptando animaciones Telegram, videos convertidos por el movil y archivos `.gif`.
+- En privado, los aliases secretos `Welcome`, `/welcome`, `Bienvenida` y `/bienvenida` envian al usuario una previsualizacion real de la bienvenida aleatoria que le tocaria, usando su nombre visible guardado; `/welcome 1` y `/bienvenida 1` fuerzan una plantilla concreta por posicion visible.
+- Cuando Telegram avisa de nuevos miembros en un grupo, el bot elige una plantilla activa y publica el mensaje de bienvenida en el grupo; si la plantilla tiene GIF, lo envia como animacion con caption cuando cabe. La seleccion recuerda la ultima plantilla por usuario y evita repetirla inmediatamente si hay alternativas.
 - Las revocaciones notifican al usuario afectado y a admins suscritos.
 - Persistencia y auditoria en `users`, `user_status_audit_log`, `user_permission_assignments` y `user_permission_audit_log`.
 
@@ -88,6 +94,7 @@ Implementado:
 
 - `/language` y flujo de idioma en privado/grupo.
 - Menu principal dinamico por rol, estado, chat y sesion en `src/telegram/action-menu.ts`.
+- El menu aprobado/admin muestra "LFG (buscar grupo)" y una accion visible para cambiar el nombre mostrado por el bot; el menu admin añade tambien gestion rapida de bienvenidas desde Telegram.
 - `Inicio` y `/start` normal limpian cualquier sesion activa antes de reconstruir la portada, evitando dejar al usuario atrapado con un teclado de `/cancel`.
 - Ayuda contextual en `src/telegram/command-registry.ts` y seccion activa gestionada desde `runtime-boundary-registration.ts`.
 - Soporte visible para `ca`, `es` y `en`.
@@ -288,7 +295,7 @@ Implementado:
 - TUI `npm run backup:console`.
 - Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
 - Panel web admin protegido por contraseña de elevación, sesión firmada, token CSRF en acciones POST y límite de intentos de login por IP.
-- `/admin` abre en un dashboard de estado y métricas principales con toolbar operativa, métricas compactas y tarjetas de navegación por dominio; la operación queda separada en secciones: socios/usuarios en `/admin/users`, actividades en `/admin/activities`, catálogo en `/admin/catalog`, Storage en `/admin/storage`, servicio/logs en `/admin/service`, configuración técnica y cambio de token en `/admin/config`, backups en `/admin/backups`, feedback en `/admin/feedback`, feeds en `/admin/news` y altas web en `/admin/member-signups`.
+- `/admin` abre en un dashboard de estado y métricas principales con toolbar operativa, métricas compactas y tarjetas de navegación por dominio; la operación queda separada en secciones: socios/usuarios en `/admin/users`, bienvenidas de grupo en `/admin/welcome`, actividades en `/admin/activities`, catálogo en `/admin/catalog`, Storage en `/admin/storage`, servicio/logs en `/admin/service`, configuración técnica y cambio de token en `/admin/config`, backups en `/admin/backups`, feedback en `/admin/feedback`, feeds en `/admin/news` y altas web en `/admin/member-signups`.
 - Configuración de la web pública desde `/admin/web`, persistida en `app_metadata`, con marca CAWA Girona, temas allowlisted, enlaces destacados, contenido de `/club` y referencias a logo/hero/imagenes auxiliares. La shell pública/admin aplica una capa visual más rica con textura de fondo, cabecera con presencia, tarjetas métricas, formularios y tablas refinadas desde el CSS base compartido.
 - La shell pública/admin usa los SVG de marca incluidos (`/brand/cawa_logo.svg` como logo por defecto y `/brand/cawa_casco.svg` como favicon), manteniendo los assets subidos desde `/admin/web` como override.
 - Assets públicos de portada servidos desde `/assets/...`, guardados bajo `data/http-assets/` con nombre generado, validación de MIME/extensión y límite de 2 MiB.
@@ -331,6 +338,7 @@ Pendiente:
 | Area | Tests principales |
 | --- | --- |
 | Runtime/menus | `src/telegram/runtime-boundary.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/command-registry.test.ts` |
+| Bienvenidas/nickname | `src/membership/welcome-template-store.test.ts`, `src/membership/access-flow.test.ts`, `src/telegram/runtime-boundary.test.ts`, `src/telegram/action-menu.test.ts` |
 | Acceso | `src/membership/*.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Agenda | `src/telegram/schedule-flow.test.ts`, `src/schedule/*reminder*.test.ts` |
 | Mesas | `src/telegram/table-admin-flow.test.ts`, `src/telegram/table-read-flow.test.ts` |

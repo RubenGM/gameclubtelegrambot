@@ -19,9 +19,16 @@ import {
   rejectMembershipRequest,
   revokeMembershipAccess,
   requestMembershipAccess,
+  updateMembershipDisplayName,
 } from '../membership/access-flow.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
-import { resolveTelegramDisplayName } from '../membership/display-name.js';
+import { normalizeDisplayName, resolveTelegramDisplayName } from '../membership/display-name.js';
+import {
+  createAppMetadataWelcomeTemplateStore,
+  renderWelcomeTemplateHtml,
+  renderWelcomeTemplate,
+  type WelcomeMessageTemplate,
+} from '../membership/welcome-template-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import {
   createAppMetadataMembershipRequestNotificationSubscriptionStore,
@@ -130,6 +137,27 @@ import type {
 
 const membershipRevokeFlowKey = 'membership-revoke';
 const membershipUserManagementFlowKey = 'membership-user-management';
+const membershipAccessDisplayNameFlowKey = 'membership-access-display-name';
+const membershipChangeDisplayNameFlowKey = 'membership-change-display-name';
+const welcomeTemplateAdminFlowKey = 'welcome-template-admin';
+const welcomeTemplateAdminPageSize = 5;
+const welcomeTemplateListPagePrefix = 'welcome_tpl:list:';
+const welcomeTemplateDetailPrefix = 'welcome_tpl:detail:';
+const welcomeTemplateEditTextPrefix = 'welcome_tpl:edit_text:';
+const welcomeTemplateEditMediaPrefix = 'welcome_tpl:edit_media:';
+const welcomeTemplateTogglePrefix = 'welcome_tpl:toggle:';
+const welcomeTemplateDeleteConfirmPrefix = 'welcome_tpl:delete_confirm:';
+const welcomeTemplateDeletePrefix = 'welcome_tpl:delete:';
+const welcomeTemplateCreateCallback = 'welcome_tpl:create';
+const welcomeTemplateLastPickedPrefix = 'telegram.welcome_last_template:';
+const welcomeTemplateStartCreatePayload = 'welcome_tpl_create';
+const welcomeTemplateStartListPrefix = 'welcome_tpl_list_';
+const welcomeTemplateStartDetailPrefix = 'welcome_tpl_detail_';
+const welcomeTemplateStartEditTextPrefix = 'welcome_tpl_edit_text_';
+const welcomeTemplateStartEditMediaPrefix = 'welcome_tpl_edit_media_';
+const welcomeTemplateStartTogglePrefix = 'welcome_tpl_toggle_';
+const welcomeTemplateStartDeleteConfirmPrefix = 'welcome_tpl_delete_confirm_';
+const welcomeTemplateStartDeletePrefix = 'welcome_tpl_delete_';
 const membershipUserDetailPrefix = 'membership_user:detail:';
 const membershipRevokeSelectPrefix = 'membership_revoke:select:';
 const membershipRevokeConfirmCallback = 'membership_revoke:confirm';
@@ -156,6 +184,7 @@ export function registerHandlers({
   });
 
   registerMembershipCallbacks({ bot, publicName, adminElevationPasswordHash });
+  registerWelcomeTemplateAdminCallbacks({ bot });
   registerScheduleCallbacks({ bot });
   registerGroupPurchaseCallbacks({ bot });
   registerLfgCallbacks({ bot });
@@ -196,6 +225,18 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramMemberMenuDebugText(context)) {
+      return;
+    }
+
+    if (await handleWelcomeTemplateAdminText(context)) {
+      return;
+    }
+
+    if (await handleSecretWelcomePreviewText(context)) {
+      return;
+    }
+
+    if (await handleMembershipDisplayNameText(context)) {
       return;
     }
 
@@ -262,6 +303,18 @@ function registerMessageHandlers({
   bot: TelegramBotLike;
 }): void {
   bot.onMessage?.(async (context) => {
+    if (await handleGroupWelcomeMessage(context)) {
+      return;
+    }
+
+    if (await handleWelcomeTemplateAdminMessage(context)) {
+      return;
+    }
+
+    if (await handleWelcomeAnimationFileIdLookup(context)) {
+      return;
+    }
+
     if (await handleTelegramCatalogAdminMessage(context)) {
       return;
     }
@@ -272,6 +325,879 @@ function registerMessageHandlers({
 
     await handleTelegramStorageMessage(context);
   });
+}
+
+function registerWelcomeTemplateAdminCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  bot.onCallback(welcomeTemplateCreateCallback, async (context) => {
+    if (!(await ensureWelcomeTemplateAdminCallback(context))) {
+      return;
+    }
+    await startWelcomeTemplateCreateFlow(context);
+  });
+  bot.onCallback(welcomeTemplateListPagePrefix, async (context) => {
+    if (!(await ensureWelcomeTemplateAdminCallback(context))) {
+      return;
+    }
+    await sendWelcomeTemplatesAdminList(context, parseWelcomeTemplatePageCallback(context.callbackData));
+  });
+  bot.onCallback(welcomeTemplateDetailPrefix, async (context) => {
+    if (!(await ensureWelcomeTemplateAdminCallback(context))) {
+      return;
+    }
+    await sendWelcomeTemplateAdminDetail(context, parseWelcomeTemplateIdCallback(context.callbackData, welcomeTemplateDetailPrefix));
+  });
+  bot.onCallback(welcomeTemplateEditTextPrefix, async (context) => {
+    if (!(await ensureWelcomeTemplateAdminCallback(context))) {
+      return;
+    }
+    await startWelcomeTemplateEditTextFlow(context, parseWelcomeTemplateIdCallback(context.callbackData, welcomeTemplateEditTextPrefix));
+  });
+  bot.onCallback(welcomeTemplateEditMediaPrefix, async (context) => {
+    if (!(await ensureWelcomeTemplateAdminCallback(context))) {
+      return;
+    }
+    await startWelcomeTemplateEditMediaFlow(context, parseWelcomeTemplateIdCallback(context.callbackData, welcomeTemplateEditMediaPrefix));
+  });
+  bot.onCallback(welcomeTemplateTogglePrefix, async (context) => {
+    if (!(await ensureWelcomeTemplateAdminCallback(context))) {
+      return;
+    }
+    const template = await loadWelcomeTemplateForAdminCallback(context, parseWelcomeTemplateIdCallback(context.callbackData, welcomeTemplateTogglePrefix));
+    if (!template) {
+      return;
+    }
+    await updateWelcomeTemplateFromTelegram(context, {
+      templateId: template.id,
+      isEnabled: !template.isEnabled,
+    });
+  });
+  bot.onCallback(welcomeTemplateDeleteConfirmPrefix, async (context) => {
+    if (!(await ensureWelcomeTemplateAdminCallback(context))) {
+      return;
+    }
+    await sendWelcomeTemplateDeleteConfirmation(context, parseWelcomeTemplateIdCallback(context.callbackData, welcomeTemplateDeleteConfirmPrefix));
+  });
+  bot.onCallback(welcomeTemplateDeletePrefix, async (context) => {
+    if (!(await ensureWelcomeTemplateAdminCallback(context))) {
+      return;
+    }
+    await deleteWelcomeTemplateFromTelegram(context, parseWelcomeTemplateIdCallback(context.callbackData, welcomeTemplateDeletePrefix));
+  });
+}
+
+async function handleWelcomeTemplateAdminStartPayload(
+  context: TelegramCommandHandlerContext,
+  startPayload: string | undefined,
+): Promise<boolean> {
+  if (!startPayload?.startsWith('welcome_tpl_')) {
+    return false;
+  }
+  if (!(await ensureWelcomeTemplateAdminCallback(context))) {
+    return true;
+  }
+
+  if (startPayload === welcomeTemplateStartCreatePayload) {
+    await startWelcomeTemplateCreateFlow(context);
+    return true;
+  }
+
+  if (startPayload.startsWith(welcomeTemplateStartListPrefix)) {
+    await sendWelcomeTemplatesAdminList(context, parseWelcomeTemplateStartPage(startPayload));
+    return true;
+  }
+
+  if (startPayload.startsWith(welcomeTemplateStartDetailPrefix)) {
+    await sendWelcomeTemplateAdminDetail(context, parseWelcomeTemplateStartId(startPayload, welcomeTemplateStartDetailPrefix));
+    return true;
+  }
+
+  if (startPayload.startsWith(welcomeTemplateStartEditTextPrefix)) {
+    await startWelcomeTemplateEditTextFlow(context, parseWelcomeTemplateStartId(startPayload, welcomeTemplateStartEditTextPrefix));
+    return true;
+  }
+
+  if (startPayload.startsWith(welcomeTemplateStartEditMediaPrefix)) {
+    await startWelcomeTemplateEditMediaFlow(context, parseWelcomeTemplateStartId(startPayload, welcomeTemplateStartEditMediaPrefix));
+    return true;
+  }
+
+  if (startPayload.startsWith(welcomeTemplateStartTogglePrefix)) {
+    const template = await loadWelcomeTemplateForAdminCallback(
+      context,
+      parseWelcomeTemplateStartId(startPayload, welcomeTemplateStartTogglePrefix),
+    );
+    if (template) {
+      await updateWelcomeTemplateFromTelegram(context, {
+        templateId: template.id,
+        isEnabled: !template.isEnabled,
+      });
+    }
+    return true;
+  }
+
+  if (startPayload.startsWith(welcomeTemplateStartDeleteConfirmPrefix)) {
+    await sendWelcomeTemplateDeleteConfirmation(
+      context,
+      parseWelcomeTemplateStartId(startPayload, welcomeTemplateStartDeleteConfirmPrefix),
+    );
+    return true;
+  }
+
+  if (startPayload.startsWith(welcomeTemplateStartDeletePrefix)) {
+    await deleteWelcomeTemplateFromTelegram(context, parseWelcomeTemplateStartId(startPayload, welcomeTemplateStartDeletePrefix));
+    return true;
+  }
+
+  return false;
+}
+
+async function handleWelcomeTemplatesAdminMenu(context: TelegramCommandHandlerContext): Promise<void> {
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isAdmin) {
+    await context.reply(createTelegramI18n(context.runtime.bot.language ?? 'ca').common.accessDeniedAdmin);
+    return;
+  }
+
+  await context.runtime.session.cancel();
+  await sendWelcomeTemplatesAdminList(context, 1);
+}
+
+async function sendWelcomeTemplatesAdminList(context: TelegramCommandHandlerContext, page: number): Promise<void> {
+  const store = getWelcomeTemplateStore(context);
+  const templates = await store.listTemplates();
+  const currentPage = clampWelcomeTemplatePage(page, templates.length);
+  await context.reply(
+    formatWelcomeTemplatesAdminMenu({
+      templates,
+      labels: createTelegramI18n(context.runtime.bot.language ?? 'ca').common,
+      page: currentPage,
+    }),
+    { parseMode: 'HTML' },
+  );
+}
+
+async function handleWelcomeTemplateAdminText(context: TelegramCommandHandlerContext): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isAdmin) {
+    return false;
+  }
+
+  const text = context.messageText?.trim();
+  if (!text) {
+    return false;
+  }
+
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  const session = context.runtime.session.current;
+
+  if (!session && matchesCommonLabel(text, 'backToStartButton')) {
+    return replyWithStartAndDefaultKeyboard(context);
+  }
+
+  if (!session && matchesCommonLabel(text, 'welcomeTemplatesCreateButton')) {
+    await startWelcomeTemplateCreateFlow(context);
+    return true;
+  }
+
+  if (session?.flowKey !== welcomeTemplateAdminFlowKey) {
+    return false;
+  }
+
+  if (session.stepKey === 'template-text') {
+    const templateText = text.trim();
+    if (!templateText) {
+      await context.reply(i18n.common.welcomeTemplatesInvalidText);
+      return true;
+    }
+
+    await context.runtime.session.advance({
+      stepKey: 'animation',
+      data: {
+        templateText,
+        templateHtml: renderTelegramMessageTextAsHtml(templateText, context.messageEntities),
+      },
+    });
+    await context.reply(i18n.common.welcomeTemplatesGifPrompt, {
+      replyKeyboard: [[i18n.common.welcomeTemplatesSkipGifButton], ['/cancel']],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    });
+    return true;
+  }
+
+  if (session.stepKey === 'animation') {
+    if (matchesCommonLabel(text, 'welcomeTemplatesSkipGifButton')) {
+      const templateText = typeof session.data.templateText === 'string' ? session.data.templateText : '';
+      await saveWelcomeTemplateFromTelegram(context, {
+        templateText,
+        templateHtml: typeof session.data.templateHtml === 'string' ? session.data.templateHtml : null,
+      });
+      return true;
+    }
+
+    await context.reply(i18n.common.welcomeTemplatesInvalidGif, {
+      replyKeyboard: [[i18n.common.welcomeTemplatesSkipGifButton], ['/cancel']],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    });
+    return true;
+  }
+
+  if (session.stepKey === 'edit-text') {
+    const templateText = text.trim();
+    if (!templateText) {
+      await context.reply(i18n.common.welcomeTemplatesInvalidText);
+      return true;
+    }
+
+    await updateWelcomeTemplateFromTelegram(context, {
+      templateId: getSessionString(session.data, 'templateId'),
+      templateText,
+      templateHtml: renderTelegramMessageTextAsHtml(templateText, context.messageEntities),
+    });
+    return true;
+  }
+
+  if (session.stepKey === 'edit-media') {
+    if (matchesCommonLabel(text, 'welcomeTemplatesSkipGifButton')) {
+      await updateWelcomeTemplateFromTelegram(context, {
+        templateId: getSessionString(session.data, 'templateId'),
+        animationFileId: null,
+      });
+      return true;
+    }
+
+    await context.reply(i18n.common.welcomeTemplatesInvalidGif, {
+      replyKeyboard: [[i18n.common.welcomeTemplatesSkipGifButton], ['/cancel']],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    });
+    return true;
+  }
+
+  return false;
+}
+
+async function handleWelcomeTemplateAdminMessage(context: TelegramCommandHandlerContext): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isAdmin) {
+    return false;
+  }
+
+  const session = context.runtime.session.current;
+  if (session?.flowKey !== welcomeTemplateAdminFlowKey || !['animation', 'edit-media'].includes(session.stepKey)) {
+    return false;
+  }
+
+  const media = context.messageMedia;
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  if (!isWelcomeGifAttachment(media)) {
+    await context.reply(i18n.common.welcomeTemplatesInvalidGif, {
+      replyKeyboard: [[i18n.common.welcomeTemplatesSkipGifButton], ['/cancel']],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    });
+    return true;
+  }
+
+  if (session.stepKey === 'edit-media') {
+    await updateWelcomeTemplateFromTelegram(context, {
+      templateId: getSessionString(session.data, 'templateId'),
+      animationFileId: media.fileId,
+    });
+  } else {
+    const templateText = typeof session.data.templateText === 'string' ? session.data.templateText : '';
+    await saveWelcomeTemplateFromTelegram(context, {
+      templateText,
+      templateHtml: typeof session.data.templateHtml === 'string' ? session.data.templateHtml : null,
+      animationFileId: media.fileId,
+    });
+  }
+  return true;
+}
+
+async function startWelcomeTemplateCreateFlow(context: TelegramCommandHandlerContext): Promise<void> {
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  await context.runtime.session.start({
+    flowKey: welcomeTemplateAdminFlowKey,
+    stepKey: 'template-text',
+    data: {},
+  });
+  await context.reply(i18n.common.welcomeTemplatesTextPrompt, {
+    replyKeyboard: [['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+}
+
+async function saveWelcomeTemplateFromTelegram(
+  context: TelegramCommandHandlerContext,
+  input: {
+    templateText: string;
+    templateHtml?: string | null;
+    animationFileId?: string;
+  },
+): Promise<void> {
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  const templateText = input.templateText.trim();
+  if (!templateText) {
+    await context.reply(i18n.common.welcomeTemplatesInvalidText);
+    return;
+  }
+
+  const store = getWelcomeTemplateStore(context);
+  const existingTemplates = await store.listTemplates();
+  await store.saveTemplate({
+    templateText,
+    templateHtml: input.templateHtml ?? null,
+    animationFileId: input.animationFileId ?? null,
+    targetTelegramUserId: null,
+    isEnabled: true,
+    sortOrder: existingTemplates.length,
+  });
+  await context.runtime.session.cancel();
+  await context.reply(i18n.common.welcomeTemplatesCreated, await buildReplyOptionsForCurrentActionMenu(context));
+  await sendWelcomeTemplatesAdminList(context, calculateWelcomeTemplateTotalPages(existingTemplates.length + 1));
+}
+
+async function updateWelcomeTemplateFromTelegram(
+  context: TelegramCommandHandlerContext,
+  input: {
+    templateId: string;
+    templateText?: string;
+    templateHtml?: string | null;
+    animationFileId?: string | null;
+    isEnabled?: boolean;
+  },
+): Promise<WelcomeMessageTemplate | null> {
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  const store = getWelcomeTemplateStore(context);
+  const existing = (await store.listTemplates()).find((template) => template.id === input.templateId);
+  if (!existing) {
+    await context.runtime.session.cancel();
+    await context.reply(i18n.common.welcomeTemplatesTargetMissing, await buildReplyOptionsForCurrentActionMenu(context));
+    return null;
+  }
+
+  const updated = await store.saveTemplate({
+    ...existing,
+    ...(input.templateText !== undefined ? { templateText: input.templateText } : {}),
+    ...(input.templateHtml !== undefined ? { templateHtml: input.templateHtml } : {}),
+    ...(input.animationFileId !== undefined ? { animationFileId: input.animationFileId } : {}),
+    ...(input.isEnabled !== undefined ? { isEnabled: input.isEnabled } : {}),
+  });
+  await context.runtime.session.cancel();
+  await context.reply(i18n.common.welcomeTemplatesUpdated, await buildReplyOptionsForCurrentActionMenu(context));
+  await sendWelcomeTemplateAdminDetail(context, updated.id);
+  return updated;
+}
+
+async function startWelcomeTemplateEditTextFlow(context: TelegramCommandHandlerContext, templateId: string): Promise<void> {
+  const template = await loadWelcomeTemplateForAdminCallback(context, templateId);
+  if (!template) {
+    return;
+  }
+
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  await context.runtime.session.start({
+    flowKey: welcomeTemplateAdminFlowKey,
+    stepKey: 'edit-text',
+    data: { templateId },
+  });
+  await context.reply(`${formatWelcomeTemplateAdminDetail(template)}\n\n${escapeHtml(i18n.common.welcomeTemplatesEditTextPrompt)}`, {
+    parseMode: 'HTML',
+    replyKeyboard: [['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+}
+
+async function startWelcomeTemplateEditMediaFlow(context: TelegramCommandHandlerContext, templateId: string): Promise<void> {
+  const template = await loadWelcomeTemplateForAdminCallback(context, templateId);
+  if (!template) {
+    return;
+  }
+
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  await context.runtime.session.start({
+    flowKey: welcomeTemplateAdminFlowKey,
+    stepKey: 'edit-media',
+    data: { templateId },
+  });
+  await context.reply(`${formatWelcomeTemplateAdminDetail(template)}\n\n${escapeHtml(i18n.common.welcomeTemplatesEditMediaPrompt)}`, {
+    parseMode: 'HTML',
+    replyKeyboard: [[i18n.common.welcomeTemplatesSkipGifButton], ['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+}
+
+async function sendWelcomeTemplateAdminDetail(context: TelegramCommandHandlerContext, templateId: string): Promise<void> {
+  const template = await loadWelcomeTemplateForAdminCallback(context, templateId);
+  if (!template) {
+    return;
+  }
+
+  await context.reply(formatWelcomeTemplateAdminDetailMessage(context, template), { parseMode: 'HTML' });
+}
+
+async function sendWelcomeTemplateDeleteConfirmation(context: TelegramCommandHandlerContext, templateId: string): Promise<void> {
+  const template = await loadWelcomeTemplateForAdminCallback(context, templateId);
+  if (!template) {
+    return;
+  }
+
+  const labels = createTelegramI18n(context.runtime.bot.language ?? 'ca').common;
+  const confirmLink = buildWelcomeTemplateHtmlLink(
+    `${welcomeTemplateStartDeletePrefix}${template.id}`,
+    labels.welcomeTemplatesDeleteConfirmButton,
+    true,
+  );
+  const backLink = buildWelcomeTemplateHtmlLink(
+    `${welcomeTemplateStartDetailPrefix}${template.id}`,
+    labels.welcomeTemplatesBackToListButton,
+  );
+  await context.reply(
+    `${formatWelcomeTemplateAdminDetail(template)}\n\n${escapeHtml(labels.welcomeTemplatesDeletePrompt)}\n${confirmLink} · ${backLink}`,
+    { parseMode: 'HTML' },
+  );
+}
+
+async function deleteWelcomeTemplateFromTelegram(context: TelegramCommandHandlerContext, templateId: string): Promise<void> {
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  const store = getWelcomeTemplateStore(context);
+  const deleted = await store.deleteTemplate(templateId);
+  await context.runtime.session.cancel();
+  await context.reply(
+    deleted ? i18n.common.welcomeTemplatesDeleted : i18n.common.welcomeTemplatesTargetMissing,
+    await buildReplyOptionsForCurrentActionMenu(context),
+  );
+  await sendWelcomeTemplatesAdminList(context, 1);
+}
+
+async function loadWelcomeTemplateForAdminCallback(
+  context: TelegramCommandHandlerContext,
+  templateId: string,
+): Promise<WelcomeMessageTemplate | null> {
+  const template = (await getWelcomeTemplateStore(context).listTemplates()).find((candidate) => candidate.id === templateId);
+  if (!template) {
+    await context.reply(createTelegramI18n(context.runtime.bot.language ?? 'ca').common.welcomeTemplatesTargetMissing);
+    return null;
+  }
+  return template;
+}
+
+async function ensureWelcomeTemplateAdminCallback(context: TelegramCommandHandlerContext): Promise<boolean> {
+  if (context.runtime.chat.kind === 'private' && context.runtime.actor.isAdmin) {
+    return true;
+  }
+
+  await context.reply(createTelegramI18n(context.runtime.bot.language ?? 'ca').common.accessDeniedAdmin);
+  return false;
+}
+
+function getWelcomeTemplateStore(context: TelegramCommandHandlerContext) {
+  return createAppMetadataWelcomeTemplateStore({ storage: getWelcomeTemplateStorage(context) });
+}
+
+function getWelcomeTemplateStorage(context: TelegramCommandHandlerContext) {
+  return createDatabaseAppMetadataSessionStorage({
+    database: context.runtime.services.database.db,
+  });
+}
+
+function formatWelcomeTemplateAdminDetail(template: WelcomeMessageTemplate): string {
+  const lines = [
+    `ID: ${escapeHtml(template.id)}`,
+    `Estado: ${template.isEnabled ? 'activa' : 'desactivada'}`,
+    `Adjunto: ${template.animationFileId ? 'sí' : 'no'}`,
+    `Usuario objetivo: ${escapeHtml(template.targetTelegramUserId ? String(template.targetTelegramUserId) : 'global')}`,
+    '',
+    escapeHtml(template.templateText),
+  ];
+  return lines.join('\n');
+}
+
+function formatWelcomeTemplateAdminDetailMessage(
+  context: TelegramCommandHandlerContext,
+  template: WelcomeMessageTemplate,
+): string {
+  const labels = createTelegramI18n(context.runtime.bot.language ?? 'ca').common;
+  return [
+    formatWelcomeTemplateAdminDetail(template),
+    '',
+    [
+      buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartEditTextPrefix}${template.id}`, labels.welcomeTemplatesEditTextButton),
+      buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartEditMediaPrefix}${template.id}`, labels.welcomeTemplatesEditMediaButton),
+    ].join(' · '),
+    [
+      buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartTogglePrefix}${template.id}`, labels.welcomeTemplatesToggleEnabledButton),
+      buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartDeleteConfirmPrefix}${template.id}`, labels.welcomeTemplatesDeleteButton, true),
+    ].join(' · '),
+    buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartListPrefix}1`, labels.welcomeTemplatesBackToListButton),
+  ].join('\n');
+}
+
+function formatWelcomeTemplatesAdminMenu({
+  templates,
+  labels,
+  page = 1,
+}: {
+  templates: WelcomeMessageTemplate[];
+  labels: CommonLabels;
+  page?: number;
+}): string {
+  const createLink = buildWelcomeTemplateHtmlLink(welcomeTemplateStartCreatePayload, labels.welcomeTemplatesCreateButton, true);
+  if (templates.length === 0) {
+    return `${escapeHtml(labels.welcomeTemplatesEmpty)}\n${createLink}`;
+  }
+
+  const currentPage = clampWelcomeTemplatePage(page, templates.length);
+  const totalPages = calculateWelcomeTemplateTotalPages(templates.length);
+  const startIndex = (currentPage - 1) * welcomeTemplateAdminPageSize;
+  const pageTemplates = templates.slice(startIndex, startIndex + welcomeTemplateAdminPageSize);
+  const lines: string[] = [
+    createLink,
+    '',
+    `${escapeHtml(labels.welcomeTemplatesIntro)} (${currentPage}/${totalPages})`,
+  ];
+  for (const [index, template] of pageTemplates.entries()) {
+    const label = `${startIndex + index + 1}. ${truncateWelcomeTemplateText(template.templateText)}`;
+    const target = template.targetTelegramUserId ? ` -> ${template.targetTelegramUserId}` : '';
+    const gif = template.animationFileId ? ' + GIF' : '';
+    const status = template.isEnabled ? '' : ' (off)';
+    lines.push(`${buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartDetailPrefix}${template.id}`, label, true)}${escapeHtml(`${gif}${target}${status}`)}`);
+  }
+
+  const navigation: string[] = [];
+  if (currentPage > 1) {
+    navigation.push(buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartListPrefix}${currentPage - 1}`, labels.welcomeTemplatesPrevPageButton));
+  }
+  if (currentPage < totalPages) {
+    navigation.push(buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartListPrefix}${currentPage + 1}`, labels.welcomeTemplatesNextPageButton));
+  }
+  if (navigation.length > 0) {
+    lines.push('', navigation.join(' · '));
+  }
+  return lines.join('\n');
+}
+
+function buildWelcomeTemplateHtmlLink(payload: string, label: string, bold = false): string {
+  const text = bold ? `<b>${escapeHtml(label)}</b>` : escapeHtml(label);
+  return `<a href="${escapeHtml(buildTelegramStartUrl(payload))}">${text}</a>`;
+}
+
+function renderTelegramMessageTextAsHtml(
+  text: string,
+  entities: TelegramCommandHandlerContext['messageEntities'],
+): string | null {
+  if (!entities?.length) {
+    return null;
+  }
+
+  const normalizedEntities = entities
+    .map((entity) => ({
+      ...entity,
+      end: entity.offset + entity.length,
+    }))
+    .filter((entity) => entity.offset >= 0 && entity.end <= text.length && entity.length > 0)
+    .sort((left, right) => left.offset - right.offset || right.end - left.end);
+
+  if (normalizedEntities.length === 0) {
+    return null;
+  }
+
+  const renderRange = (start: number, end: number, availableEntities: typeof normalizedEntities): string => {
+    let cursor = start;
+    const parts: string[] = [];
+
+    for (const entity of availableEntities) {
+      if (entity.offset < cursor || entity.offset < start || entity.end > end) {
+        continue;
+      }
+
+      if (entity.offset > cursor) {
+        parts.push(escapeHtml(text.slice(cursor, entity.offset)));
+      }
+
+      const nested = availableEntities.filter((candidate) =>
+        candidate !== entity && candidate.offset >= entity.offset && candidate.end <= entity.end);
+      const inner = renderRange(entity.offset, entity.end, nested);
+      parts.push(wrapTelegramEntityHtml(entity, inner, text.slice(entity.offset, entity.end)));
+      cursor = entity.end;
+    }
+
+    if (cursor < end) {
+      parts.push(escapeHtml(text.slice(cursor, end)));
+    }
+
+    return parts.join('');
+  };
+
+  return renderRange(0, text.length, normalizedEntities);
+}
+
+function wrapTelegramEntityHtml(
+  entity: { type: string; url?: string | undefined },
+  inner: string,
+  rawText: string,
+): string {
+  switch (entity.type) {
+    case 'bold':
+      return `<b>${inner}</b>`;
+    case 'italic':
+      return `<i>${inner}</i>`;
+    case 'underline':
+      return `<u>${inner}</u>`;
+    case 'strikethrough':
+      return `<s>${inner}</s>`;
+    case 'spoiler':
+      return `<tg-spoiler>${inner}</tg-spoiler>`;
+    case 'code':
+      return `<code>${inner}</code>`;
+    case 'pre':
+      return `<pre>${inner}</pre>`;
+    case 'blockquote':
+      return `<blockquote>${inner}</blockquote>`;
+    case 'expandable_blockquote':
+      return `<blockquote expandable>${inner}</blockquote>`;
+    case 'text_link':
+      return entity.url ? `<a href="${escapeHtml(entity.url)}">${inner}</a>` : inner;
+    case 'url':
+      return `<a href="${escapeHtml(rawText)}">${inner}</a>`;
+    default:
+      return inner;
+  }
+}
+
+function truncateWelcomeTemplateText(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > 90 ? `${normalized.slice(0, 87)}...` : normalized;
+}
+
+function calculateWelcomeTemplateTotalPages(totalItems: number): number {
+  return Math.max(1, Math.ceil(totalItems / welcomeTemplateAdminPageSize));
+}
+
+function clampWelcomeTemplatePage(page: number, totalItems: number): number {
+  const parsed = Number.isFinite(page) ? Math.trunc(page) : 1;
+  return Math.min(Math.max(parsed, 1), calculateWelcomeTemplateTotalPages(totalItems));
+}
+
+function parseWelcomeTemplatePageCallback(callbackData: string | undefined): number {
+  const parsed = Number(callbackData?.slice(welcomeTemplateListPagePrefix.length));
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : 1;
+}
+
+function parseWelcomeTemplateStartPage(startPayload: string): number {
+  const parsed = Number(startPayload.slice(welcomeTemplateStartListPrefix.length));
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : 1;
+}
+
+function parseWelcomeTemplateIdCallback(callbackData: string | undefined, prefix: string): string {
+  return callbackData?.slice(prefix.length).trim() ?? '';
+}
+
+function parseWelcomeTemplateStartId(startPayload: string, prefix: string): string {
+  return startPayload.slice(prefix.length).trim();
+}
+
+async function handleSecretWelcomePreviewText(context: TelegramCommandHandlerContext): Promise<boolean> {
+  if (
+    context.runtime.chat.kind !== 'private' ||
+    context.runtime.session.current ||
+    !isSecretWelcomePreviewText(context.messageText)
+  ) {
+    return false;
+  }
+
+  await sendSecretWelcomePreview(context);
+  return true;
+}
+
+function isSecretWelcomePreviewText(text: string | undefined): boolean {
+  const normalized = text?.trim().toLowerCase();
+  return normalized === 'welcome' || normalized === 'bienvenida';
+}
+
+async function sendSecretWelcomePreview(
+  context: TelegramCommandHandlerContext,
+  input: {
+    requestedIndex?: number | null;
+  } = {},
+): Promise<void> {
+  const storage = getWelcomeTemplateStorage(context);
+  const templateStore = createAppMetadataWelcomeTemplateStore({ storage });
+  const template = input.requestedIndex
+    ? await pickWelcomeTemplateByUserVisibleIndex({
+      templateStore,
+      telegramUserId: context.runtime.actor.telegramUserId,
+      requestedIndex: input.requestedIndex,
+    })
+    : await pickRememberedRandomWelcomeTemplate({
+      storage,
+      templateStore,
+      telegramUserId: context.runtime.actor.telegramUserId,
+    });
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  if (!template) {
+    await context.reply(i18n.common.welcomePreviewNoTemplates);
+    return;
+  }
+
+  const membershipRepository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+  const existingUser = await membershipRepository.findUserByTelegramUserId(context.runtime.actor.telegramUserId);
+  const displayName = existingUser?.displayName ?? resolveRequesterDisplayName(context);
+  await sendWelcomeTemplateToCurrentChat(context, {
+    template,
+    message: renderWelcomeTemplate(template.templateText, displayName),
+    htmlMessage: renderWelcomeTemplateHtml(template, displayName),
+  });
+}
+
+async function pickWelcomeTemplateByUserVisibleIndex({
+  templateStore,
+  telegramUserId,
+  requestedIndex,
+}: {
+  templateStore: ReturnType<typeof createAppMetadataWelcomeTemplateStore>;
+  telegramUserId: number;
+  requestedIndex: number;
+}): Promise<WelcomeMessageTemplate | null> {
+  const templates = (await templateStore.listTemplates())
+    .filter((template) => template.isEnabled)
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id));
+  const targeted = templates.filter((template) => template.targetTelegramUserId === telegramUserId);
+  const candidates = targeted.length > 0 ? targeted : templates.filter((template) => template.targetTelegramUserId == null);
+  return candidates[requestedIndex - 1] ?? null;
+}
+
+async function pickRememberedRandomWelcomeTemplate({
+  storage,
+  templateStore,
+  telegramUserId,
+}: {
+  storage: ReturnType<typeof createDatabaseAppMetadataSessionStorage>;
+  templateStore: ReturnType<typeof createAppMetadataWelcomeTemplateStore>;
+  telegramUserId: number;
+}): Promise<WelcomeMessageTemplate | null> {
+  const lastPickedKey = `${welcomeTemplateLastPickedPrefix}${telegramUserId}`;
+  const lastPickedTemplateId = await storage.get(lastPickedKey);
+  const template = await templateStore.pickTemplate({
+    telegramUserId,
+    excludeTemplateId: lastPickedTemplateId,
+  });
+  if (template) {
+    await storage.set(lastPickedKey, template.id);
+  }
+  return template;
+}
+
+async function handleWelcomeAnimationFileIdLookup(context: TelegramCommandHandlerContext): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isAdmin) {
+    return false;
+  }
+  const media = context.messageMedia;
+  if (!isWelcomeGifAttachment(media)) {
+    return false;
+  }
+
+  await context.reply(`GIF detectado. Usa este Telegram animation file ID en /admin/welcome:\n${media.fileId}`);
+  return true;
+}
+
+function isWelcomeGifAttachment(media: TelegramCommandHandlerContext['messageMedia']): media is NonNullable<TelegramCommandHandlerContext['messageMedia']> & { fileId: string } {
+  if (!media?.fileId) {
+    return false;
+  }
+
+  if (media.attachmentKind === 'animation' || media.attachmentKind === 'video') {
+    return true;
+  }
+
+  if (media.attachmentKind !== 'document') {
+    return false;
+  }
+
+  const mimeType = media.mimeType?.toLowerCase() ?? '';
+  const fileName = media.originalFileName?.toLowerCase() ?? '';
+  return mimeType === 'image/gif' || fileName.endsWith('.gif');
+}
+
+async function sendWelcomeTemplateToCurrentChat(
+  context: TelegramCommandHandlerContext,
+	  {
+	    template,
+	    message,
+	    htmlMessage,
+	  }: {
+	    template: WelcomeMessageTemplate;
+	    message: string;
+	    htmlMessage: string;
+	  },
+	): Promise<void> {
+	  if (template.animationFileId && context.runtime.bot.sendAnimation) {
+	    await context.runtime.bot.sendAnimation({
+	      chatId: context.runtime.chat.chatId,
+	      animationFileId: template.animationFileId,
+	      ...(htmlMessage.length <= 1000 ? { caption: htmlMessage, options: { parseMode: 'HTML' as const } } : {}),
+	      ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}),
+	    });
+	    if (htmlMessage.length > 1000) {
+	      if (context.runtime.chat.kind === 'private') {
+	        await context.reply(htmlMessage, { parseMode: 'HTML' });
+	      } else if (context.runtime.bot.sendGroupMessage) {
+	        await context.runtime.bot.sendGroupMessage(context.runtime.chat.chatId, htmlMessage, { parseMode: 'HTML' });
+	      }
+	    }
+	    return;
+	  }
+  if (context.runtime.chat.kind !== 'private' && context.runtime.bot.sendGroupMessage) {
+	    await context.runtime.bot.sendGroupMessage(context.runtime.chat.chatId, htmlMessage, { parseMode: 'HTML' });
+	    return;
+	  }
+  await context.reply(htmlMessage, { parseMode: 'HTML' });
+	}
+
+async function handleGroupWelcomeMessage(context: TelegramCommandHandlerContext): Promise<boolean> {
+  if (!context.newChatMembers?.length || context.runtime.chat.kind === 'private') {
+    return false;
+  }
+
+  const storage = getWelcomeTemplateStorage(context);
+  const templateStore = createAppMetadataWelcomeTemplateStore({ storage });
+  const membershipRepository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+  let handled = false;
+
+  for (const member of context.newChatMembers.filter((candidate) => !candidate.is_bot)) {
+    const template = await pickRememberedRandomWelcomeTemplate({
+      storage,
+      templateStore,
+      telegramUserId: member.id,
+    });
+    if (!template) {
+      continue;
+    }
+
+    const existingUser = await membershipRepository.findUserByTelegramUserId(member.id);
+    const displayName = existingUser?.displayName ?? resolveTelegramDisplayName({
+      ...(member.username !== undefined ? { username: member.username } : {}),
+      ...(member.first_name !== undefined ? { first_name: member.first_name } : {}),
+      ...(member.last_name !== undefined ? { last_name: member.last_name } : {}),
+    });
+    const message = renderWelcomeTemplate(template.templateText, displayName);
+    const htmlMessage = renderWelcomeTemplateHtml(template, displayName);
+
+    await sendWelcomeTemplateToCurrentChat(context, { template, message, htmlMessage });
+    handled = true;
+  }
+
+  return handled;
 }
 
 function registerGroupPurchaseCallbacks({
@@ -347,36 +1273,13 @@ function createDefaultCommands({
         const repository = createDatabaseMembershipAccessRepository({
           database: context.runtime.services.database.db,
         });
-        const result = await requestMembershipAccess({
-          repository,
-          telegramUserId: context.runtime.actor.telegramUserId,
-          ...(context.from?.username !== undefined ? { username: context.from.username } : {}),
-          displayName: resolveRequesterDisplayName(context),
-        });
-        const priorRevocation = result.outcome === 'created'
-          ? await repository.findLatestRevocation(context.runtime.actor.telegramUserId)
-          : null;
-
-        await context.reply(result.message);
-
-        if (result.outcome === 'created') {
-          const storage = createDatabaseAppMetadataSessionStorage({
-            database: context.runtime.services.database.db,
-          });
-          const subscriptionStore = createAppMetadataMembershipRequestNotificationSubscriptionStore({ storage });
-          const languagePreferenceStore = createAppMetadataTelegramLanguagePreferenceStore({ storage });
-
-          await notifySubscribedAdminsOfMembershipRequest({
-            store: subscriptionStore,
-            membershipRepository: repository,
-            languagePreferenceReader: languagePreferenceStore,
-            privateMessageSender: context.runtime.bot,
-            requesterTelegramUserId: context.runtime.actor.telegramUserId,
-            requesterDisplayName: resolveRequesterDisplayName(context),
-            ...(context.from?.username !== undefined ? { requesterUsername: context.from.username } : {}),
-            priorRevocation,
-          });
+        const existing = await repository.findUserByTelegramUserId(context.runtime.actor.telegramUserId);
+        if (!existing || existing.status === 'revoked') {
+          await startMembershipAccessDisplayNameFlow(context);
+          return;
         }
+
+        await submitMembershipAccessRequest(context, existing.displayName);
       },
     },
     {
@@ -631,24 +1534,22 @@ function createDefaultCommands({
     },
     {
       command: 'welcome',
-      contexts: ['private', 'group', 'group-news'],
+      contexts: ['private'],
       access: 'public',
-      description: 'Mostra informació de benvinguda i d\'accés',
       handle: async (context) => {
-        await handleWelcomeCommand(context, publicName);
+        await sendSecretWelcomePreview(context, {
+          requestedIndex: parseOptionalCommandPositiveInteger(context.messageText, 'welcome'),
+        });
       },
     },
     {
       command: 'bienvenida',
-      contexts: ['private', 'group', 'group-news'],
+      contexts: ['private'],
       access: 'public',
-      descriptionByLanguage: {
-        ca: 'Mostra informació de benvinguda i d\'accés',
-        es: 'Muestra información de bienvenida y acceso',
-        en: 'Show welcome and access information',
-      },
       handle: async (context) => {
-        await handleWelcomeCommand(context, publicName);
+        await sendSecretWelcomePreview(context, {
+          requestedIndex: parseOptionalCommandPositiveInteger(context.messageText, 'bienvenida'),
+        });
       },
     },
     {
@@ -660,6 +1561,10 @@ function createDefaultCommands({
         const startPayload = parseStartCommandPayload(context.messageText);
 
         if (startPayload === 'request_access' && (await handlePrivateAutoMembershipRequest(context))) {
+          return;
+        }
+
+        if (await handleWelcomeTemplateAdminStartPayload(context, startPayload)) {
           return;
         }
 
@@ -803,6 +1708,24 @@ function parseCommandSecret(
   }
 
   return secret;
+}
+
+function parseOptionalCommandPositiveInteger(
+  messageText: string | undefined,
+  command: string,
+): number | null {
+  const parts = messageText?.trim().split(/\s+/) ?? [];
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const commandToken = parts[0]?.replace(/^\/+/, '').split('@')[0]?.toLowerCase();
+  if (commandToken !== command.toLowerCase()) {
+    return null;
+  }
+
+  const parsed = Number(parts[1]);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function parseCallbackTarget(
@@ -1614,6 +2537,16 @@ async function handleTelegramActionMenuText(
 
     const localizedContext = { ...context, messageText: selection.label };
 
+    if (selection.actionId === 'change_display_name') {
+      await startMembershipChangeDisplayNameFlow(context);
+      return true;
+    }
+
+    if (selection.actionId === 'welcome_templates') {
+      await handleWelcomeTemplatesAdminMenu(context);
+      return true;
+    }
+
     if (selection.actionId === 'language') {
       return handleTelegramLanguageText(localizedContext);
     }
@@ -1727,9 +2660,14 @@ async function handleTelegramActionMenuText(
 }
 
 type TelegramActionMenuTextKey = keyof ReturnType<typeof createTelegramI18n>['actionMenu'];
+type CommonTextKey = keyof ReturnType<typeof createTelegramI18n>['common'];
 
 function matchesActionMenuLabel(text: string, key: TelegramActionMenuTextKey): boolean {
   return supportedBotLanguages.some((language) => createTelegramI18n(language).actionMenu[key] === text);
+}
+
+function matchesCommonLabel(text: string, key: CommonTextKey): boolean {
+  return supportedBotLanguages.some((language) => createTelegramI18n(language).common[key] === text);
 }
 
 async function replyWithStartAndDefaultKeyboard(context: TelegramCommandHandlerContext): Promise<boolean> {
@@ -1765,6 +2703,116 @@ async function clearTelegramTemporaryState(context: TelegramCommandHandlerContex
   return deletedSessions;
 }
 
+async function startMembershipAccessDisplayNameFlow(context: TelegramCommandHandlerContext): Promise<void> {
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  await context.runtime.session.start({
+    flowKey: membershipAccessDisplayNameFlowKey,
+    stepKey: 'display-name',
+    data: {},
+  });
+  await context.reply(i18n.common.displayNamePrompt, {
+    replyKeyboard: [['/cancel']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+}
+
+async function startMembershipChangeDisplayNameFlow(context: TelegramCommandHandlerContext): Promise<void> {
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  const repository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+  const user = await repository.findUserByTelegramUserId(context.runtime.actor.telegramUserId);
+  const currentDisplayName = user?.displayName ?? resolveRequesterDisplayName(context);
+
+  await context.runtime.session.start({
+    flowKey: membershipChangeDisplayNameFlowKey,
+    stepKey: 'display-name',
+    data: {},
+  });
+  await context.reply(
+    i18n.common.displayNameChangePrompt.replace('{displayName}', currentDisplayName),
+    {
+      replyKeyboard: [['/cancel']],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    },
+  );
+}
+
+async function handleMembershipDisplayNameText(context: TelegramCommandHandlerContext): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || ![membershipAccessDisplayNameFlowKey, membershipChangeDisplayNameFlowKey].includes(session.flowKey)) {
+    return false;
+  }
+
+  const i18n = createTelegramI18n(context.runtime.bot.language ?? 'ca');
+  const displayName = normalizeDisplayName(context.messageText);
+  if (!displayName) {
+    await context.reply(i18n.common.displayNameInvalid);
+    return true;
+  }
+
+  if (session.flowKey === membershipAccessDisplayNameFlowKey) {
+    await context.runtime.session.cancel();
+    await submitMembershipAccessRequest(context, displayName);
+    return true;
+  }
+
+  const repository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+  const result = await updateMembershipDisplayName({
+    repository,
+    telegramUserId: context.runtime.actor.telegramUserId,
+    displayName,
+  });
+  await context.runtime.session.cancel();
+  await context.reply(
+    result.outcome === 'updated'
+      ? i18n.common.displayNameSaved.replace('{displayName}', result.user?.displayName ?? displayName)
+      : result.message,
+    await buildReplyOptionsForCurrentActionMenu(context),
+  );
+  return true;
+}
+
+async function submitMembershipAccessRequest(
+  context: TelegramCommandHandlerContext,
+  displayName: string,
+): Promise<void> {
+  const repository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+  const result = await requestMembershipAccess({
+    repository,
+    telegramUserId: context.runtime.actor.telegramUserId,
+    ...(context.from?.username !== undefined ? { username: context.from.username } : {}),
+    displayName,
+  });
+
+  if (result.outcome === 'created') {
+    const storage = createDatabaseAppMetadataSessionStorage({
+      database: context.runtime.services.database.db,
+    });
+    const subscriptionStore = createAppMetadataMembershipRequestNotificationSubscriptionStore({ storage });
+    const languagePreferenceStore = createAppMetadataTelegramLanguagePreferenceStore({ storage });
+
+    await notifySubscribedAdminsOfMembershipRequest({
+      store: subscriptionStore,
+      membershipRepository: repository,
+      languagePreferenceReader: languagePreferenceStore,
+      privateMessageSender: context.runtime.bot,
+      requesterTelegramUserId: context.runtime.actor.telegramUserId,
+      requesterDisplayName: displayName,
+      ...(context.from?.username !== undefined ? { requesterUsername: context.from.username } : {}),
+      priorRevocation: await repository.findLatestRevocation(context.runtime.actor.telegramUserId),
+    });
+  }
+
+  await context.reply(result.message, await buildReplyOptionsForCurrentActionMenu(context));
+}
+
 function scheduleProcessRestart(delayMs = 750): void {
   const timer = setTimeout(() => {
     throw new Error('Admin requested Telegram bot restart via /restart');
@@ -1788,33 +2836,12 @@ async function handlePrivateAutoMembershipRequest(
     return false;
   }
 
-  const result = await requestMembershipAccess({
-    repository,
-    telegramUserId: context.runtime.actor.telegramUserId,
-    ...(context.from?.username !== undefined ? { username: context.from.username } : {}),
-    displayName: resolveRequesterDisplayName(context),
-  });
-
-  if (result.outcome === 'created') {
-    const storage = createDatabaseAppMetadataSessionStorage({
-      database: context.runtime.services.database.db,
-    });
-    const subscriptionStore = createAppMetadataMembershipRequestNotificationSubscriptionStore({ storage });
-    const languagePreferenceStore = createAppMetadataTelegramLanguagePreferenceStore({ storage });
-
-    await notifySubscribedAdminsOfMembershipRequest({
-      store: subscriptionStore,
-      membershipRepository: repository,
-      languagePreferenceReader: languagePreferenceStore,
-      privateMessageSender: context.runtime.bot,
-      requesterTelegramUserId: context.runtime.actor.telegramUserId,
-      requesterDisplayName: resolveRequesterDisplayName(context),
-      ...(context.from?.username !== undefined ? { requesterUsername: context.from.username } : {}),
-      priorRevocation: await repository.findLatestRevocation(context.runtime.actor.telegramUserId),
-    });
+  if (existing?.status === 'pending') {
+    await submitMembershipAccessRequest(context, existing.displayName);
+    return true;
   }
 
-  await context.reply(result.message, await buildReplyOptionsForCurrentActionMenu(context));
+  await startMembershipAccessDisplayNameFlow(context);
   return true;
 }
 

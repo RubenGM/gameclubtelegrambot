@@ -3,7 +3,7 @@ import type { TelegramActor } from './actor-store.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
-import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramMessageEntity, TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
 
@@ -45,6 +45,7 @@ export interface TelegramCommandRuntime {
     copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+    sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
     sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
@@ -62,7 +63,15 @@ export interface TelegramCommandHandlerContext {
     first_name?: string;
     last_name?: string;
   };
+  newChatMembers?: Array<{
+    id: number;
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+    is_bot?: boolean;
+  }>;
   messageText?: string;
+  messageEntities?: TelegramMessageEntity[];
   messageId?: number;
   isForwardedMessage?: boolean;
   callbackData?: string;
@@ -192,6 +201,8 @@ export function renderTelegramHelpMessage({
     lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
     lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
     lines.push(`${i18n.actionMenu.lfg}: ${i18n.common.helpLfgAction}`);
+    lines.push(`${i18n.actionMenu.welcomeTemplates}: ${i18n.common.helpWelcomeTemplatesAction}`);
+    lines.push(`${i18n.actionMenu.changeDisplayName}: ${i18n.common.helpChangeDisplayNameAction}`);
     lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
     lines.push('');
     lines.push(i18n.common.helpMenuHint);
@@ -204,6 +215,7 @@ export function renderTelegramHelpMessage({
   lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
   lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
   lines.push(`${i18n.actionMenu.lfg}: ${i18n.common.helpLfgAction}`);
+  lines.push(`${i18n.actionMenu.changeDisplayName}: ${i18n.common.helpChangeDisplayNameAction}`);
   lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
   lines.push('');
   lines.push(i18n.common.helpMenuHint);
@@ -228,6 +240,8 @@ function helpTextForSection(
       `${actionMenu.storage}: ${common.helpStorageAction}`,
       `${actionMenu.groupPurchases}: ${common.helpGroupPurchasesAction}`,
       `${actionMenu.lfg}: ${common.helpLfgAction}`,
+      `${actionMenu.welcomeTemplates}: ${common.helpWelcomeTemplatesAction}`,
+      `${actionMenu.changeDisplayName}: ${common.helpChangeDisplayNameAction}`,
       `${actionMenu.language}: ${common.helpLanguageAction}`,
     ].join('\n');
   }
@@ -241,6 +255,7 @@ function helpTextForSection(
       `${actionMenu.storage}: ${common.helpStorageAction}`,
       `${actionMenu.groupPurchases}: ${common.helpGroupPurchasesAction}`,
       `${actionMenu.lfg}: ${common.helpLfgAction}`,
+      `${actionMenu.changeDisplayName}: ${common.helpChangeDisplayNameAction}`,
       `${actionMenu.language}: ${common.helpLanguageAction}`,
     ].join('\n');
   }

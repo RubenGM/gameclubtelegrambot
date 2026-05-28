@@ -247,6 +247,7 @@ function createRuntimeContextMiddleware({
         ...(bot.copyMessage ? { copyMessage: bot.copyMessage.bind(bot) } : {}),
         ...(bot.forwardMessage ? { forwardMessage: bot.forwardMessage.bind(bot) } : {}),
         ...(bot.sendMediaGroup ? { sendMediaGroup: bot.sendMediaGroup.bind(bot) } : {}),
+        ...(bot.sendAnimation ? { sendAnimation: bot.sendAnimation.bind(bot) } : {}),
         ...(bot.sendDocument ? { sendDocument: bot.sendDocument.bind(bot) } : {}),
         ...(bot.downloadFile ? { downloadFile: bot.downloadFile.bind(bot) } : {}),
         ...(bot.editMessageText ? { editMessageText: bot.editMessageText.bind(bot) } : {}),

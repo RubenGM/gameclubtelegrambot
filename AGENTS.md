@@ -67,6 +67,25 @@ despliegue publico, Nginx lo expone como reverse proxy en:
 - `https://cawa.hopto.org/feedback` formulario publico de feedback.
 - `https://cawa.hopto.org/admin` panel admin protegido por la contraseña de
   elevacion admin (`GAMECLUB_ADMIN_PASSWORD_HASH`).
+- `https://cawa.hopto.org/admin/welcome` configuracion admin de mensajes de
+  bienvenida de grupo con plantillas `$USERNAME` y GIF opcional por Telegram
+  animation file ID.
+
+Los admins tambien pueden gestionar bienvenidas desde Telegram con el boton
+`Bienvenidas` del menu privado de Inicio; ese flujo lista plantillas con
+paginacion y enlaces inline en el texto para ver, editar texto, editar GIF/video,
+activar/pausar y eliminar. Al crear o editar texto, debe conservar las
+entidades de formato de Telegram como HTML seguro (negrita, cursiva, enlaces,
+etc.). Al crear o editar adjuntos, acepta animaciones Telegram, videos
+convertidos por el movil o archivos `.gif`, y guarda su file ID automaticamente
+en las plantillas.
+
+El bot tambien tiene aliases privados no anunciados para previsualizar la
+bienvenida propia: `Welcome`, `/welcome`, `Bienvenida` y `/bienvenida`.
+`/welcome 1` o `/bienvenida 1` fuerzan una plantilla por posicion visible. La
+seleccion aleatoria debe usar el Telegram user ID del remitente, el nombre
+visible guardado en `users.display_name`, y evitar repetir inmediatamente la
+ultima plantilla enviada a ese usuario cuando existan alternativas.
 
 Nginx gestiona `80/tcp` y `443/tcp`; el backend `8787/tcp` debe permanecer
 interno y no abrirse en el router. El certificado HTTPS es de Let's Encrypt y
