@@ -84,9 +84,9 @@ export const newsGroupCategories: readonly NewsGroupCategoryDescriptor[] = [
       en: 'nuevos_miembros',
     },
     description: {
-      ca: 'sol·licituds d alta de nous socis desde la web',
-      es: 'solicitudes de alta de nuevos socios desde la web',
-      en: 'new member signup requests from the website',
+      ca: 'altes web i benvingudes quan un admin aprova nous socis',
+      es: 'altas web y bienvenidas cuando un admin aprueba nuevos socios',
+      en: 'web signups and welcomes when an admin approves new members',
     },
     defaultSubscribed: false,
   },

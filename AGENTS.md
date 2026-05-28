@@ -88,6 +88,12 @@ seleccion aleatoria debe usar el Telegram user ID del remitente, el nombre
 visible guardado en `users.display_name`, y evitar repetir inmediatamente la
 ultima plantilla enviada a ese usuario cuando existan alternativas.
 
+Cuando un admin aprueba una solicitud desde Telegram (`/approve` o el callback
+de revisión), no se envía bienvenida privada al usuario aprobado. El bot debe
+publicar una plantilla de bienvenida en los grupos con news mode habilitado y
+suscritos a `nuevos_miembros`. La entrada normal de alguien a un grupo donde
+esta el bot no debe disparar estas bienvenidas.
+
 Nginx gestiona `80/tcp` y `443/tcp`; el backend `8787/tcp` debe permanecer
 interno y no abrirse en el router. El certificado HTTPS es de Let's Encrypt y
 lo renueva `certbot.timer`.

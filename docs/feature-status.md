@@ -23,7 +23,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario, avisando impacto con progreso editable.                    |
 | Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y procesos largos con progreso editable. |
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
-| Grupos de noticias                           | 🟢 Operativo         | `/news` y `/admin/news` gestionan/visibilizan suscripciones por categoría, incluyendo el feed `nuevos_miembros` para altas web.          |
+| Grupos de noticias                           | 🟢 Operativo         | `/news` y `/admin/news` gestionan/visibilizan suscripciones por categoría, incluyendo el feed `nuevos_miembros` para altas web y bienvenidas tras aprobación admin. |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
@@ -76,9 +76,9 @@ Implementado:
 - `/alta` registra solicitudes de alta desde la web en `member_signup_requests`, avisa por privado a admins aprobados y publica en grupos suscritos al feed `nuevos_miembros`.
 - `/admin/member-signups` permite revisar desde el panel web las solicitudes de alta recibidas, su estado, el resumen de avisos enviados y marcar cada solicitud como contactada, aprobada, rechazada o pendiente.
 - `/admin/welcome` permite a admins configurar plantillas aleatorias de bienvenida de grupo, con placeholder `$USERNAME`, GIF opcional mediante Telegram animation file ID, plantillas globales y plantillas especificas por Telegram user ID.
+- Al aprobar una solicitud desde Telegram (`/approve` o callbacks de revisión), el bot no envía bienvenida privada: publica una plantilla de bienvenida en los grupos con news mode habilitado y suscritos al feed `nuevos_miembros`. La entrada normal de alguien a un grupo donde está el bot no dispara bienvenidas.
 - El teclado privado de admins incluye `Bienvenidas`, que lista las plantillas actuales con paginacion por botones de teclado, pie visible `Mostrando X-Y de Z. Página A/B`, un enlace inline compacto junto a cada plantilla para abrir su detalle, acciones de detalle para previsualizar, editar texto, editar GIF/video, activar/pausar, eliminar y crear una bienvenida nueva directamente desde Telegram enviando el texto con formato Telegram conservado (negrita, cursiva, etc.) y despues un GIF/video opcional como adjunto, aceptando animaciones Telegram, videos convertidos por el movil y archivos `.gif`.
 - En privado, los aliases secretos `Welcome`, `/welcome`, `Bienvenida` y `/bienvenida` envian al usuario una previsualizacion real de la bienvenida aleatoria que le tocaria, usando su nombre visible guardado; `/welcome 1` y `/bienvenida 1` fuerzan una plantilla concreta por posicion visible.
-- Cuando Telegram avisa de nuevos miembros en un grupo, el bot elige una plantilla activa y publica el mensaje de bienvenida en el grupo; si la plantilla tiene GIF, lo envia como animacion con caption cuando cabe. La seleccion recuerda la ultima plantilla por usuario y evita repetirla inmediatamente si hay alternativas.
 - Las revocaciones notifican al usuario afectado y a admins suscritos.
 - Persistencia y auditoria en `users`, `user_status_audit_log`, `user_permission_assignments` y `user_permission_audit_log`.
 
@@ -217,8 +217,8 @@ Implementado:
 - `/news status`, `/news enable`, `/news disable`, `/news subscribe <categoria>` y `/news unsubscribe <categoria>` en grupos.
 - Persistencia de grupos habilitados y suscripciones por categoria.
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
-- Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs y altas web (`nuevos_miembros`).
-- Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem y altas web => `nuevos_miembros`); los grupos habilitados reciben los feeds marcados por defecto como `events` aunque tengan otras suscripciones explicitas.
+- Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs, altas web y bienvenidas por aprobación (`nuevos_miembros`).
+- Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem, altas web y bienvenidas por aprobación => `nuevos_miembros`); los grupos habilitados reciben los feeds marcados por defecto como `events` aunque tengan otras suscripciones explicitas.
 - `/admin/news` muestra los feeds disponibles y cuántos grupos activos hay suscritos a cada categoría.
 
 Pendiente:

@@ -5,6 +5,8 @@ import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import { createDatabaseVenueEventRepository } from '../venue-events/venue-event-catalog-store.js';
+import { newMembersNewsGroupCategory } from '../news/news-group-catalog.js';
+import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import {
   elevateApprovedUserToAdmin,
   grantAdminRoleToUser,
@@ -304,10 +306,6 @@ function registerMessageHandlers({
   bot: TelegramBotLike;
 }): void {
   bot.onMessage?.(async (context) => {
-    if (await handleGroupWelcomeMessage(context)) {
-      return;
-    }
-
     if (await handleWelcomeTemplateAdminMessage(context)) {
       return;
     }
@@ -1230,6 +1228,11 @@ async function sendWelcomeTemplateToCurrentChat(
     htmlMessage: string;
   },
 ): Promise<void> {
+  if (context.runtime.chat.kind !== 'private') {
+    await sendWelcomeTemplateToGroupChat(context, context.runtime.chat.chatId, { template, htmlMessage });
+    return;
+  }
+
   if (template.animationFileId && context.runtime.bot.sendAnimation) {
     await context.runtime.bot.sendAnimation({
       chatId: context.runtime.chat.chatId,
@@ -1246,49 +1249,35 @@ async function sendWelcomeTemplateToCurrentChat(
     }
     return;
   }
-  if (context.runtime.chat.kind !== 'private' && context.runtime.bot.sendGroupMessage) {
-    await context.runtime.bot.sendGroupMessage(context.runtime.chat.chatId, htmlMessage, { parseMode: 'HTML' });
-    return;
-  }
   await context.reply(htmlMessage, { parseMode: 'HTML' });
 }
 
-async function handleGroupWelcomeMessage(context: TelegramCommandHandlerContext): Promise<boolean> {
-  if (!context.newChatMembers?.length || context.runtime.chat.kind === 'private') {
-    return false;
-  }
-
-  const storage = getWelcomeTemplateStorage(context);
-  const templateStore = createAppMetadataWelcomeTemplateStore({ storage });
-  const membershipRepository = createDatabaseMembershipAccessRepository({
-    database: context.runtime.services.database.db,
-  });
-  let handled = false;
-
-  for (const member of context.newChatMembers.filter((candidate) => !candidate.is_bot)) {
-    const template = await pickRememberedRandomWelcomeTemplate({
-      storage,
-      templateStore,
-      telegramUserId: member.id,
+async function sendWelcomeTemplateToGroupChat(
+  context: TelegramCommandHandlerContext,
+  chatId: number,
+  {
+    template,
+    htmlMessage,
+  }: {
+    template: WelcomeMessageTemplate;
+    htmlMessage: string;
+  },
+): Promise<void> {
+  if (template.animationFileId && context.runtime.bot.sendAnimation) {
+    await context.runtime.bot.sendAnimation({
+      chatId,
+      animationFileId: template.animationFileId,
+      ...(htmlMessage.length <= 1000 ? { caption: htmlMessage, options: { parseMode: 'HTML' as const } } : {}),
+      ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}),
     });
-    if (!template) {
-      continue;
+    if (htmlMessage.length <= 1000) {
+      return;
     }
-
-    const existingUser = await membershipRepository.findUserByTelegramUserId(member.id);
-    const displayName = existingUser?.displayName ?? resolveTelegramDisplayName({
-      ...(member.username !== undefined ? { username: member.username } : {}),
-      ...(member.first_name !== undefined ? { first_name: member.first_name } : {}),
-      ...(member.last_name !== undefined ? { last_name: member.last_name } : {}),
-    });
-    const message = renderWelcomeTemplate(template.templateText, displayName);
-    const htmlMessage = renderWelcomeTemplateHtml(template, displayName);
-
-    await sendWelcomeTemplateToCurrentChat(context, { template, message, htmlMessage });
-    handled = true;
   }
 
-  return handled;
+  if (context.runtime.bot.sendGroupMessage) {
+    await context.runtime.bot.sendGroupMessage(chatId, htmlMessage, { parseMode: 'HTML' });
+  }
 }
 
 function registerGroupPurchaseCallbacks({
@@ -1576,12 +1565,10 @@ function createDefaultCommands({
 
         await context.reply(result.adminMessage);
         if (result.outcome === 'approved') {
-          await sendPostApprovalWelcomeMessage({
+          await publishPostApprovalWelcomeToNewsGroups({
             context,
             repository,
             applicantTelegramUserId,
-            publicName,
-            version: APP_VERSION,
           });
         }
       },
@@ -2014,49 +2001,47 @@ async function buildStartReply({
   };
 }
 
-async function sendPostApprovalWelcomeMessage({
+async function publishPostApprovalWelcomeToNewsGroups({
   context,
   repository,
   applicantTelegramUserId,
-  publicName,
-  version,
 }: {
   context: TelegramCommandHandlerContext;
   repository: ReturnType<typeof createDatabaseMembershipAccessRepository>;
   applicantTelegramUserId: number;
-  publicName: string;
-  version: string;
 }): Promise<void> {
   const approvedApplicant = await repository.findUserByTelegramUserId(applicantTelegramUserId);
   if (!approvedApplicant) {
     return;
   }
 
-  const syntheticContext: TelegramCommandHandlerContext = {
-    ...context,
-    runtime: {
-      ...context.runtime,
-      actor: {
-        ...context.runtime.actor,
-        telegramUserId: approvedApplicant.telegramUserId,
-        status: 'approved',
-        isApproved: true,
-        isBlocked: false,
-        isAdmin: approvedApplicant.isAdmin,
-      },
-    },
-  };
-
-  try {
-    const startReply = await buildStartReply({
-      context: syntheticContext,
-      publicName,
-      version,
-    });
-    await context.runtime.bot.sendPrivateMessage(applicantTelegramUserId, startReply.message, startReply.options);
-  } catch {
+  const storage = getWelcomeTemplateStorage(context);
+  const templateStore = createAppMetadataWelcomeTemplateStore({ storage });
+  const template = await pickRememberedRandomWelcomeTemplate({
+    storage,
+    templateStore,
+    telegramUserId: approvedApplicant.telegramUserId,
+  });
+  if (!template) {
     return;
   }
+
+  const newsGroupRepository = createDatabaseNewsGroupRepository({
+    database: context.runtime.services.database.db,
+  });
+  const subscribedGroups = await newsGroupRepository.listSubscribedGroupsByCategory(newMembersNewsGroupCategory);
+  if (subscribedGroups.length === 0) {
+    return;
+  }
+
+  const htmlMessage = renderWelcomeTemplateHtml(template, approvedApplicant.displayName);
+  await Promise.allSettled(
+    subscribedGroups.map((group) =>
+      sendWelcomeTemplateToGroupChat(context, group.chatId, {
+        template,
+        htmlMessage,
+      })),
+  );
 }
 
 async function buildTodayAtClubSummaryForStart(
@@ -2114,12 +2099,10 @@ function registerMembershipCallbacks({
 
     await context.reply(result.adminMessage);
     if (result.outcome === 'approved') {
-      await sendPostApprovalWelcomeMessage({
+      await publishPostApprovalWelcomeToNewsGroups({
         context,
         repository,
         applicantTelegramUserId,
-        publicName,
-        version: APP_VERSION,
       });
     }
   });

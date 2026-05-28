@@ -287,20 +287,283 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
         nextStatus: 'approved',
       },
     },
-    {
-      actionKey: 'telegram.menu.shown',
-      targetType: 'telegram-menu',
-      targetId: 'private-approved-default',
-      summary: 'Telegram menu shown: private-approved-default',
-      details: {
-        chatKind: 'private',
-        actorRole: 'member',
-        language: 'ca',
-        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'storage', 'group_purchases', 'lfg', 'change_display_name', 'language', 'help'],
-        visibleLabels: ['Activitats', 'Taules', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'LFG (buscar grup)', 'Canviar nom', 'Idioma', 'Ajuda'],
+  ]);
+});
+
+test('approving membership publishes the configured welcome to subscribed new-member news groups only', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const privateMessages: Array<{ telegramUserId: number; message: string }> = [];
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const sessionRecords = new Map<string, ConversationSessionRecord>();
+  const now = new Date('2026-05-28T10:00:00.000Z');
+  const membershipUsers = new Map<
+    number,
+    { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }
+  >([
+    [42, { telegramUserId: 42, username: 'new_member', displayName: 'Tester Club', status: 'pending', isAdmin: false }],
+  ]);
+  const appMetadataRecords = new Map<string, string>([
+    ['telegram.welcome_templates', JSON.stringify([{
+      id: 'welcome_1',
+      templateText: 'Benvingut $USERNAME',
+      templateHtml: '<b>Benvingut $USERNAME</b>',
+      animationFileId: null,
+      targetTelegramUserId: null,
+      isEnabled: true,
+      sortOrder: 0,
+    }])],
+  ]);
+  const newsGroupRecords = new Map([
+    [-200, { chatId: -200, isEnabled: true, metadata: null, createdAt: now, updatedAt: now, enabledAt: now, disabledAt: null }],
+  ]);
+  const newsGroupSubscriptions = new Map([
+    ['nuevos_miembros', new Set([-200])],
+  ]);
+  const databaseConnection = {
+    pool: undefined as never,
+    db: createMembershipDatabaseStub({
+      membershipUsers,
+      statusAuditLog: [],
+      auditEvents: [],
+      appMetadataRecords,
+      newsGroupRecords,
+      newsGroupSubscriptions,
+    }) as never,
+    close: async () => {},
+  };
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: databaseConnection,
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: telegramUserId === 99,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async (key) => sessionRecords.get(key) ?? null,
+      saveSession: async (session) => {
+        sessionRecords.set(session.key, session);
       },
+      deleteSession: async (key) => sessionRecords.delete(key),
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+      const callbackHandlers = new Map<string, TelegramCommandHandler>();
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: (callbackPrefix, handler) => {
+          callbackHandlers.set(callbackPrefix, handler);
+        },
+        onText: () => {},
+        username: 'gameclub_test_bot',
+        sendPrivateMessage: async (telegramUserId, message) => {
+          privateMessages.push({ telegramUserId, message });
+        },
+        sendGroupMessage: async (chatId, message, options) => {
+          groupMessages.push(options ? { chatId, message, options } : { chatId, message });
+        },
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 99,
+              username: 'club_admin',
+              first_name: 'Admin',
+            },
+            callbackData: 'approve_access:42',
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push(options ? { message, options } : { message });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+            if (middlewareIndex === middlewares.length) {
+              const approveHandler = callbackHandlers.get('approve_access:');
+              if (!approveHandler) {
+                throw new Error('approve handler not registered');
+              }
+              await approveHandler(context as unknown as TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  await telegram.stop();
+
+  assert.equal(replies[0]?.message.includes('aprovat') || replies[0]?.message.includes('aprobado'), true);
+  assert.deepEqual(privateMessages, []);
+  assert.deepEqual(groupMessages, [
+    {
+      chatId: -200,
+      message: '<b>Benvingut Tester Club</b>',
+      options: { parseMode: 'HTML' },
     },
   ]);
+});
+
+test('joining a group does not publish a welcome template', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const animations: Array<{ chatId: number; animationFileId: string; caption?: string }> = [];
+  const appMetadataRecords = new Map<string, string>([
+    ['telegram.welcome_templates', JSON.stringify([{
+      id: 'welcome_1',
+      templateText: 'Benvingut $USERNAME',
+      templateHtml: '<b>Benvingut $USERNAME</b>',
+      animationFileId: 'gif-file-id',
+      targetTelegramUserId: null,
+      isEnabled: true,
+      sortOrder: 0,
+    }])],
+  ]);
+  let messageHandler: TelegramCommandHandler | undefined;
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub({
+          membershipUsers: new Map([
+            [42, { telegramUserId: 42, username: 'new_member', displayName: 'Tester Club', status: 'approved', isAdmin: false }],
+          ]),
+          statusAuditLog: [],
+          auditEvents: [],
+          appMetadataRecords,
+        }) as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: () => {},
+        onMessage: (handler) => {
+          messageHandler = handler;
+        },
+        sendPrivateMessage: async () => {},
+        sendGroupMessage: async (chatId, message, options) => {
+          groupMessages.push(options ? { chatId, message, options } : { chatId, message });
+        },
+        sendAnimation: async ({ chatId, animationFileId, caption }) => {
+          animations.push({ chatId, animationFileId, ...(caption ? { caption } : {}) });
+        },
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: -200,
+              type: 'group',
+            },
+            from: {
+              id: 42,
+              username: 'new_member',
+              first_name: 'Tester',
+            },
+            newChatMembers: [{
+              id: 42,
+              username: 'new_member',
+              first_name: 'Tester',
+              is_bot: false,
+            }],
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push(options ? { message, options } : { message });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+            if (middlewareIndex === middlewares.length) {
+              if (!messageHandler) {
+                throw new Error('telegram message handler not registered');
+              }
+              await messageHandler(context as unknown as TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  await telegram.stop();
+
+  assert.deepEqual(replies, []);
+  assert.deepEqual(groupMessages, []);
+  assert.deepEqual(animations, []);
 });
 
 test('createTelegramBoundary marks configured news groups as group-news chats', async () => {
@@ -2798,6 +3061,8 @@ function createMembershipDatabaseStub({
   statusAuditLog,
   auditEvents,
   appMetadataRecords = new Map<string, string>(),
+  newsGroupRecords = new Map(),
+  newsGroupSubscriptions = new Map(),
 }: {
   membershipUsers: Map<
     number,
@@ -2806,6 +3071,16 @@ function createMembershipDatabaseStub({
   statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }>;
   auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }>;
   appMetadataRecords?: Map<string, string>;
+  newsGroupRecords?: Map<number, {
+    chatId: number;
+    isEnabled: boolean;
+    metadata: Record<string, unknown> | null;
+    createdAt: Date;
+    updatedAt: Date;
+    enabledAt: Date | null;
+    disabledAt: Date | null;
+  }>;
+  newsGroupSubscriptions?: Map<string, Set<number>>;
 }) {
   type MembershipDatabaseStub = {
     transaction(handler: (tx: MembershipDatabaseStub) => Promise<unknown>): Promise<unknown>;
@@ -2869,6 +3144,10 @@ function createMembershipDatabaseStub({
                 .filter((row) => matchesAppMetadataCondition(condition, row.key));
             }
 
+            if ('chatId' in selection && 'isEnabled' in selection && 'metadata' in selection) {
+              return listSubscribedNewsGroupRows(newsGroupRecords, newsGroupSubscriptions);
+            }
+
             return [];
           };
           const approvedNonAdmins = async () =>
@@ -2893,6 +3172,15 @@ function createMembershipDatabaseStub({
             orderBy() {
               return {
                 limit: approvedNonAdmins,
+              };
+            },
+            innerJoin() {
+              return {
+                where() {
+                  return {
+                    orderBy: async () => listSubscribedNewsGroupRows(newsGroupRecords, newsGroupSubscriptions),
+                  };
+                },
               };
             },
           };
@@ -2996,6 +3284,33 @@ function createMembershipDatabaseStub({
   };
 
   return stub;
+}
+
+function listSubscribedNewsGroupRows(
+  newsGroupRecords: Map<number, {
+    chatId: number;
+    isEnabled: boolean;
+    metadata: Record<string, unknown> | null;
+    createdAt: Date;
+    updatedAt: Date;
+    enabledAt: Date | null;
+    disabledAt: Date | null;
+  }>,
+  newsGroupSubscriptions: Map<string, Set<number>>,
+): Array<{
+  chatId: number;
+  isEnabled: boolean;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+  enabledAt: Date | null;
+  disabledAt: Date | null;
+}> {
+  const subscribedChatIds = newsGroupSubscriptions.get('nuevos_miembros') ?? new Set<number>();
+  return Array.from(subscribedChatIds)
+    .map((chatId) => newsGroupRecords.get(chatId))
+    .filter((group): group is NonNullable<typeof group> => group?.isEnabled === true)
+    .sort((left, right) => left.chatId - right.chatId);
 }
 
 function matchesAppMetadataCondition(condition: unknown, key: string): boolean {
