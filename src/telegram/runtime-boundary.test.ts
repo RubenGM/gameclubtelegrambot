@@ -969,6 +969,13 @@ test('toGrammyReplyOptions preserves parse mode without keyboards', async () => 
   });
 });
 
+test('toGrammyReplyOptions preserves topic targets without keyboards', async () => {
+  assert.deepEqual(toGrammyReplyOptions({ parseMode: 'HTML', messageThreadId: 77 }), {
+    parse_mode: 'HTML',
+    message_thread_id: 77,
+  });
+});
+
 test('toGrammyReplyOptions converts reply keyboard to grammY reply markup', async () => {
   assert.deepEqual(
     toGrammyReplyOptions({

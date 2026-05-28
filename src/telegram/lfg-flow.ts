@@ -512,7 +512,10 @@ async function publishLfgAnnouncement(
   await Promise.all(
     groups.map(async (group) => {
       try {
-        await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+        await sendGroupMessage(group.chatId, message, {
+          parseMode: 'HTML',
+          ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
+        });
       } catch {
         // No bloqueja la publicació local de l'anunci LFG.
       }

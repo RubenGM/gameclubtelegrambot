@@ -67,7 +67,7 @@ export async function publishCalendarSnapshotToNewsGroups({
   resolveActorDisplayName,
 }: {
   change: ScheduleCalendarChange;
-  sendGroupMessage?: (chatId: number, message: string, options?: { parseMode?: 'HTML' }) => Promise<void>;
+  sendGroupMessage?: (chatId: number, message: string, options?: { parseMode?: 'HTML'; messageThreadId?: number }) => Promise<void>;
   newsGroupRepository: NewsGroupRepository;
   database: unknown;
   botLanguage?: string;
@@ -103,11 +103,15 @@ export async function publishCalendarSnapshotToNewsGroups({
   await Promise.all(
     groups.map(async (group) => {
       try {
-        await sendGroupMessage(group.chatId, `${message}\n\n${footer}`, { parseMode: 'HTML' });
+        await sendGroupMessage(group.chatId, `${message}\n\n${footer}`, {
+          parseMode: 'HTML',
+          ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
+        });
       } catch (error) {
         console.warn(JSON.stringify({
           event: 'schedule.calendar-broadcast.group-send.failed',
           chatId: group.chatId,
+          messageThreadId: group.messageThreadId,
           error: error instanceof Error ? error.message : String(error),
         }));
         // La notificació de grup no ha de bloquejar l'edició de l'activitat.

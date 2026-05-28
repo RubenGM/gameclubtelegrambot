@@ -158,6 +158,7 @@ export interface TelegramReplyOptions {
   resizeKeyboard?: boolean;
   persistentKeyboard?: boolean;
   parseMode?: 'HTML';
+  messageThreadId?: number;
 }
 
 export interface TelegramRuntime {

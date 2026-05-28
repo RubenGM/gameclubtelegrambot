@@ -198,9 +198,14 @@ export function newsGroupCategoryDescription(category: NewsGroupCategoryDescript
 
 export interface NewsGroupSubscriptionRecord {
   chatId: number;
+  messageThreadId: number | null;
   categoryKey: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface NewsGroupDeliveryTarget extends NewsGroupRecord {
+  messageThreadId: number | null;
 }
 
 export interface NewsGroupRepository {
@@ -211,10 +216,10 @@ export interface NewsGroupRepository {
     isEnabled: boolean;
     metadata?: Record<string, unknown> | null;
   }): Promise<NewsGroupRecord>;
-  listSubscriptionsByChatId(chatId: number): Promise<NewsGroupSubscriptionRecord[]>;
-  upsertSubscription(input: { chatId: number; categoryKey: string }): Promise<NewsGroupSubscriptionRecord>;
-  deleteSubscription(input: { chatId: number; categoryKey: string }): Promise<boolean>;
-  listSubscribedGroupsByCategory(categoryKey: string): Promise<NewsGroupRecord[]>;
+  listSubscriptionsByChatId(chatId: number, input?: { messageThreadId?: number | null }): Promise<NewsGroupSubscriptionRecord[]>;
+  upsertSubscription(input: { chatId: number; categoryKey: string; messageThreadId?: number | null }): Promise<NewsGroupSubscriptionRecord>;
+  deleteSubscription(input: { chatId: number; categoryKey: string; messageThreadId?: number | null }): Promise<boolean>;
+  listSubscribedGroupsByCategory(categoryKey: string): Promise<NewsGroupDeliveryTarget[]>;
   isNewsEnabledGroup(chatId: number): Promise<boolean>;
 }
 
@@ -240,14 +245,17 @@ export async function subscribeNewsGroup({
   repository,
   chatId,
   categoryKey,
+  messageThreadId,
 }: {
   repository: NewsGroupRepository;
   chatId: number;
   categoryKey: string;
+  messageThreadId?: number | null;
 }): Promise<NewsGroupSubscriptionRecord> {
   return repository.upsertSubscription({
     chatId: normalizeChatId(chatId),
     categoryKey: normalizeCategoryKey(categoryKey),
+    messageThreadId: normalizeMessageThreadId(messageThreadId),
   });
 }
 
@@ -255,14 +263,17 @@ export async function unsubscribeNewsGroup({
   repository,
   chatId,
   categoryKey,
+  messageThreadId,
 }: {
   repository: NewsGroupRepository;
   chatId: number;
   categoryKey: string;
+  messageThreadId?: number | null;
 }): Promise<boolean> {
   return repository.deleteSubscription({
     chatId: normalizeChatId(chatId),
     categoryKey: normalizeCategoryKey(categoryKey),
+    messageThreadId: normalizeMessageThreadId(messageThreadId),
   });
 }
 
@@ -291,6 +302,18 @@ function normalizeCategoryKey(categoryKey: string): string {
   }
 
   return normalized;
+}
+
+export function normalizeMessageThreadId(messageThreadId: number | null | undefined): number | null {
+  if (messageThreadId === null || messageThreadId === undefined || messageThreadId === 0) {
+    return null;
+  }
+
+  if (!Number.isInteger(messageThreadId) || messageThreadId < 0) {
+    throw new Error('El message_thread_id ha de ser un enter positiu');
+  }
+
+  return messageThreadId;
 }
 
 function normalizeMetadata(metadata: Record<string, unknown> | null): Record<string, unknown> | null {

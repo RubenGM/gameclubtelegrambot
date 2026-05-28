@@ -91,8 +91,17 @@ ultima plantilla enviada a ese usuario cuando existan alternativas.
 Cuando un admin aprueba una solicitud desde Telegram (`/approve` o el callback
 de revisión), no se envía bienvenida privada al usuario aprobado. El bot debe
 publicar una plantilla de bienvenida en los grupos con news mode habilitado y
-suscritos a `nuevos_miembros`. La entrada normal de alguien a un grupo donde
-esta el bot no debe disparar estas bienvenidas.
+suscritos a `nuevos_miembros`; si la suscripción se hizo dentro de un topic,
+la bienvenida debe publicarse sólo en ese `message_thread_id`, no en todo el
+grupo. La entrada normal de alguien a un grupo donde esta el bot no debe
+disparar estas bienvenidas.
+
+`/news` soporta supergrupos con topics. Las suscripciones se persisten por
+`chat_id` + `message_thread_id`: `message_thread_id = 0` representa el grupo
+completo, y un valor positivo representa un topic concreto. Los comandos y
+callbacks ejecutados dentro de un topic deben gestionar ese topic; fuera de
+topic gestionan el grupo completo. Al publicar feeds, pasa siempre el
+`messageThreadId` del destino a Telegram.
 
 Nginx gestiona `80/tcp` y `443/tcp`; el backend `8787/tcp` debe permanecer
 interno y no abrirse en el router. El certificado HTTPS es de Let's Encrypt y

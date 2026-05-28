@@ -810,9 +810,14 @@ async function publishCatalogLoanNewsGroups(
   await Promise.all(
     groups.map(async (group) => {
       try {
-        const sentWithCaption = cover ? await trySendLoanCover(context, group.chatId, cover, message) : false;
+        const sentWithCaption = cover
+          ? await trySendLoanCover(context, group.chatId, group.messageThreadId, cover, message)
+          : false;
         if (!sentWithCaption) {
-          await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+          await sendGroupMessage(group.chatId, message, {
+            parseMode: 'HTML',
+            ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
+          });
         }
       } catch {
         // La notificació de grup no ha de bloquejar el préstec o retorn.
@@ -850,6 +855,7 @@ async function resolveCatalogLoanCover(context: TelegramCatalogLoanContext, item
 async function trySendLoanCover(
   context: TelegramCatalogLoanContext,
   chatId: number,
+  messageThreadId: number | null,
   cover: CatalogLoanCover,
   caption: string,
 ): Promise<boolean> {
@@ -859,6 +865,7 @@ async function trySendLoanCover(
         fromChatId: cover.message.storageChatId,
         messageId: cover.message.storageMessageId,
         toChatId: chatId,
+        ...(messageThreadId ? { messageThreadId } : {}),
       });
     } catch {
       return false;
@@ -873,6 +880,7 @@ async function trySendLoanCover(
     await context.runtime.bot.sendMediaGroup({
       chatId,
       media: [{ type: 'photo', media: cover.url, caption }],
+      ...(messageThreadId ? { messageThreadId } : {}),
     });
     return true;
   } catch {
@@ -882,7 +890,7 @@ async function trySendLoanCover(
 
 async function copyLoanCoverMessage(
   context: TelegramCatalogLoanContext,
-  input: { fromChatId: number; messageId: number; toChatId: number },
+  input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number },
 ): Promise<{ messageId: number } | null> {
   if (context.runtime.bot.copyMessage) {
     try {

@@ -233,7 +233,7 @@ function createNewsGroupRepository(initialGroups: NewsGroupRecord[] = []): NewsG
       return false;
     },
     async listSubscribedGroupsByCategory() {
-      return initialGroups.filter((group) => group.isEnabled);
+      return initialGroups.filter((group) => group.isEnabled).map((group) => ({ ...group, messageThreadId: null }));
     },
     async isNewsEnabledGroup(chatId) {
       return initialGroups.some((group) => group.chatId === chatId && group.isEnabled);

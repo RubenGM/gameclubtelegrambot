@@ -263,6 +263,7 @@ function createNewsGroupRepository(initialGroups: NewsGroupRecord[]): NewsGroupR
       subscriptions.set(input.categoryKey, chatIds);
       return {
         chatId: input.chatId,
+        messageThreadId: input.messageThreadId ?? null,
         categoryKey: input.categoryKey,
         createdAt: '2026-05-04T09:30:00.000Z',
         updatedAt: '2026-05-04T09:30:00.000Z',
@@ -273,7 +274,9 @@ function createNewsGroupRepository(initialGroups: NewsGroupRecord[]): NewsGroupR
     },
     async listSubscribedGroupsByCategory(categoryKey) {
       const chatIds = subscriptions.get(categoryKey) ?? new Set<number>();
-      return Array.from(groups.values()).filter((group) => group.isEnabled && chatIds.has(group.chatId));
+      return Array.from(groups.values())
+        .filter((group) => group.isEnabled && chatIds.has(group.chatId))
+        .map((group) => ({ ...group, messageThreadId: null }));
     },
     async isNewsEnabledGroup(chatId) {
       return groups.get(chatId)?.isEnabled === true;

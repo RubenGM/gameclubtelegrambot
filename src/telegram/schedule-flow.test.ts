@@ -525,7 +525,7 @@ function createNewsGroupRepository(
         }
 
         return subscriptions.has(group.chatId);
-      });
+      }).map((group) => ({ ...group, messageThreadId: null }));
     },
     async isNewsEnabledGroup(chatId) {
       return groups.get(chatId)?.isEnabled === true;

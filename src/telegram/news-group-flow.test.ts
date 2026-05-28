@@ -44,10 +44,11 @@ function createRepository(initialGroup: NewsGroupRecord | null = null): NewsGrou
       groups.set(next.chatId, next);
       return next;
     },
-    async listSubscriptionsByChatId(chatId) {
+    async listSubscriptionsByChatId(chatId, input = {}) {
       return Array.from(subscriptions.values())
         .filter((subscription) => subscription.chatId === chatId)
-        .sort((left, right) => left.categoryKey.localeCompare(right.categoryKey));
+        .filter((subscription) => !('messageThreadId' in input) || subscription.messageThreadId === (input.messageThreadId ?? null))
+        .sort((left, right) => (left.messageThreadId ?? 0) - (right.messageThreadId ?? 0) || left.categoryKey.localeCompare(right.categoryKey));
     },
     async upsertSubscription(input) {
       const now = '2026-04-04T10:00:00.000Z';
@@ -55,26 +56,36 @@ function createRepository(initialGroup: NewsGroupRecord | null = null): NewsGrou
         throw new Error('missing news group');
       }
 
+      const messageThreadId = input.messageThreadId ?? null;
+      const key = `${input.chatId}:${messageThreadId ?? 0}:${input.categoryKey}`;
       const subscription: NewsGroupSubscriptionRecord = {
         chatId: input.chatId,
+        messageThreadId,
         categoryKey: input.categoryKey,
-        createdAt: subscriptions.get(`${input.chatId}:${input.categoryKey}`)?.createdAt ?? now,
+        createdAt: subscriptions.get(key)?.createdAt ?? now,
         updatedAt: now,
       };
-      subscriptions.set(`${input.chatId}:${input.categoryKey}`, subscription);
+      subscriptions.set(key, subscription);
       return subscription;
     },
-    async deleteSubscription({ chatId, categoryKey }) {
-      return subscriptions.delete(`${chatId}:${categoryKey}`);
+    async deleteSubscription({ chatId, categoryKey, messageThreadId }) {
+      return subscriptions.delete(`${chatId}:${messageThreadId ?? 0}:${categoryKey}`);
     },
     async listSubscribedGroupsByCategory(categoryKey) {
-      return Array.from(groups.values()).filter((group) => {
-        if (!group.isEnabled) {
-          return false;
-        }
-
-        return subscriptions.has(`${group.chatId}:${categoryKey}`);
-      });
+      const explicit = Array.from(subscriptions.values())
+        .filter((subscription) => subscription.categoryKey === categoryKey)
+        .flatMap((subscription) => {
+          const group = groups.get(subscription.chatId);
+          return group?.isEnabled ? [{ ...group, messageThreadId: subscription.messageThreadId }] : [];
+        });
+      if (categoryKey !== 'events') {
+        return explicit;
+      }
+      const explicitChatIds = new Set(explicit.map((group) => group.chatId));
+      const defaults = Array.from(groups.values())
+        .filter((group) => group.isEnabled && !explicitChatIds.has(group.chatId))
+        .map((group) => ({ ...group, messageThreadId: null }));
+      return [...explicit, ...defaults];
     },
     async isNewsEnabledGroup(chatId) {
       return groups.get(chatId)?.isEnabled === true;
@@ -87,11 +98,13 @@ function createContext({
   chatKind = 'group',
   isAdmin = true,
   hasNewsPermission = isAdmin,
+  messageThreadId,
 }: {
   repository?: NewsGroupRepository;
   chatKind?: 'group' | 'group-news';
   isAdmin?: boolean;
   hasNewsPermission?: boolean;
+  messageThreadId?: number;
 } = {}) {
   const replies: string[] = [];
   let currentSession: ConversationSessionRecord | null = null;
@@ -100,6 +113,7 @@ function createContext({
     reply: async (message) => {
       replies.push(message);
     },
+    ...(messageThreadId ? { messageThreadId } : {}),
     runtime: {
       actor: {
         telegramUserId: 99,
@@ -192,6 +206,34 @@ test('handleTelegramNewsGroupText enables and subscribes a group with clear stat
   assert.match(replies.at(-1) ?? '', /Mode news: activat/);
   assert.match(replies.at(-1) ?? '', /Categories subscrites: events/);
   assert.equal((await repository.findGroupByChatId(-200))?.isEnabled, true);
+});
+
+test('handleTelegramNewsGroupText subscribes only the current topic when used inside a topic', async () => {
+  const { context, replies, repository } = createContext({ messageThreadId: 77 });
+
+  context.messageText = '/news suscribir socios';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+  assert.match(replies.at(-1) ?? '', /Destino: topic 77|Destí: topic 77/);
+  assert.match(replies.at(-1) ?? '', /nuevos_miembros/);
+
+  assert.deepEqual(await repository.listSubscriptionsByChatId(-200, { messageThreadId: 77 }), [
+    {
+      chatId: -200,
+      messageThreadId: 77,
+      categoryKey: 'nuevos_miembros',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  assert.deepEqual(await repository.listSubscriptionsByChatId(-200, { messageThreadId: null }), []);
+
+  context.messageText = '/news activar';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+
+  const targets = await repository.listSubscribedGroupsByCategory('nuevos_miembros');
+  assert.deepEqual(targets.map((target) => ({ chatId: target.chatId, messageThreadId: target.messageThreadId })), [
+    { chatId: -200, messageThreadId: 77 },
+  ]);
 });
 
 test('handleTelegramNewsGroupText disables a group and keeps subscriptions visible', async () => {

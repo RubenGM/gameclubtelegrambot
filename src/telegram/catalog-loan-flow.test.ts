@@ -245,6 +245,7 @@ function createNewsGroupRepository(
     async listSubscriptionsByChatId(chatId) {
       return Array.from(subscriptionsForChat(chatId, subscribedGroupsByCategory)).map((categoryKey) => ({
         chatId,
+        messageThreadId: null,
         categoryKey,
         createdAt: '2026-04-04T10:00:00.000Z',
         updatedAt: '2026-04-04T10:00:00.000Z',
@@ -256,6 +257,7 @@ function createNewsGroupRepository(
       subscribedGroupsByCategory.set(input.categoryKey, next);
       return {
         chatId: input.chatId,
+        messageThreadId: input.messageThreadId ?? null,
         categoryKey: input.categoryKey,
         createdAt: '2026-04-04T10:00:00.000Z',
         updatedAt: '2026-04-04T10:00:00.000Z',
@@ -273,7 +275,9 @@ function createNewsGroupRepository(
     },
     async listSubscribedGroupsByCategory(categoryKey) {
       const chatIds = subscribedGroupsByCategory.get(categoryKey) ?? new Set<number>();
-      return Array.from(groups.values()).filter((group) => group.isEnabled && chatIds.has(group.chatId));
+      return Array.from(groups.values())
+        .filter((group) => group.isEnabled && chatIds.has(group.chatId))
+        .map((group) => ({ ...group, messageThreadId: null }));
     },
     async isNewsEnabledGroup(chatId) {
       return groups.get(chatId)?.isEnabled === true;

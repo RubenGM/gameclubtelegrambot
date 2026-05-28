@@ -3918,7 +3918,7 @@ function newsAdminPage(summary: NewsAdminSummary): string {
   return page({
     title: 'Noticias y feeds',
     shell: 'admin',
-    body: `<section><h2>Grupos</h2><p>${summary.enabledGroups} grupos activos de ${summary.totalGroups} registrados.</p></section><section><h2>Categorias</h2><table><thead><tr><th>Feed</th><th>Descripcion</th><th>Grupos suscritos</th><th>Default</th></tr></thead><tbody>${categoryRows}</tbody></table></section>`,
+    body: `<section><h2>Grupos</h2><p>${summary.enabledGroups} grupos activos de ${summary.totalGroups} registrados.</p></section><section><h2>Categorias</h2><table><thead><tr><th>Feed</th><th>Descripcion</th><th>Destinos suscritos</th><th>Default</th></tr></thead><tbody>${categoryRows}</tbody></table></section>`,
   });
 }
 

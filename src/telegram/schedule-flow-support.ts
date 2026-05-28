@@ -1660,7 +1660,7 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
   return {
     ...(sendGroupMessage
       ? {
-          sendGroupMessage: async (chatId: number, message: string, options?: { parseMode?: 'HTML' }) =>
+          sendGroupMessage: async (chatId: number, message: string, options?: { parseMode?: 'HTML'; messageThreadId?: number }) =>
             sendGroupMessage(chatId, message, options),
         }
       : {}),

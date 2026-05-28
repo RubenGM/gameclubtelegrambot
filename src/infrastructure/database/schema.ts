@@ -372,6 +372,7 @@ export const newsGroupSubscriptions = pgTable(
     chatId: bigint('chat_id', { mode: 'number' })
       .notNull()
       .references(() => newsGroups.chatId),
+    messageThreadId: integer('message_thread_id').notNull().default(0),
     categoryKey: varchar('category_key', { length: 128 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -380,6 +381,7 @@ export const newsGroupSubscriptions = pgTable(
     uniqueSubscription: uniqueIndex('news_group_subscriptions_unique_subscription').on(
       table.chatId,
       table.categoryKey,
+      table.messageThreadId,
     ),
     categoryLookup: index('news_group_subscriptions_category_key_idx').on(table.categoryKey),
   }),

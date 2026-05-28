@@ -119,6 +119,7 @@ test('createDatabaseNewsGroupRepository lists subscribed groups by category', as
           const explicitEventRows = [
             {
               chatId: -100,
+              messageThreadId: 0,
               isEnabled: true,
               metadata: null,
               createdAt: new Date('2026-04-04T10:00:00.000Z'),
@@ -146,12 +147,14 @@ test('createDatabaseNewsGroupRepository lists subscribed groups by category', as
           values: (values: Record<string, unknown>) => {
             assert.equal(values.chatId, -100);
             assert.equal(values.categoryKey, 'events');
+            assert.equal(values.messageThreadId, 0);
 
             return {
               onConflictDoUpdate: () => ({
                 returning: async () => [
                   {
                     chatId: -100,
+                    messageThreadId: 0,
                     categoryKey: 'events',
                     createdAt: new Date('2026-04-04T10:00:00.000Z'),
                     updatedAt: new Date('2026-04-04T10:00:00.000Z'),
@@ -173,5 +176,8 @@ test('createDatabaseNewsGroupRepository lists subscribed groups by category', as
   await repository.upsertSubscription({ chatId: -100, categoryKey: 'events' });
 
   const groups = await repository.listSubscribedGroupsByCategory('events');
-  assert.deepEqual(groups.map((group) => group.chatId), [-101, -100]);
+  assert.deepEqual(groups.map((group) => ({ chatId: group.chatId, messageThreadId: group.messageThreadId })), [
+    { chatId: -101, messageThreadId: null },
+    { chatId: -100, messageThreadId: null },
+  ]);
 });

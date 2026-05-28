@@ -1229,7 +1229,11 @@ async function sendWelcomeTemplateToCurrentChat(
   },
 ): Promise<void> {
   if (context.runtime.chat.kind !== 'private') {
-    await sendWelcomeTemplateToGroupChat(context, context.runtime.chat.chatId, { template, htmlMessage });
+    await sendWelcomeTemplateToGroupChat(context, context.runtime.chat.chatId, {
+      template,
+      htmlMessage,
+      messageThreadId: context.messageThreadId ?? null,
+    });
     return;
   }
 
@@ -1244,7 +1248,10 @@ async function sendWelcomeTemplateToCurrentChat(
       if (context.runtime.chat.kind === 'private') {
         await context.reply(htmlMessage, { parseMode: 'HTML' });
       } else if (context.runtime.bot.sendGroupMessage) {
-        await context.runtime.bot.sendGroupMessage(context.runtime.chat.chatId, htmlMessage, { parseMode: 'HTML' });
+        await context.runtime.bot.sendGroupMessage(context.runtime.chat.chatId, htmlMessage, {
+          parseMode: 'HTML',
+          ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}),
+        });
       }
     }
     return;
@@ -1258,9 +1265,11 @@ async function sendWelcomeTemplateToGroupChat(
   {
     template,
     htmlMessage,
+    messageThreadId,
   }: {
     template: WelcomeMessageTemplate;
     htmlMessage: string;
+    messageThreadId?: number | null;
   },
 ): Promise<void> {
   if (template.animationFileId && context.runtime.bot.sendAnimation) {
@@ -1268,7 +1277,7 @@ async function sendWelcomeTemplateToGroupChat(
       chatId,
       animationFileId: template.animationFileId,
       ...(htmlMessage.length <= 1000 ? { caption: htmlMessage, options: { parseMode: 'HTML' as const } } : {}),
-      ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}),
+      ...(messageThreadId ? { messageThreadId } : {}),
     });
     if (htmlMessage.length <= 1000) {
       return;
@@ -1276,7 +1285,10 @@ async function sendWelcomeTemplateToGroupChat(
   }
 
   if (context.runtime.bot.sendGroupMessage) {
-    await context.runtime.bot.sendGroupMessage(chatId, htmlMessage, { parseMode: 'HTML' });
+    await context.runtime.bot.sendGroupMessage(chatId, htmlMessage, {
+      parseMode: 'HTML',
+      ...(messageThreadId ? { messageThreadId } : {}),
+    });
   }
 }
 
@@ -1839,8 +1851,13 @@ export function toGrammyReplyOptions(
     return undefined;
   }
 
+  const baseOptions = {
+    ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
+    ...(options.messageThreadId ? { message_thread_id: options.messageThreadId } : {}),
+  };
+
   if (!options.inlineKeyboard && !options.replyKeyboard) {
-    return options.parseMode ? { parse_mode: options.parseMode } : undefined;
+    return Object.keys(baseOptions).length > 0 ? baseOptions : undefined;
   }
 
   if (options.replyKeyboard) {
@@ -1850,7 +1867,7 @@ export function toGrammyReplyOptions(
         resize_keyboard: options.resizeKeyboard ?? true,
         is_persistent: options.persistentKeyboard ?? true,
       },
-      ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
+      ...baseOptions,
     };
   }
 
@@ -1866,7 +1883,7 @@ export function toGrammyReplyOptions(
         row.map((button) => toRawInlineKeyboardButton(button, buttonAppearance)),
       ),
     },
-    ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
+    ...baseOptions,
   };
 }
 
@@ -2040,6 +2057,7 @@ async function publishPostApprovalWelcomeToNewsGroups({
       sendWelcomeTemplateToGroupChat(context, group.chatId, {
         template,
         htmlMessage,
+        messageThreadId: group.messageThreadId,
       })),
   );
 }

@@ -3,6 +3,7 @@ import {
   newsGroupCategoryLabel,
   type NewsGroupCategoryKey,
   listNewsGroupCategories,
+  normalizeMessageThreadId,
   normalizeNewsGroupCategoryKey,
   resolveNewsGroupCategory,
 } from '../news/news-group-catalog.js';
@@ -23,6 +24,7 @@ export const newsGroupCallbackPrefixes = {
 
 export interface TelegramNewsGroupContext {
   callbackData?: string;
+  messageThreadId?: number;
   messageText?: string | undefined;
   reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: {
@@ -61,16 +63,17 @@ export async function handleTelegramNewsGroupCallback(context: TelegramNewsGroup
 
   const repository = resolveNewsGroupRepository(context);
   const chatId = context.runtime.chat.chatId;
+  const messageThreadId = resolveNewsTargetMessageThreadId(context);
 
   if (callbackData === newsGroupCallbackPrefixes.toggle) {
     const group = await ensureNewsGroupExists(repository, chatId);
     await repository.upsertGroup({ chatId, isEnabled: !group.isEnabled });
-    await replyWithNewsGroupStatus(context, repository, chatId, language, i18n);
+    await replyWithNewsGroupStatus(context, repository, chatId, messageThreadId, language, i18n);
     return true;
   }
 
   if (callbackData === newsGroupCallbackPrefixes.refresh) {
-    await replyWithNewsGroupStatus(context, repository, chatId, language, i18n);
+    await replyWithNewsGroupStatus(context, repository, chatId, messageThreadId, language, i18n);
     return true;
   }
 
@@ -79,11 +82,12 @@ export async function handleTelegramNewsGroupCallback(context: TelegramNewsGroup
     try {
       const categoryKey = parseCategoryKey(rawCategoryKey, i18n);
       await ensureNewsGroupExists(repository, chatId);
-      await repository.upsertSubscription({ chatId, categoryKey });
+      await repository.upsertSubscription({ chatId, messageThreadId, categoryKey });
       await replyWithNewsGroupStatus(
         context,
         repository,
         chatId,
+        messageThreadId,
         language,
         i18n,
         i18n.newsGroup.categorySubscribed.replace('{category}', formatCategoryLabelFromKey(categoryKey, language)),
@@ -98,11 +102,12 @@ export async function handleTelegramNewsGroupCallback(context: TelegramNewsGroup
     const rawCategoryKey = callbackData.slice(newsGroupCallbackPrefixes.unsubscribe.length);
     try {
       const categoryKey = parseCategoryKey(rawCategoryKey, i18n);
-      const removed = await repository.deleteSubscription({ chatId, categoryKey });
+      const removed = await repository.deleteSubscription({ chatId, messageThreadId, categoryKey });
       await replyWithNewsGroupStatus(
         context,
         repository,
         chatId,
+        messageThreadId,
         language,
         i18n,
         removed
@@ -139,9 +144,10 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
   const action = normalizeAction(args[0]);
   const repository = resolveNewsGroupRepository(context);
   const chatId = context.runtime.chat.chatId;
+  const messageThreadId = resolveNewsTargetMessageThreadId(context);
 
   if (action === 'status') {
-    await replyWithNewsGroupStatus(context, repository, chatId, language, i18n);
+    await replyWithNewsGroupStatus(context, repository, chatId, messageThreadId, language, i18n);
     return true;
   }
 
@@ -150,8 +156,9 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
       buildNewsGroupHelpMessage(
         i18n,
         language,
+        messageThreadId,
         await resolveCurrentNewsGroup(repository, chatId),
-        await repository.listSubscriptionsByChatId(chatId),
+        await repository.listSubscriptionsByChatId(chatId, { messageThreadId }),
       ),
     );
     return true;
@@ -159,13 +166,13 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
 
   if (action === 'enable') {
     await repository.upsertGroup({ chatId, isEnabled: true });
-    await replyWithNewsGroupStatus(context, repository, chatId, language, i18n, i18n.newsGroup.statusEnabled);
+    await replyWithNewsGroupStatus(context, repository, chatId, messageThreadId, language, i18n, i18n.newsGroup.statusEnabled);
     return true;
   }
 
   if (action === 'disable') {
     await repository.upsertGroup({ chatId, isEnabled: false });
-    await replyWithNewsGroupStatus(context, repository, chatId, language, i18n, i18n.newsGroup.statusDisabled);
+    await replyWithNewsGroupStatus(context, repository, chatId, messageThreadId, language, i18n, i18n.newsGroup.statusDisabled);
     return true;
   }
 
@@ -173,11 +180,12 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
     const rawCategoryKey = args.slice(1).join(' ');
     const categoryKey = parseCategoryKey(rawCategoryKey, i18n);
     await ensureNewsGroupExists(repository, chatId);
-    await repository.upsertSubscription({ chatId, categoryKey });
+    await repository.upsertSubscription({ chatId, messageThreadId, categoryKey });
     await replyWithNewsGroupStatus(
       context,
       repository,
       chatId,
+      messageThreadId,
       language,
       i18n,
       i18n.newsGroup.categorySubscribed.replace('{category}', formatCategoryLabelFromKey(categoryKey, language)),
@@ -188,11 +196,12 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
   if (action === 'unsubscribe') {
     const rawCategoryKey = args.slice(1).join(' ');
     const categoryKey = parseCategoryKey(rawCategoryKey, i18n);
-    const removed = await repository.deleteSubscription({ chatId, categoryKey });
+    const removed = await repository.deleteSubscription({ chatId, messageThreadId, categoryKey });
     await replyWithNewsGroupStatus(
       context,
       repository,
       chatId,
+      messageThreadId,
       language,
       i18n,
       removed
@@ -206,8 +215,9 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
     buildNewsGroupHelpMessage(
       i18n,
       language,
+      messageThreadId,
       await resolveCurrentNewsGroup(repository, chatId),
-      await repository.listSubscriptionsByChatId(chatId),
+      await repository.listSubscriptionsByChatId(chatId, { messageThreadId }),
     ),
   );
   return true;
@@ -244,13 +254,14 @@ async function replyWithNewsGroupStatus(
   context: TelegramNewsGroupContext,
   repository: NewsGroupRepository,
   chatId: number,
+  messageThreadId: number | null,
   language: 'ca' | 'es' | 'en',
   i18n: ReturnType<typeof createTelegramI18n>,
   prefix?: string,
 ): Promise<void> {
   const group = await resolveCurrentNewsGroup(repository, chatId);
-  const subscriptions = await repository.listSubscriptionsByChatId(chatId);
-  await context.reply(buildNewsGroupSummary(i18n, language, group, subscriptions, prefix), {
+  const subscriptions = await repository.listSubscriptionsByChatId(chatId, { messageThreadId });
+  await context.reply(buildNewsGroupSummary(i18n, language, messageThreadId, group, subscriptions, prefix), {
     inlineKeyboard: buildNewsGroupStatusKeyboard(i18n, language, group, subscriptions),
   });
 }
@@ -258,6 +269,7 @@ async function replyWithNewsGroupStatus(
 function buildNewsGroupSummary(
   i18n: ReturnType<typeof createTelegramI18n>,
   language: 'ca' | 'es' | 'en',
+  messageThreadId: number | null,
   group: NewsGroupRecord | null,
   subscriptions: NewsGroupSubscriptionRecord[],
   prefix?: string,
@@ -269,6 +281,7 @@ function buildNewsGroupSummary(
   }
 
   lines.push(group?.isEnabled ? i18n.newsGroup.modeOn : i18n.newsGroup.modeOff);
+  lines.push(formatNewsGroupTargetLine(language, messageThreadId));
   lines.push(i18n.newsGroup.subscriptions.replace('{list}', formatSubscriptions(i18n, language, subscriptions)));
   lines.push(i18n.newsGroup.commands);
 
@@ -278,11 +291,12 @@ function buildNewsGroupSummary(
 function buildNewsGroupHelpMessage(
   i18n: ReturnType<typeof createTelegramI18n>,
   language: 'ca' | 'es' | 'en',
+  messageThreadId: number | null,
   group: NewsGroupRecord | null,
   subscriptions: NewsGroupSubscriptionRecord[],
 ): string {
   return [
-    buildNewsGroupSummary(i18n, language, group, subscriptions),
+    buildNewsGroupSummary(i18n, language, messageThreadId, group, subscriptions),
     '',
     i18n.newsGroup.help,
   ].join('\n');
@@ -332,6 +346,30 @@ function formatCategoryLabelFromKey(categoryKey: string, language: 'ca' | 'es' |
   return resolved
     ? newsGroupCategoryLabel(resolved, language)
     : categoryKey;
+}
+
+function resolveNewsTargetMessageThreadId(context: TelegramNewsGroupContext): number | null {
+  return normalizeMessageThreadId(context.messageThreadId);
+}
+
+function formatNewsGroupTargetLine(language: 'ca' | 'es' | 'en', messageThreadId: number | null): string {
+  if (messageThreadId) {
+    if (language === 'es') {
+      return `Destino: topic ${messageThreadId}`;
+    }
+    if (language === 'en') {
+      return `Target: topic ${messageThreadId}`;
+    }
+    return `Destí: topic ${messageThreadId}`;
+  }
+
+  if (language === 'es') {
+    return 'Destino: grupo completo';
+  }
+  if (language === 'en') {
+    return 'Target: whole group';
+  }
+  return 'Destí: grup complet';
 }
 
 function normalizeAction(value: string | undefined): 'status' | 'help' | 'enable' | 'disable' | 'subscribe' | 'unsubscribe' | null {
