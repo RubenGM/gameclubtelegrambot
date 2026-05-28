@@ -155,6 +155,7 @@ const welcomeTemplateStartListPrefix = 'welcome_tpl_list_';
 const welcomeTemplateStartDetailPrefix = 'welcome_tpl_detail_';
 const welcomeTemplateStartEditTextPrefix = 'welcome_tpl_edit_text_';
 const welcomeTemplateStartEditMediaPrefix = 'welcome_tpl_edit_media_';
+const welcomeTemplateStartPreviewPrefix = 'welcome_tpl_preview_';
 const welcomeTemplateStartTogglePrefix = 'welcome_tpl_toggle_';
 const welcomeTemplateStartDeleteConfirmPrefix = 'welcome_tpl_delete_confirm_';
 const welcomeTemplateStartDeletePrefix = 'welcome_tpl_delete_';
@@ -425,6 +426,13 @@ async function handleWelcomeTemplateAdminStartPayload(
     return true;
   }
 
+  if (startPayload.startsWith(welcomeTemplateStartPreviewPrefix)) {
+    await sendSecretWelcomePreview(context, {
+      templateId: parseWelcomeTemplateStartId(startPayload, welcomeTemplateStartPreviewPrefix),
+    });
+    return true;
+  }
+
   if (startPayload.startsWith(welcomeTemplateStartTogglePrefix)) {
     const template = await loadWelcomeTemplateForAdminCallback(
       context,
@@ -469,13 +477,28 @@ async function sendWelcomeTemplatesAdminList(context: TelegramCommandHandlerCont
   const store = getWelcomeTemplateStore(context);
   const templates = await store.listTemplates();
   const currentPage = clampWelcomeTemplatePage(page, templates.length);
+  await context.runtime.session.start({
+    flowKey: welcomeTemplateAdminFlowKey,
+    stepKey: 'list',
+    data: { page: currentPage },
+  });
+  const labels = createTelegramI18n(context.runtime.bot.language ?? 'ca').common;
   await context.reply(
     formatWelcomeTemplatesAdminMenu({
       templates,
-      labels: createTelegramI18n(context.runtime.bot.language ?? 'ca').common,
+      labels,
       page: currentPage,
     }),
-    { parseMode: 'HTML' },
+    {
+      parseMode: 'HTML',
+      replyKeyboard: buildWelcomeTemplatesAdminReplyKeyboard({
+        labels,
+        currentPage,
+        totalPages: calculateWelcomeTemplateTotalPages(templates.length),
+      }),
+      resizeKeyboard: true,
+      persistentKeyboard: true,
+    },
   );
 }
 
@@ -496,12 +519,28 @@ async function handleWelcomeTemplateAdminText(context: TelegramCommandHandlerCon
     return replyWithStartAndDefaultKeyboard(context);
   }
 
-  if (!session && matchesCommonLabel(text, 'welcomeTemplatesCreateButton')) {
+  if (matchesCommonLabel(text, 'welcomeTemplatesCreateButton')) {
     await startWelcomeTemplateCreateFlow(context);
     return true;
   }
 
   if (session?.flowKey !== welcomeTemplateAdminFlowKey) {
+    return false;
+  }
+
+  if (session.stepKey === 'list') {
+    const currentPage = typeof session.data.page === 'number' ? session.data.page : 1;
+    if (matchesCommonLabel(text, 'welcomeTemplatesPrevPageButton')) {
+      await sendWelcomeTemplatesAdminList(context, currentPage - 1);
+      return true;
+    }
+    if (matchesCommonLabel(text, 'welcomeTemplatesNextPageButton')) {
+      await sendWelcomeTemplatesAdminList(context, currentPage + 1);
+      return true;
+    }
+    if (matchesCommonLabel(text, 'backToStartButton')) {
+      return replyWithStartAndDefaultKeyboard(context);
+    }
     return false;
   }
 
@@ -830,6 +869,7 @@ function formatWelcomeTemplateAdminDetailMessage(
     [
       buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartEditTextPrefix}${template.id}`, labels.welcomeTemplatesEditTextButton),
       buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartEditMediaPrefix}${template.id}`, labels.welcomeTemplatesEditMediaButton),
+      buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartPreviewPrefix}${template.id}`, labels.welcomeTemplatesPreviewButton),
     ].join(' · '),
     [
       buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartTogglePrefix}${template.id}`, labels.welcomeTemplatesToggleEnabledButton),
@@ -848,9 +888,8 @@ function formatWelcomeTemplatesAdminMenu({
   labels: CommonLabels;
   page?: number;
 }): string {
-  const createLink = buildWelcomeTemplateHtmlLink(welcomeTemplateStartCreatePayload, labels.welcomeTemplatesCreateButton, true);
   if (templates.length === 0) {
-    return `${escapeHtml(labels.welcomeTemplatesEmpty)}\n${createLink}`;
+    return escapeHtml(labels.welcomeTemplatesEmpty);
   }
 
   const currentPage = clampWelcomeTemplatePage(page, templates.length);
@@ -858,8 +897,6 @@ function formatWelcomeTemplatesAdminMenu({
   const startIndex = (currentPage - 1) * welcomeTemplateAdminPageSize;
   const pageTemplates = templates.slice(startIndex, startIndex + welcomeTemplateAdminPageSize);
   const lines: string[] = [
-    createLink,
-    '',
     `${escapeHtml(labels.welcomeTemplatesIntro)} (${currentPage}/${totalPages})`,
   ];
   for (const [index, template] of pageTemplates.entries()) {
@@ -867,20 +904,37 @@ function formatWelcomeTemplatesAdminMenu({
     const target = template.targetTelegramUserId ? ` -> ${template.targetTelegramUserId}` : '';
     const gif = template.animationFileId ? ' + GIF' : '';
     const status = template.isEnabled ? '' : ' (off)';
-    lines.push(`${buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartDetailPrefix}${template.id}`, label, true)}${escapeHtml(`${gif}${target}${status}`)}`);
+    lines.push([
+      escapeHtml(label),
+      buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartEditTextPrefix}${template.id}`, labels.welcomeTemplatesEditTextButton),
+      buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartDetailPrefix}${template.id}`, labels.welcomeTemplatesDetailButton),
+      escapeHtml(`${gif}${target}${status}`),
+    ].join(' '));
   }
 
-  const navigation: string[] = [];
-  if (currentPage > 1) {
-    navigation.push(buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartListPrefix}${currentPage - 1}`, labels.welcomeTemplatesPrevPageButton));
-  }
-  if (currentPage < totalPages) {
-    navigation.push(buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartListPrefix}${currentPage + 1}`, labels.welcomeTemplatesNextPageButton));
-  }
-  if (navigation.length > 0) {
-    lines.push('', navigation.join(' · '));
-  }
   return lines.join('\n');
+}
+
+function buildWelcomeTemplatesAdminReplyKeyboard({
+  labels,
+  currentPage,
+  totalPages,
+}: {
+  labels: CommonLabels;
+  currentPage: number;
+  totalPages: number;
+}): string[][] {
+  const rows: string[][] = [];
+  const navigation = [
+    ...(currentPage > 1 ? [labels.welcomeTemplatesPrevPageButton] : []),
+    ...(currentPage < totalPages ? [labels.welcomeTemplatesNextPageButton] : []),
+  ];
+  if (navigation.length > 0) {
+    rows.push(navigation);
+  }
+  rows.push([labels.welcomeTemplatesCreateButton]);
+  rows.push([labels.backToStartButton]);
+  return rows;
 }
 
 function buildWelcomeTemplateHtmlLink(payload: string, label: string, bold = false): string {
@@ -1025,11 +1079,14 @@ async function sendSecretWelcomePreview(
   context: TelegramCommandHandlerContext,
   input: {
     requestedIndex?: number | null;
+    templateId?: string | null;
   } = {},
 ): Promise<void> {
   const storage = getWelcomeTemplateStorage(context);
   const templateStore = createAppMetadataWelcomeTemplateStore({ storage });
-  const template = input.requestedIndex
+  const template = input.templateId
+    ? (await templateStore.listTemplates()).find((candidate) => candidate.id === input.templateId) ?? null
+    : input.requestedIndex
     ? await pickWelcomeTemplateByUserVisibleIndex({
       templateStore,
       telegramUserId: context.runtime.actor.telegramUserId,
@@ -1129,38 +1186,38 @@ function isWelcomeGifAttachment(media: TelegramCommandHandlerContext['messageMed
 
 async function sendWelcomeTemplateToCurrentChat(
   context: TelegramCommandHandlerContext,
-	  {
-	    template,
-	    message,
-	    htmlMessage,
-	  }: {
-	    template: WelcomeMessageTemplate;
-	    message: string;
-	    htmlMessage: string;
-	  },
-	): Promise<void> {
-	  if (template.animationFileId && context.runtime.bot.sendAnimation) {
-	    await context.runtime.bot.sendAnimation({
-	      chatId: context.runtime.chat.chatId,
-	      animationFileId: template.animationFileId,
-	      ...(htmlMessage.length <= 1000 ? { caption: htmlMessage, options: { parseMode: 'HTML' as const } } : {}),
-	      ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}),
-	    });
-	    if (htmlMessage.length > 1000) {
-	      if (context.runtime.chat.kind === 'private') {
-	        await context.reply(htmlMessage, { parseMode: 'HTML' });
-	      } else if (context.runtime.bot.sendGroupMessage) {
-	        await context.runtime.bot.sendGroupMessage(context.runtime.chat.chatId, htmlMessage, { parseMode: 'HTML' });
-	      }
-	    }
-	    return;
-	  }
+  {
+    template,
+    message,
+    htmlMessage,
+  }: {
+    template: WelcomeMessageTemplate;
+    message: string;
+    htmlMessage: string;
+  },
+): Promise<void> {
+  if (template.animationFileId && context.runtime.bot.sendAnimation) {
+    await context.runtime.bot.sendAnimation({
+      chatId: context.runtime.chat.chatId,
+      animationFileId: template.animationFileId,
+      ...(htmlMessage.length <= 1000 ? { caption: htmlMessage, options: { parseMode: 'HTML' as const } } : {}),
+      ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}),
+    });
+    if (htmlMessage.length > 1000) {
+      if (context.runtime.chat.kind === 'private') {
+        await context.reply(htmlMessage, { parseMode: 'HTML' });
+      } else if (context.runtime.bot.sendGroupMessage) {
+        await context.runtime.bot.sendGroupMessage(context.runtime.chat.chatId, htmlMessage, { parseMode: 'HTML' });
+      }
+    }
+    return;
+  }
   if (context.runtime.chat.kind !== 'private' && context.runtime.bot.sendGroupMessage) {
-	    await context.runtime.bot.sendGroupMessage(context.runtime.chat.chatId, htmlMessage, { parseMode: 'HTML' });
-	    return;
-	  }
+    await context.runtime.bot.sendGroupMessage(context.runtime.chat.chatId, htmlMessage, { parseMode: 'HTML' });
+    return;
+  }
   await context.reply(htmlMessage, { parseMode: 'HTML' });
-	}
+}
 
 async function handleGroupWelcomeMessage(context: TelegramCommandHandlerContext): Promise<boolean> {
   if (!context.newChatMembers?.length || context.runtime.chat.kind === 'private') {

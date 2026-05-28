@@ -994,9 +994,10 @@ test('admin welcome templates can be created from Telegram with an attached GIF 
   });
 
   assert.match(result.replies[0]?.message ?? '', /^Encara no hi ha cap missatge de benvinguda configurat\./);
-  assert.match(result.replies[0]?.message ?? '', /start=welcome_tpl_create/);
+  assert.doesNotMatch(result.replies[0]?.message ?? '', /start=welcome_tpl_create/);
   assert.equal(result.replies[0]?.options?.parseMode, 'HTML');
   assert.equal(result.replies[0]?.options?.inlineKeyboard, undefined);
+  assert.deepEqual(replyKeyboardLabels(result.replies[0]?.options?.replyKeyboard), [['Crear benvinguda'], ['Volver al inicio']]);
   assert.equal(result.replies[1]?.message, 'Escriu el text de benvinguda. Pots fer servir $USERNAME per substituir-lo pel nom visible de la persona.');
   assert.equal(result.replies[2]?.message, 'Ara envia el GIF o vídeo que vols adjuntar, o toca Sense GIF per guardar només el text.');
   assert.equal(result.replies[3]?.message, 'Missatge de benvinguda guardat.');
@@ -1175,8 +1176,10 @@ test('admin welcome templates list supports pagination, editing and deletion', a
               context.messageText = createTelegramI18n('ca').actionMenu.welcomeTemplates;
               await textHandler(commandContext);
 
-              await runStart('welcome_tpl_list_2');
+              context.messageText = createTelegramI18n('ca').common.welcomeTemplatesNextPageButton;
+              await textHandler(commandContext);
               await runStart('welcome_tpl_detail_welcome_6');
+              await runStart('welcome_tpl_preview_welcome_6');
               await runStart('welcome_tpl_edit_text_welcome_6');
               context.messageText = 'Plantilla editada $USERNAME';
               await textHandler(commandContext);
@@ -1206,20 +1209,24 @@ test('admin welcome templates list supports pagination, editing and deletion', a
   assert.match(replies[0]?.message ?? '', /Missatges de benvinguda configurats: \(1\/2\)/);
   assert.equal(replies[0]?.options?.parseMode, 'HTML');
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
-  assert.match(replies[0]?.message ?? '', /start=welcome_tpl_create/);
-  assert.match(replies[0]?.message ?? '', /start=welcome_tpl_detail_welcome_1/);
-  assert.match(replies[0]?.message ?? '', /start=welcome_tpl_list_2/);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Següent'], ['Crear benvinguda'], ['Volver al inicio']]);
+  assert.doesNotMatch(replies[0]?.message ?? '', /start=welcome_tpl_create/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /start=welcome_tpl_list_2/);
+  assert.match(replies[0]?.message ?? '', /Plantilla 1 \$USERNAME <a href="[^"]*start=welcome_tpl_edit_text_welcome_1">Editar text<\/a> <a href="[^"]*start=welcome_tpl_detail_welcome_1">Detall<\/a>/);
   assert.match(replies[1]?.message ?? '', /Missatges de benvinguda configurats: \(2\/2\)/);
+  assert.deepEqual(replyKeyboardLabels(replies[1]?.options?.replyKeyboard), [['Anterior'], ['Crear benvinguda'], ['Volver al inicio']]);
   assert.match(replies[2]?.message ?? '', /Plantilla 6/);
   assert.equal(replies[2]?.options?.parseMode, 'HTML');
   assert.match(replies[2]?.message ?? '', /start=welcome_tpl_edit_text_welcome_6/);
+  assert.match(replies[2]?.message ?? '', /start=welcome_tpl_preview_welcome_6/);
   assert.match(replies[2]?.message ?? '', /start=welcome_tpl_delete_confirm_welcome_6/);
-  assert.equal(replies[3]?.message.includes('Escriu el nou text de benvinguda'), true);
-  assert.equal(replies[4]?.message, 'Missatge de benvinguda actualitzat.');
-  assert.match(replies[5]?.message ?? '', /Plantilla editada/);
-  assert.equal(replies[6]?.message.includes('Confirma que vols eliminar'), true);
-  assert.match(replies[6]?.message ?? '', /start=welcome_tpl_delete_welcome_6/);
-  assert.equal(replies[7]?.message, 'Missatge de benvinguda eliminat.');
+  assert.equal(replies[3]?.message, 'Plantilla 6 Admin');
+  assert.equal(replies[4]?.message.includes('Escriu el nou text de benvinguda'), true);
+  assert.equal(replies[5]?.message, 'Missatge de benvinguda actualitzat.');
+  assert.match(replies[6]?.message ?? '', /Plantilla editada/);
+  assert.equal(replies[7]?.message.includes('Confirma que vols eliminar'), true);
+  assert.match(replies[7]?.message ?? '', /start=welcome_tpl_delete_welcome_6/);
+  assert.equal(replies[8]?.message, 'Missatge de benvinguda eliminat.');
 
   const savedTemplates = JSON.parse(appMetadataRecords.get('telegram.welcome_templates') ?? '[]') as Array<Record<string, unknown>>;
   assert.equal(savedTemplates.length, 5);

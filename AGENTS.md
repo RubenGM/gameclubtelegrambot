@@ -73,12 +73,13 @@ despliegue publico, Nginx lo expone como reverse proxy en:
 
 Los admins tambien pueden gestionar bienvenidas desde Telegram con el boton
 `Bienvenidas` del menu privado de Inicio; ese flujo lista plantillas con
-paginacion y enlaces inline en el texto para ver, editar texto, editar GIF/video,
-activar/pausar y eliminar. Al crear o editar texto, debe conservar las
-entidades de formato de Telegram como HTML seguro (negrita, cursiva, enlaces,
-etc.). Al crear o editar adjuntos, acepta animaciones Telegram, videos
-convertidos por el movil o archivos `.gif`, y guarda su file ID automaticamente
-en las plantillas.
+paginacion por botones de teclado, enlaces inline compactos junto a cada
+plantilla para editar/ver detalle, y acciones de detalle para editar texto,
+editar GIF/video, previsualizar, activar/pausar y eliminar. Al crear o editar
+texto, debe conservar las entidades de formato de Telegram como HTML seguro
+(negrita, cursiva, enlaces, etc.). Al crear o editar adjuntos, acepta
+animaciones Telegram, videos convertidos por el movil o archivos `.gif`, y
+guarda su file ID automaticamente en las plantillas.
 
 El bot tambien tiene aliases privados no anunciados para previsualizar la
 bienvenida propia: `Welcome`, `/welcome`, `Bienvenida` y `/bienvenida`.
