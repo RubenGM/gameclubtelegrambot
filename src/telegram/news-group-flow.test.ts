@@ -107,11 +107,15 @@ function createContext({
   messageThreadId?: number;
 } = {}) {
   const replies: string[] = [];
+  const deletedMessages: Array<{ chatId: number; messageId: number }> = [];
   let currentSession: ConversationSessionRecord | null = null;
+  let nextMessageId = 100;
 
   const context: TelegramNewsGroupContext = {
     reply: async (message) => {
       replies.push(message);
+      nextMessageId += 1;
+      return { message_id: nextMessageId };
     },
     ...(messageThreadId ? { messageThreadId } : {}),
     runtime: {
@@ -179,12 +183,15 @@ function createContext({
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
         sendPrivateMessage: async () => {},
+        deleteMessage: async (input) => {
+          deletedMessages.push(input);
+        },
       },
     },
     newsGroupRepository: repository,
   };
 
-  return { context, replies, repository };
+  return { context, replies, deletedMessages, repository };
 }
 
 test('handleTelegramNewsGroupText enables and subscribes a group with clear status', async () => {
@@ -206,6 +213,22 @@ test('handleTelegramNewsGroupText enables and subscribes a group with clear stat
   assert.match(replies.at(-1) ?? '', /Mode news: activat/);
   assert.match(replies.at(-1) ?? '', /Categories subscrites: events/);
   assert.equal((await repository.findGroupByChatId(-200))?.isEnabled, true);
+});
+
+test('handleTelegramNewsGroupText autodeletes subscription replies after one minute', async (t: any) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { context, deletedMessages } = createContext();
+
+  context.messageText = '/news subscriure events';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+  assert.deepEqual(deletedMessages, []);
+
+  t.mock.timers.tick(59_999);
+  assert.deepEqual(deletedMessages, []);
+
+  t.mock.timers.tick(1);
+  await Promise.resolve();
+  assert.deepEqual(deletedMessages, [{ chatId: -200, messageId: 101 }]);
 });
 
 test('handleTelegramNewsGroupText subscribes only the current topic when used inside a topic', async () => {

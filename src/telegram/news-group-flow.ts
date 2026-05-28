@@ -12,8 +12,11 @@ import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
+import { extractTelegramReplyMessageId } from './editable-progress.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+
+const newsGroupReplyAutodeleteDelayMs = 60_000;
 
 export const newsGroupCallbackPrefixes = {
   toggle: 'news_group:toggle',
@@ -42,6 +45,7 @@ export interface TelegramNewsGroupContext {
       clubName: string;
       language?: string;
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+      deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
     };
   };
   newsGroupRepository?: NewsGroupRepository;
@@ -57,7 +61,7 @@ export async function handleTelegramNewsGroupCallback(context: TelegramNewsGroup
   }
 
   if (!canManageNewsGroups(context)) {
-    await context.reply(i18n.newsGroup.adminOnly);
+    await replyWithAutodelete(context, i18n.newsGroup.adminOnly);
     return true;
   }
 
@@ -93,7 +97,7 @@ export async function handleTelegramNewsGroupCallback(context: TelegramNewsGroup
         i18n.newsGroup.categorySubscribed.replace('{category}', formatCategoryLabelFromKey(categoryKey, language)),
       );
     } catch (error) {
-      await context.reply(error instanceof Error ? error.message : 'Invalid category');
+      await replyWithAutodelete(context, error instanceof Error ? error.message : 'Invalid category');
     }
     return true;
   }
@@ -115,7 +119,7 @@ export async function handleTelegramNewsGroupCallback(context: TelegramNewsGroup
           : i18n.newsGroup.categoryNotSubscribed.replace('{category}', formatCategoryLabelFromKey(categoryKey, language)),
       );
     } catch (error) {
-      await context.reply(error instanceof Error ? error.message : 'Invalid category');
+      await replyWithAutodelete(context, error instanceof Error ? error.message : 'Invalid category');
     }
     return true;
   }
@@ -137,7 +141,7 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
   }
 
   if (!canManageNewsGroups(context)) {
-    await context.reply(i18n.newsGroup.adminOnly);
+    await replyWithAutodelete(context, i18n.newsGroup.adminOnly);
     return true;
   }
 
@@ -152,7 +156,8 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
   }
 
   if (action === 'help' || action === null) {
-    await context.reply(
+    await replyWithAutodelete(
+      context,
       buildNewsGroupHelpMessage(
         i18n,
         language,
@@ -211,7 +216,8 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
     return true;
   }
 
-  await context.reply(
+  await replyWithAutodelete(
+    context,
     buildNewsGroupHelpMessage(
       i18n,
       language,
@@ -261,9 +267,41 @@ async function replyWithNewsGroupStatus(
 ): Promise<void> {
   const group = await resolveCurrentNewsGroup(repository, chatId);
   const subscriptions = await repository.listSubscriptionsByChatId(chatId, { messageThreadId });
-  await context.reply(buildNewsGroupSummary(i18n, language, messageThreadId, group, subscriptions, prefix), {
+  await replyWithAutodelete(context, buildNewsGroupSummary(i18n, language, messageThreadId, group, subscriptions, prefix), {
     inlineKeyboard: buildNewsGroupStatusKeyboard(i18n, language, group, subscriptions),
   });
+}
+
+async function replyWithAutodelete(
+  context: TelegramNewsGroupContext,
+  message: string,
+  options?: TelegramReplyOptions,
+): Promise<void> {
+  const sent = await context.reply(message, options);
+  scheduleNewsGroupReplyDeletion(context, sent);
+}
+
+function scheduleNewsGroupReplyDeletion(context: TelegramNewsGroupContext, sent: unknown): void {
+  const messageId = extractTelegramReplyMessageId(sent);
+  const chatId = context.runtime.chat.chatId;
+  const deleteMessage = context.runtime.bot.deleteMessage;
+
+  if (!messageId || !chatId || !deleteMessage) {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    void deleteMessage({ chatId, messageId }).catch((error) => {
+      console.warn(JSON.stringify({
+        event: 'telegram.newsGroup.autodeleteFailed',
+        chatId,
+        messageId,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    });
+  }, newsGroupReplyAutodeleteDelayMs);
+
+  (timer as { unref?: () => void }).unref?.();
 }
 
 function buildNewsGroupSummary(

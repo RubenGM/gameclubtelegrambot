@@ -217,6 +217,7 @@ Implementado:
 - `/news status`, `/news enable`, `/news disable`, `/news subscribe <categoria>` y `/news unsubscribe <categoria>` en grupos y supergrupos con topics.
 - Persistencia de grupos habilitados y suscripciones por categoria + destino (`chat_id` completo o `message_thread_id` concreto).
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
+- Las respuestas administrativas de `/news` se borran automaticamente tras 1 minuto para no ensuciar el grupo o topic; las publicaciones reales de feeds se conservan.
 - Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs, altas web y bienvenidas por aprobación (`nuevos_miembros`).
 - Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem, altas web y bienvenidas por aprobación => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto como `events` si no tienen ese feed suscrito explícitamente.
 - `/admin/news` muestra los feeds disponibles y cuántos destinos activos hay suscritos a cada categoría.
