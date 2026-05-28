@@ -1206,20 +1206,27 @@ test('admin welcome templates list supports pagination, editing and deletion', a
 
   await telegram.stop();
 
-  assert.match(replies[0]?.message ?? '', /Missatges de benvinguda configurats: \(1\/2\)/);
+  assert.match(replies[0]?.message ?? '', /Missatges de benvinguda configurats:/);
+  assert.match(replies[0]?.message ?? '', /Missatges de benvinguda configurats:\n\n1\. Plantilla 1/);
+  assert.match(replies[0]?.message ?? '', /Mostrant 1-5 de 6\. Pàgina 1\/2\./);
+  assert.match(replies[0]?.message ?? '', /5\. Plantilla 5 \$USERNAME[^\n]*\n\nMostrant 1-5 de 6\. Pàgina 1\/2\./);
   assert.equal(replies[0]?.options?.parseMode, 'HTML');
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
   assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Següent'], ['Crear benvinguda'], ['Volver al inicio']]);
   assert.doesNotMatch(replies[0]?.message ?? '', /start=welcome_tpl_create/);
   assert.doesNotMatch(replies[0]?.message ?? '', /start=welcome_tpl_list_2/);
-  assert.match(replies[0]?.message ?? '', /Plantilla 1 \$USERNAME <a href="[^"]*start=welcome_tpl_edit_text_welcome_1">Editar text<\/a> <a href="[^"]*start=welcome_tpl_detail_welcome_1">Detall<\/a>/);
-  assert.match(replies[1]?.message ?? '', /Missatges de benvinguda configurats: \(2\/2\)/);
+  assert.match(replies[0]?.message ?? '', /Plantilla 1 \$USERNAME <a href="[^"]*start=welcome_tpl_detail_welcome_1">Detall<\/a>/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /start=welcome_tpl_edit_text_welcome_1/);
+  assert.match(replies[1]?.message ?? '', /Missatges de benvinguda configurats:/);
+  assert.match(replies[1]?.message ?? '', /Mostrant 6-6 de 6\. Pàgina 2\/2\./);
   assert.deepEqual(replyKeyboardLabels(replies[1]?.options?.replyKeyboard), [['Anterior'], ['Crear benvinguda'], ['Volver al inicio']]);
   assert.match(replies[2]?.message ?? '', /Plantilla 6/);
   assert.equal(replies[2]?.options?.parseMode, 'HTML');
   assert.match(replies[2]?.message ?? '', /start=welcome_tpl_edit_text_welcome_6/);
   assert.match(replies[2]?.message ?? '', /start=welcome_tpl_preview_welcome_6/);
   assert.match(replies[2]?.message ?? '', /start=welcome_tpl_delete_confirm_welcome_6/);
+  assert.doesNotMatch(replies[2]?.message ?? '', /start=welcome_tpl_list_1/);
+  assert.doesNotMatch(replies[2]?.message ?? '', /Tornar a benvingudes/);
   assert.equal(replies[3]?.message, 'Plantilla 6 Admin');
   assert.equal(replies[4]?.message.includes('Escriu el nou text de benvinguda'), true);
   assert.equal(replies[5]?.message, 'Missatge de benvinguda actualitzat.');

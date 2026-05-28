@@ -73,13 +73,13 @@ despliegue publico, Nginx lo expone como reverse proxy en:
 
 Los admins tambien pueden gestionar bienvenidas desde Telegram con el boton
 `Bienvenidas` del menu privado de Inicio; ese flujo lista plantillas con
-paginacion por botones de teclado, enlaces inline compactos junto a cada
-plantilla para editar/ver detalle, y acciones de detalle para editar texto,
-editar GIF/video, previsualizar, activar/pausar y eliminar. Al crear o editar
-texto, debe conservar las entidades de formato de Telegram como HTML seguro
-(negrita, cursiva, enlaces, etc.). Al crear o editar adjuntos, acepta
-animaciones Telegram, videos convertidos por el movil o archivos `.gif`, y
-guarda su file ID automaticamente en las plantillas.
+paginacion por botones de teclado, un enlace inline compacto junto a cada
+plantilla para abrir su detalle, y acciones de detalle para editar texto, editar
+GIF/video, previsualizar, activar/pausar y eliminar. Al crear o editar texto,
+debe conservar las entidades de formato de Telegram como HTML seguro (negrita,
+cursiva, enlaces, etc.). Al crear o editar adjuntos, acepta animaciones
+Telegram, videos convertidos por el movil o archivos `.gif`, y guarda su file
+ID automaticamente en las plantillas.
 
 El bot tambien tiene aliases privados no anunciados para previsualizar la
 bienvenida propia: `Welcome`, `/welcome`, `Bienvenida` y `/bienvenida`.
@@ -103,6 +103,17 @@ Cuando modifiques este panel:
   y `npm run typecheck`, y luego ejecuta `./startup.sh`.
 - Comprueba despues `https://cawa.hopto.org/` y `https://cawa.hopto.org/admin`.
 
+## Telegram UX style guides
+
+Before adding or changing Telegram pagination, read
+`docs/telegram-pagination-style.md`. It documents the repo style for page
+indicators, reply-keyboard navigation, inline callback navigation and tests.
+
+Before adding or changing editable progress/receipt messages, read
+`docs/telegram-editable-progress.md`.
+
+For public/admin web visual changes, read `docs/brand-guidelines.md`.
+
 ## Telegram progress messages
 
 For Telegram actions that can take medium or long time, use an editable progress
@@ -123,10 +134,6 @@ Expected pattern:
 
 Use the existing catalog autocorrect and Storage upload flows as reference
 implementations for this UX.
-
-For implementation details, helper usage, session storage patterns and Telegram
-reply-keyboard caveats, read `docs/telegram-editable-progress.md` before adding
-or changing editable receipt/progress messages.
 
 ## Índice de features del bot de Telegram
 

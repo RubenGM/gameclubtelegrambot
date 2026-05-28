@@ -875,7 +875,6 @@ function formatWelcomeTemplateAdminDetailMessage(
       buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartTogglePrefix}${template.id}`, labels.welcomeTemplatesToggleEnabledButton),
       buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartDeleteConfirmPrefix}${template.id}`, labels.welcomeTemplatesDeleteButton, true),
     ].join(' · '),
-    buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartListPrefix}1`, labels.welcomeTemplatesBackToListButton),
   ].join('\n');
 }
 
@@ -897,7 +896,8 @@ function formatWelcomeTemplatesAdminMenu({
   const startIndex = (currentPage - 1) * welcomeTemplateAdminPageSize;
   const pageTemplates = templates.slice(startIndex, startIndex + welcomeTemplateAdminPageSize);
   const lines: string[] = [
-    `${escapeHtml(labels.welcomeTemplatesIntro)} (${currentPage}/${totalPages})`,
+    escapeHtml(labels.welcomeTemplatesIntro),
+    '',
   ];
   for (const [index, template] of pageTemplates.entries()) {
     const label = `${startIndex + index + 1}. ${truncateWelcomeTemplateText(template.templateText)}`;
@@ -906,13 +906,47 @@ function formatWelcomeTemplatesAdminMenu({
     const status = template.isEnabled ? '' : ' (off)';
     lines.push([
       escapeHtml(label),
-      buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartEditTextPrefix}${template.id}`, labels.welcomeTemplatesEditTextButton),
       buildWelcomeTemplateHtmlLink(`${welcomeTemplateStartDetailPrefix}${template.id}`, labels.welcomeTemplatesDetailButton),
       escapeHtml(`${gif}${target}${status}`),
     ].join(' '));
   }
 
+  if (totalPages > 1) {
+    lines.push('');
+    lines.push(escapeHtml(formatWelcomeTemplatePageFooter({
+      labels,
+      shownFrom: startIndex + 1,
+      shownTo: startIndex + pageTemplates.length,
+      total: templates.length,
+      page: currentPage,
+      totalPages,
+    })));
+  }
+
   return lines.join('\n');
+}
+
+function formatWelcomeTemplatePageFooter({
+  labels,
+  shownFrom,
+  shownTo,
+  total,
+  page,
+  totalPages,
+}: {
+  labels: CommonLabels;
+  shownFrom: number;
+  shownTo: number;
+  total: number;
+  page: number;
+  totalPages: number;
+}): string {
+  return labels.welcomeTemplatesPageFooter
+    .replace('{from}', String(shownFrom))
+    .replace('{to}', String(shownTo))
+    .replace('{total}', String(total))
+    .replace('{page}', String(page))
+    .replace('{pages}', String(totalPages));
 }
 
 function buildWelcomeTemplatesAdminReplyKeyboard({
