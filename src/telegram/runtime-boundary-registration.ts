@@ -39,6 +39,10 @@ import {
   toggleMembershipRequestNotifications,
 } from '../membership/request-notification-store.js';
 import {
+  createAppMetadataMembershipAutojoinStore,
+  toggleMembershipAutojoin,
+} from '../membership/autojoin-store.js';
+import {
   resolveTelegramActionMenu,
   resolveTelegramMenuSelection,
   type TelegramResolvedActionMenu,
@@ -306,6 +310,10 @@ function registerMessageHandlers({
   bot: TelegramBotLike;
 }): void {
   bot.onMessage?.(async (context) => {
+    if (await handleMembershipAutojoinNewMembers(context)) {
+      return;
+    }
+
     if (await handleWelcomeTemplateAdminMessage(context)) {
       return;
     }
@@ -1508,6 +1516,15 @@ function createDefaultCommands({
       description: 'Gestiona el mode news i les subscripcions del grup',
       handle: async (context) => {
         await handleTelegramNewsGroupText(context);
+      },
+    },
+    {
+      command: 'autojoin',
+      contexts: ['group', 'group-news'],
+      access: 'admin',
+      description: 'Activa o desactiva alta automatica de nous membres del grup',
+      handle: async (context) => {
+        await handleMembershipAutojoinCommand(context);
       },
     },
     {
@@ -2903,6 +2920,134 @@ async function submitMembershipAccessRequest(
   }
 
   await context.reply(result.message, await buildReplyOptionsForCurrentActionMenu(context));
+}
+
+async function handleMembershipAutojoinCommand(context: TelegramCommandHandlerContext): Promise<void> {
+  const action = context.messageText?.trim().split(/\s+/)[1]?.toLowerCase();
+  if (action !== 'enabled' && action !== 'disabled') {
+    await context.reply('Uso: /autojoin enabled o /autojoin disabled');
+    return;
+  }
+
+  const storage = createDatabaseAppMetadataSessionStorage({
+    database: context.runtime.services.database.db,
+  });
+  const store = createAppMetadataMembershipAutojoinStore({ storage });
+  const result = await toggleMembershipAutojoin({
+    store,
+    chatId: context.runtime.chat.chatId,
+    enabled: action === 'enabled',
+  });
+
+  const chatLabel = context.runtime.chat.chatTitle ? ` en ${context.runtime.chat.chatTitle}` : '';
+  if (result === 'enabled') {
+    await context.reply(`Autojoin activado${chatLabel}. Las nuevas entradas del grupo se aprobaran automaticamente como miembros.`);
+    return;
+  }
+
+  if (result === 'already-enabled') {
+    await context.reply(`Autojoin ya estaba activado${chatLabel}.`);
+    return;
+  }
+
+  if (result === 'disabled') {
+    await context.reply(`Autojoin desactivado${chatLabel}.`);
+    return;
+  }
+
+  await context.reply(`Autojoin ya estaba desactivado${chatLabel}.`);
+}
+
+async function handleMembershipAutojoinNewMembers(context: TelegramCommandHandlerContext): Promise<boolean> {
+  if (!context.newChatMembers?.length || context.runtime.chat.kind === 'private') {
+    return false;
+  }
+
+  const storage = createDatabaseAppMetadataSessionStorage({
+    database: context.runtime.services.database.db,
+  });
+  const store = createAppMetadataMembershipAutojoinStore({ storage });
+  if (!(await store.isEnabled(context.runtime.chat.chatId))) {
+    return false;
+  }
+
+  const repository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+
+  for (const member of context.newChatMembers) {
+    if (member.is_bot) {
+      continue;
+    }
+
+    const existing = await repository.findUserByTelegramUserId(member.id);
+    if (existing?.status === 'approved') {
+      await repository.syncUserProfile({
+        telegramUserId: member.id,
+        ...(member.username !== undefined ? { username: member.username } : {}),
+        displayName: resolveTelegramDisplayName(member),
+      });
+      continue;
+    }
+
+    if (existing?.status === 'blocked') {
+      continue;
+    }
+
+    await requestMembershipAccess({
+      repository,
+      telegramUserId: member.id,
+      ...(member.username !== undefined ? { username: member.username } : {}),
+      displayName: resolveTelegramDisplayName(member),
+    });
+
+    const result = await approveMembershipRequest({
+      repository,
+      applicantTelegramUserId: member.id,
+      adminTelegramUserId: context.runtime.actor.telegramUserId,
+    });
+    if (result.outcome === 'approved' || result.outcome === 'already-approved') {
+      await sendMembershipAutojoinWelcomeToCurrentGroup({
+        context,
+        repository,
+        telegramUserId: member.id,
+      });
+    }
+  }
+
+  return true;
+}
+
+async function sendMembershipAutojoinWelcomeToCurrentGroup({
+  context,
+  repository,
+  telegramUserId,
+}: {
+  context: TelegramCommandHandlerContext;
+  repository: ReturnType<typeof createDatabaseMembershipAccessRepository>;
+  telegramUserId: number;
+}): Promise<void> {
+  const approvedUser = await repository.findUserByTelegramUserId(telegramUserId);
+  if (!approvedUser) {
+    return;
+  }
+
+  const storage = getWelcomeTemplateStorage(context);
+  const templateStore = createAppMetadataWelcomeTemplateStore({ storage });
+  const template = await pickRememberedRandomWelcomeTemplate({
+    storage,
+    templateStore,
+    telegramUserId: approvedUser.telegramUserId,
+  });
+  if (!template) {
+    return;
+  }
+
+  await sendWelcomeTemplateToGroupChat(context, context.runtime.chat.chatId, {
+    template,
+    htmlMessage: renderWelcomeTemplateHtml(template, approvedUser.displayName),
+    messageThreadId: context.messageThreadId ?? null,
+  });
 }
 
 function scheduleProcessRestart(delayMs = 750): void {

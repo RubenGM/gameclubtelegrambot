@@ -1,5 +1,6 @@
 import type { AuthorizationService } from '../authorization/service.js';
 import {
+  eventsNewsGroupCategory,
   newsGroupCategoryLabel,
   type NewsGroupCategoryKey,
   listNewsGroupCategories,
@@ -71,8 +72,20 @@ export async function handleTelegramNewsGroupCallback(context: TelegramNewsGroup
 
   if (callbackData === newsGroupCallbackPrefixes.toggle) {
     const group = await ensureNewsGroupExists(repository, chatId);
-    await repository.upsertGroup({ chatId, isEnabled: !group.isEnabled });
-    await replyWithNewsGroupStatus(context, repository, chatId, messageThreadId, language, i18n);
+    const isEnabled = !group.isEnabled;
+    await repository.upsertGroup({ chatId, isEnabled });
+    if (isEnabled && messageThreadId) {
+      await repository.upsertSubscription({ chatId, messageThreadId, categoryKey: eventsNewsGroupCategory });
+    }
+    await replyWithNewsGroupStatus(
+      context,
+      repository,
+      chatId,
+      messageThreadId,
+      language,
+      i18n,
+      isEnabled && messageThreadId ? buildNewsGroupSubscriptionConfirmation(context, eventsNewsGroupCategory, messageThreadId, language) : undefined,
+    );
     return true;
   }
 
@@ -94,7 +107,7 @@ export async function handleTelegramNewsGroupCallback(context: TelegramNewsGroup
         messageThreadId,
         language,
         i18n,
-        i18n.newsGroup.categorySubscribed.replace('{category}', formatCategoryLabelFromKey(categoryKey, language)),
+        buildNewsGroupSubscriptionConfirmation(context, categoryKey, messageThreadId, language),
       );
     } catch (error) {
       await replyWithAutodelete(context, error instanceof Error ? error.message : 'Invalid category');
@@ -171,7 +184,20 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
 
   if (action === 'enable') {
     await repository.upsertGroup({ chatId, isEnabled: true });
-    await replyWithNewsGroupStatus(context, repository, chatId, messageThreadId, language, i18n, i18n.newsGroup.statusEnabled);
+    if (messageThreadId) {
+      await repository.upsertSubscription({ chatId, messageThreadId, categoryKey: eventsNewsGroupCategory });
+    }
+    await replyWithNewsGroupStatus(
+      context,
+      repository,
+      chatId,
+      messageThreadId,
+      language,
+      i18n,
+      messageThreadId
+        ? buildNewsGroupSubscriptionConfirmation(context, eventsNewsGroupCategory, messageThreadId, language)
+        : i18n.newsGroup.statusEnabled,
+    );
     return true;
   }
 
@@ -193,7 +219,7 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
       messageThreadId,
       language,
       i18n,
-      i18n.newsGroup.categorySubscribed.replace('{category}', formatCategoryLabelFromKey(categoryKey, language)),
+      buildNewsGroupSubscriptionConfirmation(context, categoryKey, messageThreadId, language),
     );
     return true;
   }
@@ -384,6 +410,29 @@ function formatCategoryLabelFromKey(categoryKey: string, language: 'ca' | 'es' |
   return resolved
     ? newsGroupCategoryLabel(resolved, language)
     : categoryKey;
+}
+
+function buildNewsGroupSubscriptionConfirmation(
+  context: TelegramNewsGroupContext,
+  categoryKey: string,
+  messageThreadId: number | null,
+  language: 'ca' | 'es' | 'en',
+): string {
+  const category = formatCategoryLabelFromKey(categoryKey, language);
+  const destination = formatNewsGroupDestinationName(context, messageThreadId);
+
+  if (language === 'ca') {
+    return `Subscrit correctament a ${category} a ${destination}.`;
+  }
+  if (language === 'en') {
+    return `Subscribed successfully to ${category} in ${destination}.`;
+  }
+  return `Suscrito correctamente para ${category} en ${destination}.`;
+}
+
+function formatNewsGroupDestinationName(context: TelegramNewsGroupContext, messageThreadId: number | null): string {
+  const chatName = context.runtime.chat.chatTitle?.trim() || `chat ${context.runtime.chat.chatId}`;
+  return messageThreadId ? `${chatName} (topic ${messageThreadId})` : chatName;
 }
 
 function resolveNewsTargetMessageThreadId(context: TelegramNewsGroupContext): number | null {

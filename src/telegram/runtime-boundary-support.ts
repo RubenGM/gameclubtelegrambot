@@ -161,6 +161,10 @@ export interface TelegramReplyOptions {
   messageThreadId?: number;
 }
 
+export interface TelegramSentMessage {
+  messageId: number;
+}
+
 export interface TelegramRuntime {
   bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName' | 'language'> & {
     username?: string | undefined;
@@ -169,7 +173,7 @@ export interface TelegramRuntime {
     getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean }>;
     createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
     sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
-    sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+    sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
     copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
@@ -206,7 +210,7 @@ export interface TelegramBotLike {
   getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean }>;
   createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
   sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
-  sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+  sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
   copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
@@ -399,6 +403,7 @@ function createGrammyTelegramBot({
         context.messageEntities = extractTelegramMessageEntities(context.msg ?? context.message);
         context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
         context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
+        context.messageThreadId = resolveMessageThreadId(context.msg ?? context.message);
 
         await handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth));
       };
@@ -430,6 +435,7 @@ function createGrammyTelegramBot({
         }
 
         context.callbackData = context.callbackQuery.data;
+        context.messageThreadId = resolveMessageThreadId(context.callbackQuery.message);
         await runTelegramCallbackHandler({
           handle: () => handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth)),
           acknowledge: () => context.answerCallbackQuery(),
@@ -513,9 +519,11 @@ function createGrammyTelegramBot({
       );
     },
     async sendGroupMessage(chatId, message, options) {
-      await withTelegramApiRetry(retryOptions('sendGroupMessage'), () =>
+      const result = await withTelegramApiRetry(retryOptions('sendGroupMessage'), () =>
         bot.api.sendMessage(chatId, apiHealth.appendWarning(message), options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
       );
+      const messageId = resolveTelegramMessageId(result);
+      return messageId ? { messageId } : undefined;
     },
     async copyMessage({ fromChatId, messageId, toChatId, messageThreadId }) {
       const result = await withTelegramApiRetry(retryOptions('copyMessage'), () =>

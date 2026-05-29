@@ -3,6 +3,8 @@ export type TelegramChatType = 'private' | 'group' | 'supergroup' | 'channel';
 export interface TelegramChatLike {
   id: number;
   type: TelegramChatType;
+  title?: string | undefined;
+  username?: string | undefined;
 }
 
 export type TelegramChatContextKind = 'private' | 'group' | 'group-news';
@@ -10,6 +12,7 @@ export type TelegramChatContextKind = 'private' | 'group' | 'group-news';
 export interface TelegramChatContext {
   kind: TelegramChatContextKind;
   chatId: number;
+  chatTitle?: string | undefined;
 }
 
 export interface ResolveTelegramChatContextOptions {
@@ -29,6 +32,7 @@ export async function resolveTelegramChatContext({
     return {
       kind: 'private',
       chatId: chat.id,
+      ...(resolveChatTitle(chat) ? { chatTitle: resolveChatTitle(chat) } : {}),
     };
   }
 
@@ -38,8 +42,19 @@ export async function resolveTelegramChatContext({
     return {
       kind: newsEnabled ? 'group-news' : 'group',
       chatId: chat.id,
+      ...(resolveChatTitle(chat) ? { chatTitle: resolveChatTitle(chat) } : {}),
     };
   }
 
   throw new Error(`Unsupported Telegram chat type: ${chat.type}`);
+}
+
+function resolveChatTitle(chat: TelegramChatLike): string | undefined {
+  const title = chat.title?.trim();
+  if (title) {
+    return title;
+  }
+
+  const username = chat.username?.trim();
+  return username ? `@${username}` : undefined;
 }

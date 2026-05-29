@@ -5,6 +5,8 @@ import type { ClubTableRepository } from '../tables/table-catalog.js';
 import type { VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
 import { eventsNewsGroupCategory } from '../news/news-group-catalog.js';
+import type { AppMetadataSessionStorage } from './conversation-session-store.js';
+import type { TelegramSentMessage } from './runtime-boundary.js';
 
 export interface ScheduleCalendarChange {
   action: 'created' | 'updated' | 'deleted';
@@ -58,6 +60,8 @@ export async function notifyScheduleConflicts({
 export async function publishCalendarSnapshotToNewsGroups({
   change,
   sendGroupMessage,
+  deleteMessage,
+  snapshotStorage,
   newsGroupRepository,
   database,
   botLanguage,
@@ -67,7 +71,9 @@ export async function publishCalendarSnapshotToNewsGroups({
   resolveActorDisplayName,
 }: {
   change: ScheduleCalendarChange;
-  sendGroupMessage?: (chatId: number, message: string, options?: { parseMode?: 'HTML'; messageThreadId?: number }) => Promise<void>;
+  sendGroupMessage?: (chatId: number, message: string, options?: { parseMode?: 'HTML'; messageThreadId?: number }) => Promise<TelegramSentMessage | void>;
+  deleteMessage?: (input: { chatId: number; messageId: number }) => Promise<void>;
+  snapshotStorage?: AppMetadataSessionStorage;
   newsGroupRepository: NewsGroupRepository;
   database: unknown;
   botLanguage?: string;
@@ -103,9 +109,16 @@ export async function publishCalendarSnapshotToNewsGroups({
   await Promise.all(
     groups.map(async (group) => {
       try {
-        await sendGroupMessage(group.chatId, `${message}\n\n${footer}`, {
+        const sent = await sendGroupMessage(group.chatId, `${message}\n\n${footer}`, {
           parseMode: 'HTML',
           ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
+        });
+        await rememberAndDeletePreviousCalendarSnapshot({
+          chatId: group.chatId,
+          messageThreadId: group.messageThreadId,
+          sent,
+          ...(deleteMessage ? { deleteMessage } : {}),
+          ...(snapshotStorage ? { snapshotStorage } : {}),
         });
       } catch (error) {
         console.warn(JSON.stringify({
@@ -118,6 +131,76 @@ export async function publishCalendarSnapshotToNewsGroups({
       }
     }),
   );
+}
+
+async function rememberAndDeletePreviousCalendarSnapshot({
+  chatId,
+  messageThreadId,
+  sent,
+  deleteMessage,
+  snapshotStorage,
+}: {
+  chatId: number;
+  messageThreadId: number | null;
+  sent: TelegramSentMessage | void;
+  deleteMessage?: (input: { chatId: number; messageId: number }) => Promise<void>;
+  snapshotStorage?: AppMetadataSessionStorage;
+}): Promise<void> {
+  if (!snapshotStorage || !sent?.messageId) {
+    return;
+  }
+
+  const key = buildCalendarSnapshotMessageKey(chatId, messageThreadId);
+  const previous = parseCalendarSnapshotMessage(await snapshotStorage.get(key));
+
+  await snapshotStorage.set(key, JSON.stringify({
+    chatId,
+    messageThreadId: messageThreadId ?? null,
+    messageId: sent.messageId,
+  }));
+
+  if (!deleteMessage || !previous || previous.messageId === sent.messageId) {
+    return;
+  }
+
+  try {
+    await deleteMessage({ chatId: previous.chatId, messageId: previous.messageId });
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: 'schedule.calendar-broadcast.previous-delete.failed',
+      chatId: previous.chatId,
+      messageThreadId: previous.messageThreadId,
+      messageId: previous.messageId,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+  }
+}
+
+function buildCalendarSnapshotMessageKey(chatId: number, messageThreadId: number | null): string {
+  return `telegram.schedule.calendar_snapshot:${chatId}:${messageThreadId ?? 0}`;
+}
+
+function parseCalendarSnapshotMessage(raw: string | null): { chatId: number; messageThreadId: number | null; messageId: number } | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const chatId = parsed.chatId;
+    const messageId = parsed.messageId;
+    const messageThreadId = parsed.messageThreadId;
+    if (typeof chatId !== 'number' || typeof messageId !== 'number') {
+      return null;
+    }
+    return {
+      chatId,
+      messageId,
+      messageThreadId: typeof messageThreadId === 'number' ? messageThreadId : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function formatCalendarBroadcastFooter({

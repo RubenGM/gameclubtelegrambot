@@ -3062,6 +3062,180 @@ test('group start reply explains private-chat usage and offers a private button'
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 });
 
+test('/autojoin enabled stores group autojoin for admins', async () => {
+  const commandHandlers = new Map<string, TelegramCommandHandler>();
+  const replies: string[] = [];
+  const appMetadataRecords = new Map<string, string>();
+
+  registerHandlers({
+    bot: {
+      username: 'gameclub_test_bot',
+      use: () => {},
+      onCommand: (command: string, handler: TelegramCommandHandler) => {
+        commandHandlers.set(command, handler);
+      },
+      onCallback: () => {},
+      onText: () => {},
+      onMessage: () => {},
+      sendPrivateMessage: async () => {},
+      startPolling: async () => {},
+      stopPolling: async () => {},
+    },
+    publicName: 'Game Club Bot',
+    adminElevationPasswordHash: 'hashed:admin-secret',
+  });
+
+  const autojoinHandler = commandHandlers.get('autojoin');
+  assert.ok(autojoinHandler);
+
+  await autojoinHandler({
+    messageText: '/autojoin enabled',
+    reply: async (message: string) => {
+      replies.push(message);
+    },
+    runtime: createRuntimeForMembershipTest({
+      database: createMembershipDatabaseStub({
+        membershipUsers: new Map(),
+        statusAuditLog: [],
+        auditEvents: [],
+        appMetadataRecords,
+      }),
+      chat: { kind: 'group', chatId: -1001, chatTitle: 'CAWA test' },
+      actor: {
+        telegramUserId: 99,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: true,
+        permissions: [],
+      },
+    }),
+  } as unknown as TelegramCommandHandlerContext);
+
+  assert.equal(appMetadataRecords.get('telegram.membership-autojoin:-1001'), 'true');
+  assert.match(replies[0] ?? '', /Autojoin activado/);
+});
+
+test('group autojoin approves new non-bot members when enabled', async () => {
+  const messageHandlers: TelegramCommandHandler[] = [];
+  const replies: string[] = [];
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const membershipUsers = new Map<number, { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }>();
+  const statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }> = [];
+  const auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }> = [];
+  const appMetadataRecords = new Map<string, string>([
+    ['telegram.membership-autojoin:-1001', 'true'],
+    ['telegram.welcome_templates', JSON.stringify([{
+      id: 'welcome_auto',
+      templateText: 'Bienvenido $USERNAME',
+      isEnabled: true,
+    }])],
+  ]);
+
+  registerHandlers({
+    bot: {
+      username: 'gameclub_test_bot',
+      use: () => {},
+      onCommand: () => {},
+      onCallback: () => {},
+      onText: () => {},
+      onMessage: (handler) => {
+        messageHandlers.push(handler);
+      },
+      sendPrivateMessage: async () => {},
+      startPolling: async () => {},
+      stopPolling: async () => {},
+    },
+    publicName: 'Game Club Bot',
+    adminElevationPasswordHash: 'hashed:admin-secret',
+  });
+
+  const messageHandler = messageHandlers[0];
+  assert.ok(messageHandler);
+
+  await messageHandler({
+    newChatMembers: [
+      { id: 42, username: 'new_member', first_name: 'New', last_name: 'Member' },
+      { id: 501, username: 'helper_bot', first_name: 'Helper', is_bot: true },
+    ],
+    reply: async (message: string) => {
+      replies.push(message);
+    },
+    runtime: createRuntimeForMembershipTest({
+      database: createMembershipDatabaseStub({
+        membershipUsers,
+        statusAuditLog,
+        auditEvents,
+        appMetadataRecords,
+      }),
+      chat: { kind: 'group', chatId: -1001, chatTitle: 'CAWA test' },
+      actor: {
+        telegramUserId: 99,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: true,
+        permissions: [],
+      },
+      groupMessages,
+    }),
+  } as unknown as TelegramCommandHandlerContext);
+
+  assert.equal(membershipUsers.get(42)?.status, 'approved');
+  assert.equal(membershipUsers.get(42)?.displayName, 'New Member');
+  assert.equal(membershipUsers.has(501), false);
+  assert.deepEqual(statusAuditLog.map((row) => row.nextStatus), ['pending', 'approved']);
+  assert.equal(auditEvents[0]?.actionKey, 'membership.approved');
+  assert.deepEqual(replies, []);
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.chatId, -1001);
+  assert.equal(groupMessages[0]?.message, 'Bienvenido New Member');
+  assert.equal(groupMessages[0]?.options?.parseMode, 'HTML');
+});
+
+function createRuntimeForMembershipTest({
+  database,
+  chat,
+  actor,
+  groupMessages,
+}: {
+  database: unknown;
+  chat: { kind: 'private' | 'group' | 'group-news'; chatId: number; chatTitle?: string };
+  actor: {
+    telegramUserId: number;
+    status: string;
+    isApproved: boolean;
+    isBlocked: boolean;
+    isAdmin: boolean;
+    permissions: string[];
+  };
+  groupMessages?: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }>;
+}): TelegramCommandHandlerContext['runtime'] {
+  return {
+    bot: {
+      publicName: 'Game Club Bot',
+      clubName: 'Game Club',
+      language: 'es',
+      username: 'gameclub_test_bot',
+      sendPrivateMessage: async () => {},
+      sendGroupMessage: async (chatId: number, message: string, options?: TelegramReplyOptions) => {
+        groupMessages?.push(options ? { chatId, message, options } : { chatId, message });
+      },
+    },
+    services: { database: { db: database as never } },
+    wikipediaBoardGameImportService: undefined as never,
+    boardGameGeekCollectionImportService: undefined as never,
+    chat,
+    actor,
+    authorization: { authorize: () => ({ allowed: true, permissionKey: 'any', reason: 'test' }), can: () => true },
+    session: {
+      current: null,
+      start: async () => undefined as never,
+      advance: async () => undefined as never,
+      cancel: async () => false,
+    },
+  } as unknown as TelegramCommandHandlerContext['runtime'];
+}
 
 function createMembershipDatabaseStub({
   membershipUsers,

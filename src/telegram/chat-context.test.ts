@@ -46,6 +46,22 @@ test('resolveTelegramChatContext marks news-enabled groups separately', async ()
   });
 });
 
+test('resolveTelegramChatContext keeps group titles for downstream replies', async () => {
+  const context = await resolveTelegramChatContext({
+    chat: {
+      id: -300,
+      type: 'supergroup',
+      title: 'Cawa',
+    },
+  });
+
+  assert.deepEqual(context, {
+    kind: 'group',
+    chatId: -300,
+    chatTitle: 'Cawa',
+  });
+});
+
 test('resolveTelegramChatContext rejects unsupported chats centrally', async () => {
   await assert.rejects(
     () =>

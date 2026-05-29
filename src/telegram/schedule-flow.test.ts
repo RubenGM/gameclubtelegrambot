@@ -9,7 +9,9 @@ import type { ScheduleEventRecord, ScheduleParticipantRecord, ScheduleRepository
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
+import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import { normalizeDisplayName } from '../membership/display-name.js';
+import { publishCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
 import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleMessage,
@@ -549,6 +551,24 @@ function createAuditRepository(): AuditLogRepository & { __events: AuditLogEvent
       });
     },
     __events: events,
+  };
+}
+
+function createMemoryAppMetadataStorage(values: Map<string, string>): AppMetadataSessionStorage {
+  return {
+    async get(key) {
+      return values.get(key) ?? null;
+    },
+    async set(key, value) {
+      values.set(key, value);
+    },
+    async delete(key) {
+      return values.delete(key);
+    },
+    async listByPrefix(prefix) {
+      return Array.from(values, ([key, value]) => ({ key, value }))
+        .filter((entry) => entry.key.startsWith(prefix));
+    },
   };
 }
 
@@ -1137,6 +1157,8 @@ test('handleTelegramScheduleText offers quick minute buttons when creating an ac
     stepKey: 'time-minute',
     data: { title: 'Ark Nova', date: '2026-04-05', timeHour: '17' },
   });
+  assert.match(replies.at(-1)?.message ?? '', /minuts|minutos|minutes/i);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /HH o HH:MM|HH or HH:MM/);
   assert.deepEqual(replies.at(-1)?.options, {
     replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
@@ -1186,6 +1208,8 @@ test('handleTelegramScheduleText accepts one-digit hours when creating an activi
     stepKey: 'time-minute',
     data: { title: 'Ark Nova', date: '2026-04-05', timeHour: '02' },
   });
+  assert.match(replies.at(-1)?.message ?? '', /minuts|minutos|minutes/i);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /HH o HH:MM|HH or HH:MM/);
   assert.deepEqual(replies.at(-1)?.options, {
     replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
@@ -1335,6 +1359,69 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
   );
   assert.doesNotMatch(groupMessages[0]?.message ?? '', /Traed promo pack/);
   assert.match(groupMessages[0]?.message ?? '', /ha creado la actividad Dune Imperium del Diumenge 5 abril/i);
+});
+
+test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapshot message per destination', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 1,
+      title: 'Dune Imperium',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 5,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      enabledAt: '2026-04-04T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ]);
+  const snapshotStorage = createMemoryAppMetadataStorage(new Map([
+    ['telegram.schedule.calendar_snapshot:-200:0', JSON.stringify({ chatId: -200, messageThreadId: null, messageId: 901 })],
+  ]));
+  const deletedMessages: Array<{ chatId: number; messageId: number }> = [];
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+
+  await publishCalendarSnapshotToNewsGroups({
+    change: { action: 'updated', event: (await scheduleRepository.findEventById(1))! },
+    sendGroupMessage: async (chatId, message, options) => {
+      groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
+      return { messageId: 902 };
+    },
+    deleteMessage: async (input) => {
+      deletedMessages.push(input);
+    },
+    snapshotStorage,
+    newsGroupRepository,
+    database: undefined,
+    scheduleRepository,
+    tableRepository: createTableRepository(),
+    venueEventRepository: createVenueEventRepository(),
+    resolveActorDisplayName: async () => 'Rubén',
+  });
+
+  assert.equal(groupMessages.length, 1);
+  assert.deepEqual(deletedMessages, [{ chatId: -200, messageId: 901 }]);
+  assert.equal(
+    await snapshotStorage.get('telegram.schedule.calendar_snapshot:-200:0'),
+    JSON.stringify({ chatId: -200, messageThreadId: null, messageId: 902 }),
+  );
 });
 
 test('handleTelegramScheduleText publishes the updated calendar only to groups subscribed to agenda category', async () => {
@@ -2237,6 +2324,8 @@ test('handleTelegramScheduleCallback offers quick minute buttons when editing wi
     stepKey: 'time-minute',
     data: { eventId: 3, timeHour: '19' },
   });
+  assert.match(replies.at(-1)?.message ?? '', /minuts|minutos|minutes/i);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /HH o HH:MM|HH or HH:MM/);
   assert.deepEqual(replies.at(-1)?.options, {
     replyKeyboard: [[scheduleLabels.keepCurrent], [':00', ':15'], [':30', ':45'], [dangerButton('/cancel')]],
     resizeKeyboard: true,

@@ -99,12 +99,16 @@ function createContext({
   isAdmin = true,
   hasNewsPermission = isAdmin,
   messageThreadId,
+  chatTitle = 'Cawa',
+  botLanguage,
 }: {
   repository?: NewsGroupRepository;
   chatKind?: 'group' | 'group-news';
   isAdmin?: boolean;
   hasNewsPermission?: boolean;
   messageThreadId?: number;
+  chatTitle?: string;
+  botLanguage?: string;
 } = {}) {
   const replies: string[] = [];
   const deletedMessages: Array<{ chatId: number; messageId: number }> = [];
@@ -173,6 +177,7 @@ function createContext({
       chat: {
         kind: chatKind,
         chatId: -200,
+        chatTitle,
       },
       services: {
         database: {
@@ -182,6 +187,7 @@ function createContext({
       bot: {
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
+        ...(botLanguage ? { language: botLanguage } : {}),
         sendPrivateMessage: async () => {},
         deleteMessage: async (input) => {
           deletedMessages.push(input);
@@ -204,7 +210,7 @@ test('handleTelegramNewsGroupText enables and subscribes a group with clear stat
 
   context.messageText = '/news subscriure events';
   assert.equal(await handleTelegramNewsGroupText(context), true);
-  assert.match(replies.at(-1) ?? '', /Categoria "events" subscrita\./);
+  assert.match(replies.at(-1) ?? '', /Subscrit correctament a events a Cawa\./);
   assert.match(replies.at(-1) ?? '', /Categories subscrites: events/);
   assert.equal((await repository.findGroupByChatId(-200))?.isEnabled, false);
 
@@ -232,10 +238,11 @@ test('handleTelegramNewsGroupText autodeletes subscription replies after one min
 });
 
 test('handleTelegramNewsGroupText subscribes only the current topic when used inside a topic', async () => {
-  const { context, replies, repository } = createContext({ messageThreadId: 77 });
+  const { context, replies, repository } = createContext({ messageThreadId: 77, botLanguage: 'es' });
 
   context.messageText = '/news suscribir socios';
   assert.equal(await handleTelegramNewsGroupText(context), true);
+  assert.match(replies.at(-1) ?? '', /Suscrito correctamente para nuevos_miembros en Cawa \(topic 77\)\./);
   assert.match(replies.at(-1) ?? '', /Destino: topic 77|Destí: topic 77/);
   assert.match(replies.at(-1) ?? '', /nuevos_miembros/);
 
@@ -255,6 +262,41 @@ test('handleTelegramNewsGroupText subscribes only the current topic when used in
 
   const targets = await repository.listSubscribedGroupsByCategory('nuevos_miembros');
   assert.deepEqual(targets.map((target) => ({ chatId: target.chatId, messageThreadId: target.messageThreadId })), [
+    { chatId: -200, messageThreadId: 77 },
+  ]);
+});
+
+test('handleTelegramNewsGroupText enables the current topic for default calendar news', async () => {
+  const { context, replies, repository } = createContext({ messageThreadId: 77 });
+
+  context.messageText = '/news activar';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+
+  assert.match(replies.at(-1) ?? '', /Subscrit correctament a events a Cawa \(topic 77\)\./);
+  assert.match(replies.at(-1) ?? '', /Destino: topic 77|Destí: topic 77/);
+  assert.deepEqual(await repository.listSubscriptionsByChatId(-200, { messageThreadId: 77 }), [
+    {
+      chatId: -200,
+      messageThreadId: 77,
+      categoryKey: 'events',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+  assert.deepEqual(await repository.listSubscribedGroupsByCategory('events').then((targets) => targets.map(({ chatId, messageThreadId }) => ({ chatId, messageThreadId }))), [
+    { chatId: -200, messageThreadId: 77 },
+  ]);
+});
+
+test('handleTelegramNewsGroupCallback enables the current topic for default calendar news', async () => {
+  const { context, replies, repository } = createContext({ messageThreadId: 77 });
+
+  context.callbackData = newsGroupCallbackPrefixes.toggle;
+  assert.equal(await handleTelegramNewsGroupCallback(context), true);
+
+  assert.match(replies.at(-1) ?? '', /Subscrit correctament a events a Cawa \(topic 77\)\./);
+  assert.match(replies.at(-1) ?? '', /Destino: topic 77|Destí: topic 77/);
+  assert.deepEqual(await repository.listSubscribedGroupsByCategory('events').then((targets) => targets.map(({ chatId, messageThreadId }) => ({ chatId, messageThreadId }))), [
     { chatId: -200, messageThreadId: 77 },
   ]);
 });
@@ -308,19 +350,19 @@ test('handleTelegramNewsGroupText allows only bot admins even if a user has news
 });
 
 test('handleTelegramNewsGroupText accepts Spanish command aliases', async () => {
-  const { context, replies, repository } = createContext();
+  const { context, replies, repository } = createContext({ botLanguage: 'es' });
 
   context.messageText = '/news suscribir socios';
   assert.equal(await handleTelegramNewsGroupText(context), true);
-  assert.match(replies.at(-1) ?? '', /Categoria "nuevos_miembros" subscrita\./);
+  assert.match(replies.at(-1) ?? '', /Suscrito correctamente para nuevos_miembros en Cawa\./);
 
   context.messageText = '/news estado';
   assert.equal(await handleTelegramNewsGroupText(context), true);
-  assert.match(replies.at(-1) ?? '', /Categories subscrites: nuevos_miembros/);
+  assert.match(replies.at(-1) ?? '', /Categorías suscritas: nuevos_miembros/);
 
   context.messageText = '/news desuscribir new-members';
   assert.equal(await handleTelegramNewsGroupText(context), true);
-  assert.match(replies.at(-1) ?? '', /Categoria "nuevos_miembros" eliminada\./);
+  assert.match(replies.at(-1) ?? '', /Categoría "nuevos_miembros" eliminada\./);
   assert.deepEqual(await repository.listSubscriptionsByChatId(-200), []);
 });
 
@@ -343,7 +385,7 @@ test('handleTelegramNewsGroupCallback subscribes and unsubscribes a category dir
 
   context.callbackData = `${newsGroupCallbackPrefixes.subscribe}nuevos_miembros`;
   assert.equal(await handleTelegramNewsGroupCallback(context), true);
-  assert.match(replies.at(-1) ?? '', /Categoria "nuevos_miembros" subscrita\./);
+  assert.match(replies.at(-1) ?? '', /Subscrit correctament a nuevos_miembros a Cawa\./);
   assert.deepEqual((await repository.listSubscriptionsByChatId(-200)).map((entry) => entry.categoryKey), ['nuevos_miembros']);
 
   context.callbackData = `${newsGroupCallbackPrefixes.unsubscribe}nuevos_miembros`;

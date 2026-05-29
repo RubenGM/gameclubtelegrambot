@@ -35,7 +35,8 @@ import type { TelegramActor } from './actor-store.js';
 import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
-import type { TelegramReplyOptions } from './runtime-boundary.js';
+import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
+import type { TelegramReplyOptions, TelegramSentMessage } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
 import { formatMembershipDisplayName } from '../membership/display-name.js';
@@ -165,7 +166,8 @@ export interface TelegramScheduleContext {
       clubName: string;
       language?: string;
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
-      sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+      sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
+      deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
       copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
       forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     };
@@ -478,7 +480,7 @@ async function handleCreateSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time-minute', data: { ...data, timeHour } });
-    await context.reply(texts.askTime, buildTimeMinuteOptions(language));
+    await context.reply(texts.askTimeMinute, buildTimeMinuteOptions(language));
     return true;
   }
 
@@ -1008,7 +1010,7 @@ async function handleEditSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time-minute', data: { ...data, timeHour } });
-    await context.reply(texts.askEditTime, buildEditTimeMinuteOptions(language));
+    await context.reply(texts.askEditTimeMinute, buildEditTimeMinuteOptions(language));
     return true;
   }
   if (stepKey === 'time-minute') {
@@ -1656,6 +1658,7 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
   'change'
 > {
   const sendGroupMessage = context.runtime.bot.sendGroupMessage;
+  const deleteMessage = context.runtime.bot.deleteMessage;
 
   return {
     ...(sendGroupMessage
@@ -1664,8 +1667,10 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
             sendGroupMessage(chatId, message, options),
         }
       : {}),
+    ...(deleteMessage ? { deleteMessage: deleteMessage.bind(context.runtime.bot) } : {}),
     newsGroupRepository: resolveNewsGroupRepository(context),
     database: context.runtime.services.database.db,
+    snapshotStorage: createDatabaseAppMetadataSessionStorage({ database: context.runtime.services.database.db as never }),
     botLanguage: resolveBotLanguage(context),
     ...(context.scheduleRepository ? { scheduleRepository: context.scheduleRepository } : {}),
     ...(context.venueEventRepository ? { venueEventRepository: context.venueEventRepository } : {}),

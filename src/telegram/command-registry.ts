@@ -3,7 +3,7 @@ import type { TelegramActor } from './actor-store.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
-import type { TelegramMessageEntity, TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramMessageEntity, TelegramReplyOptions, TelegramSentMessage } from './runtime-boundary.js';
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
 
@@ -41,7 +41,7 @@ export interface TelegramCommandRuntime {
     getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean }>;
     createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
     sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
-    sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+    sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
     copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;

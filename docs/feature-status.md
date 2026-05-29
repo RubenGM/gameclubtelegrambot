@@ -16,7 +16,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Feature                                      | Estado               | Lectura actual                                                                                                                       |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 | Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, canarios/reintentos Telegram, systemd/tray y backups.           |
-| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, nickname visible, bienvenidas configurables, avisos privados y alta web inicial en `/alta`.          |
+| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname visible, bienvenidas, avisos privados y alta web en `/alta`.     |
 | Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, LFG etiquetado como buscar grupo y ayuda contextual por sección activa.                         |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
@@ -73,6 +73,7 @@ Implementado:
 - La gestion de rol admin escribe auditoria en `user_permission_audit_log` y `audit_log`.
 - `/elevate_admin` eleva a admin usando hash de password runtime.
 - `/subscribe_requests` y `/unsubscribe_requests` permiten avisos privados de nuevas solicitudes.
+- `/autojoin enabled` y `/autojoin disabled` permiten a admins activar por grupo el alta automatica: cada usuario no bot que entre en ese grupo se crea como pendiente si hace falta y queda aprobado como miembro; los usuarios bloqueados no se reactivan automaticamente.
 - `/alta` registra solicitudes de alta desde la web en `member_signup_requests`, avisa por privado a admins aprobados y publica en grupos suscritos al feed `nuevos_miembros`.
 - `/admin/member-signups` permite revisar desde el panel web las solicitudes de alta recibidas, su estado, el resumen de avisos enviados y marcar cada solicitud como contactada, aprobada, rechazada o pendiente.
 - `/admin/welcome` permite a admins configurar plantillas aleatorias de bienvenida de grupo, con placeholder `$USERNAME`, GIF opcional mediante Telegram animation file ID, plantillas globales y plantillas especificas por Telegram user ID.
@@ -125,11 +126,12 @@ Implementado:
 
 - `/schedule` con crear, listar, editar, cancelar, detalle por deep link, unirse y salir.
 - Soporte de fecha, hora, duracion, mesa opcional, juego de catalogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, plazas iniciales ocupadas, capacidad y mensaje extra opcional con adjuntos para detalles.
+- Si el usuario escribe solo la hora de inicio, el bot pasa a un paso especifico de minutos con botones rapidos (`:00`, `:15`, `:30`, `:45`) y copy propio.
 - Preferencia de recordatorio al apuntarse y worker persistente de recordatorios.
 - Avisos de conflicto y capacidad al crear/editar.
 - Integracion con eventos del local para mostrar impacto.
 - Listado y snapshots de grupo con enlace `Ver detalles` solo cuando la actividad tiene mensaje extra guardado; en ese caso no imprimen la descripcion larga en linea y el deep link reenvia el mensaje original al usuario.
-- Publicacion de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic.
+- Publicacion de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic. El bot recuerda el ultimo snapshot por grupo/topic y borra el anterior tras publicar uno nuevo.
 
 Riesgos o pendientes:
 
@@ -216,8 +218,9 @@ Implementado:
 
 - `/news status`, `/news enable`, `/news disable`, `/news subscribe <categoria>` y `/news unsubscribe <categoria>` en grupos y supergrupos con topics.
 - Persistencia de grupos habilitados y suscripciones por categoria + destino (`chat_id` completo o `message_thread_id` concreto).
+- `/news activar` dentro de un topic habilita el grupo y suscribe el feed de agenda (`events`) a ese topic para evitar que las actualizaciones de calendario caigan al general.
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
-- Las respuestas administrativas de `/news` se borran automaticamente tras 1 minuto para no ensuciar el grupo o topic; las publicaciones reales de feeds se conservan.
+- Las respuestas administrativas de `/news` confirman feed y destino por nombre de grupo cuando Telegram lo proporciona, y se borran automaticamente tras 1 minuto para no ensuciar el grupo o topic; las publicaciones reales de feeds se conservan.
 - Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs, altas web y bienvenidas por aprobación (`nuevos_miembros`).
 - Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem, altas web y bienvenidas por aprobación => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto como `events` si no tienen ese feed suscrito explícitamente.
 - `/admin/news` muestra los feeds disponibles y cuántos destinos activos hay suscritos a cada categoría.
