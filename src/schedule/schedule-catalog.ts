@@ -6,11 +6,14 @@ export interface ScheduleEventRecord {
   id: number;
   title: string;
   description: string | null;
+  detailsMessageChatId: number | null;
+  detailsMessageId: number | null;
   startsAt: string;
   durationMinutes: number;
   organizerTelegramUserId: number;
   createdByTelegramUserId: number;
   tableId: number | null;
+  catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
   initialOccupiedSeats: number;
   capacity: number;
@@ -45,11 +48,14 @@ export interface ScheduleRepository {
   createEvent(input: {
     title: string;
     description: string | null;
+    detailsMessageChatId?: number | null;
+    detailsMessageId?: number | null;
     startsAt: string;
     durationMinutes: number;
     organizerTelegramUserId: number;
     createdByTelegramUserId: number;
     tableId: number | null;
+    catalogItemId?: number | null;
     attendanceMode: ScheduleAttendanceMode;
     initialOccupiedSeats: number;
     capacity: number;
@@ -71,10 +77,13 @@ export interface ScheduleRepository {
     eventId: number;
     title: string;
     description: string | null;
+    detailsMessageChatId?: number | null;
+    detailsMessageId?: number | null;
     startsAt: string;
     durationMinutes: number;
     organizerTelegramUserId: number;
     tableId: number | null;
+    catalogItemId?: number | null;
     attendanceMode: ScheduleAttendanceMode;
     initialOccupiedSeats: number;
     capacity: number;
@@ -100,11 +109,14 @@ export async function createScheduleEvent({
   repository,
   title,
   description,
+  detailsMessageChatId,
+  detailsMessageId,
   startsAt,
   durationMinutes,
   organizerTelegramUserId,
   createdByTelegramUserId,
   tableId,
+  catalogItemId,
   attendanceMode,
   initialOccupiedSeats,
   capacity,
@@ -112,11 +124,14 @@ export async function createScheduleEvent({
   repository: ScheduleRepository;
   title: string;
   description?: string | null;
+  detailsMessageChatId?: number | null;
+  detailsMessageId?: number | null;
   startsAt: string;
   durationMinutes: number;
   organizerTelegramUserId: number;
   createdByTelegramUserId: number;
   tableId?: number | null;
+  catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
   initialOccupiedSeats: number;
   capacity: number;
@@ -124,11 +139,14 @@ export async function createScheduleEvent({
   return repository.createEvent({
     title: normalizeTitle(title),
     description: normalizeDescription(description),
+    detailsMessageChatId: normalizeDetailsMessageChatId(detailsMessageChatId),
+    detailsMessageId: normalizeDetailsMessageId(detailsMessageId),
     startsAt: normalizeStartsAt(startsAt),
     durationMinutes: normalizeDurationMinutes(durationMinutes),
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
     createdByTelegramUserId: normalizeTelegramUserId(createdByTelegramUserId, 'creador'),
     tableId: normalizeTableId(tableId),
+    catalogItemId: normalizeCatalogItemId(catalogItemId),
     attendanceMode: normalizeAttendanceMode(attendanceMode),
     initialOccupiedSeats: normalizeInitialOccupiedSeats({
       attendanceMode,
@@ -189,10 +207,13 @@ export async function updateScheduleEvent({
   eventId,
   title,
   description,
+  detailsMessageChatId,
+  detailsMessageId,
   startsAt,
   durationMinutes,
   organizerTelegramUserId,
   tableId,
+  catalogItemId,
   attendanceMode,
   initialOccupiedSeats,
   capacity,
@@ -201,10 +222,13 @@ export async function updateScheduleEvent({
   eventId: number;
   title: string;
   description?: string | null;
+  detailsMessageChatId?: number | null;
+  detailsMessageId?: number | null;
   startsAt: string;
   durationMinutes: number;
   organizerTelegramUserId: number;
   tableId?: number | null;
+  catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
   initialOccupiedSeats: number;
   capacity: number;
@@ -222,10 +246,13 @@ export async function updateScheduleEvent({
     eventId,
     title: normalizeTitle(title),
     description: normalizeDescription(description),
+    detailsMessageChatId: normalizeDetailsMessageChatId(detailsMessageChatId),
+    detailsMessageId: normalizeDetailsMessageId(detailsMessageId),
     startsAt: normalizeStartsAt(startsAt),
     durationMinutes: normalizeDurationMinutes(durationMinutes),
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
     tableId: normalizeTableId(tableId),
+    catalogItemId: normalizeCatalogItemId(catalogItemId),
     attendanceMode: normalizeAttendanceMode(attendanceMode),
     initialOccupiedSeats: normalizeInitialOccupiedSeats({
       attendanceMode,
@@ -273,7 +300,7 @@ export async function setScheduleEventParticipantStatus({
   if (status === 'active') {
     const snapshot = await getScheduleCapacitySnapshot({ repository, eventId });
     if (snapshot.availableSeats <= 0) {
-      throw new Error('L activitat ja no te places disponibles');
+      throw new Error("L'activitat ja no té places disponibles");
     }
   }
 
@@ -488,7 +515,7 @@ export function getScheduleEventEndsAt(event: Pick<ScheduleEventRecord, 'startsA
 function normalizeTitle(title: string): string {
   const normalized = title.trim();
   if (!normalized) {
-    throw new Error('El titol de l activitat es obligatori');
+    throw new Error("El títol de l'activitat és obligatori");
   }
 
   return normalized;
@@ -499,10 +526,24 @@ function normalizeDescription(description: string | null | undefined): string | 
   return normalized ? normalized : null;
 }
 
+function normalizeDetailsMessageChatId(value: number | null | undefined): number | null {
+  return value === null || value === undefined ? null : normalizeTelegramUserId(value, 'chat de detalles');
+}
+
+function normalizeDetailsMessageId(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error('El missatge de detalls no és vàlid');
+  }
+  return value;
+}
+
 function normalizeStartsAt(startsAt: string): string {
   const parsed = new Date(startsAt);
   if (Number.isNaN(parsed.getTime())) {
-    throw new Error('La data d inici ha de ser valida');
+    throw new Error("La data d'inici ha de ser vàlida");
   }
 
   return parsed.toISOString();
@@ -526,6 +567,18 @@ function normalizeTableId(tableId: number | null | undefined): number | null {
   }
 
   return tableId;
+}
+
+function normalizeCatalogItemId(catalogItemId: number | null | undefined): number | null {
+  if (catalogItemId === undefined || catalogItemId === null) {
+    return null;
+  }
+
+  if (!Number.isInteger(catalogItemId) || catalogItemId <= 0) {
+    throw new Error('El joc associat ha de ser un enter positiu');
+  }
+
+  return catalogItemId;
 }
 
 function normalizeCapacity(capacity: number): number {

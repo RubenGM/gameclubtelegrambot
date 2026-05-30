@@ -8,8 +8,14 @@ import {
   type VenueEventImpactSignal,
 } from './venue-event-impact-signals.js';
 
-function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): ScheduleRepository {
-  const events = new Map(initialEvents.map((event) => [event.id, event]));
+type ScheduleEventFixture = Omit<ScheduleEventRecord, 'detailsMessageChatId' | 'detailsMessageId'> &
+  Partial<Pick<ScheduleEventRecord, 'detailsMessageChatId' | 'detailsMessageId'>>;
+
+function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleRepository {
+  const events = new Map(initialEvents.map((event) => {
+    const normalized = normalizeScheduleEventFixture(event);
+    return [normalized.id, normalized];
+  }));
   const participants = new Map<string, ScheduleParticipantRecord>();
 
   return {
@@ -40,6 +46,14 @@ function createScheduleRepository(initialEvents: ScheduleEventRecord[] = []): Sc
       participants.set(`${input.eventId}:${input.participantTelegramUserId}`, next);
       return next;
     },
+  };
+}
+
+function normalizeScheduleEventFixture(event: ScheduleEventFixture): ScheduleEventRecord {
+  return {
+    ...event,
+    detailsMessageChatId: event.detailsMessageChatId ?? null,
+    detailsMessageId: event.detailsMessageId ?? null,
   };
 }
 

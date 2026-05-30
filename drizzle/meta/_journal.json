@@ -204,6 +204,34 @@
       "when": 1779199200000,
       "tag": "0028_hide_catalog_media_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1779213857861,
+      "tag": "0029_fair_alex_wilder",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1779218917095,
+      "tag": "0030_link_schedule_catalog_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1779703867443,
+      "tag": "0031_known_shockwave",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1780066800000,
+      "tag": "0032_news_topic_subscriptions",
+      "breakpoints": true
     }
   ]
 }

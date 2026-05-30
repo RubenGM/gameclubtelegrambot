@@ -35,7 +35,8 @@ import type { TelegramActor } from './actor-store.js';
 import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramChatContext } from './chat-context.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
-import type { TelegramReplyOptions } from './runtime-boundary.js';
+import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
+import type { TelegramReplyOptions, TelegramSentMessage } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
 import { formatMembershipDisplayName } from '../membership/display-name.js';
@@ -48,6 +49,7 @@ import {
   formatHtmlField,
   formatParticipantCount,
   formatScheduleEventDetails,
+  hasScheduleDetailsMessage,
   formatScheduleListMessage,
   formatTimestamp,
   groupScheduleEventsByDay,
@@ -108,6 +110,7 @@ const editFlowKey = 'schedule-edit';
 const cancelFlowKey = 'schedule-cancel';
 const joinReminderFlowKey = 'schedule-join-reminder';
 const scheduleStartPayloadPrefix = 'schedule_event_';
+const scheduleDetailsStartPayloadPrefix = 'schedule_details_';
 
 export const scheduleCallbackPrefixes = {
   inspect: 'schedule:inspect:',
@@ -141,6 +144,11 @@ function parseAttendanceModeSelection(
 
 export interface TelegramScheduleContext {
   messageText?: string | undefined;
+  messageId?: number | undefined;
+  messageMedia?: {
+    caption?: string | null;
+    messageId: number;
+  } | null;
   callbackData?: string | undefined;
   reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: {
@@ -158,7 +166,10 @@ export interface TelegramScheduleContext {
       clubName: string;
       language?: string;
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
-      sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+      sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
+      deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
+      copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+      forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     };
   };
   scheduleRepository?: ScheduleRepository;
@@ -209,6 +220,13 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
 }
 
 export async function handleTelegramScheduleStartText(context: TelegramScheduleContext): Promise<boolean> {
+  const detailsEventId = parseScheduleStartPayload(context.messageText, scheduleDetailsStartPayloadPrefix);
+  if (detailsEventId !== null && context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved) {
+    const event = await loadEventOrThrow(context, detailsEventId);
+    await sendScheduleDetailsMessage(context, event);
+    return true;
+  }
+
   const eventId = parseScheduleStartPayload(context.messageText, scheduleStartPayloadPrefix);
   if (eventId === null || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
     return false;
@@ -226,6 +244,35 @@ export async function handleTelegramScheduleStartText(context: TelegramScheduleC
     parseMode: 'HTML',
   });
   return true;
+}
+
+export async function handleTelegramScheduleMessage(context: TelegramScheduleContext): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
+    return false;
+  }
+
+  const session = context.runtime.session.current;
+  if (!session || !isScheduleSession(session.flowKey) || session.stepKey !== 'description') {
+    return false;
+  }
+
+  if (session.flowKey === createFlowKey) {
+    await replyCreateConfirm(context, {
+      ...session.data,
+      ...buildDetailsMessagePatch(context),
+    });
+    return true;
+  }
+
+  if (session.flowKey === editFlowKey) {
+    const event = await loadEventOrThrow(context, Number(session.data.eventId));
+    return returnToEditMenu(context, event, session.data, {
+      ...buildDetailsMessagePatch(context),
+      title: session.data.title ?? event.title,
+    });
+  }
+
+  return false;
 }
 
 export async function handleTelegramScheduleCallback(context: TelegramScheduleContext): Promise<boolean> {
@@ -402,7 +449,9 @@ async function handleCreateSession(
   if (stepKey === 'description') {
     await replyCreateConfirm(context, {
       ...data,
-      description: text === texts.skipOptional || text === scheduleLabels.skipOptional ? null : text,
+      ...(text === texts.skipOptional || text === scheduleLabels.skipOptional
+        ? clearDetailsMessagePatch()
+        : buildDetailsMessagePatch(context, text)),
     });
     return true;
   }
@@ -431,7 +480,7 @@ async function handleCreateSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time-minute', data: { ...data, timeHour } });
-    await context.reply(texts.askTime, buildTimeMinuteOptions(language));
+    await context.reply(texts.askTimeMinute, buildTimeMinuteOptions(language));
     return true;
   }
 
@@ -600,11 +649,14 @@ async function handleCreateSession(
       repository: resolveScheduleRepository(context),
       title: String(data.title ?? ''),
       description: asNullableString(data.description),
+      detailsMessageChatId: asNullableNumber(data.detailsMessageChatId),
+      detailsMessageId: asNullableNumber(data.detailsMessageId),
       startsAt: buildStartsAt(String(data.date ?? ''), String(data.time ?? '')),
       durationMinutes: Number(data.durationMinutes),
       organizerTelegramUserId: context.runtime.actor.telegramUserId,
       createdByTelegramUserId: context.runtime.actor.telegramUserId,
       tableId: asNullableNumber(data.tableId),
+      catalogItemId: asNullableNumber(data.catalogItemId),
       attendanceMode: String(data.attendanceMode) === 'closed' ? 'closed' : 'open',
       initialOccupiedSeats: Number(data.initialOccupiedSeats ?? 0),
       capacity: Number(data.capacity),
@@ -620,6 +672,7 @@ async function handleCreateSession(
         startsAt: created.startsAt,
         capacity: created.capacity,
         tableId: created.tableId,
+        catalogItemId: created.catalogItemId ?? null,
       },
     });
     await context.runtime.session.cancel();
@@ -706,6 +759,7 @@ async function handleCreateSessionBack(
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).schedule;
   const descriptionPatch = data.description === undefined ? {} : { description: data.description };
+  const linkedCatalogPatch = data.catalogItemId === undefined ? {} : { catalogItemId: data.catalogItemId };
 
   if (stepKey === 'title') {
     await context.runtime.session.cancel();
@@ -719,7 +773,7 @@ async function handleCreateSessionBack(
   }
 
   if (stepKey === 'date') {
-    await context.runtime.session.advance({ stepKey: 'title', data: {} });
+    await context.runtime.session.advance({ stepKey: 'title', data: linkedCatalogPatch });
     await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
     return true;
   }
@@ -733,7 +787,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'time-minute') {
     await context.runtime.session.advance({
       stepKey: 'time',
-      data: { title: data.title, ...descriptionPatch, date: data.date },
+      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date },
     });
     await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
     return true;
@@ -742,7 +796,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'duration-mode') {
     await context.runtime.session.advance({
       stepKey: 'time',
-      data: { title: data.title, ...descriptionPatch, date: data.date },
+      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date },
     });
     await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
     return true;
@@ -751,7 +805,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'duration-hours' || stepKey === 'duration-hours-minutes' || stepKey === 'duration') {
     await context.runtime.session.advance({
       stepKey: 'duration-mode',
-      data: { title: data.title, ...descriptionPatch, date: data.date, time: data.time },
+      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date, time: data.time },
     });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
@@ -760,7 +814,7 @@ async function handleCreateSessionBack(
   if (stepKey === 'attendance-mode') {
     await context.runtime.session.advance({
       stepKey: 'duration-mode',
-      data: { title: data.title, ...descriptionPatch, date: data.date, time: data.time },
+      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date, time: data.time },
     });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
@@ -772,6 +826,7 @@ async function handleCreateSessionBack(
       data: {
         title: data.title,
         ...descriptionPatch,
+        ...linkedCatalogPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -787,6 +842,7 @@ async function handleCreateSessionBack(
       data: {
         title: data.title,
         ...descriptionPatch,
+        ...linkedCatalogPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -804,6 +860,7 @@ async function handleCreateSessionBack(
         data: {
           title: data.title,
           ...descriptionPatch,
+          ...linkedCatalogPatch,
           date: data.date,
           time: data.time,
           durationMinutes: data.durationMinutes,
@@ -820,6 +877,7 @@ async function handleCreateSessionBack(
       data: {
         title: data.title,
         ...descriptionPatch,
+        ...linkedCatalogPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -836,6 +894,7 @@ async function handleCreateSessionBack(
       data: {
         title: data.title,
         ...descriptionPatch,
+        ...linkedCatalogPatch,
         date: data.date,
         time: data.time,
         durationMinutes: data.durationMinutes,
@@ -914,8 +973,18 @@ async function handleEditSession(
     return returnToEditMenu(context, event, data, { title });
   }
   if (stepKey === 'description') {
-    const description = text === texts.keepCurrent || text === scheduleLabels.keepCurrent ? event.description : text === texts.skipOptional || text === scheduleLabels.skipOptional ? null : text;
-    return returnToEditMenu(context, event, data, { description, title: data.title ?? event.title });
+    if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
+      return returnToEditMenu(context, event, data, {
+        description: event.description,
+        detailsMessageChatId: event.detailsMessageChatId,
+        detailsMessageId: event.detailsMessageId,
+        title: data.title ?? event.title,
+      });
+    }
+    const patch = text === texts.skipOptional || text === scheduleLabels.skipOptional
+      ? clearDetailsMessagePatch()
+      : buildDetailsMessagePatch(context, text);
+    return returnToEditMenu(context, event, data, { ...patch, title: data.title ?? event.title });
   }
   if (stepKey === 'date') {
     const currentDate = formatLocalDateInput(event.startsAt);
@@ -941,7 +1010,7 @@ async function handleEditSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time-minute', data: { ...data, timeHour } });
-    await context.reply(texts.askEditTime, buildEditTimeMinuteOptions(language));
+    await context.reply(texts.askEditTimeMinute, buildEditTimeMinuteOptions(language));
     return true;
   }
   if (stepKey === 'time-minute') {
@@ -1124,10 +1193,17 @@ async function persistEditedScheduleEvent(
     description: Object.prototype.hasOwnProperty.call(data, 'description')
       ? asNullableString(data.description)
       : event.description,
+    detailsMessageChatId: Object.prototype.hasOwnProperty.call(data, 'detailsMessageChatId')
+      ? asNullableNumber(data.detailsMessageChatId)
+      : event.detailsMessageChatId,
+    detailsMessageId: Object.prototype.hasOwnProperty.call(data, 'detailsMessageId')
+      ? asNullableNumber(data.detailsMessageId)
+      : event.detailsMessageId,
     startsAt: buildStartsAt(String(data.date ?? formatLocalDateInput(event.startsAt)), String(data.time ?? formatLocalTimeInput(event.startsAt))),
     durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
     organizerTelegramUserId: event.organizerTelegramUserId,
     tableId: asNullableNumber(data.tableId),
+    catalogItemId: event.catalogItemId ?? null,
     attendanceMode: event.attendanceMode,
     initialOccupiedSeats: Number(data.initialOccupiedSeats ?? event.initialOccupiedSeats),
     capacity: Number(data.capacity ?? event.capacity),
@@ -1445,12 +1521,78 @@ async function formatScheduleEventView(
           '<b>Esdeveniments del local rellevants:</b>',
           ...relevantVenueEvents.map(
             (venueEvent) =>
-              `- ${escapeHtml(venueEvent.name)} (${formatTimestamp(venueEvent.startsAt)} - ${formatTimestamp(venueEvent.endsAt)}, ocupacio ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`,
+              `- ${escapeHtml(venueEvent.name)} (${formatTimestamp(venueEvent.startsAt)} - ${formatTimestamp(venueEvent.endsAt)}, ocupació ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`,
           ),
-          'Aixo no bloqueja automaticament l activitat; serveix com a context per decidir millor.',
+          "Això no bloqueja automàticament l'activitat; serveix com a context per decidir millor.",
         ]
       : []),
   ].join('\n');
+}
+
+async function sendScheduleDetailsMessage(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  if (!hasScheduleDetailsMessage(event)) {
+    await context.reply(texts.detailsUnavailable, buildScheduleMenuOptions(language));
+    return;
+  }
+
+  const input = {
+    fromChatId: event.detailsMessageChatId!,
+    messageId: event.detailsMessageId!,
+    toChatId: context.runtime.chat.chatId,
+  };
+
+  try {
+    if (context.runtime.bot.forwardMessage) {
+      await context.runtime.bot.forwardMessage(input);
+      return;
+    }
+    if (context.runtime.bot.copyMessage) {
+      await context.runtime.bot.copyMessage(input);
+      return;
+    }
+  } catch {
+    if (context.runtime.bot.copyMessage) {
+      try {
+        await context.runtime.bot.copyMessage(input);
+        return;
+      } catch {
+        // Fall through to a user-visible explanation.
+      }
+    }
+  }
+
+  await context.reply(texts.detailsUnavailable, buildScheduleMenuOptions(language));
+}
+
+function buildDetailsMessagePatch(
+  context: TelegramScheduleContext,
+  textOverride?: string,
+): { description: string | null; detailsMessageChatId: number | null; detailsMessageId: number | null } {
+  const description = normalizeDetailsDescription(textOverride ?? context.messageMedia?.caption ?? context.messageText ?? null);
+  const messageId = context.messageMedia?.messageId ?? context.messageId ?? null;
+  return {
+    description,
+    detailsMessageChatId: messageId ? context.runtime.chat.chatId : null,
+    detailsMessageId: messageId,
+  };
+}
+
+function clearDetailsMessagePatch(): { description: null; detailsMessageChatId: null; detailsMessageId: null } {
+  return {
+    description: null,
+    detailsMessageChatId: null,
+    detailsMessageId: null,
+  };
+}
+
+function normalizeDetailsDescription(value: string | null): string | null {
+  const normalized = value?.trim();
+  return normalized && normalized.length > 0 ? normalized : null;
 }
 
 async function replyWithInspectableEventList(
@@ -1516,16 +1658,19 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
   'change'
 > {
   const sendGroupMessage = context.runtime.bot.sendGroupMessage;
+  const deleteMessage = context.runtime.bot.deleteMessage;
 
   return {
     ...(sendGroupMessage
       ? {
-          sendGroupMessage: async (chatId: number, message: string, options?: { parseMode?: 'HTML' }) =>
+          sendGroupMessage: async (chatId: number, message: string, options?: { parseMode?: 'HTML'; messageThreadId?: number }) =>
             sendGroupMessage(chatId, message, options),
         }
       : {}),
+    ...(deleteMessage ? { deleteMessage: deleteMessage.bind(context.runtime.bot) } : {}),
     newsGroupRepository: resolveNewsGroupRepository(context),
     database: context.runtime.services.database.db,
+    snapshotStorage: createDatabaseAppMetadataSessionStorage({ database: context.runtime.services.database.db as never }),
     botLanguage: resolveBotLanguage(context),
     ...(context.scheduleRepository ? { scheduleRepository: context.scheduleRepository } : {}),
     ...(context.venueEventRepository ? { venueEventRepository: context.venueEventRepository } : {}),

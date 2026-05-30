@@ -89,7 +89,7 @@ integrationTest('concurrent loan creation allows one winner and one friendly dup
     const rejected = outcomes.find((outcome) => outcome.status === 'rejected');
     assert.ok(rejected);
     if (rejected.status === 'rejected') {
-      assert.equal(rejected.reason instanceof Error ? rejected.reason.message : String(rejected.reason), 'Aquest item ja esta prestat.');
+      assert.equal(rejected.reason instanceof Error ? rejected.reason.message : String(rejected.reason), 'Aquest ítem ja està prestat.');
     }
 
     const activeLoans = await context.connection.pool.query(

@@ -4,7 +4,7 @@ import type { DatabaseConnection } from '../infrastructure/database/connection.j
 import { catalogItems, catalogLoans } from '../infrastructure/database/schema.js';
 import type { CatalogLoanRecord, CatalogLoanRepository, CatalogLoanWithItemRecord } from './catalog-model.js';
 
-const duplicateActiveLoanMessage = 'Aquest item ja esta prestat.';
+const duplicateActiveLoanMessage = 'Aquest ítem ja està prestat.';
 const activeLoanConstraintName = 'catalog_loans_one_active_per_item';
 
 export function createDatabaseCatalogLoanRepository({

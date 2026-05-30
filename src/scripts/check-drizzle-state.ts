@@ -27,7 +27,7 @@ export async function assertDrizzleArtifactsAreComplete({
 
   if (missing.length > 0) {
     throw new Error(
-      `L historial de Drizzle no esta complet. Falten aquests artefactes: ${missing.join(', ')}`,
+      `L'historial de Drizzle no està complet. Falten aquests artefactes: ${missing.join(', ')}`,
     );
   }
 }

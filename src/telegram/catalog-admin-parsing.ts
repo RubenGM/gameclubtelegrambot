@@ -58,7 +58,7 @@ export function parseLookupCandidateInput(text: string, value: unknown): Catalog
 export function parseItemId(callbackData: string, prefix: string): number {
   const value = Number(callbackData.slice(prefix.length));
   if (!Number.isInteger(value) || value <= 0) {
-    throw new Error('No s ha pogut identificar l item seleccionat.');
+    throw new Error("No s'ha pogut identificar l'ítem seleccionat.");
   }
   return value;
 }

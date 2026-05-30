@@ -118,7 +118,7 @@ test('service-control turns permission failures into predictable errors', async 
       assert.equal(error instanceof ServiceControlError, true);
       assert.equal((error as ServiceControlError).operation, 'restart');
       assert.equal((error as ServiceControlError).code, 'permission-denied');
-      assert.match((error as Error).message, /no te permisos/i);
+      assert.match((error as Error).message, /no té permisos/i);
       return true;
     },
   );

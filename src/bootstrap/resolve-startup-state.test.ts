@@ -58,7 +58,7 @@ test('resolveStartupState returns fresh when no runtime config or temp file exis
   });
 
   assert.equal(state.kind, 'fresh');
-  assert.match(state.message, /No s ha trobat cap configuracio runtime/);
+  assert.match(state.message, /No s'ha trobat cap configuració runtime/);
 });
 
 test('resolveStartupState returns ambiguous when a leftover temp config exists', async () => {
@@ -90,7 +90,7 @@ test('resolveStartupState returns ambiguous when runtime config exists but is in
   });
 
   assert.equal(state.kind, 'ambiguous');
-  assert.match(state.message, /configuracio runtime existent no es valida/);
+  assert.match(state.message, /configuració runtime existent no és vàlida/);
 });
 
 test('resolveStartupState returns initialized when durable marker and first admin are consistent', async () => {
@@ -124,5 +124,5 @@ test('resolveStartupState returns ambiguous when config exists but marker is mis
   });
 
   assert.equal(state.kind, 'ambiguous');
-  assert.match(state.message, /marcador durable d inicialitzacio/);
+  assert.match(state.message, /marcador durable d'inicialització/);
 });

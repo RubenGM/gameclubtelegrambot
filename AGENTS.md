@@ -67,6 +67,38 @@ despliegue publico, Nginx lo expone como reverse proxy en:
 - `https://cawa.hopto.org/feedback` formulario publico de feedback.
 - `https://cawa.hopto.org/admin` panel admin protegido por la contraseña de
   elevacion admin (`GAMECLUB_ADMIN_PASSWORD_HASH`).
+- `https://cawa.hopto.org/admin/welcome` configuracion admin de mensajes de
+  bienvenida de grupo con plantillas `$USERNAME` y GIF opcional por Telegram
+  animation file ID.
+
+Los admins tambien pueden gestionar bienvenidas desde Telegram con el boton
+`Bienvenidas` del menu privado de Inicio; ese flujo lista plantillas con
+paginacion por botones de teclado, un enlace inline compacto junto a cada
+plantilla para abrir su detalle, y acciones de detalle para editar texto, editar
+GIF/video, previsualizar, activar/pausar y eliminar. Al crear o editar texto,
+debe conservar las entidades de formato de Telegram como HTML seguro (negrita,
+cursiva, enlaces, etc.). Al crear o editar adjuntos, acepta animaciones
+Telegram, videos convertidos por el movil o archivos `.gif`, y guarda su file
+ID automaticamente en las plantillas.
+
+El bot tambien tiene aliases privados no anunciados para previsualizar la
+bienvenida propia: `Welcome`, `/welcome`, `Bienvenida` y `/bienvenida`.
+`/welcome 1` o `/bienvenida 1` fuerzan una plantilla por posicion visible. La
+seleccion aleatoria debe usar el Telegram user ID del remitente, el nombre
+visible guardado en `users.display_name`, y evitar repetir inmediatamente la
+ultima plantilla enviada a ese usuario cuando existan alternativas.
+
+Cuando un admin aprueba una solicitud desde Telegram (`/approve` o el callback
+de revisión), no se envía bienvenida privada al usuario aprobado ni se publica
+plantilla en grupos. Las bienvenidas de grupo sólo se envían cuando Telegram
+informa de una entrada real al grupo y ese grupo tiene `/autojoin enabled`.
+
+`/news` soporta supergrupos con topics. Las suscripciones se persisten por
+`chat_id` + `message_thread_id`: `message_thread_id = 0` representa el grupo
+completo, y un valor positivo representa un topic concreto. Los comandos y
+callbacks ejecutados dentro de un topic deben gestionar ese topic; fuera de
+topic gestionan el grupo completo. Al publicar feeds, pasa siempre el
+`messageThreadId` del destino a Telegram.
 
 Nginx gestiona `80/tcp` y `443/tcp`; el backend `8787/tcp` debe permanecer
 interno y no abrirse en el router. El certificado HTTPS es de Let's Encrypt y
@@ -82,6 +114,17 @@ Cuando modifiques este panel:
 - Valida al menos con `node --import tsx --test src/http/admin-http-server.test.ts`
   y `npm run typecheck`, y luego ejecuta `./startup.sh`.
 - Comprueba despues `https://cawa.hopto.org/` y `https://cawa.hopto.org/admin`.
+
+## Telegram UX style guides
+
+Before adding or changing Telegram pagination, read
+`docs/telegram-pagination-style.md`. It documents the repo style for page
+indicators, reply-keyboard navigation, inline callback navigation and tests.
+
+Before adding or changing editable progress/receipt messages, read
+`docs/telegram-editable-progress.md`.
+
+For public/admin web visual changes, read `docs/brand-guidelines.md`.
 
 ## Telegram progress messages
 

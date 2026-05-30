@@ -3,7 +3,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { auditLog, userStatusAuditLog, users } from '../infrastructure/database/schema.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from './access-flow.js';
-import { formatMembershipDisplayName, normalizeDisplayName, resolveMembershipDisplayName } from './display-name.js';
+import { formatMembershipDisplayName, isGenericDisplayName, normalizeDisplayName, resolveMembershipDisplayName } from './display-name.js';
 
 export function createDatabaseMembershipAccessRepository({
   database,
@@ -50,15 +50,17 @@ export function createDatabaseMembershipAccessRepository({
         return null;
       }
 
-      const nextDisplayName = resolveMembershipDisplayName({
-        displayName: input.displayName,
-        ...(input.username !== undefined
-          ? { username: input.username }
-          : existing.username !== undefined
-            ? { username: existing.username }
-            : {}),
-        fallbackLabel: formatMembershipDisplayName(existing),
-      });
+      const nextDisplayName = isGenericDisplayName(existing.displayName)
+        ? resolveMembershipDisplayName({
+          displayName: input.displayName,
+          ...(input.username !== undefined
+            ? { username: input.username }
+            : existing.username !== undefined
+              ? { username: existing.username }
+              : {}),
+          fallbackLabel: formatMembershipDisplayName(existing),
+        })
+        : existing.displayName;
       const nextUsername = input.username !== undefined ? normalizeDisplayName(input.username) : normalizeDisplayName(existing.username);
 
       if (nextDisplayName === existing.displayName && nextUsername === normalizeDisplayName(existing.username)) {
@@ -69,6 +71,31 @@ export function createDatabaseMembershipAccessRepository({
         .update(users)
         .set({
           ...(nextUsername !== undefined ? { username: nextUsername } : {}),
+          displayName: nextDisplayName,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.telegramUserId, input.telegramUserId))
+        .returning({
+          telegramUserId: users.telegramUserId,
+          username: users.username,
+          displayName: users.displayName,
+          status: users.status,
+          isAdmin: users.isAdmin,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
+        });
+
+      return updated[0] ? mapMembershipUserRow(updated[0]) : null;
+    },
+    async updateDisplayName(input) {
+      const nextDisplayName = normalizeDisplayName(input.displayName);
+      if (!nextDisplayName) {
+        return null;
+      }
+
+      const updated = await database
+        .update(users)
+        .set({
           displayName: nextDisplayName,
           updatedAt: new Date(),
         })
@@ -354,7 +381,7 @@ export function createDatabaseMembershipAccessRepository({
           actionKey: 'membership.rejected',
           targetType: 'membership-user',
           targetId: String(input.telegramUserId),
-          summary: 'Sollicitud d acces rebutjada',
+          summary: "Sol·licitud d'accés rebutjada",
           details: {
             previousStatus: input.previousStatus,
             nextStatus: 'blocked',

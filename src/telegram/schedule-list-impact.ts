@@ -3,6 +3,7 @@ import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
 import type { VenueEventRecord } from '../venue-events/venue-event-catalog.js';
 import {
   escapeHtml,
+  formatScheduleDetailsLink,
   formatDayHeading,
   formatEventTimeRange,
   groupScheduleEventsByDay,
@@ -39,13 +40,17 @@ export async function formatScheduleListWithVenueImpact({
       const tableName = await loadTableName(event);
       const tableSummary = tableName ? ` · ${escapeHtml(tableName)}` : '';
       lines.push(`- ${formatEventTimeRange(event.startsAt, event.durationMinutes)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${event.id}`))}"><b>${escapeHtml(event.title)}</b></a>${modeSummary} · ${attendanceSummary}${tableSummary}`);
-      if (event.description) {
+      const detailsLink = formatScheduleDetailsLink(event, language);
+      if (event.description && !detailsLink) {
         lines.push(`  <i>${escapeHtml(event.description)}</i>`);
+      }
+      if (detailsLink) {
+        lines.push(`  ${detailsLink}`);
       }
       const relevantVenueEvents = await loadRelevantVenueEvents(event);
       if (relevantVenueEvents.length > 0) {
         const summary = relevantVenueEvents
-          .map((venueEvent) => `${escapeHtml(venueEvent.name)} (ocupacio ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`)
+          .map((venueEvent) => `${escapeHtml(venueEvent.name)} (ocupació ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`)
           .join(', ');
         lines.push(`  <b>Impacte local:</b> ${summary}`);
       }

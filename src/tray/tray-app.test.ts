@@ -158,7 +158,7 @@ test('tray app shows operator-friendly errors and refreshes after a failed actio
       code: 'permission-denied',
       operation: 'start',
       serviceName: 'gameclubtelegrambot.service',
-      message: "Aquest usuari no te permisos per executar l'accio start sobre gameclubtelegrambot.service.",
+      message: "Aquest usuari no té permisos per executar l'acció start sobre gameclubtelegrambot.service.",
     }),
   });
 
@@ -175,7 +175,7 @@ test('tray app shows operator-friendly errors and refreshes after a failed actio
   assert.deepEqual(runtime.notifications, [
     {
       title: 'Game Club Bot',
-      message: "Aquest usuari no te permisos per executar l'accio start sobre gameclubtelegrambot.service.",
+      message: "Aquest usuari no té permisos per executar l'acció start sobre gameclubtelegrambot.service.",
     },
   ]);
   assert.deepEqual(serviceControl.calls, ['status', 'start', 'status']);

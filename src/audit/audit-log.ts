@@ -61,7 +61,7 @@ function normalizeActorId(value: number | null): number | null {
 function normalizeRequiredText(value: string, fieldName: string): string {
   const normalized = value.trim();
   if (!normalized) {
-    throw new Error(`${fieldName} es obligatori`);
+    throw new Error(`${fieldName} és obligatori`);
   }
   return normalized;
 }

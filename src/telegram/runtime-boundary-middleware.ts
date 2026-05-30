@@ -100,10 +100,12 @@ function createErrorHandlingMiddleware({
     try {
       await next();
     } catch (error) {
+      const language = normalizeBotLanguage(context.runtime?.bot.language, 'ca');
       const safeMessage =
         error instanceof TelegramInteractionError
           ? error.message
-          : createTelegramI18n(normalizeBotLanguage(context.runtime?.bot.language, 'ca')).common.unexpectedError;
+          : createTelegramI18n(language).common.unexpectedErrorWithDetails
+            .replace('{error}', sanitizeRuntimeErrorMessage(error));
 
       if (context.runtime?.session) {
         await context.runtime.session.cancel();
@@ -121,6 +123,19 @@ function createErrorHandlingMiddleware({
       );
     }
   };
+}
+
+function sanitizeRuntimeErrorMessage(error: unknown): string {
+  const maxLength = 900;
+  const message = error instanceof Error ? error.message : String(error);
+  const sanitized = message
+    .replace(/bot\d+:[A-Za-z0-9_-]+/g, 'bot<redacted>')
+    .replace(/(password|passwd|secret|token|api[_-]?key|hash)=([^\s&]+)/gi, '$1=<redacted>')
+    .replace(/(password|passwd|secret|token|api[_-]?key|hash)["']?\s*:\s*["'][^"']+["']/gi, '$1: <redacted>');
+  if (sanitized.length <= maxLength) {
+    return sanitized;
+  }
+  return `${sanitized.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
 function createLoggingMiddleware({
@@ -232,6 +247,7 @@ function createRuntimeContextMiddleware({
         ...(bot.copyMessage ? { copyMessage: bot.copyMessage.bind(bot) } : {}),
         ...(bot.forwardMessage ? { forwardMessage: bot.forwardMessage.bind(bot) } : {}),
         ...(bot.sendMediaGroup ? { sendMediaGroup: bot.sendMediaGroup.bind(bot) } : {}),
+        ...(bot.sendAnimation ? { sendAnimation: bot.sendAnimation.bind(bot) } : {}),
         ...(bot.sendDocument ? { sendDocument: bot.sendDocument.bind(bot) } : {}),
         ...(bot.downloadFile ? { downloadFile: bot.downloadFile.bind(bot) } : {}),
         ...(bot.editMessageText ? { editMessageText: bot.editMessageText.bind(bot) } : {}),

@@ -15,8 +15,8 @@ import {
   type ScheduleRepository,
 } from './schedule-catalog.js';
 
-type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'> &
-  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats'>>;
+type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
+  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'>>;
 
 function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleRepository {
   const events = new Map(initialEvents.map((event) => {
@@ -33,10 +33,13 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         id: nextEventId,
         title: input.title,
         description: input.description,
+        detailsMessageChatId: input.detailsMessageChatId ?? null,
+        detailsMessageId: input.detailsMessageId ?? null,
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         createdByTelegramUserId: input.createdByTelegramUserId,
         tableId: input.tableId,
+        catalogItemId: input.catalogItemId ?? null,
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
         initialOccupiedSeats: input.initialOccupiedSeats,
@@ -68,9 +71,12 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         ...existing,
         title: input.title,
         description: input.description,
+        detailsMessageChatId: input.detailsMessageChatId ?? null,
+        detailsMessageId: input.detailsMessageId ?? null,
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
+        catalogItemId: input.catalogItemId ?? existing.catalogItemId ?? null,
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
         initialOccupiedSeats: input.initialOccupiedSeats,
@@ -127,6 +133,8 @@ function normalizeScheduleEventFixture(event: ScheduleEventFixture): ScheduleEve
     ...event,
     attendanceMode: event.attendanceMode ?? 'open',
     initialOccupiedSeats: event.initialOccupiedSeats ?? 0,
+    detailsMessageChatId: event.detailsMessageChatId ?? null,
+    detailsMessageId: event.detailsMessageId ?? null,
   };
 }
 
@@ -141,6 +149,7 @@ test('createScheduleEvent creates a scheduled activity with organizer ownership 
     organizerTelegramUserId: 42,
     createdByTelegramUserId: 99,
     tableId: 7,
+    catalogItemId: 12,
     durationMinutes: 180,
     capacity: 5,
     attendanceMode: 'open',
@@ -153,6 +162,7 @@ test('createScheduleEvent creates a scheduled activity with organizer ownership 
   assert.equal(event.organizerTelegramUserId, 42);
   assert.equal(event.createdByTelegramUserId, 99);
   assert.equal(event.tableId, 7);
+  assert.equal(event.catalogItemId, 12);
   assert.equal(event.durationMinutes, 180);
   assert.equal(event.capacity, 5);
   assert.equal((event as { attendanceMode: string }).attendanceMode, 'open');
@@ -312,7 +322,7 @@ test('setScheduleEventParticipantStatus keeps participants separate from the bas
         actorTelegramUserId: 88,
         status: 'active',
       }),
-    /L activitat ja no te places disponibles/,
+    /L'activitat ja no té places disponibles/,
   );
 });
 

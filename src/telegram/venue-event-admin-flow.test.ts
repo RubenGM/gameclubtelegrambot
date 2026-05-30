@@ -331,6 +331,8 @@ test('handleTelegramVenueEventAdminText sends private warnings when a created ve
             id: 10,
             title: 'Azul',
             description: null,
+            detailsMessageChatId: null,
+            detailsMessageId: null,
             startsAt: '2026-04-12T16:00:00.000Z',
             organizerTelegramUserId: 42,
             createdByTelegramUserId: 42,
@@ -354,6 +356,8 @@ test('handleTelegramVenueEventAdminText sends private warnings when a created ve
           id: 10,
           title: 'Azul',
           description: null,
+          detailsMessageChatId: null,
+          detailsMessageId: null,
           startsAt: '2026-04-12T16:00:00.000Z',
            organizerTelegramUserId: 42,
            createdByTelegramUserId: 42,
@@ -441,7 +445,7 @@ test('handleTelegramVenueEventAdminText sends private warnings when a created ve
   await handleTelegramVenueEventAdminText(context);
 
   assert.deepEqual(privateMessages.map((item) => item.telegramUserId).sort((a, b) => a - b), [42, 55]);
-  assert.match(privateMessages[0]?.message ?? '', /possible conflicte amb l ocupacio del local/);
+  assert.match(privateMessages[0]?.message ?? '', /possible conflicte amb l'ocupació del local/);
   assert.match(privateMessages[0]?.message ?? '', /Campionat regional/);
   assert.match(privateMessages[0]?.message ?? '', /Azul/);
 });
@@ -641,6 +645,8 @@ test('handleTelegramVenueEventAdminCallback notifies impacted users when a venue
             id: 77,
             title: 'Heat',
             description: null,
+            detailsMessageChatId: null,
+            detailsMessageId: null,
             startsAt: '2026-04-12T10:00:00.000Z',
             organizerTelegramUserId: 42,
             createdByTelegramUserId: 42,
@@ -664,6 +670,8 @@ test('handleTelegramVenueEventAdminCallback notifies impacted users when a venue
           id: 77,
           title: 'Heat',
           description: null,
+          detailsMessageChatId: null,
+          detailsMessageId: null,
           startsAt: '2026-04-12T10:00:00.000Z',
            organizerTelegramUserId: 42,
            createdByTelegramUserId: 42,

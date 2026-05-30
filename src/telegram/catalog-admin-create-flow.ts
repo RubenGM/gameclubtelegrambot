@@ -5,6 +5,7 @@ import type {
   WikipediaBoardGameImportResult,
 } from '../catalog/wikipedia-boardgame-import-service.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
+import type { TelegramEditableProgress, TelegramEditableProgressOptions } from './editable-progress.js';
 import { createTelegramI18n } from './i18n.js';
 import {
   buildGroupOptions,
@@ -70,6 +71,7 @@ export async function handleCatalogAdminCreateSession({
   importWikipediaBoardGameDraft,
   createWikipediaImportedBoardGame,
   detectDisplayNameFromAttachment,
+  startEditableProgress,
   importWikipediaErrorMessage,
   formatDraftSummary,
 }: {
@@ -94,6 +96,7 @@ export async function handleCatalogAdminCreateSession({
   importWikipediaBoardGameDraft: (title: string) => Promise<WikipediaBoardGameImportResult>;
   createWikipediaImportedBoardGame: (baseData: Record<string, unknown>, draft: WikipediaBoardGameCatalogDraft, sourceTitle: string) => Promise<void>;
   detectDisplayNameFromAttachment?: () => Promise<DetectedDisplayNameResult>;
+  startEditableProgress?: (message: string, options: TelegramEditableProgressOptions) => Promise<TelegramEditableProgress>;
   importWikipediaErrorMessage: (result: Extract<WikipediaBoardGameImportResult, { ok: false }>) => string;
   formatDraftSummary: (data: Record<string, unknown>) => Promise<string>;
 }): Promise<boolean> {
@@ -222,16 +225,32 @@ export async function handleCatalogAdminCreateSession({
   if (stepKey === 'display-name') {
     let coverAttachment: Record<string, unknown> | null = null;
     if (!text.trim() && detectDisplayNameFromAttachment) {
-      await reply(texts.coverTitleDetecting, buildSingleCancelKeyboard(language));
+      const progress = startEditableProgress
+        ? await startEditableProgress(texts.coverTitleDetecting, {
+            editFailedEvent: 'catalog.cover-title.progress-edit.failed',
+          })
+        : null;
+      if (!progress) {
+        await reply(texts.coverTitleDetecting, buildSingleCancelKeyboard(language));
+      }
       const detectedDisplayName = await detectDisplayNameFromAttachment();
       if (detectedDisplayName instanceof Error) {
-        await reply(`${detectedDisplayName.message}\n\n${texts.askDisplayName}`, buildSingleCancelKeyboard(language));
+        if (progress) {
+          await progress.complete(detectedDisplayName.message);
+          await reply(texts.askDisplayName, buildSingleCancelKeyboard(language));
+        } else {
+          await reply(`${detectedDisplayName.message}\n\n${texts.askDisplayName}`, buildSingleCancelKeyboard(language));
+        }
         return true;
       }
       if (detectedDisplayName) {
         const detectedText = typeof detectedDisplayName === 'string' ? detectedDisplayName : detectedDisplayName.displayName;
         coverAttachment = typeof detectedDisplayName === 'string' ? null : detectedDisplayName.coverAttachment ?? null;
-        await reply(texts.coverTitleDetected.replace('{name}', detectedText), buildSingleCancelKeyboard(language));
+        if (progress) {
+          await progress.complete(texts.coverTitleDetected.replace('{name}', detectedText));
+        } else {
+          await reply(texts.coverTitleDetected.replace('{name}', detectedText), buildSingleCancelKeyboard(language));
+        }
         text = detectedText;
       }
     }
@@ -399,7 +418,7 @@ export async function handleCatalogAdminCreateSession({
       return true;
     }
     await reply(
-      `${importWikipediaErrorMessage(importResult)}\n\nPots provar una altra opcio, entrar la URL manualment o ometre la importacio.`,
+      `${importWikipediaErrorMessage(importResult)}\n\nPots provar una altra opció, entrar la URL manualment o ometre la importació.`,
       buildWikipediaCandidateOptions(wikipediaCandidates, language),
     );
     return true;
@@ -575,10 +594,10 @@ function buildLookupChoiceOptions(language: 'ca' | 'es' | 'en', candidates: Cata
 
 function buildLookupTitleChoicePrompt(typedTitle: string, apiTitle: string): string {
   return [
-    'El titol trobat a la API no coincideix exactament amb el que has escrit.',
-    `- El teu titol: ${typedTitle}`,
-    `- Titol API: ${apiTitle}`,
-    'Tria quin titol vols fer servir.',
+    "El títol trobat a l'API no coincideix exactament amb el que has escrit.",
+    `- El teu títol: ${typedTitle}`,
+    `- Títol API: ${apiTitle}`,
+    'Tria quin títol vols fer servir.',
   ].join('\n');
 }
 

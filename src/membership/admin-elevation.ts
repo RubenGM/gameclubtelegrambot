@@ -50,21 +50,21 @@ export async function elevateApprovedUserToAdmin({
   if (user.status === 'blocked') {
     return {
       outcome: 'blocked',
-      message: 'Aquest compte esta blocat i no pot elevar privilegis.',
+      message: 'Aquest compte està blocat i no pot elevar privilegis.',
     };
   }
 
   if (user.status !== 'approved') {
     return {
       outcome: 'not-approved',
-      message: 'Nomes els usuaris aprovats poden demanar elevacio a administrador.',
+      message: 'Només els usuaris aprovats poden demanar elevació a administrador.',
     };
   }
 
   if (user.isAdmin) {
     return {
       outcome: 'already-admin',
-      message: 'Ja tens permisos d administrador actius.',
+      message: "Ja tens permisos d'administrador actius.",
     };
   }
 
@@ -72,7 +72,7 @@ export async function elevateApprovedUserToAdmin({
   if (!valid) {
     return {
       outcome: 'invalid-password',
-      message: 'Contrasenya d elevacio incorrecta.',
+      message: "Contrasenya d'elevació incorrecta.",
     };
   }
 
@@ -83,7 +83,7 @@ export async function elevateApprovedUserToAdmin({
 
   return {
     outcome: 'elevated',
-    message: 'Ara tens permisos d administrador. Escriu /start per refrescar les opcions visibles.',
+    message: "Ara tens permisos d'administrador. Escriu /start per refrescar les opcions visibles.",
   };
 }
 
@@ -100,9 +100,9 @@ export async function grantAdminRoleToUser({
 }): Promise<{ outcome: 'granted' | 'missing' | 'not-approved' | 'blocked' | 'already-admin'; message: string }> {
   const user = await repository.findUserByTelegramUserId(targetTelegramUserId);
   if (!user) return { outcome: 'missing', message: 'No hem trobat cap usuari registrat per aquest compte.' };
-  if (user.status === 'blocked') return { outcome: 'blocked', message: 'Aquest compte esta blocat i no pot rebre rol admin.' };
-  if (user.status !== 'approved') return { outcome: 'not-approved', message: 'Nomes els usuaris aprovats poden ser administradors.' };
-  if (user.isAdmin) return { outcome: 'already-admin', message: 'Aquest usuari ja es administrador.' };
+  if (user.status === 'blocked') return { outcome: 'blocked', message: 'Aquest compte està blocat i no pot rebre rol admin.' };
+  if (user.status !== 'approved') return { outcome: 'not-approved', message: 'Només els usuaris aprovats poden ser administradors.' };
+  if (user.isAdmin) return { outcome: 'already-admin', message: 'Aquest usuari ja és administrador.' };
 
   await repository.elevateUserToAdmin({
     telegramUserId: targetTelegramUserId,
@@ -126,12 +126,12 @@ export async function revokeAdminRoleFromUser({
 }): Promise<{ outcome: 'revoked' | 'missing' | 'not-approved' | 'not-admin' | 'last-admin'; message: string }> {
   const user = await repository.findUserByTelegramUserId(targetTelegramUserId);
   if (!user) return { outcome: 'missing', message: 'No hem trobat cap usuari registrat per aquest compte.' };
-  if (user.status !== 'approved') return { outcome: 'not-approved', message: 'Aquest usuari no te acces aprovat.' };
-  if (!user.isAdmin) return { outcome: 'not-admin', message: 'Aquest usuari no es administrador.' };
+  if (user.status !== 'approved') return { outcome: 'not-approved', message: 'Aquest usuari no té accés aprovat.' };
+  if (!user.isAdmin) return { outcome: 'not-admin', message: 'Aquest usuari no és administrador.' };
 
   const approvedAdminCount = repository.countApprovedAdmins ? await repository.countApprovedAdmins() : 2;
   if (approvedAdminCount <= 1) {
-    return { outcome: 'last-admin', message: 'No es pot treure l ultim administrador del bot.' };
+    return { outcome: 'last-admin', message: "No es pot treure l'últim administrador del bot." };
   }
 
   if (!repository.revokeUserAdminRole) {
@@ -143,5 +143,5 @@ export async function revokeAdminRoleFromUser({
     changedByTelegramUserId: adminTelegramUserId,
     reason,
   });
-  return { outcome: 'revoked', message: 'Acces d administrador eliminat correctament. L usuari conserva l acces de soci.' };
+  return { outcome: 'revoked', message: "Accés d'administrador eliminat correctament. L'usuari conserva l'accés de soci." };
 }

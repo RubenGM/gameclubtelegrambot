@@ -180,6 +180,7 @@ import {
   createDatabaseAppMetadataSessionStorage,
   type AppMetadataSessionStorage,
 } from './conversation-session-store.js';
+import { startTelegramEditableProgress, type TelegramEditableProgress } from './editable-progress.js';
 import type { TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 
 const createFlowKey = 'catalog-admin-create';
@@ -256,7 +257,7 @@ export const catalogAdminLabels = {
   typeBook: 'Llibre',
   typeRpgBook: 'Llibre RPG',
   typeAccessory: 'Accessori',
-  noFamily: 'Sense familia',
+  noFamily: 'Sense família',
   noGroup: 'Sense grup',
   skipOptional: 'Ometre',
   keepCurrent: 'Mantenir valor actual',
@@ -277,7 +278,7 @@ export const catalogAdminLabels = {
   editFieldDescription: 'Descripcio',
   editFieldLanguage: 'Llengua',
   editFieldPublisher: 'Editorial',
-  editFieldPublicationYear: 'Any publicacio',
+  editFieldPublicationYear: 'Any publicació',
   editFieldPlayerMin: 'Minim jugadors',
   editFieldPlayerMax: 'Maxim jugadors',
   editFieldRecommendedAge: 'Edat recomanada',
@@ -288,8 +289,8 @@ export const catalogAdminLabels = {
   skipLookupImport: 'No importar dades',
   manualWikipediaUrl: 'Entrar URL manualment',
   refineLookupByAuthor: 'Refinar amb autor',
-  keepTypedTitle: 'Quedar-me amb el meu titol',
-  useApiTitle: 'Fer servir el titol de la API',
+  keepTypedTitle: 'Quedar-me amb el meu títol',
+  useApiTitle: "Fer servir el títol de l'API",
   bulkCreate: 'Afegir múltiples',
   askBulkNames: 'Escriu els noms separats per coma. Si usen coma literal, no els separis de moment.',
   bulkCreateAcknowledged: 'Gràcies! Ara processaré els resultats en segon pla. Quan acabi t\'enviaré un resum per aquí.',
@@ -588,7 +589,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     await context.runtime.session.start({
       flowKey: 'schedule-create',
       stepKey: 'date',
-      data: { title: item.displayName },
+      data: { title: item.displayName, catalogItemId: item.id },
     });
     await context.reply(loanWarning ? `${loanWarning}\n\n${datePrompt}` : datePrompt, buildDateOptions(context.runtime.bot.language ?? language));
     return true;
@@ -730,7 +731,9 @@ async function handleCatalogAdminAutocorrectItem(
   const texts = createTelegramI18n(language).catalogAdmin;
   const repository = resolveCatalogRepository(context);
   const progressState = createAutocorrectProgressState('api');
-  const progress = await startEditableProgress(context, formatAutocorrectProgress(texts, progressState));
+  const progress = await startTelegramEditableProgress(context, formatAutocorrectProgress(texts, progressState), {
+    editFailedEvent: 'catalog.autocorrect.progress-edit.failed',
+  });
 
   const importResult = await importCatalogAutocorrectDraft(context, item, options);
   if (!importResult.ok) {
@@ -778,7 +781,7 @@ async function handleCatalogAdminAutocorrectItem(
     actionKey: 'catalog.item.autocorrected',
     targetType: 'catalog-item',
     targetId: updated.id,
-    summary: `Item de cataleg autocorregit: ${updated.displayName}`,
+    summary: `Ítem de catàleg autocorregit: ${updated.displayName}`,
     details: { source: metadata?.source ?? importResult.source, query: importResult.query, boardGameGeekId: metadata?.boardGameGeekId ?? readBoardGameGeekId(draft.externalRefs) },
   });
 
@@ -831,7 +834,9 @@ async function handleCatalogAdminTranslateDescription(
     return;
   }
 
-  await context.reply(texts.translatingDescription);
+  const progress = await startTelegramEditableProgress(context, texts.translatingDescription, {
+    editFailedEvent: 'catalog.description.translation.progress-edit.failed',
+  });
 
   try {
     const translator = resolveCatalogDescriptionTranslator(context);
@@ -841,7 +846,7 @@ async function handleCatalogAdminTranslateDescription(
       targetLanguage: 'es',
     }));
     if (!translated) {
-      await context.reply(texts.translateDescriptionFailed.replace('{reason}', 'OpenCode no ha devuelto una traduccion valida.'));
+      await progress.complete(texts.translateDescriptionFailed.replace('{reason}', 'OpenCode no ha devuelto una traducción válida.'));
       return;
     }
 
@@ -871,7 +876,7 @@ async function handleCatalogAdminTranslateDescription(
       actionKey: 'catalog.item.description_translated',
       targetType: 'catalog-item',
       targetId: updated.id,
-      summary: `Descripcio de cataleg traduida: ${updated.displayName}`,
+      summary: `Descripció de catàleg traduïda: ${updated.displayName}`,
       details: {
         model: catalogBggDescriptionTranslationModel,
         originalLength: description.length,
@@ -887,7 +892,7 @@ async function handleCatalogAdminTranslateDescription(
       originalLength: description.length,
       translatedLength: translated.length,
     }));
-    await context.reply(texts.translateDescriptionUpdated);
+    await progress.complete(texts.translateDescriptionUpdated);
     await replyWithCatalogAdminItemDetail(context, updated, language);
   } catch (error) {
     const reason = formatTranslationErrorReason(error);
@@ -898,7 +903,7 @@ async function handleCatalogAdminTranslateDescription(
       title: item.displayName,
       error: reason,
     }));
-    await context.reply(texts.translateDescriptionFailed.replace('{reason}', reason));
+    await progress.complete(texts.translateDescriptionFailed.replace('{reason}', reason));
   }
 }
 
@@ -921,7 +926,7 @@ async function assignCatalogItemOwner(context: TelegramCatalogAdminContext, item
     actionKey: 'catalog.item.owner_updated',
     targetType: 'catalog-item',
     targetId: String(itemId),
-    summary: 'Propietari de cataleg actualitzat',
+    summary: 'Propietari de catàleg actualitzat',
     details: { ownerTelegramUserId },
   });
   await context.reply(texts.ownerAssigned);
@@ -942,7 +947,7 @@ async function clearCatalogItemOwner(context: TelegramCatalogAdminContext, itemI
     actionKey: 'catalog.item.owner_cleared',
     targetType: 'catalog-item',
     targetId: String(itemId),
-    summary: 'Propietari de cataleg eliminat',
+    summary: 'Propietari de catàleg eliminat',
     details: {},
   });
   await context.reply(texts.ownerCleared);
@@ -1129,7 +1134,7 @@ function formatCatalogAutocorrectMismatchReason(
   draft: CatalogAutocorrectDraft,
 ): string {
   const returnedTitle = draft.displayName || draft.originalName || 'otro titulo';
-  return `La API ha devuelto "${returnedTitle}" al autocorregir "${item.displayName}". No he actualizado el item para evitar reemplazarlo por otro juego.`;
+  return `La API ha devuelto "${returnedTitle}" al autocorregir "${item.displayName}". No he actualizado el ítem para evitar reemplazarlo por otro juego.`;
 }
 
 function normalizeCatalogAutocorrectTitle(value: string): string {
@@ -1240,7 +1245,7 @@ function createAutocorrectProgressState(activeStep: CatalogAutocorrectProgressSt
 }
 
 async function moveAutocorrectProgress(
-  progress: { update(message: string): Promise<void> },
+  progress: { update(message: string): Promise<unknown> },
   texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
   state: CatalogAutocorrectProgressState,
   nextStep: CatalogAutocorrectProgressStep,
@@ -1356,53 +1361,6 @@ function mapExternalImageProgressStep(step: CatalogMediaExternalImageProgressSte
   return step === 'download' ? 'coverDownload' : 'coverUpload';
 }
 
-async function startEditableProgress(
-  context: TelegramCatalogAdminContext,
-  message: string,
-): Promise<{ update(message: string): Promise<void>; complete(message: string, options?: TelegramReplyOptions): Promise<void> }> {
-  const sent = await context.reply(message);
-  const messageId = extractTelegramReplyMessageId(sent);
-  const chatId = context.runtime.chat?.chatId;
-  const editMessageText = context.runtime.bot.editMessageText;
-  let canEdit = Boolean(messageId && chatId && editMessageText);
-
-  const tryEdit = async (nextMessage: string, options?: TelegramReplyOptions): Promise<boolean> => {
-    if (!canEdit || !messageId || !chatId || !editMessageText) {
-      return false;
-    }
-    try {
-      await editMessageText({ chatId, messageId, text: nextMessage, ...(options ? { options } : {}) });
-      return true;
-    } catch (error) {
-      canEdit = false;
-      console.warn(JSON.stringify({
-        event: 'catalog.autocorrect.progress-edit.failed',
-        error: error instanceof Error ? error.message : String(error),
-      }));
-      return false;
-    }
-  };
-  return {
-    update: async (nextMessage) => {
-      await tryEdit(nextMessage);
-    },
-    complete: async (nextMessage, options) => {
-      if (!(await tryEdit(nextMessage, options))) {
-        await context.reply(nextMessage, options);
-      }
-    },
-  };
-}
-
-function extractTelegramReplyMessageId(value: unknown): number | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-  const candidate = (value as Record<string, unknown>).message_id
-    ?? (value as Record<string, unknown>).messageId;
-  return typeof candidate === 'number' && Number.isInteger(candidate) ? candidate : null;
-}
-
 function canAccessCatalog(context: TelegramCatalogAdminContext): boolean {
   return context.runtime.actor.isApproved && !context.runtime.actor.isBlocked;
 }
@@ -1461,6 +1419,7 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
       messageMedia: toCatalogMediaAttachment(context),
       storeAttachment: (attachment) => storeCatalogAttachmentMedia(context, attachment),
       storeExternalImage: (url) => storeCatalogExternalImageMedia(context, url),
+      startEditableProgress: (message, options) => startTelegramEditableProgress(context, message, options),
     });
   }
   if (session.flowKey === mediaDeleteFlowKey) {
@@ -1534,7 +1493,9 @@ async function handleBulkCreateSession(
 
     const skippedInputCount = parsedItemNames.length - itemNames.length;
     await context.runtime.session.cancel();
-    await context.reply(texts.bulkCreateAcknowledged);
+    const progress = await startTelegramEditableProgress(context, texts.bulkCreateAcknowledged, {
+      editFailedEvent: 'catalog.bulk-create.progress-edit.failed',
+    });
     void runCatalogBulkCreateJob({
       context,
       actorTelegramUserId: context.runtime.actor.telegramUserId,
@@ -1542,6 +1503,7 @@ async function handleBulkCreateSession(
       itemType,
       itemNames,
       skippedInputCount,
+      progress,
     });
     return true;
   }
@@ -1556,6 +1518,7 @@ async function runCatalogBulkCreateJob({
   itemType,
   itemNames,
   skippedInputCount,
+  progress,
 }: {
   context: TelegramCatalogAdminContext;
   actorTelegramUserId: number;
@@ -1563,6 +1526,7 @@ async function runCatalogBulkCreateJob({
   itemType: CatalogItemType;
   itemNames: string[];
   skippedInputCount: number;
+  progress?: TelegramEditableProgress;
 }): Promise<void> {
   const texts = createTelegramI18n(language).catalogAdmin;
   const summaryItems: BulkCreateSummaryItem[] = [];
@@ -1572,6 +1536,7 @@ async function runCatalogBulkCreateJob({
     if (!input) {
       continue;
     }
+    await progress?.update(formatCatalogBulkCreateProgress(language, index + 1, itemNames.length, input));
 
     try {
       summaryItems.push(await resolveCatalogBulkCreateItem(context, itemType, input));
@@ -1605,6 +1570,7 @@ async function runCatalogBulkCreateJob({
   }
 
   const summaryOptions = buildBulkCreateSummaryOptions(language, hasManualItems);
+  await progress?.complete(formatCatalogBulkCreateDone(language));
 
   try {
     await context.runtime.bot.sendPrivateMessage(actorTelegramUserId, summaryMessage, summaryOptions);
@@ -1687,7 +1653,7 @@ async function resolveCatalogBulkCreateItem(
         actionKey: 'catalog.item.created',
         targetType: 'catalog-item',
         targetId: created.id,
-        summary: `Item de cataleg importat: ${created.displayName}`,
+        summary: `Ítem de catàleg importat: ${created.displayName}`,
         details: { itemType: created.itemType, familyId: created.familyId, groupId: created.groupId, lifecycleStatus: created.lifecycleStatus },
       });
       await tryCreateImportedImageMedia(context, created, candidate.importedData);
@@ -1765,7 +1731,7 @@ async function resolveCatalogBulkCreateItem(
       actionKey: 'catalog.item.created',
       targetType: 'catalog-item',
       targetId: created.id,
-      summary: `Item de cataleg importat: ${created.displayName}`,
+      summary: `Ítem de catàleg importat: ${created.displayName}`,
       details: { itemType: created.itemType, familyId: created.familyId, groupId: created.groupId, lifecycleStatus: created.lifecycleStatus },
     });
     await tryCreateImportedImageMedia(context, created, draft);
@@ -1839,6 +1805,24 @@ function formatCatalogBulkCreateSummary({
   sections.push('', manualItems.length > 0 ? texts.bulkCreateSummaryManualFallback : texts.bulkCreateSummaryAllDone);
 
   return sections.join('\n');
+}
+
+function formatCatalogBulkCreateProgress(language: 'ca' | 'es' | 'en', current: number, total: number, itemName: string): string {
+  const messages = {
+    ca: `Carrega multiple en curs (${current}/${total}): ${itemName}`,
+    es: `Carga múltiple en curso (${current}/${total}): ${itemName}`,
+    en: `Bulk load in progress (${current}/${total}): ${itemName}`,
+  } as const;
+  return messages[language];
+}
+
+function formatCatalogBulkCreateDone(language: 'ca' | 'es' | 'en'): string {
+  const messages = {
+    ca: 'Carrega multiple completada. Enviant resum...',
+    es: 'Carga múltiple completada. Enviando resumen...',
+    en: 'Bulk load completed. Sending summary...',
+  } as const;
+  return messages[language];
 }
 
 function formatBulkManualSummaryLine(item: BulkCreateSummaryItem): string {
@@ -1955,6 +1939,7 @@ async function handleCreateSession(
     importWikipediaBoardGameDraft: (title) => importWikipediaBoardGameDraft(context, title),
     createWikipediaImportedBoardGame: (baseData, draft, sourceTitle) => createWikipediaImportedBoardGame(context, baseData, draft, sourceTitle),
     detectDisplayNameFromAttachment: () => detectDisplayNameFromAttachment(context),
+    startEditableProgress: (message, options) => startTelegramEditableProgress(context, message, options),
     importWikipediaErrorMessage,
     formatDraftSummary: (draftData) => formatDraftSummary(context, draftData),
   });
@@ -2152,7 +2137,7 @@ async function handleDeactivateSession(
     actionKey: 'catalog.item.deactivated',
     targetType: 'catalog-item',
     targetId: item.id,
-    summary: `Item de cataleg desactivat: ${item.displayName}`,
+    summary: `Ítem de catàleg desactivat: ${item.displayName}`,
     details: { displayName: item.displayName, lifecycleStatus: item.lifecycleStatus, deactivatedAt: item.deactivatedAt },
   });
   await context.runtime.session.cancel();
@@ -2495,7 +2480,7 @@ async function saveCreateDraftAndReturn(
     actionKey: 'catalog.item.created',
     targetType: 'catalog-item',
     targetId: item.id,
-    summary: `Item de cataleg creat: ${item.displayName}`,
+    summary: `Ítem de catàleg creat: ${item.displayName}`,
     details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
   });
   await tryCreateImportedImageMedia(context, item, data);
@@ -2539,7 +2524,7 @@ async function saveEditDraftAndReturn(
     actionKey: 'catalog.item.updated',
     targetType: 'catalog-item',
     targetId: updated.id,
-    summary: `Item de cataleg actualitzat: ${updated.displayName}`,
+    summary: `Ítem de catàleg actualitzat: ${updated.displayName}`,
     details: {
       previousDisplayName: item.displayName,
       displayName: updated.displayName,
@@ -2550,7 +2535,7 @@ async function saveEditDraftAndReturn(
     },
   });
   await context.runtime.session.cancel();
-    await context.reply(`Item de cataleg actualitzat correctament: ${updated.displayName} (#${updated.id}).`, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')));
+    await context.reply(`Ítem de catàleg actualitzat correctament: ${updated.displayName} (#${updated.id}).`, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')));
   return true;
 }
 
@@ -3237,7 +3222,7 @@ async function tryCreateImportedImageMedia(
         actionKey: 'catalog.media.created',
         targetType: 'catalog-media',
         targetId: media.id,
-        summary: `Portada de cataleg importada per l item #${item.id}`,
+        summary: `Portada de catàleg importada per l'ítem #${item.id}`,
         details: { itemId: item.id, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
       });
       return { status: 'created', mediaId: media.id, url: media.url };
@@ -3386,7 +3371,7 @@ async function importWikipediaBoardGameDraft(
       ok: false,
       error: {
         type: 'connection',
-        message: 'No he pogut connectar amb el cataleg extern en aquest moment.',
+        message: 'No he pogut connectar amb el catàleg extern en aquest moment.',
       },
     };
   }
@@ -3542,7 +3527,7 @@ async function createWikipediaImportedBoardGame(
     actionKey: 'catalog.item.created',
     targetType: 'catalog-item',
     targetId: item.id,
-    summary: `Item de cataleg creat: ${item.displayName}`,
+    summary: `Ítem de catàleg creat: ${item.displayName}`,
     details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
   });
   if (!(importedData as unknown as Record<string, unknown>).coverAttachment) {
@@ -3565,14 +3550,14 @@ async function createWikipediaImportedBoardGame(
 
 function importWikipediaErrorMessage(result: Extract<WikipediaBoardGameImportResult, { ok: false }>): string {
   if (result.error.type === 'not-found') {
-    return 'No he trobat aquest joc al cataleg extern. Continuem manualment.';
+    return 'No he trobat aquest joc al catàleg extern. Continuem manualment.';
   }
 
   if (result.error.type === 'connection') {
-    return 'No he pogut connectar amb el cataleg extern. Continuem manualment.';
+    return 'No he pogut connectar amb el catàleg extern. Continuem manualment.';
   }
 
-  return 'No he pogut importar les dades del cataleg extern. Continuem manualment.';
+  return 'No he pogut importar les dades del catàleg extern. Continuem manualment.';
 }
 
 async function handleBggCollectionImportSession(
@@ -3756,7 +3741,9 @@ async function importBggCollectionSelection(
   },
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).catalogAdmin;
-  await context.reply(texts.importingBggCollection, buildSingleCancelKeyboard(language));
+  const progress = await startTelegramEditableProgress(context, texts.importingBggCollection, {
+    editFailedEvent: 'catalog.bgg-collection.progress-edit.failed',
+  });
   const importResult = await resolveBoardGameGeekCollectionImportService(context).importCollection({
     username,
     ...(collectionKey ? { collectionKey } : {}),
@@ -3768,6 +3755,7 @@ async function importBggCollectionSelection(
         stepKey: 'bgg-collection-manual-name',
         data: { username },
       });
+      await progress.complete(formatBggCollectionImportProgress(language, 'failed'));
       await context.reply(
         `${formatBggCollectionImportError(texts, importResult.error)} ${texts.askBggCollectionManualName}`,
         buildSingleCancelKeyboard(language),
@@ -3776,12 +3764,15 @@ async function importBggCollectionSelection(
     }
 
     await context.runtime.session.cancel();
+    await progress.complete(formatBggCollectionImportProgress(language, 'failed'));
     await context.reply(formatBggCollectionImportError(texts, importResult.error), buildCatalogAdminMenuOptions(language));
     return true;
   }
 
-  const summary = await reconcileBoardGameGeekCollectionImport(context, importResult);
+  await progress.update(formatBggCollectionImportReconciling(language, 0, importResult.items.length));
+  const summary = await reconcileBoardGameGeekCollectionImport(context, importResult, { progress, language });
   await context.runtime.session.cancel();
+  await progress.complete(formatBggCollectionImportProgress(language, 'done'));
   await context.reply(
     texts.bggCollectionImportSummary
       .replace('{username}', importResult.username)
@@ -3842,9 +3833,37 @@ function formatBggCollectionImportError(
   return `${texts.bggCollectionImportFailed} Falló al ${stageLabel} para ${error.username}${statusLabel}.`;
 }
 
+function formatBggCollectionImportReconciling(language: 'ca' | 'es' | 'en', current: number, total: number): string {
+  const messages = {
+    ca: `Reconciliant col.leccio BGG (${current}/${total})...`,
+    es: `Reconciliando colección BGG (${current}/${total})...`,
+    en: `Reconciling BGG collection (${current}/${total})...`,
+  } as const;
+  return messages[language];
+}
+
+function formatBggCollectionImportProgress(language: 'ca' | 'es' | 'en', state: 'done' | 'failed'): string {
+  const messages = {
+    ca: {
+      done: 'Importació BGG completada. Preparant resum...',
+      failed: 'Importació BGG aturada.',
+    },
+    es: {
+      done: 'Importación BGG completada. Preparando resumen...',
+      failed: 'Importación BGG detenida.',
+    },
+    en: {
+      done: 'BGG import completed. Preparing summary...',
+      failed: 'BGG import stopped.',
+    },
+  } as const;
+  return messages[language][state];
+}
+
 async function reconcileBoardGameGeekCollectionImport(
   context: TelegramCatalogAdminContext,
   importResult: Extract<BoardGameGeekCollectionImportResult, { ok: true }>,
+  progressOptions: { progress?: TelegramEditableProgress; language: 'ca' | 'es' | 'en' },
 ): Promise<{ created: number; updated: number; skipped: number; errors: number }> {
   const repository = resolveCatalogRepository(context);
   const allItems = await listCatalogItems({ repository, includeDeactivated: true });
@@ -3853,7 +3872,9 @@ async function reconcileBoardGameGeekCollectionImport(
   let skipped = 0;
   let errors = importResult.errors.length;
 
-  for (const rawDraft of importResult.items) {
+  for (let index = 0; index < importResult.items.length; index += 1) {
+    const rawDraft = importResult.items[index]!;
+    await progressOptions.progress?.update(formatBggCollectionImportReconciling(progressOptions.language, index + 1, importResult.items.length));
     const draft = await translateBggDraftDescriptionIfNeeded(context, rawDraft);
     const bggId = readBoardGameGeekId(draft.externalRefs);
     if (!bggId) {
@@ -3889,7 +3910,7 @@ async function reconcileBoardGameGeekCollectionImport(
         actionKey: 'catalog.item.updated',
         targetType: 'catalog-item',
         targetId: existingByBggId.id,
-        summary: `Item de cataleg actualitzat: ${draft.displayName}`,
+        summary: `Ítem de catàleg actualitzat: ${draft.displayName}`,
         details: { source: 'bgg-collection-import', boardGameGeekId: bggId, username: importResult.username },
       });
       updated += 1;
@@ -3930,7 +3951,7 @@ async function reconcileBoardGameGeekCollectionImport(
         actionKey: 'catalog.item.updated',
         targetType: 'catalog-item',
         targetId: matchingByName[0].id,
-        summary: `Item de cataleg actualitzat: ${draft.displayName}`,
+        summary: `Ítem de catàleg actualitzat: ${draft.displayName}`,
         details: { source: 'bgg-collection-import', boardGameGeekId: bggId, username: importResult.username },
       });
       updated += 1;
@@ -3962,7 +3983,7 @@ async function reconcileBoardGameGeekCollectionImport(
       actionKey: 'catalog.item.created',
       targetType: 'catalog-item',
       targetId: createdItem.id,
-      summary: `Item de cataleg creat: ${createdItem.displayName}`,
+      summary: `Ítem de catàleg creat: ${createdItem.displayName}`,
       details: { source: 'bgg-collection-import', boardGameGeekId: bggId, username: importResult.username },
     });
     await tryCreateImportedImageMedia(context, createdItem, draft);

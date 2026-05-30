@@ -14,6 +14,7 @@ export type NewsGroupCategoryKey =
   | 'events'
   | 'lfg:players'
   | 'lfg:groups'
+  | 'nuevos_miembros'
   | 'catalog-loans:board-game'
   | 'catalog-loans:book'
   | 'catalog-loans:rpg-book';
@@ -71,6 +72,21 @@ export const newsGroupCategories: readonly NewsGroupCategoryDescriptor[] = [
       ca: 'grups buscant jugadors',
       es: 'grupos buscando jugadores',
       en: 'groups looking for players',
+    },
+    defaultSubscribed: false,
+  },
+  {
+    key: 'nuevos_miembros',
+    aliases: ['nuevos_miembros', 'new-members', 'socios', 'members'],
+    label: {
+      ca: 'nuevos_miembros',
+      es: 'nuevos_miembros',
+      en: 'nuevos_miembros',
+    },
+    description: {
+      ca: 'altes web de nous socis',
+      es: 'altas web de nuevos socios',
+      en: 'new member web signups',
     },
     defaultSubscribed: false,
   },
@@ -133,6 +149,7 @@ export const newsGroupCategoryDefaults = newsGroupCategories.filter((category) =
 export const lfgPlayerNewsCategory = 'lfg:players' as const;
 export const lfgGroupNewsCategory = 'lfg:groups' as const;
 export const eventsNewsGroupCategory = 'events' as const;
+export const newMembersNewsGroupCategory = 'nuevos_miembros' as const;
 
 export const catalogLoanNewsCategoryByItemType: Partial<Record<CatalogLoanCategoryItemType, NewsGroupCategoryKey>> = {
   'board-game': 'catalog-loans:board-game',
@@ -181,9 +198,14 @@ export function newsGroupCategoryDescription(category: NewsGroupCategoryDescript
 
 export interface NewsGroupSubscriptionRecord {
   chatId: number;
+  messageThreadId: number | null;
   categoryKey: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface NewsGroupDeliveryTarget extends NewsGroupRecord {
+  messageThreadId: number | null;
 }
 
 export interface NewsGroupRepository {
@@ -194,10 +216,10 @@ export interface NewsGroupRepository {
     isEnabled: boolean;
     metadata?: Record<string, unknown> | null;
   }): Promise<NewsGroupRecord>;
-  listSubscriptionsByChatId(chatId: number): Promise<NewsGroupSubscriptionRecord[]>;
-  upsertSubscription(input: { chatId: number; categoryKey: string }): Promise<NewsGroupSubscriptionRecord>;
-  deleteSubscription(input: { chatId: number; categoryKey: string }): Promise<boolean>;
-  listSubscribedGroupsByCategory(categoryKey: string): Promise<NewsGroupRecord[]>;
+  listSubscriptionsByChatId(chatId: number, input?: { messageThreadId?: number | null }): Promise<NewsGroupSubscriptionRecord[]>;
+  upsertSubscription(input: { chatId: number; categoryKey: string; messageThreadId?: number | null }): Promise<NewsGroupSubscriptionRecord>;
+  deleteSubscription(input: { chatId: number; categoryKey: string; messageThreadId?: number | null }): Promise<boolean>;
+  listSubscribedGroupsByCategory(categoryKey: string): Promise<NewsGroupDeliveryTarget[]>;
   isNewsEnabledGroup(chatId: number): Promise<boolean>;
 }
 
@@ -223,14 +245,17 @@ export async function subscribeNewsGroup({
   repository,
   chatId,
   categoryKey,
+  messageThreadId,
 }: {
   repository: NewsGroupRepository;
   chatId: number;
   categoryKey: string;
+  messageThreadId?: number | null;
 }): Promise<NewsGroupSubscriptionRecord> {
   return repository.upsertSubscription({
     chatId: normalizeChatId(chatId),
     categoryKey: normalizeCategoryKey(categoryKey),
+    messageThreadId: normalizeMessageThreadId(messageThreadId),
   });
 }
 
@@ -238,14 +263,17 @@ export async function unsubscribeNewsGroup({
   repository,
   chatId,
   categoryKey,
+  messageThreadId,
 }: {
   repository: NewsGroupRepository;
   chatId: number;
   categoryKey: string;
+  messageThreadId?: number | null;
 }): Promise<boolean> {
   return repository.deleteSubscription({
     chatId: normalizeChatId(chatId),
     categoryKey: normalizeCategoryKey(categoryKey),
+    messageThreadId: normalizeMessageThreadId(messageThreadId),
   });
 }
 
@@ -270,10 +298,22 @@ function normalizeChatId(chatId: number): number {
 function normalizeCategoryKey(categoryKey: string): string {
   const normalized = categoryKey.trim();
   if (!normalized) {
-    throw new Error('La clau de categoria es obligatoria');
+    throw new Error('La clau de categoria és obligatòria');
   }
 
   return normalized;
+}
+
+export function normalizeMessageThreadId(messageThreadId: number | null | undefined): number | null {
+  if (messageThreadId === null || messageThreadId === undefined || messageThreadId === 0) {
+    return null;
+  }
+
+  if (!Number.isInteger(messageThreadId) || messageThreadId < 0) {
+    throw new Error('El message_thread_id ha de ser un enter positiu');
+  }
+
+  return messageThreadId;
 }
 
 function normalizeMetadata(metadata: Record<string, unknown> | null): Record<string, unknown> | null {

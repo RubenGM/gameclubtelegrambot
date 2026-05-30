@@ -125,8 +125,8 @@ export async function translateDescriptionWithOpencode({
   opencodeBin: string;
 }): Promise<string> {
   const prompt = [
-    'Traduce al castellano la siguiente descripcion de un juego de mesa.',
-    'Devuelve solo la descripcion traducida, sin explicaciones, sin encabezados y sin markdown.',
+    'Traduce al castellano la siguiente descripción de un juego de mesa.',
+    'Devuelve solo la descripción traducida, sin explicaciones, sin encabezados y sin markdown.',
     'Conserva los parrafos y elimina entidades HTML si aparecen.',
     '',
     description,

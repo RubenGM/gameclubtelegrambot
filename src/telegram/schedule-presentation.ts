@@ -1,5 +1,6 @@
 import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
 import type { TelegramActor } from './actor-store.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
@@ -61,8 +62,12 @@ export function formatScheduleListMessage(events: ScheduleEventRecord[], languag
     lines.push(`<b>${formatDayHeading(dayKey, language)}</b>`);
     for (const event of dayEvents) {
       lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)}) · ${event.capacity} places`);
-      if (event.description) {
+      if (event.description && !hasScheduleDetailsMessage(event)) {
         lines.push(`  <i>${escapeHtml(event.description)}</i>`);
+      }
+      const detailsLink = formatScheduleDetailsLink(event, language);
+      if (detailsLink) {
+        lines.push(`  ${detailsLink}`);
       }
     }
   }
@@ -96,6 +101,7 @@ export function formatScheduleEventDetails({
   const attendanceLabel = event.attendanceMode === 'open' ? texts.openDetailTag : texts.closedDetailTag;
   return [
     `<b>${escapeHtml(event.title)}</b>`,
+    ...(event.catalogItemId ? [formatHtmlField(resolveLinkedGameLabel(language), `<a href="${escapeHtml(buildTelegramStartUrl(`catalog_read_item_${event.catalogItemId}`))}">${escapeHtml(event.title)}</a>`)] : []),
     formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
     formatHtmlField(texts.detailsDuration, formatDurationMinutes(event.durationMinutes)),
     formatHtmlField(texts.detailsAttendanceMode, escapeHtml(attendanceLabel)),
@@ -104,8 +110,17 @@ export function formatScheduleEventDetails({
       ? [formatHtmlField(texts.detailsInitialOccupiedSeats, String(event.initialOccupiedSeats))]
       : []),
     formatHtmlField(texts.detailsTable, escapeHtml(tableName ?? texts.noTable)),
-    formatHtmlField(texts.detailsDescription, escapeHtml(event.description ?? texts.noDescription)),
+    ...(!hasScheduleDetailsMessage(event)
+      ? [formatHtmlField(texts.detailsDescription, escapeHtml(event.description ?? texts.noDescription))]
+      : []),
+    ...(hasScheduleDetailsMessage(event) ? [formatHtmlField(texts.detailsExtra, formatScheduleDetailsLink(event, language) ?? '')] : []),
   ].join('\n');
+}
+
+function resolveLinkedGameLabel(language: BotLanguage): string {
+  if (language === 'es') return 'Juego enlazado';
+  if (language === 'en') return 'Linked game';
+  return 'Joc enllaçat';
 }
 
 export function formatDurationMinutes(durationMinutes: number): string {
@@ -155,6 +170,23 @@ export function buildScheduleDetailActionOptions({
   }
 
   return rows.length > 0 ? { inlineKeyboard: rows } : {};
+}
+
+export function hasScheduleDetailsMessage(event: ScheduleEventRecord): boolean {
+  return event.detailsMessageChatId !== null && event.detailsMessageId !== null;
+}
+
+export function formatScheduleDetailsLink(event: ScheduleEventRecord, language: BotLanguage | string = 'ca'): string | null {
+  if (!hasScheduleDetailsMessage(event)) {
+    return null;
+  }
+
+  return `<a href="${escapeHtml(buildTelegramStartUrl(`schedule_details_${event.id}`))}">${escapeHtml(resolveDetailsLinkLabel(normalizeBotLanguage(language, 'ca')))}</a>`;
+}
+
+function resolveDetailsLinkLabel(language: BotLanguage): string {
+  const texts = createTelegramI18n(language).schedule;
+  return texts.detailsButton;
 }
 
 export function formatTimestamp(value: string): string {

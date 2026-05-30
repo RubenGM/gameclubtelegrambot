@@ -95,6 +95,8 @@ function createScheduleEvent(input: { id: number; title: string; startsAt: strin
     title: input.title,
     startsAt: input.startsAt,
     description: null,
+    detailsMessageChatId: null,
+    detailsMessageId: null,
     durationMinutes: 180,
     organizerTelegramUserId: 77,
     createdByTelegramUserId: 77,

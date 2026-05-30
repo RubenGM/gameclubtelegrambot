@@ -61,7 +61,7 @@ test('createDatabaseCatalogLoanRepository maps active-loan unique violations to 
         dueAt: null,
         notes: null,
       }),
-    /Aquest item ja esta prestat\./,
+    /Aquest ítem ja està prestat\./,
   );
 });
 

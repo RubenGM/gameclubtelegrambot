@@ -208,7 +208,7 @@ export function createWikipediaBoardGameImportService({
           ok: false,
           error: {
             type: 'connection',
-            message: error instanceof Error ? error.message : 'No s ha pogut connectar amb el servei d importacio.',
+            message: error instanceof Error ? error.message : "No s'ha pogut connectar amb el servei d'importació.",
           },
         };
       }
@@ -376,7 +376,7 @@ export function createBoardGameGeekCollectionImportService({
     for (const entry of collectionEntries) {
       const draft = parseBoardGameGeekThing(thingXml, entry.id);
       if (!draft) {
-        errors.push(`No s ha pogut carregar el detall de ${entry.displayName} [API #${entry.id}].`);
+        errors.push(`No s'ha pogut carregar el detall de ${entry.displayName} [API #${entry.id}].`);
         continue;
       }
       items.push(draft);
@@ -447,7 +447,7 @@ async function importFromBoardGameGeek({
         ok: false,
         error: {
           type: 'ambiguous',
-          message: 'He trobat diverses coincidencies a la API.',
+          message: "He trobat diverses coincidències a l'API.",
           candidates: selectedCandidate.candidates.map(formatBoardGameGeekCandidateLabel),
         },
       };
@@ -554,7 +554,7 @@ function parseImportResult(value: unknown): WikipediaBoardGameImportResult {
       ok: false,
       error: {
         type: asImportErrorType(payload.error?.type),
-        message: typeof payload.error?.message === 'string' ? payload.error.message : 'No s ha trobat cap coincidencia a Wikipedia.',
+        message: typeof payload.error?.message === 'string' ? payload.error.message : "No s'ha trobat cap coincidència a Wikipedia.",
         ...(payload.error?.candidates !== undefined ? { candidates: asStringArray(payload.error.candidates) } : {}),
       },
     };

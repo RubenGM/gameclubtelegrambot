@@ -183,6 +183,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: () => false,
   },
   {
+    id: 'welcome_templates',
+    label: (language) => createTelegramI18n(language).actionMenu.welcomeTemplates,
+    telemetryActionKey: 'menu.welcome_templates',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'language',
     label: (language) => createTelegramI18n(language).actionMenu.language,
     telemetryActionKey: 'menu.language',
@@ -190,6 +199,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     buttonRole: 'secondary',
     contexts: ['private', 'group', 'group-news'],
     isVisible: () => true,
+  },
+  {
+    id: 'change_display_name',
+    label: (language) => createTelegramI18n(language).actionMenu.changeDisplayName,
+    telemetryActionKey: 'menu.change_display_name',
+    uxSection: 'utility',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
   {
     id: 'start',
@@ -229,7 +247,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['language', 'help']],
+    rows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['welcome_templates', 'change_display_name'], ['language', 'help']],
   },
   {
     id: 'private-approved-default',
@@ -238,7 +256,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['language', 'help']],
+    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['change_display_name', 'language', 'help']],
   },
   {
     id: 'private-pending-default',

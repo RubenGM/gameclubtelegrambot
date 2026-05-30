@@ -206,7 +206,7 @@ export async function createCatalogFamily({
 }): Promise<CatalogFamilyRecord> {
   return repository.createFamily({
     slug: normalizeSlug(slug),
-    displayName: normalizeRequiredText(displayName, 'El nom visible de la familia es obligatori'),
+    displayName: normalizeRequiredText(displayName, 'El nom visible de la família és obligatori'),
     description: normalizeOptionalText(description),
     familyKind: normalizeFamilyKind(familyKind),
   });
@@ -235,7 +235,7 @@ export async function createCatalogGroup({
   return repository.createGroup({
     familyId,
     slug: normalizeSlug(slug),
-    displayName: normalizeRequiredText(displayName, 'El nom visible del grup es obligatori'),
+    displayName: normalizeRequiredText(displayName, 'El nom visible del grup és obligatori'),
     description: normalizeOptionalText(description),
   });
 }
@@ -289,32 +289,32 @@ export async function createCatalogItem({
   const normalizedItemType = normalizeItemType(itemType);
 
   const normalizedPlayerCountMin = itemTypeSupportsPlayers(normalizedItemType)
-    ? normalizePositiveInteger(playerCountMin, 'El minim de jugadors ha de ser un enter positiu')
+    ? normalizePositiveInteger(playerCountMin, 'El mínim de jugadors ha de ser un enter positiu')
     : null;
   const normalizedPlayerCountMax = itemTypeSupportsPlayers(normalizedItemType)
-    ? normalizePositiveInteger(playerCountMax, 'El maxim de jugadors ha de ser un enter positiu')
+    ? normalizePositiveInteger(playerCountMax, 'El màxim de jugadors ha de ser un enter positiu')
     : null;
   if (
     normalizedPlayerCountMin !== null &&
     normalizedPlayerCountMax !== null &&
     normalizedPlayerCountMax < normalizedPlayerCountMin
   ) {
-    throw new Error('El maxim de jugadors no pot ser inferior al minim');
+    throw new Error('El màxim de jugadors no pot ser inferior al mínim');
   }
 
   return repository.createItem({
     familyId,
     groupId: groupId ?? null,
     itemType: normalizedItemType,
-    displayName: normalizeRequiredText(displayName, 'El nom visible de l item es obligatori'),
+    displayName: normalizeRequiredText(displayName, "El nom visible de l'ítem és obligatori"),
     originalName: normalizeOptionalText(originalName),
     description: normalizeOptionalText(description),
     language: normalizeOptionalText(language),
     publisher: normalizeOptionalText(publisher),
-    publicationYear: normalizePositiveInteger(publicationYear, 'L any de publicacio ha de ser un enter positiu'),
+    publicationYear: normalizePositiveInteger(publicationYear, "L'any de publicació ha de ser un enter positiu"),
     playerCountMin: normalizedPlayerCountMin,
     playerCountMax: normalizedPlayerCountMax,
-    recommendedAge: normalizePositiveInteger(recommendedAge, 'L edat recomanada ha de ser un enter positiu'),
+    recommendedAge: normalizePositiveInteger(recommendedAge, "L'edat recomanada ha de ser un enter positiu"),
     playTimeMinutes: normalizePositiveInteger(playTimeMinutes, 'La durada ha de ser un enter positiu'),
     externalRefs: normalizeObject(externalRefs),
     metadata: normalizeObject(metadata),
@@ -407,17 +407,17 @@ export async function updateCatalogItem({
   const normalizedItemType = normalizeItemType(itemType);
 
   const normalizedPlayerCountMin = itemTypeSupportsPlayers(normalizedItemType)
-    ? normalizePositiveInteger(playerCountMin, 'El minim de jugadors ha de ser un enter positiu')
+    ? normalizePositiveInteger(playerCountMin, 'El mínim de jugadors ha de ser un enter positiu')
     : null;
   const normalizedPlayerCountMax = itemTypeSupportsPlayers(normalizedItemType)
-    ? normalizePositiveInteger(playerCountMax, 'El maxim de jugadors ha de ser un enter positiu')
+    ? normalizePositiveInteger(playerCountMax, 'El màxim de jugadors ha de ser un enter positiu')
     : null;
   if (
     normalizedPlayerCountMin !== null &&
     normalizedPlayerCountMax !== null &&
     normalizedPlayerCountMax < normalizedPlayerCountMin
   ) {
-    throw new Error('El maxim de jugadors no pot ser inferior al minim');
+    throw new Error('El màxim de jugadors no pot ser inferior al mínim');
   }
 
   return repository.updateItem({
@@ -425,15 +425,15 @@ export async function updateCatalogItem({
     familyId,
     groupId: groupId ?? null,
     itemType: normalizedItemType,
-    displayName: normalizeRequiredText(displayName, 'El nom visible de l item es obligatori'),
+    displayName: normalizeRequiredText(displayName, "El nom visible de l'ítem és obligatori"),
     originalName: normalizeOptionalText(originalName),
     description: normalizeOptionalText(description),
     language: normalizeOptionalText(language),
     publisher: normalizeOptionalText(publisher),
-    publicationYear: normalizePositiveInteger(publicationYear, 'L any de publicacio ha de ser un enter positiu'),
+    publicationYear: normalizePositiveInteger(publicationYear, "L'any de publicació ha de ser un enter positiu"),
     playerCountMin: normalizedPlayerCountMin,
     playerCountMax: normalizedPlayerCountMax,
-    recommendedAge: normalizePositiveInteger(recommendedAge, 'L edat recomanada ha de ser un enter positiu'),
+    recommendedAge: normalizePositiveInteger(recommendedAge, "L'edat recomanada ha de ser un enter positiu"),
     playTimeMinutes: normalizePositiveInteger(playTimeMinutes, 'La durada ha de ser un enter positiu'),
     externalRefs: normalizeObject(externalRefs),
     metadata: normalizeObject(metadata),
@@ -475,7 +475,7 @@ export async function createCatalogMedia({
   sortOrder?: number;
 }): Promise<CatalogMediaRecord> {
   if ((familyId === null && itemId === null) || (familyId !== null && itemId !== null)) {
-    throw new Error('El media ha d apuntar exactament a una familia o a un item');
+    throw new Error("El media ha d'apuntar exactament a una família o a un ítem");
   }
 
   if (familyId !== null) {
@@ -495,7 +495,7 @@ export async function createCatalogMedia({
     familyId,
     itemId,
     mediaType: normalizeMediaType(mediaType),
-    url: normalizeRequiredText(url, 'La URL del media es obligatoria'),
+    url: normalizeRequiredText(url, 'La URL del media és obligatòria'),
     altText: normalizeOptionalText(altText),
     sortOrder: normalizeSortOrder(sortOrder),
   });
@@ -524,7 +524,7 @@ export async function updateCatalogMedia({
   return repository.updateMedia({
     mediaId,
     mediaType: normalizeMediaType(mediaType),
-    url: normalizeRequiredText(url, 'La URL del media es obligatoria'),
+    url: normalizeRequiredText(url, 'La URL del media és obligatòria'),
     altText: normalizeOptionalText(altText),
     sortOrder: normalizeSortOrder(sortOrder),
   });
@@ -546,7 +546,7 @@ export async function removeCatalogMedia({
 function normalizeSlug(slug: string): string {
   const normalized = slug.trim().toLowerCase();
   if (!normalized) {
-    throw new Error('El slug de la familia es obligatori');
+    throw new Error('El slug de la família és obligatori');
   }
   return normalized;
 }
@@ -575,7 +575,7 @@ async function ensureFamilyAndGroupConsistency({
     throw new Error(`Catalog group ${groupId} not found`);
   }
   if (group.familyId !== familyId) {
-    throw new Error('La familia de l item ha de coincidir amb la del grup seleccionat');
+    throw new Error("La família de l'ítem ha de coincidir amb la del grup seleccionat");
   }
 }
 
@@ -594,21 +594,21 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
 
 function normalizeFamilyKind(value: CatalogFamilyKind): CatalogFamilyKind {
   if (value !== 'board-game-line' && value !== 'rpg-line' && value !== 'generic-line') {
-    throw new Error('El tipus de familia no es valid');
+    throw new Error('El tipus de família no és vàlid');
   }
   return value;
 }
 
 function normalizeItemType(value: CatalogItemType): CatalogItemType {
   if (value !== 'board-game' && value !== 'expansion' && value !== 'book' && value !== 'rpg-book' && value !== 'accessory') {
-    throw new Error('El tipus d item no es valid');
+    throw new Error("El tipus d'ítem no és vàlid");
   }
   return value;
 }
 
 function normalizeMediaType(value: CatalogMediaType): CatalogMediaType {
   if (value !== 'image' && value !== 'link' && value !== 'document') {
-    throw new Error('El tipus de media no es valid');
+    throw new Error('El tipus de media no és vàlid');
   }
   return value;
 }

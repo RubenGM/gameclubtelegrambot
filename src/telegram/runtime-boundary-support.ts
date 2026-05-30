@@ -62,7 +62,15 @@ export interface TelegramContextLike {
     first_name?: string;
     last_name?: string;
   } | undefined;
+  newChatMembers?: Array<{
+    id: number;
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+    is_bot?: boolean;
+  }> | undefined;
   messageText?: string | undefined;
+  messageEntities?: TelegramMessageEntity[] | undefined;
   messageId?: number | undefined;
   isForwardedMessage?: boolean | undefined;
   callbackData?: string | undefined;
@@ -85,6 +93,14 @@ export interface TelegramContextLike {
   } | undefined;
   reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime?: TelegramRuntime | undefined;
+}
+
+export interface TelegramMessageEntity {
+  type: string;
+  offset: number;
+  length: number;
+  url?: string | undefined;
+  language?: string | undefined;
 }
 
 export interface TelegramInlineButton {
@@ -142,6 +158,11 @@ export interface TelegramReplyOptions {
   resizeKeyboard?: boolean;
   persistentKeyboard?: boolean;
   parseMode?: 'HTML';
+  messageThreadId?: number;
+}
+
+export interface TelegramSentMessage {
+  messageId: number;
 }
 
 export interface TelegramRuntime {
@@ -152,10 +173,11 @@ export interface TelegramRuntime {
     getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean }>;
     createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
     sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
-    sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+    sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
     copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+    sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
     sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
     downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
     editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
@@ -188,10 +210,11 @@ export interface TelegramBotLike {
   getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean }>;
   createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
   sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
-  sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+  sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
   copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
+  sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
   sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
   downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
   editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
@@ -377,8 +400,10 @@ function createGrammyTelegramBot({
         }
 
         context.messageText = context.msg?.text ?? context.message?.text;
+        context.messageEntities = extractTelegramMessageEntities(context.msg ?? context.message);
         context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
         context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
+        context.messageThreadId = resolveMessageThreadId(context.msg ?? context.message);
 
         await handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth));
       };
@@ -410,6 +435,7 @@ function createGrammyTelegramBot({
         }
 
         context.callbackData = context.callbackQuery.data;
+        context.messageThreadId = resolveMessageThreadId(context.callbackQuery.message);
         await runTelegramCallbackHandler({
           handle: () => handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth)),
           acknowledge: () => context.answerCallbackQuery(),
@@ -423,6 +449,7 @@ function createGrammyTelegramBot({
         }
 
         context.messageText = context.msg?.text ?? context.message?.text;
+        context.messageEntities = extractTelegramMessageEntities(context.msg ?? context.message);
         context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
         context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
         if (!context.messageText || (context.messageText.startsWith('/') && !isTelegramInternalTextCommand(context.messageText))) {
@@ -439,11 +466,13 @@ function createGrammyTelegramBot({
         }
 
         context.messageText = context.msg?.text ?? context.message?.text;
+        context.messageEntities = extractTelegramMessageEntities(context.msg ?? context.message);
         context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
         context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
         context.messageThreadId = resolveMessageThreadId(context.msg ?? context.message);
         context.messageMedia = extractTelegramMessageMedia(context.msg ?? context.message);
         context.sharedChat = extractTelegramSharedChat(context.msg ?? context.message);
+        context.newChatMembers = extractTelegramNewChatMembers(context.msg ?? context.message);
 
         await handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth));
       });
@@ -490,9 +519,11 @@ function createGrammyTelegramBot({
       );
     },
     async sendGroupMessage(chatId, message, options) {
-      await withTelegramApiRetry(retryOptions('sendGroupMessage'), () =>
+      const result = await withTelegramApiRetry(retryOptions('sendGroupMessage'), () =>
         bot.api.sendMessage(chatId, apiHealth.appendWarning(message), options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
       );
+      const messageId = resolveTelegramMessageId(result);
+      return messageId ? { messageId } : undefined;
     },
     async copyMessage({ fromChatId, messageId, toChatId, messageThreadId }) {
       const result = await withTelegramApiRetry(retryOptions('copyMessage'), () =>
@@ -544,6 +575,17 @@ function createGrammyTelegramBot({
         ),
       );
       return (result as Array<{ message_id: number }>).map((message) => ({ messageId: Number(message.message_id) }));
+    },
+    async sendAnimation({ chatId, animationFileId, caption, messageThreadId, options }) {
+      await withTelegramApiRetry(retryOptions('sendAnimation'), () =>
+        bot.api.raw.sendAnimation({
+          chat_id: chatId,
+          animation: animationFileId,
+          ...(caption ? { caption } : {}),
+          ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+          ...(options ? toGrammyReplyOptions(options, buttonAppearance) : {}),
+        }),
+      );
     },
     async sendDocument({ chatId, filePath, caption }) {
       await withTelegramApiRetry(retryOptions('sendDocument'), () =>
@@ -722,6 +764,30 @@ function resolveTelegramForwardedMessage(message: unknown): boolean {
   );
 }
 
+function extractTelegramMessageEntities(message: unknown): TelegramMessageEntity[] | undefined {
+  if (!message || typeof message !== 'object') {
+    return undefined;
+  }
+
+  const rawEntities = (message as Record<string, unknown>).entities;
+  if (!Array.isArray(rawEntities)) {
+    return undefined;
+  }
+
+  const entities = rawEntities
+    .filter((entity): entity is Record<string, unknown> => typeof entity === 'object' && entity !== null)
+    .map((entity) => ({
+      type: String(entity.type ?? ''),
+      offset: Number(entity.offset),
+      length: Number(entity.length),
+      ...(typeof entity.url === 'string' ? { url: entity.url } : {}),
+      ...(typeof entity.language === 'string' ? { language: entity.language } : {}),
+    }))
+    .filter((entity) => entity.type.length > 0 && Number.isInteger(entity.offset) && entity.offset >= 0 && Number.isInteger(entity.length) && entity.length > 0);
+
+  return entities.length > 0 ? entities : undefined;
+}
+
 function extractTelegramMessageMedia(message: unknown): TelegramContextLike['messageMedia'] {
   if (!message || typeof message !== 'object') {
     return undefined;
@@ -731,6 +797,21 @@ function extractTelegramMessageMedia(message: unknown): TelegramContextLike['mes
   const messageId = maybeMessage.message_id ?? maybeMessage.messageId;
   if (typeof messageId !== 'number') {
     return undefined;
+  }
+
+  if (maybeMessage.animation && typeof maybeMessage.animation === 'object') {
+    const animation = maybeMessage.animation as Record<string, unknown>;
+    return {
+      attachmentKind: 'animation',
+      fileId: asOptionalString(animation.file_id ?? animation.fileId),
+      fileUniqueId: asOptionalString(animation.file_unique_id ?? animation.fileUniqueId),
+      caption: asOptionalString(maybeMessage.caption),
+      originalFileName: asOptionalString(animation.file_name ?? animation.fileName),
+      mimeType: asOptionalString(animation.mime_type ?? animation.mimeType),
+      fileSizeBytes: asOptionalNumber(animation.file_size ?? animation.fileSize),
+      mediaGroupId: asOptionalString(maybeMessage.media_group_id ?? maybeMessage.mediaGroupId),
+      messageId,
+    };
   }
 
   if (maybeMessage.document && typeof maybeMessage.document === 'object') {
@@ -794,6 +875,28 @@ function extractTelegramMessageMedia(message: unknown): TelegramContextLike['mes
   }
 
   return undefined;
+}
+
+function extractTelegramNewChatMembers(message: unknown): TelegramContextLike['newChatMembers'] {
+  if (!message || typeof message !== 'object') {
+    return undefined;
+  }
+
+  const members = (message as Record<string, unknown>).new_chat_members;
+  if (!Array.isArray(members)) {
+    return undefined;
+  }
+
+  return members
+    .filter((member): member is Record<string, unknown> => typeof member === 'object' && member !== null)
+    .map((member) => ({
+      id: Number(member.id),
+      ...(typeof member.username === 'string' ? { username: member.username } : {}),
+      ...(typeof member.first_name === 'string' ? { first_name: member.first_name } : {}),
+      ...(typeof member.last_name === 'string' ? { last_name: member.last_name } : {}),
+      ...(typeof member.is_bot === 'boolean' ? { is_bot: member.is_bot } : {}),
+    }))
+    .filter((member) => Number.isFinite(member.id));
 }
 
 function extractTelegramSharedChat(message: unknown): TelegramContextLike['sharedChat'] {

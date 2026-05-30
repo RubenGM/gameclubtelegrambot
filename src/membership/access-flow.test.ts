@@ -130,7 +130,7 @@ function createRepository(initialUsers: MembershipUserRecord[] = []): Membership
         actionKey: 'membership.rejected',
         targetType: 'membership-user',
         targetId: String(input.telegramUserId),
-        summary: 'Sollicitud d acces rebutjada',
+        summary: "Sol·licitud d'accés rebutjada",
         details: {
           previousStatus: input.previousStatus,
           nextStatus: 'blocked',
@@ -200,7 +200,7 @@ test('requestMembershipAccess creates a pending access request for unknown users
   });
 
   assert.equal(result.outcome, 'created');
-  assert.match(result.message, /He registrat la teva sollicitud/);
+  assert.match(result.message, /He registrat la teva sol·licitud/);
   assert.match(result.message, /avisa un administrador/i);
 });
 
@@ -252,7 +252,7 @@ test('requestMembershipAccess is idempotent for pending users', async () => {
   });
 
   assert.equal(result.outcome, 'already-pending');
-  assert.match(result.message, /ja esta pendent/i);
+  assert.match(result.message, /ja està pendent/i);
   assert.match(result.message, /avisa un administrador/i);
 });
 
@@ -297,7 +297,7 @@ test('requestMembershipAccess keeps blocked users restricted', async () => {
   });
 
   assert.equal(result.outcome, 'blocked');
-  assert.match(result.message, /El teu accés esta blocat/);
+  assert.match(result.message, /El teu accés està blocat/);
 });
 
 test('requestMembershipAccess recreates a pending request for revoked users', async () => {
@@ -410,7 +410,7 @@ test('approveMembershipRequest approves a pending user and returns applicant not
   });
 
   assert.equal(result.outcome, 'approved');
-  assert.match(result.applicantMessage, /La teva sollicitud ha estat aprovada/);
+  assert.match(result.applicantMessage, /La teva sol·licitud ha estat aprovada/);
   assert.equal(repository.__auditEvents.at(-1)?.actionKey, 'membership.approved');
   assert.equal(repository.__auditEvents.at(-1)?.targetId, '10');
 });
@@ -475,7 +475,7 @@ test('rejectMembershipRequest blocks a pending user and returns applicant notifi
   });
 
   assert.equal(result.outcome, 'blocked');
-  assert.match(result.applicantMessage, /La teva sollicitud d accés ha estat rebutjada/);
+  assert.match(result.applicantMessage, /La teva sol·licitud d'accés ha estat rebutjada/);
   assert.equal(repository.__auditEvents.at(-1)?.actionKey, 'membership.rejected');
   assert.equal(repository.__auditEvents.at(-1)?.actorTelegramUserId, 99);
 });

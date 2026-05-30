@@ -35,6 +35,30 @@ export const users = pgTable('users', {
   statusReason: text('status_reason'),
 });
 
+export const memberSignupRequests = pgTable(
+  'member_signup_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    fullName: varchar('full_name', { length: 255 }).notNull(),
+    telegramAlias: varchar('telegram_alias', { length: 128 }),
+    contact: varchar('contact', { length: 255 }).notNull(),
+    message: text('message'),
+    acceptedTerms: boolean('accepted_terms').notNull().default(false),
+    status: varchar('status', { length: 16 }).notNull().default('pending'),
+    source: varchar('source', { length: 32 }).notNull().default('web'),
+    userAgent: text('user_agent'),
+    remoteAddress: varchar('remote_address', { length: 128 }),
+    notificationSummary: jsonb('notification_summary'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (table) => ({
+    statusLookup: index('member_signup_requests_status_idx').on(table.status),
+    createdLookup: index('member_signup_requests_created_at_idx').on(table.createdAt),
+  }),
+);
+
 export const userPermissionAssignments = pgTable(
   'user_permission_assignments',
   {
@@ -220,31 +244,40 @@ export const catalogLoanReminders = pgTable(
   }),
 );
 
-export const scheduleEvents = pgTable('schedule_events', {
-  id: bigserial('id', { mode: 'number' }).primaryKey(),
-  title: varchar('title', { length: 255 }).notNull(),
-  description: text('description'),
-  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
-  durationMinutes: integer('duration_minutes').notNull().default(180),
-  organizerTelegramUserId: bigint('organizer_telegram_user_id', { mode: 'number' })
-    .notNull()
-    .references(() => users.telegramUserId),
-  createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
-    .notNull()
-    .references(() => users.telegramUserId),
-  tableId: bigint('table_id', { mode: 'number' }).references(() => clubTables.id),
-  attendanceMode: varchar('attendance_mode', { length: 16 }).notNull().default('open'),
-  initialOccupiedSeats: integer('initial_occupied_seats').notNull().default(0),
-  capacity: integer('capacity').notNull(),
-  lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('scheduled'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
-  cancelledByTelegramUserId: bigint('cancelled_by_telegram_user_id', { mode: 'number' }).references(
-    () => users.telegramUserId,
-  ),
-  cancellationReason: text('cancellation_reason'),
-});
+export const scheduleEvents = pgTable(
+  'schedule_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    title: varchar('title', { length: 255 }).notNull(),
+    description: text('description'),
+    detailsMessageChatId: bigint('details_message_chat_id', { mode: 'number' }),
+    detailsMessageId: bigint('details_message_id', { mode: 'number' }),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    durationMinutes: integer('duration_minutes').notNull().default(180),
+    organizerTelegramUserId: bigint('organizer_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    tableId: bigint('table_id', { mode: 'number' }).references(() => clubTables.id),
+    catalogItemId: bigint('catalog_item_id', { mode: 'number' }).references(() => catalogItems.id),
+    attendanceMode: varchar('attendance_mode', { length: 16 }).notNull().default('open'),
+    initialOccupiedSeats: integer('initial_occupied_seats').notNull().default(0),
+    capacity: integer('capacity').notNull(),
+    lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('scheduled'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelledByTelegramUserId: bigint('cancelled_by_telegram_user_id', { mode: 'number' }).references(
+      () => users.telegramUserId,
+    ),
+    cancellationReason: text('cancellation_reason'),
+  },
+  (table) => ({
+    catalogItemLookup: index('schedule_events_catalog_item_id_idx').on(table.catalogItemId),
+  }),
+);
 
 export const scheduleEventParticipants = pgTable(
   'schedule_event_participants',
@@ -339,6 +372,7 @@ export const newsGroupSubscriptions = pgTable(
     chatId: bigint('chat_id', { mode: 'number' })
       .notNull()
       .references(() => newsGroups.chatId),
+    messageThreadId: integer('message_thread_id').notNull().default(0),
     categoryKey: varchar('category_key', { length: 128 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -347,6 +381,7 @@ export const newsGroupSubscriptions = pgTable(
     uniqueSubscription: uniqueIndex('news_group_subscriptions_unique_subscription').on(
       table.chatId,
       table.categoryKey,
+      table.messageThreadId,
     ),
     categoryLookup: index('news_group_subscriptions_category_key_idx').on(table.categoryKey),
   }),

@@ -41,6 +41,7 @@ export interface CreateAppOptions {
   }) => ScheduleReminderWorker;
   startAdminHttpServer?: (options: {
     services: InfrastructureRuntimeServices;
+    telegram: TelegramBoundary;
   }) => AdminHttpServer;
 }
 
@@ -103,10 +104,11 @@ export function createApp({
         });
       },
     }),
-  startAdminHttpServer = ({ services }) =>
+  startAdminHttpServer = ({ services, telegram }) =>
     createAdminHttpServer({
       config,
       services,
+      telegramSender: telegram,
       logger: {
         info: logger.info.bind(logger),
         error: logger.error?.bind(logger) ?? (() => {}),
@@ -145,7 +147,7 @@ export function createApp({
         telegram = startedTelegram;
         scheduleReminders = startScheduleReminders({ services: startedInfrastructure.services, telegram });
         await scheduleReminders.start();
-        adminHttpServer = startAdminHttpServer({ services: startedInfrastructure.services });
+        adminHttpServer = startAdminHttpServer({ services: startedInfrastructure.services, telegram });
         await adminHttpServer.start();
         await notifyFirstAdminReady({
           config,

@@ -174,6 +174,8 @@ function createEvent(input: { id: number; title: string; startsAt: string }): Sc
     id: input.id,
     title: input.title,
     description: null,
+    detailsMessageChatId: null,
+    detailsMessageId: null,
     startsAt: input.startsAt,
     durationMinutes: 180,
     organizerTelegramUserId: 42,

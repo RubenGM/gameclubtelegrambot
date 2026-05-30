@@ -20,7 +20,7 @@ export async function requireSchedulableTableSelection({
     throw new Error('La taula seleccionada no existeix');
   }
   if (table.lifecycleStatus !== 'active') {
-    throw new Error('La taula seleccionada ja no esta activa');
+    throw new Error('La taula seleccionada ja no està activa');
   }
 
   return table;
