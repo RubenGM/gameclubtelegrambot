@@ -17,7 +17,7 @@ async function main(): Promise<void> {
     const diff = diffFileSnapshots({ before, after });
 
     if (diff.created.length === 0 && diff.updated.length === 0 && diff.deleted.length === 0) {
-      console.log('L estat de migracions Drizzle esta sincronitzat amb schema.ts.');
+      console.log("L'estat de migracions Drizzle està sincronitzat amb schema.ts.");
       return;
     }
 

@@ -553,7 +553,7 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   context.messageText = catalogAdminLabels.openMenu;
 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /No hi ha cap item de cataleg disponible ara mateix\./);
+  assert.match(replies.at(-1)?.message ?? '', /No hi ha cap ítem de catàleg disponible ara mateix\./);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Crear ítem', catalogAdminLabels.bulkCreate],
     ['Préstecs actius'],
@@ -938,7 +938,7 @@ test('handleTelegramCatalogAdminText offers unresolved bulk names as copyable te
 
   assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-create');
   assert.equal(getCurrentSession()?.stepKey, 'display-name');
-  assert.match(replies.at(-1)?.message ?? '', /Escriu el nom de l item/);
+  assert.match(replies.at(-1)?.message ?? '', /Escriu el nom de l'ítem/);
 });
 
 test('handleTelegramCatalogAdminText accepts Spanish item type buttons when creating', async () => {
@@ -1034,14 +1034,14 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = catalogAdminLabels.typeBoardGame;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Escriu el nom de l item per buscar dades automaticament a l API/);
+  assert.match(replies.at(-1)?.message ?? '', /Escriu el nom de l'ítem per buscar dades automàticament a l'API/);
 
   context.messageText = 'Root';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.match(replies.at(-3)?.message ?? '', /Buscant.*API/);
-  assert.match(replies.at(-2)?.message ?? '', /Importacio des de l API completada/);
+  assert.match(replies.at(-2)?.message ?? '', /Importació des de l'API completada/);
   assert.match(replies.at(-1)?.message ?? '', /He importat dades externes per Root/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Resum de l item:<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Resum de l'ítem:<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Nom:<\/b>/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], catalogAdminLabels.editFieldDisplayName);
   assert.equal(getCurrentSession()?.stepKey, 'select-field');
@@ -1056,7 +1056,7 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.equal(getCurrentSession(), null);
-  assert.match(replies.at(-1)?.message ?? '', /Item de cataleg actualitzat correctament: Root/);
+  assert.match(replies.at(-1)?.message ?? '', /Ítem de catàleg actualitzat correctament: Root/);
   const created = await repository.findItemById(1);
   assert.equal(created?.displayName, 'Root');
   assert.equal(created?.itemType, 'board-game');
@@ -1205,7 +1205,7 @@ test('handleTelegramCatalogAdminText shows a URL fallback when Wikipedia import 
   context.messageText = catalogAdminLabels.editFieldFamily;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'family');
-  assert.match(replies.at(-1)?.message ?? '', /Escriu la familia del joc de taula/);
+  assert.match(replies.at(-1)?.message ?? '', /Escriu la família del joc de taula/);
 });
 
 test('handleTelegramCatalogAdminText retries Wikipedia import when the user pastes a full url', async () => {
@@ -1522,7 +1522,7 @@ test('handleTelegramCatalogAdminText offers Open Library matches for rpg books a
 
   assert.deepEqual(lookupCalls, [{ itemType: 'rpg-book', query: 'Manual del jugador (2024)' }]);
   assert.equal(getCurrentSession()?.stepKey, 'lookup-choice');
-  assert.match(replies.at(-1)?.message ?? '', /He trobat aquestes coincidencies/);
+  assert.match(replies.at(-1)?.message ?? '', /He trobat aquestes coincidències/);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Player\'s Handbook');
 
   context.messageText = 'Player\'s Handbook';
@@ -1571,7 +1571,7 @@ test('handleTelegramCatalogAdminText offers Open Library matches for rpg books a
   context.messageText = catalogAdminLabels.confirmCreate;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession(), null);
-  assert.match(replies.at(-1)?.message ?? '', /Item de cataleg creat correctament: Manual del jugador \(2024\)/);
+  assert.match(replies.at(-1)?.message ?? '', /Ítem de catàleg creat correctament: Manual del jugador \(2024\)/);
 });
 
 test('handleTelegramCatalogAdminText lets lookup results be refined by author text', async () => {
@@ -1830,7 +1830,7 @@ test('handleTelegramCatalogAdminText lets rpg books pick a popular family or cre
 
   context.messageText = catalogAdminLabels.editFieldFamily;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Escriu o tria una familia/);
+  assert.match(replies.at(-1)?.message ?? '', /Escriu o tria una família/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], ['Dungeons and Dragons 5', 'Call of Cthulhu']);
   assert.equal(buttonText(replies.at(-1)?.options?.replyKeyboard?.at(-2)?.[0] as string | { text: string }), 'Sense família');
 
@@ -2174,7 +2174,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
 
   context.messageText = catalogAdminLabels.listBoardGames;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ítems de catàleg:/);
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_letters_AD"><b>A D - 3 artículos<\/b><\/a>/);
   assert.match(replies.at(-1)?.message ?? '', /A D - 3 artículos/);
   assert.match(replies.at(-1)?.message ?? '', /3 juegos de mesa/);
@@ -3587,7 +3587,7 @@ test('handleTelegramCatalogAdminText hides deactivated items from the normal cat
   context.messageText = catalogAdminLabels.list;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ítems de catàleg:/);
   assert.match(replies.at(-1)?.message ?? '', /A - 1 artículo/);
   assert.match(replies.at(-1)?.message ?? '', /1 libro/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
@@ -3680,7 +3680,7 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
   context.messageText = catalogAdminLabels.openMenu;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Items de cataleg:/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ítems de catàleg:/);
   assert.match(replies.at(-1)?.message ?? '', /E M - 2 artículos/);
   assert.match(replies.at(-1)?.message ?? '', /2 libros/);
   assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
@@ -3831,7 +3831,7 @@ test('handleTelegramCatalogAdminStartText opens an item detail from deep link pa
   assert.ok(buttons.some((button) => button === 'Editar ítem'));
   assert.ok(buttons.some((button) => button === 'Eliminar ítem'));
   assert.ok(!buttons.some((button) => button === 'Editar préstec'));
-  assert.ok(!buttons.some((button) => button === 'Veure cataleg'));
+  assert.ok(!buttons.some((button) => button === 'Veure catàleg'));
 });
 
 test('handleTelegramCatalogAdminStartText opens an initial bucket from deep link payload', async () => {
@@ -4080,7 +4080,7 @@ test('catalog admin can assign an item owner from the paginated user selector', 
 
   context.callbackData = `${catalogAdminCallbackPrefixes.ownerPage}1:1`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Elige el propietario del item/);
+  assert.match(replies.at(-1)?.message ?? '', /Elige el propietario del ítem/);
   assert.match(replies.at(-1)?.message ?? '', /Ana Owner/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Blocked User/);
 

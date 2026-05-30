@@ -322,7 +322,7 @@ test('setScheduleEventParticipantStatus keeps participants separate from the bas
         actorTelegramUserId: 88,
         status: 'active',
       }),
-    /L activitat ja no te places disponibles/,
+    /L'activitat ja no té places disponibles/,
   );
 });
 

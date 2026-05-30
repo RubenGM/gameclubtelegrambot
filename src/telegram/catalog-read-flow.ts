@@ -581,7 +581,7 @@ async function buildLoanRows(context: TelegramCatalogReadContext, loans: Catalog
 }
 
 function overviewButton(language: 'ca' | 'es' | 'en') {
-  return { text: language === 'es' ? 'Ver catalogo' : language === 'en' ? 'View catalog' : 'Veure cataleg', callbackData: catalogReadCallbackPrefixes.overview };
+  return { text: language === 'es' ? 'Ver catálogo' : language === 'en' ? 'View catalog' : 'Veure catàleg', callbackData: catalogReadCallbackPrefixes.overview };
 }
 
 function pagingButtons(language: 'ca' | 'es' | 'en'): Array<{ text: string; callbackData: string }> {

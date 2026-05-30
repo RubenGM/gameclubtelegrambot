@@ -64,7 +64,7 @@ test('requireSchedulableTableSelection rejects deactivated tables for new schedu
 
   await assert.rejects(
     () => requireSchedulableTableSelection({ repository, tableId: 8 }),
-    /La taula seleccionada ja no esta activa/,
+    /La taula seleccionada ja no està activa/,
   );
 });
 

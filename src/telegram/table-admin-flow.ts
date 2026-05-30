@@ -40,7 +40,7 @@ export const tableAdminLabels = {
   skipOptional: 'Ometre',
   noCapacity: 'Sense capacitat',
   keepCurrent: 'Mantenir valor actual',
-  clearDescription: 'Esborrar descripcio',
+  clearDescription: 'Esborrar descripció',
   confirmCreate: 'Guardar taula',
   confirmEdit: 'Guardar canvis',
   confirmDeactivate: 'Confirmar desactivacio',
@@ -269,7 +269,7 @@ async function handleCreateSession(
       data: nextData,
     });
     await context.reply(
-      `${formatDraftSummary(nextData, texts)}\n\nTria una opcio per confirmar o cancel.lar.`,
+      `${formatDraftSummary(nextData, texts)}\n\nTria una opció per confirmar o cancel·lar.`,
       buildCreateConfirmOptions(language),
     );
     return true;
@@ -383,7 +383,7 @@ async function handleEditSession(
       data: nextData,
     });
     await context.reply(
-      `${formatDraftSummary(nextData, texts)}\n\nTria una opcio per confirmar o cancel.lar.`,
+      `${formatDraftSummary(nextData, texts)}\n\nTria una opció per confirmar o cancel·lar.`,
       buildEditConfirmOptions(language),
     );
     return true;

@@ -877,7 +877,7 @@ function hasQuantityField(fields: GroupPurchaseFieldInput[]): boolean {
 function formatCreateSummary(draft: GroupPurchaseCreateDraft, language: 'ca' | 'es' | 'en'): string {
   const texts = createTelegramI18n(language).groupPurchases;
   const fieldLines = (draft.fields ?? []).map((field) => {
-    const typeLabel = field.fieldType === 'integer' ? 'numero' : field.fieldType === 'single_choice' ? 'opcio' : 'text';
+    const typeLabel = field.fieldType === 'integer' ? 'número' : field.fieldType === 'single_choice' ? 'opció' : 'text';
     const extra = field.affectsQuantity ? ', quantitat' : '';
     return `- ${field.label} (${typeLabel}${extra})`;
   });
@@ -886,7 +886,7 @@ function formatCreateSummary(draft: GroupPurchaseCreateDraft, language: 'ca' | '
     texts.createSummary,
     '',
     `Titol: ${draft.title ?? '-'}`,
-    `Descripcio: ${draft.description ?? 'Sense descripcio'}`,
+    `Descripció: ${draft.description ?? 'Sense descripció'}`,
     `Mode: ${draft.purchaseMode === 'shared_cost' ? texts.modeSharedCost : texts.modePerItem}`,
     draft.purchaseMode === 'shared_cost'
       ? `Cost total: ${draft.totalPriceCents === null || draft.totalPriceCents === undefined ? 'Sense cost' : formatMoney(draft.totalPriceCents)}`

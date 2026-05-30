@@ -212,7 +212,7 @@ const resourceDefs: ResourceDef[] = [
     { column: 'unit_price_cents', label: 'Unit cents', type: 'number', nullable: true },
     { column: 'unit_label', label: 'Unit label', type: 'string', nullable: true },
   ], { column: 'lifecycle_status', value: 'cancelled', timestampColumn: 'cancelled_at' }),
-  resource('storage_categories', 'Storage categorias', 'storage_categories', 'id', 'display_name', ['slug', 'lifecycle_status'], ['id', 'display_name', 'slug', 'storage_chat_id', 'storage_thread_id', 'lifecycle_status'], [
+  resource('storage_categories', 'Storage categorías', 'storage_categories', 'id', 'display_name', ['slug', 'lifecycle_status'], ['id', 'display_name', 'slug', 'storage_chat_id', 'storage_thread_id', 'lifecycle_status'], [
     { column: 'display_name', label: 'Display name', type: 'string' },
     { column: 'slug', label: 'Slug', type: 'string' },
     { column: 'description', label: 'Description', type: 'string', nullable: true },
@@ -517,7 +517,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/logout') {
     const form = await readForm(request);
     if (!authenticatedSession || !isValidCsrf(form, authenticatedSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     response.setHeader('Set-Cookie', `${sessionCookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
@@ -585,12 +585,12 @@ async function routeRequest(options: {
   if (request.method === 'POST' && memberSignupStatusMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     const nextStatus = normalizeMemberSignupStatus(form.get('status') ?? '');
     if (!nextStatus) {
-      sendHtml(response, 400, page({ title: 'Estado invalido', body: '<p>El estado solicitado no es valido.</p><p><a href="/admin/member-signups">Volver</a></p>', shell: 'admin' }));
+      sendHtml(response, 400, page({ title: 'Estado inválido', body: '<p>El estado solicitado no es válido.</p><p><a href="/admin/member-signups">Volver</a></p>', shell: 'admin' }));
       return;
     }
     await updateMemberSignupStatus(options.services, Number(memberSignupStatusMatch[1]), nextStatus);
@@ -613,7 +613,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/welcome') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     await saveWelcomeTemplateFromForm(options.services, form);
@@ -625,7 +625,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && welcomeDeleteMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     await deleteWelcomeTemplate(options.services, welcomeDeleteMatch[1]);
@@ -676,7 +676,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && storageEntryEditMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     try {
@@ -711,7 +711,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && storageEntryDeleteMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     if (form.get('confirm') !== 'DELETE') {
@@ -731,7 +731,7 @@ async function routeRequest(options: {
       fetchStorageCategoryOptions(options.services),
     ]);
     if (!category) {
-      sendHtml(response, 404, page({ title: 'Categoria no encontrada', body: '<p>No se ha encontrado la categoria de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
+      sendHtml(response, 404, page({ title: 'Categoría no encontrada', body: '<p>No se ha encontrado la categoría de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
       return;
     }
     sendHtml(response, 200, storageCategoryEditPage(category, categories, adminSession.csrfToken));
@@ -741,7 +741,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && storageCategoryEditMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     try {
@@ -752,10 +752,10 @@ async function routeRequest(options: {
         fetchStorageCategoryOptions(options.services),
       ]);
       if (!category) {
-        sendHtml(response, 404, page({ title: 'Categoria no encontrada', body: '<p>No se ha encontrado la categoria de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
+        sendHtml(response, 404, page({ title: 'Categoría no encontrada', body: '<p>No se ha encontrado la categoría de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
         return;
       }
-      sendHtml(response, 400, storageCategoryEditPage(category, categories, adminSession.csrfToken, error instanceof Error ? error.message : 'No se ha podido guardar la categoria.'));
+      sendHtml(response, 400, storageCategoryEditPage(category, categories, adminSession.csrfToken, error instanceof Error ? error.message : 'No se ha podido guardar la categoría.'));
       return;
     }
     redirect(response, '/admin/storage');
@@ -766,7 +766,7 @@ async function routeRequest(options: {
   if (request.method === 'GET' && storageCategoryArchiveMatch?.[1]) {
     const category = await fetchStorageCategoryAdminDetail(options.services, Number(storageCategoryArchiveMatch[1]));
     if (!category) {
-      sendHtml(response, 404, page({ title: 'Categoria no encontrada', body: '<p>No se ha encontrado la categoria de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
+      sendHtml(response, 404, page({ title: 'Categoría no encontrada', body: '<p>No se ha encontrado la categoría de Storage.</p><p><a href="/admin/storage">Volver</a></p>', shell: 'admin' }));
       return;
     }
     sendHtml(response, 200, storageCategoryArchivePage(category, adminSession.csrfToken));
@@ -776,7 +776,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && storageCategoryArchiveMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     if (form.get('confirm') !== 'ARCHIVE') {
@@ -792,7 +792,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/web') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     const currentSettings = await options.webSettingsStore.load();
@@ -842,7 +842,7 @@ async function routeRequest(options: {
     const resourceDef = requireResource(resourceEditMatch[1]);
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     await updateResourceFields(options.services, resourceDef, resourceEditMatch[2], form);
@@ -862,7 +862,7 @@ async function routeRequest(options: {
     const resourceDef = requireResource(resourceDeleteMatch[1]);
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     const isHardDelete = form.get('mode') === 'hard';
@@ -880,7 +880,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && userActionMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     await applyUserAction(options.services, userActionMatch[1], form.get('action') ?? '');
@@ -891,12 +891,12 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/token') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     const token = normalizeTelegramToken(form.get('token') ?? '');
     if (!token) {
-      sendHtml(response, 400, page({ title: 'Token invalid', body: '<p>El token de Telegram no tiene un formato valido.</p><p><a href="/admin/config">Volver</a></p>', shell: 'admin' }));
+      sendHtml(response, 400, page({ title: 'Token inválido', body: '<p>El token de Telegram no tiene un formato válido.</p><p><a href="/admin/config">Volver</a></p>', shell: 'admin' }));
       return;
     }
     adminSession.pendingTelegramToken = token;
@@ -907,7 +907,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/token-confirm') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     if (!adminSession.pendingTelegramToken || form.get('confirm') !== 'CHANGE_TOKEN') {
@@ -923,7 +923,7 @@ async function routeRequest(options: {
   if (request.method === 'GET' && url.pathname === '/admin/service/confirm') {
     const action = url.searchParams.get('action') ?? '';
     if (action !== 'stop') {
-      sendHtml(response, 404, page('No trobat', '<p>Pagina no trobada.</p>'));
+      sendHtml(response, 404, page('No trobat', '<p>Pàgina no trobada.</p>'));
       return;
     }
     sendHtml(response, 200, serviceStopConfirmationPage(adminSession.csrfToken));
@@ -933,7 +933,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/service') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     const action = form.get('action');
@@ -953,7 +953,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/backup') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     await options.operations.createFullBackup();
@@ -965,7 +965,7 @@ async function routeRequest(options: {
     const backupFilePath = url.searchParams.get('backupFilePath') ?? '';
     const archive = await findBackupArchive(options.operations, backupFilePath);
     if (!archive) {
-      sendHtml(response, 400, page('Backup invalid', '<p>El backup seleccionat no es valid.</p>'));
+      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>'));
       return;
     }
     sendHtml(response, 200, backupConfirmationPage('restore', archive, adminSession.csrfToken));
@@ -975,17 +975,17 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/restore') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     const backupFilePath = form.get('backupFilePath') ?? '';
     const archive = await findBackupArchive(options.operations, backupFilePath);
     if (!archive) {
-      sendHtml(response, 400, page('Backup invalid', '<p>El backup seleccionat no es valid.</p>'));
+      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>'));
       return;
     }
     if (form.get('confirm') !== 'RESTORE') {
-      sendHtml(response, 400, backupConfirmationPage('restore', archive, adminSession.csrfToken, 'Escribe RESTORE para confirmar la restauracion.'));
+      sendHtml(response, 400, backupConfirmationPage('restore', archive, adminSession.csrfToken, 'Escribe RESTORE para confirmar la restauración.'));
       return;
     }
     await options.operations.restoreFullBackup({ backupFilePath });
@@ -997,7 +997,7 @@ async function routeRequest(options: {
     const backupFilePath = url.searchParams.get('backupFilePath') ?? '';
     const archive = await findBackupArchive(options.operations, backupFilePath);
     if (!archive) {
-      sendHtml(response, 400, page('Backup invalid', '<p>El backup seleccionat no es valid.</p>'));
+      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>'));
       return;
     }
     sendHtml(response, 200, backupConfirmationPage('delete', archive, adminSession.csrfToken));
@@ -1007,17 +1007,17 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/delete-backup') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
       return;
     }
     const backupFilePath = form.get('backupFilePath') ?? '';
     const archive = await findBackupArchive(options.operations, backupFilePath);
     if (!archive) {
-      sendHtml(response, 400, page('Backup invalid', '<p>El backup seleccionat no es valid.</p>'));
+      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>'));
       return;
     }
     if (form.get('confirm') !== 'DELETE') {
-      sendHtml(response, 400, backupConfirmationPage('delete', archive, adminSession.csrfToken, 'Escribe DELETE para confirmar la eliminacion.'));
+      sendHtml(response, 400, backupConfirmationPage('delete', archive, adminSession.csrfToken, 'Escribe DELETE para confirmar la eliminación.'));
       return;
     }
     await deleteBackupArchive(backupFilePath);
@@ -1025,7 +1025,7 @@ async function routeRequest(options: {
     return;
   }
 
-  sendHtml(response, 404, page('No trobat', '<p>Pagina no trobada.</p>'));
+  sendHtml(response, 404, page('No trobat', '<p>Pàgina no trobada.</p>'));
 }
 
 async function readForm(request: IncomingMessage): Promise<URLSearchParams> {
@@ -1337,13 +1337,13 @@ async function handleWebAssetAction({
   const files = multipart?.files ?? new Map<string, MultipartFile>();
 
   if (!isValidCsrf(fields, session)) {
-    sendHtml(response, 403, page('Accio rebutjada', '<p>La sessio admin no es valida. Torna a entrar.</p>'));
+    sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
     return false;
   }
 
   const target = parseWebAssetTarget(fields.get('target') ?? '');
   if (!target) {
-    sendHtml(response, 400, page('Asset invalid', '<p>El destino de la imagen no es valido.</p>'));
+    sendHtml(response, 400, page('Asset inválid', '<p>El destino de la imagen no es válido.</p>'));
     return false;
   }
 
@@ -1354,13 +1354,13 @@ async function handleWebAssetAction({
   }
 
   if (!isMultipart) {
-    sendHtml(response, 400, page('Asset invalid', '<p>La subida debe enviarse como multipart/form-data.</p>'));
+    sendHtml(response, 400, page('Asset inválid', '<p>La subida debe enviarse como multipart/form-data.</p>'));
     return false;
   }
 
   const file = files.get('asset');
   if (!file || file.content.length === 0) {
-    sendHtml(response, 400, page('Asset invalid', '<p>Selecciona una imagen para subir.</p>'));
+    sendHtml(response, 400, page('Asset inválid', '<p>Selecciona una imagen para subir.</p>'));
     return false;
   }
 
@@ -1368,7 +1368,7 @@ async function handleWebAssetAction({
   try {
     assetPath = await saveWebAsset(webAssetsDir, target, file);
   } catch {
-    sendHtml(response, 400, page('Asset invalid', '<p>La imagen debe ser PNG, JPG, WEBP o GIF y no puede superar 2 MiB.</p>'));
+    sendHtml(response, 400, page('Asset inválid', '<p>La imagen debe ser PNG, JPG, WEBP o GIF y no puede superar 2 MiB.</p>'));
     return false;
   }
   await webSettingsStore.save(updateWebSettingsAsset(settings, target, assetPath));
@@ -3164,11 +3164,11 @@ function page(titleOrOptions: string | RenderHttpPageOptions, body = ''): string
 }
 
 function notFoundPage(): string {
-  return page('No encontrado', '<p>No hemos encontrado la pagina solicitada.</p><p><a href="/">Volver al inicio</a></p>');
+  return page('No encontrado', '<p>No hemos encontrado la página solicitada.</p><p><a href="/">Volver al inicio</a></p>');
 }
 
 function feedbackPage(): string {
-  return page({ title: 'Feedback', body: '<form method="post"><label>Sobre que es?<select name="topic"><option value="bot">Bot</option><option value="club">Club</option><option value="both">Bot i club</option></select></label><label>Nom opcional<input name="name" autocomplete="name"></label><label>Contacte opcional<input name="contact" autocomplete="email"></label><label>Feedback<textarea name="message" required maxlength="4000"></textarea></label><button type="submit">Enviar feedback</button></form>' });
+  return page({ title: 'Feedback', body: '<form method="post"><label>Sobre que es?<select name="topic"><option value="bot">Bot</option><option value="club">Club</option><option value="both">Bot i club</option></select></label><label>Nom opciónal<input name="name" autocomplete="name"></label><label>Contacte opciónal<input name="contact" autocomplete="email"></label><label>Feedback<textarea name="message" required maxlength="4000"></textarea></label><button type="submit">Enviar feedback</button></form>' });
 }
 
 function memberSignupPage(settings: WebSettings, error = ''): string {
@@ -3178,7 +3178,7 @@ function memberSignupPage(settings: WebSettings, error = ''): string {
     themeName: settings.theme,
     headerBrandName: settings.brand.name,
     headerLogoAsset: settings.home.logoAsset,
-    body: `${errorHtml}<form method="post" action="/alta"><label>Nombre y apellidos<input name="fullName" autocomplete="name" maxlength="255" required></label><label>Alias o usuario de Telegram opcional<input name="telegramAlias" maxlength="128" placeholder="@usuario"></label><label>Contacto<input name="contact" autocomplete="email" maxlength="255" required></label><label>Motivo o mensaje<textarea name="message" maxlength="2000"></textarea></label><label><input class="inline" type="checkbox" name="acceptedTerms" value="yes" required> Acepto que el club contacte conmigo para gestionar esta solicitud.</label><button type="submit">Enviar solicitud</button></form>`,
+    body: `${errorHtml}<form method="post" action="/alta"><label>Nombre y apellidos<input name="fullName" autocomplete="name" maxlength="255" required></label><label>Alias o usuario de Telegram opciónal<input name="telegramAlias" maxlength="128" placeholder="@usuario"></label><label>Contacto<input name="contact" autocomplete="email" maxlength="255" required></label><label>Motivo o mensaje<textarea name="message" maxlength="2000"></textarea></label><label><input class="inline" type="checkbox" name="acceptedTerms" value="yes" required> Acepto que el club contacte conmigo para gestionar esta solicitud.</label><button type="submit">Enviar solicitud</button></form>`,
   });
 }
 
@@ -3339,7 +3339,7 @@ function catalogPage(
   const list = items.length === 0
     ? '<p>No hay artículos activos que coincidan con la búsqueda.</p>'
     : renderCatalogLetterGroups(items);
-  const pagination = renderCatalogPagination(catalogResult, filters);
+  const págination = renderCatalogPagination(catalogResult, filters);
   const summary = `<p class="catalog-summary">${escapeHtml(buildCatalogFilterSummary(catalogResult, filters))}</p>`;
 
   return page({
@@ -3347,7 +3347,7 @@ function catalogPage(
     themeName: settings.theme,
     headerBrandName: settings.brand.name,
     headerLogoAsset: settings.home.logoAsset,
-    body: `${form}${summary}${pagination}${list}${pagination}`,
+    body: `${form}${summary}${págination}${list}${págination}`,
   });
 }
 
@@ -3438,8 +3438,8 @@ function catalogDetailPage(settings: WebSettings, item: PublicCatalogItemRow): s
     ? `<p class="catalog-original">${escapeHtml(item.original_name)}</p>`
     : '';
   const description = item.description
-    ? `<section class="catalog-detail-description"><h2>Descripcion</h2><p>${escapeHtml(item.description)}</p></section>`
-    : '<section class="catalog-detail-description"><h2>Descripcion</h2><p>No hay descripcion disponible.</p></section>';
+    ? `<section class="catalog-detail-description"><h2>Descripción</h2><p>${escapeHtml(item.description)}</p></section>`
+    : '<section class="catalog-detail-description"><h2>Descripción</h2><p>No hay descripcion disponible.</p></section>';
 
   return page({
     title: item.display_name,
@@ -3506,7 +3506,7 @@ function renderCatalogPagination(
 ): string {
   const summary = `Mostrando ${catalogResult.items.length} de ${catalogResult.totalItems} articulos. Pagina ${catalogResult.page} de ${catalogResult.totalPages}.`;
   if (catalogResult.totalPages <= 1) {
-    return `<p class="catalog-pagination">${escapeHtml(summary)}</p>`;
+    return `<p class="catalog-págination">${escapeHtml(summary)}</p>`;
   }
 
   const links = [
@@ -3514,7 +3514,7 @@ function renderCatalogPagination(
     catalogResult.page < catalogResult.totalPages ? `<a href="${escapeHtml(buildCatalogPageUrl(filters, catalogResult.page + 1))}">Siguiente</a>` : '',
   ].filter(Boolean).join('');
 
-  return `<nav class="catalog-pagination" aria-label="Paginacion catalogo"><span>${escapeHtml(summary)}</span>${links}</nav>`;
+  return `<nav class="catalog-págination" aria-label="Paginacion catalogo"><span>${escapeHtml(summary)}</span>${links}</nav>`;
 }
 
 function buildCatalogPageUrl(filters: PublicCatalogFilters, pageNumber: number): string {
@@ -3807,13 +3807,13 @@ function adminDashboardPage(
     ['Operacion diaria', 'Catalogo', 'Juegos, libros, prestamos activos y recursos de catalogo.', '/admin/catalog'],
     ['Operacion diaria', 'Storage', 'Editar, mover, retaggear y eliminar logicamente archivos existentes.', '/admin/storage'],
     ['Comunidad', 'Socios y usuarios', 'Altas Telegram, aprobaciones, admins y estado de miembros.', '/admin/users'],
-    ['Comunidad', 'Bienvenidas', 'Plantillas aleatorias con $USERNAME y GIF de Telegram opcional.', '/admin/welcome'],
+    ['Comunidad', 'Bienvenidas', 'Plantillas aleatorias con $USERNAME y GIF de Telegram opciónal.', '/admin/welcome'],
     ['Comunidad', 'Feedback', 'Mensajes enviados desde el formulario publico.', '/admin/feedback'],
     ['Comunidad', 'Altas de socio', 'Solicitudes web pendientes y seguimiento de contacto.', '/admin/member-signups'],
     ['Comunicacion', 'Noticias y feeds', 'Suscripciones por feed, incluido nuevos_miembros.', '/admin/news'],
-    ['Sistema', 'Backups', 'Copias, restauracion protegida y borrado confirmado.', '/admin/backups'],
+    ['Sistema', 'Backups', 'Copias, restauración protegida y borrado confirmado.', '/admin/backups'],
     ['Sistema', 'Servicio y logs', 'Estado systemd, logs recientes y acciones de servicio.', '/admin/service'],
-    ['Sistema', 'Configuracion tecnica', 'Token Telegram y ajustes sensibles con confirmacion.', '/admin/config'],
+    ['Sistema', 'Configuración técnica', 'Token Telegram y ajustes sensibles con confirmacion.', '/admin/config'],
     ['Avanzado', 'Recursos avanzados', 'Edicion directa de tablas permitidas para administracion puntual.', '/admin/resources'],
     ['Vista publica', 'Ver actividades', 'Comprobar la agenda como la ve un visitante.', '/actividades'],
     ['Vista publica', 'Ver catalogo', 'Comprobar el catalogo publico publicado.', '/catalogo'],
@@ -3902,7 +3902,7 @@ function adminWelcomeTemplatesPage(templates: WelcomeMessageTemplate[], csrfToke
 
 function welcomeTemplateForm(template: WelcomeMessageTemplate | null, csrfToken: string, submitLabel: string): string {
   const idInput = template ? `<input type="hidden" name="id" value="${escapeHtml(template.id)}">` : '';
-  return `<form method="post" action="/admin/welcome">${csrfInput(csrfToken)}${idInput}<div class="admin-form-grid"><label>Orden<input name="sortOrder" type="number" value="${escapeHtml(String(template?.sortOrder ?? 0))}"></label><label>Telegram user ID opcional<input name="targetTelegramUserId" type="number" value="${escapeHtml(template?.targetTelegramUserId ? String(template.targetTelegramUserId) : '')}" placeholder="global si queda vacio"></label><label>Telegram animation file ID<input name="animationFileId" value="${escapeHtml(template?.animationFileId ?? '')}" placeholder="opcional para GIF"></label><label>Estado<select name="isEnabled"><option value="true"${template?.isEnabled === false ? '' : ' selected'}>Activa</option><option value="false"${template?.isEnabled === false ? ' selected' : ''}>Pausada</option></select></label></div><label>Texto de bienvenida<textarea name="templateText" required placeholder="Ya esta aqui $USERNAME, y trae pizza">${escapeHtml(template?.templateText ?? '')}</textarea></label><button type="submit">${escapeHtml(submitLabel)}</button></form>`;
+  return `<form method="post" action="/admin/welcome">${csrfInput(csrfToken)}${idInput}<div class="admin-form-grid"><label>Orden<input name="sortOrder" type="number" value="${escapeHtml(String(template?.sortOrder ?? 0))}"></label><label>Telegram user ID opciónal<input name="targetTelegramUserId" type="number" value="${escapeHtml(template?.targetTelegramUserId ? String(template.targetTelegramUserId) : '')}" placeholder="global si queda vacio"></label><label>Telegram animation file ID<input name="animationFileId" value="${escapeHtml(template?.animationFileId ?? '')}" placeholder="opciónal para GIF"></label><label>Estado<select name="isEnabled"><option value="true"${template?.isEnabled === false ? '' : ' selected'}>Activa</option><option value="false"${template?.isEnabled === false ? ' selected' : ''}>Pausada</option></select></label></div><label>Texto de bienvenida<textarea name="templateText" required placeholder="Ya esta aqui $USERNAME, y trae pizza">${escapeHtml(template?.templateText ?? '')}</textarea></label><button type="submit">${escapeHtml(submitLabel)}</button></form>`;
 }
 
 function normalizeOptionalAdminText(value: string | null): string | undefined {
@@ -3918,7 +3918,7 @@ function newsAdminPage(summary: NewsAdminSummary): string {
   return page({
     title: 'Noticias y feeds',
     shell: 'admin',
-    body: `<section><h2>Grupos</h2><p>${summary.enabledGroups} grupos activos de ${summary.totalGroups} registrados.</p></section><section><h2>Categorias</h2><table><thead><tr><th>Feed</th><th>Descripcion</th><th>Destinos suscritos</th><th>Default</th></tr></thead><tbody>${categoryRows}</tbody></table></section>`,
+    body: `<section><h2>Grupos</h2><p>${summary.enabledGroups} grupos activos de ${summary.totalGroups} registrados.</p></section><section><h2>Categorías</h2><table><thead><tr><th>Feed</th><th>Descripción</th><th>Destinos suscritos</th><th>Default</th></tr></thead><tbody>${categoryRows}</tbody></table></section>`,
   });
 }
 
@@ -4003,34 +4003,34 @@ function adminStoragePage(
   { search, categoryId }: { search: string; categoryId: number | null },
 ): string {
   const metrics = [
-    ['Categorias activas', overview.counts.activeCategories, 'Destinos visibles para archivos'],
-    ['Categorias archivadas', overview.counts.archivedCategories, 'Ocultas de la operacion normal'],
+    ['Categorías activas', overview.counts.activeCategories, 'Destinos visibles para archivos'],
+    ['Categorías archivadas', overview.counts.archivedCategories, 'Ocultas de la operación normal'],
     ['Entradas activas', overview.counts.activeEntries, 'Archivos disponibles'],
     ['Entradas eliminadas', overview.counts.deletedEntries, 'Borrado logico'],
     ['Mensajes canonicos', overview.counts.messages, 'Adjuntos guardados en Telegram'],
   ].map(([label, value, detail]) => renderAdminMetric(String(label), String(value), String(detail))).join('');
   const actions = renderAdminActionGrid([
     ['Entradas avanzadas', 'Vista tabular tecnica de entradas de Storage.', '/admin/resources/storage_entries'],
-    ['Categorias avanzadas', 'Vista tabular tecnica de categorias.', '/admin/resources/storage_categories'],
+    ['Categorías avanzadas', 'Vista tabular tecnica de categorías.', '/admin/resources/storage_categories'],
     ['Sin creacion web', 'La creacion de archivos se mantiene exclusivamente en /storage desde Telegram.', '/admin/storage'],
   ]);
-  const searchForm = `<form class="admin-search-bar" method="get"><label>Buscar en Storage<input name="q" value="${escapeHtml(search)}" placeholder="Descripcion, categoria o tag"></label><button type="submit">Buscar</button>${categoryId ? `<a href="/admin/storage?categoryId=${encodeURIComponent(String(categoryId))}">Limpiar busqueda</a>` : ''}</form>`;
+  const searchForm = `<form class="admin-search-bar" method="get"><label>Buscar en Storage<input name="q" value="${escapeHtml(search)}" placeholder="Descripción, categoría o tag"></label><button type="submit">Buscar</button>${categoryId ? `<a href="/admin/storage?categoryId=${encodeURIComponent(String(categoryId))}">Limpiar busqueda</a>` : ''}</form>`;
   const breadcrumb = renderStorageAdminBreadcrumbs(overview);
   const categoryCards = overview.visibleCategories.length === 0
-    ? `<p class="muted">${overview.selectedCategory ? 'No hay subcategorias en esta categoria.' : 'No hay categorias principales de Storage.'}</p>`
+    ? `<p class="muted">${overview.selectedCategory ? 'No hay subcategorías en esta categoría.' : 'No hay categorías principales de Storage.'}</p>`
     : `<div class="admin-action-grid">${overview.visibleCategories.map((category) => renderStorageCategoryCard(category, overview.summaries)).join('')}</div>`;
   const entryRows = overview.entries.length === 0
-    ? `<p class="muted">${overview.mode === 'search' ? 'No hay entradas de Storage para esta busqueda.' : overview.selectedCategory ? 'No hay entradas directas en esta categoria.' : 'Elige una categoria para ver sus entradas.'}</p>`
+    ? `<p class="muted">${overview.mode === 'search' ? 'No hay entradas de Storage para esta busqueda.' : overview.selectedCategory ? 'No hay entradas directas en esta categoría.' : 'Elige una categoría para ver sus entradas.'}</p>`
     : `<div class="storage-entry-list">${overview.entries.map(renderStorageEntryAdminCard).join('')}</div>`;
   const lightbox = overview.entries.some((entry) => Number(entry.image_count) > 0) ? renderStorageImageLightbox() : '';
   const selectedActions = overview.selectedCategory
-    ? `<p class="row"><a href="/admin/storage/categories/${encodeURIComponent(String(storageCategoryNumericId(overview.selectedCategory)))}/edit">Editar categoria</a><a href="/admin/storage/categories/${encodeURIComponent(String(storageCategoryNumericId(overview.selectedCategory)))}/archive">Archivar categoria</a></p>`
+    ? `<p class="row"><a href="/admin/storage/categories/${encodeURIComponent(String(storageCategoryNumericId(overview.selectedCategory)))}/edit">Editar categoría</a><a href="/admin/storage/categories/${encodeURIComponent(String(storageCategoryNumericId(overview.selectedCategory)))}/archive">Archivar categoría</a></p>`
     : '';
   const categoryHeading = overview.mode === 'search'
     ? 'Resultados de busqueda'
     : overview.selectedCategory
-      ? `Categoria: ${escapeHtml(overview.selectedCategory.display_name)}`
-      : 'Categorias principales';
+      ? `Categoría: ${escapeHtml(overview.selectedCategory.display_name)}`
+      : 'Categorías principales';
   const entryHeading = overview.mode === 'search'
     ? 'Entradas encontradas'
     : overview.selectedCategory
@@ -4040,12 +4040,12 @@ function adminStoragePage(
   return page({
     title: 'Storage admin',
     shell: 'admin',
-    body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section><h2>Buscar</h2>${searchForm}</section><section class="admin-table-shell"><h2>${categoryHeading}</h2>${breadcrumb}${selectedActions}${overview.mode === 'search' ? '<p class="muted">La busqueda es global; borra el filtro para volver a navegar por categorias.</p>' : categoryCards}</section><section class="admin-table-shell"><h2>${entryHeading}</h2>${entryRows}</section><p class="muted">La web permite editar, mover, retaggear, archivar y eliminar logicamente. La creacion de entradas sigue limitada a Telegram.</p><form hidden>${csrfInput(csrfToken)}</form>${lightbox}`,
+    body: `<div class="admin-domain-intro"><div class="admin-metrics">${metrics}</div>${actions}</div><section><h2>Buscar</h2>${searchForm}</section><section class="admin-table-shell"><h2>${categoryHeading}</h2>${breadcrumb}${selectedActions}${overview.mode === 'search' ? '<p class="muted">La busqueda es global; borra el filtro para volver a navegar por categorías.</p>' : categoryCards}</section><section class="admin-table-shell"><h2>${entryHeading}</h2>${entryRows}</section><p class="muted">La web permite editar, mover, retaggear, archivar y eliminar logicamente. La creacion de entradas sigue limitada a Telegram.</p><form hidden>${csrfInput(csrfToken)}</form>${lightbox}`,
   });
 }
 
 function renderStorageEntryAdminCard(entry: StorageEntryAdminRow): string {
-  const description = entry.description?.trim() || 'Sin descripcion';
+  const description = entry.description?.trim() || 'Sin descripción';
   const imageCount = Number(entry.image_count) > 0 ? Number(entry.image_count) : 0;
   const previewUrl = `/admin/storage/media/${encodeURIComponent(String(entry.id))}/0`;
   const preview = entry.preview_telegram_file_id
@@ -4115,7 +4115,7 @@ function renderStorageImageLightbox(): string {
 
 function renderStorageAdminBreadcrumbs(overview: AdminStorageOverview): string {
   if (overview.mode === 'search') {
-    return '<p class="storage-breadcrumb"><a href="/admin/storage">Storage</a> / Busqueda</p>';
+    return '<p class="storage-breadcrumb"><a href="/admin/storage">Storage</a> / Búsqueda</p>';
   }
   const parts = [
     '<a href="/admin/storage">Storage</a>',
@@ -4127,7 +4127,7 @@ function renderStorageAdminBreadcrumbs(overview: AdminStorageOverview): string {
 function renderStorageCategoryCard(category: StorageCategoryAdminRow, summaries: Map<number, { subcategoryCount: number; entryCount: number }>): string {
   const categoryId = storageCategoryNumericId(category);
   const summary = summaries.get(categoryId) ?? { subcategoryCount: 0, entryCount: category.entry_count };
-  return `<a class="admin-action-card" href="/admin/storage?categoryId=${encodeURIComponent(String(categoryId))}"><strong>${escapeHtml(category.display_name)}</strong><small>${escapeHtml(category.slug)} · ${summary.subcategoryCount} subcategorias · ${summary.entryCount} archivos</small><span>${renderStatusBadge(category.lifecycle_status)}</span></a>`;
+  return `<a class="admin-action-card" href="/admin/storage?categoryId=${encodeURIComponent(String(categoryId))}"><strong>${escapeHtml(category.display_name)}</strong><small>${escapeHtml(category.slug)} · ${summary.subcategoryCount} subcategorías · ${summary.entryCount} archivos</small><span>${renderStatusBadge(category.lifecycle_status)}</span></a>`;
 }
 
 function storageEntryEditPage(entry: StorageEntryAdminRow, categories: StorageCategoryAdminRow[], csrfToken: string, error = ''): string {
@@ -4138,42 +4138,42 @@ function storageEntryEditPage(entry: StorageEntryAdminRow, categories: StorageCa
   return page({
     title: `Editar Storage #${entry.id}`,
     shell: 'admin',
-    body: `${errorHtml}<form method="post">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Categoria<select name="categoryId" required>${categoryOptions}</select></label><label>Estado<select name="lifecycleStatus"><option value="active"${entry.lifecycle_status === 'active' ? ' selected' : ''}>active</option><option value="deleted"${entry.lifecycle_status === 'deleted' ? ' selected' : ''}>deleted</option><option value="missing_source"${entry.lifecycle_status === 'missing_source' ? ' selected' : ''}>missing_source</option></select></label><label>Tags<input name="tags" value="${escapeHtml(asTagArray(entry.tags).join(', '))}" placeholder="rol, pdf, campaña"></label></div><label>Descripcion<textarea name="description">${escapeHtml(entry.description ?? '')}</textarea></label><button type="submit">Guardar entrada</button> <a href="/admin/storage">Cancelar</a></form>`,
+    body: `${errorHtml}<form method="post">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Categoría<select name="categoryId" required>${categoryOptions}</select></label><label>Estado<select name="lifecycleStatus"><option value="active"${entry.lifecycle_status === 'active' ? ' selected' : ''}>active</option><option value="deleted"${entry.lifecycle_status === 'deleted' ? ' selected' : ''}>deleted</option><option value="missing_source"${entry.lifecycle_status === 'missing_source' ? ' selected' : ''}>missing_source</option></select></label><label>Tags<input name="tags" value="${escapeHtml(asTagArray(entry.tags).join(', '))}" placeholder="rol, pdf, campaña"></label></div><label>Descripción<textarea name="description">${escapeHtml(entry.description ?? '')}</textarea></label><button type="submit">Guardar entrada</button> <a href="/admin/storage">Cancelar</a></form>`,
   });
 }
 
 function storageEntryDeletePage(entry: StorageEntryAdminRow | null, csrfToken: string, error = ''): string {
   const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
-  const title = entry ? `#${entry.id} · ${entry.description ?? 'Sin descripcion'}` : 'Entrada no encontrada';
+  const title = entry ? `#${entry.id} · ${entry.description ?? 'Sin descripción'}` : 'Entrada no encontrada';
   return page({
     title: 'Eliminar entrada de Storage',
     shell: 'admin',
-    body: `${errorHtml}<section class="admin-danger-panel"><h2>${escapeHtml(title)}</h2><p>Esta accion marca la entrada como eliminada en PostgreSQL. No borra fisicamente los mensajes ni archivos ya guardados en Telegram.</p><form method="post">${csrfInput(csrfToken)}<label>Confirmacion<input name="confirm" autocomplete="off" placeholder="DELETE" required></label><button type="submit">Eliminar entrada</button> <a href="/admin/storage">Cancelar</a></form></section>`,
+    body: `${errorHtml}<section class="admin-danger-panel"><h2>${escapeHtml(title)}</h2><p>Esta acción marca la entrada como eliminada en PostgreSQL. No borra fisicamente los mensajes ni archivos ya guardados en Telegram.</p><form method="post">${csrfInput(csrfToken)}<label>Confirmación<input name="confirm" autocomplete="off" placeholder="DELETE" required></label><button type="submit">Eliminar entrada</button> <a href="/admin/storage">Cancelar</a></form></section>`,
   });
 }
 
 function storageCategoryEditPage(category: StorageCategoryAdminRow, categories: StorageCategoryAdminRow[], csrfToken: string, error = ''): string {
   const parentOptions = [
-    `<option value="">Raiz</option>`,
+    `<option value="">Raíz</option>`,
     ...categories
       .filter((candidate) => storageCategoryNumericId(candidate) !== storageCategoryNumericId(category))
       .map((candidate) => `<option value="${storageCategoryNumericId(candidate)}"${storageCategoryNumericId(candidate) === storageCategoryParentNumericId(category) ? ' selected' : ''}>${escapeHtml(candidate.display_name)} (${escapeHtml(candidate.slug)})</option>`),
   ].join('');
   const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
   return page({
-    title: `Editar categoria ${category.display_name}`,
+    title: `Editar categoría ${category.display_name}`,
     shell: 'admin',
-    body: `${errorHtml}<form method="post">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Nombre<input name="displayName" value="${escapeHtml(category.display_name)}" required></label><label>Slug<input name="slug" value="${escapeHtml(category.slug)}" required></label><label>Categoria padre<select name="parentCategoryId">${parentOptions}</select></label><label>Proposito<input name="categoryPurpose" value="${escapeHtml(category.category_purpose)}" required></label><label>Estado<select name="lifecycleStatus"><option value="active"${category.lifecycle_status === 'active' ? ' selected' : ''}>active</option><option value="archived"${category.lifecycle_status === 'archived' ? ' selected' : ''}>archived</option></select></label><label>Storage chat ID<input name="storageChatId" type="number" value="${escapeHtml(category.storage_chat_id)}" required></label><label>Thread ID<input name="storageThreadId" type="number" value="${escapeHtml(category.storage_thread_id)}" required></label></div><label>Descripcion<textarea name="description">${escapeHtml(category.description ?? '')}</textarea></label><button type="submit">Guardar categoria</button> <a href="/admin/storage">Cancelar</a></form>`,
+    body: `${errorHtml}<form method="post">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Nombre<input name="displayName" value="${escapeHtml(category.display_name)}" required></label><label>Slug<input name="slug" value="${escapeHtml(category.slug)}" required></label><label>Categoría padre<select name="parentCategoryId">${parentOptions}</select></label><label>Propósito<input name="categoryPurpose" value="${escapeHtml(category.category_purpose)}" required></label><label>Estado<select name="lifecycleStatus"><option value="active"${category.lifecycle_status === 'active' ? ' selected' : ''}>active</option><option value="archived"${category.lifecycle_status === 'archived' ? ' selected' : ''}>archived</option></select></label><label>Storage chat ID<input name="storageChatId" type="number" value="${escapeHtml(category.storage_chat_id)}" required></label><label>Thread ID<input name="storageThreadId" type="number" value="${escapeHtml(category.storage_thread_id)}" required></label></div><label>Descripción<textarea name="description">${escapeHtml(category.description ?? '')}</textarea></label><button type="submit">Guardar categoría</button> <a href="/admin/storage">Cancelar</a></form>`,
   });
 }
 
 function storageCategoryArchivePage(category: StorageCategoryAdminRow | null, csrfToken: string, error = ''): string {
   const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
-  const title = category ? category.display_name : 'Categoria no encontrada';
+  const title = category ? category.display_name : 'Categoría no encontrada';
   return page({
-    title: 'Archivar categoria de Storage',
+    title: 'Archivar categoría de Storage',
     shell: 'admin',
-    body: `${errorHtml}<section class="admin-danger-panel"><h2>${escapeHtml(title)}</h2><p>Archivar oculta la categoria de la operacion normal, pero no crea ni borra mensajes en Telegram.</p><form method="post">${csrfInput(csrfToken)}<label>Confirmacion<input name="confirm" autocomplete="off" placeholder="ARCHIVE" required></label><button type="submit">Archivar categoria</button> <a href="/admin/storage">Cancelar</a></form></section>`,
+    body: `${errorHtml}<section class="admin-danger-panel"><h2>${escapeHtml(title)}</h2><p>Archivar oculta la categoría de la operación normal, pero no crea ni borra mensajes en Telegram.</p><form method="post">${csrfInput(csrfToken)}<label>Confirmación<input name="confirm" autocomplete="off" placeholder="ARCHIVE" required></label><button type="submit">Archivar categoría</button> <a href="/admin/storage">Cancelar</a></form></section>`,
   });
 }
 
@@ -4240,9 +4240,9 @@ function adminMaintenancePage(status: Awaited<ReturnType<BackupOperations['readB
 
 function adminConfigPage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, csrfToken: string): string {
   return page({
-    title: 'Configuracion tecnica',
+    title: 'Configuración técnica',
     shell: 'admin',
-    body: `<section><h2>Runtime config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Token de Telegram</h2><p>Cambiar este token reinicia la conexion real del bot con Telegram. Revisa el valor antes de confirmar.</p><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section>`,
+    body: `<section><h2>Runtime config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Token de Telegram</h2><p>Cambiar este token reinicia la conexión real del bot con Telegram. Revisa el valor antes de confirmar.</p><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section>`,
   });
 }
 
@@ -4269,16 +4269,16 @@ function backupConfirmationPage(
   const isRestore = action === 'restore';
   const confirmValue = isRestore ? 'RESTORE' : 'DELETE';
   const actionPath = isRestore ? '/admin/restore' : '/admin/delete-backup';
-  const title = isRestore ? 'Confirmar restauracion' : 'Confirmar eliminacion';
+  const title = isRestore ? 'Confirmar restauración' : 'Confirmar eliminación';
   const warning = isRestore
-    ? 'Restaurar un backup puede sobrescribir la base de datos, configuracion o archivos runtime.'
-    : 'Eliminar un backup borra el archivo de recuperacion seleccionado.';
+    ? 'Restaurar un backup puede sobrescribir la base de datos, configuración o archivos runtime.'
+    : 'Eliminar un backup borra el archivo de recuperación seleccionado.';
   const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
 
   return page({
     title,
     shell: 'admin',
-    body: `${errorHtml}<section><h2>${escapeHtml(archive.fileName)}</h2><p>${escapeHtml(warning)}</p><p>${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)}</p><form method="post" action="${actionPath}">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><label>Confirmacion<input name="confirm" autocomplete="off" placeholder="${confirmValue}" required></label><button type="submit">${escapeHtml(title)}</button><a href="/admin/service">Cancelar</a></form></section>`,
+    body: `${errorHtml}<section><h2>${escapeHtml(archive.fileName)}</h2><p>${escapeHtml(warning)}</p><p>${formatBytes(archive.sizeBytes)} · ${escapeHtml(archive.modifiedAt)}</p><form method="post" action="${actionPath}">${csrfInput(csrfToken)}<input type="hidden" name="backupFilePath" value="${escapeHtml(archive.filePath)}"><label>Confirmación<input name="confirm" autocomplete="off" placeholder="${confirmValue}" required></label><button type="submit">${escapeHtml(title)}</button><a href="/admin/service">Cancelar</a></form></section>`,
   });
 }
 
@@ -4287,7 +4287,7 @@ function serviceStopConfirmationPage(csrfToken: string, error = ''): string {
   return page({
     title: 'Confirmar parada del servicio',
     shell: 'admin',
-    body: `${errorHtml}<section><h2>Detener gameclubtelegrambot.service</h2><p>El bot y la web integrada dejaran de responder hasta que el servicio vuelva a arrancar.</p><form method="post" action="/admin/service">${csrfInput(csrfToken)}<input type="hidden" name="action" value="stop"><label>Confirmacion<input name="confirm" autocomplete="off" placeholder="STOP" required></label><button type="submit">Detener servicio</button><a href="/admin/service">Cancelar</a></form></section>`,
+    body: `${errorHtml}<section><h2>Detener gameclubtelegrambot.service</h2><p>El bot y la web integrada dejarán de responder hasta que el servicio vuelva a arrancar.</p><form method="post" action="/admin/service">${csrfInput(csrfToken)}<input type="hidden" name="action" value="stop"><label>Confirmación<input name="confirm" autocomplete="off" placeholder="STOP" required></label><button type="submit">Detener servicio</button><a href="/admin/service">Cancelar</a></form></section>`,
   });
 }
 
@@ -4296,7 +4296,7 @@ function tokenChangeConfirmationPage(csrfToken: string, error = ''): string {
   return page({
     title: 'Confirmar cambio de token',
     shell: 'admin',
-    body: `${errorHtml}<section><h2>Cambiar token de Telegram</h2><p>Un token incorrecto puede dejar el bot sin conexion con Telegram. El token introducido queda pendiente en la sesion y no se muestra en esta pagina.</p><form method="post" action="/admin/token-confirm">${csrfInput(csrfToken)}<label>Confirmacion<input name="confirm" autocomplete="off" placeholder="CHANGE_TOKEN" required></label><button type="submit">Cambiar token</button><a href="/admin/config">Cancelar</a></form></section>`,
+    body: `${errorHtml}<section><h2>Cambiar token de Telegram</h2><p>Un token incorrecto puede dejar el bot sin conexión con Telegram. El token introducido queda pendiente en la sesion y no se muestra en esta página.</p><form method="post" action="/admin/token-confirm">${csrfInput(csrfToken)}<label>Confirmación<input name="confirm" autocomplete="off" placeholder="CHANGE_TOKEN" required></label><button type="submit">Cambiar token</button><a href="/admin/config">Cancelar</a></form></section>`,
   });
 }
 
@@ -4330,13 +4330,13 @@ function resourceDeleteConfirmationPage(
   return page({
     title: 'Confirmar borrado definitivo',
     shell: 'admin',
-    body: `${errorHtml}<section><h2>${escapeHtml(resourceDef.label)}: ${escapeHtml(title)}</h2><p>Esta accion elimina la fila y los dependientes configurados. Usa desactivar o archivar si existe esa opcion.</p><form method="post" action="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/delete">${csrfInput(csrfToken)}<input type="hidden" name="mode" value="hard"><label>Confirmacion<input name="confirm" autocomplete="off" placeholder="DELETE" required></label><button type="submit">Borrar definitivamente</button><a href="/admin/resources/${resourceDef.key}">Cancelar</a></form></section>`,
+    body: `${errorHtml}<section><h2>${escapeHtml(resourceDef.label)}: ${escapeHtml(title)}</h2><p>Esta acción elimina la fila y los dependientes configurados. Usa desactivar o archivar si existe esa opción.</p><form method="post" action="/admin/resources/${resourceDef.key}/${encodeURIComponent(id)}/delete">${csrfInput(csrfToken)}<input type="hidden" name="mode" value="hard"><label>Confirmación<input name="confirm" autocomplete="off" placeholder="DELETE" required></label><button type="submit">Borrar definitivamente</button><a href="/admin/resources/${resourceDef.key}">Cancelar</a></form></section>`,
   });
 }
 
 function resourceEditPage(resourceDef: ResourceDef, row: Record<string, unknown>, csrfToken: string): string {
   if (resourceDef.editableFields.length === 0) {
-    return page({ title: resourceDef.label, body: '<p>Aquest recurs no te camps editables.</p>', shell: 'admin' });
+    return page({ title: resourceDef.label, body: '<p>Aquest recurs no té camps editables.</p>', shell: 'admin' });
   }
   const fields = resourceDef.editableFields.map((field) => `<label>${escapeHtml(field.label)} <small>${escapeHtml(field.column)} · ${escapeHtml(field.type)}</small><textarea name="${escapeHtml(field.column)}">${escapeHtml(formatCell(row[field.column]))}</textarea></label>`).join('');
   return page({ title: resourceDef.label, body: `<form method="post">${csrfInput(csrfToken)}${fields}<button type="submit">Guardar</button></form>`, shell: 'admin' });

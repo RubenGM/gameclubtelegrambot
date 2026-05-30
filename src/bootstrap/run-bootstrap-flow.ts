@@ -32,13 +32,13 @@ export async function runBootstrapFlow({
 
   if (startupState.kind === 'initialized') {
     throw new BootstrapInitializationError(
-      'El sistema ja esta inicialitzat. El bootstrap no es pot tornar a executar accidentalment.',
+      'El sistema ja està inicialitzat. El bootstrap no es pot tornar a executar accidentalment.',
     );
   }
 
   if (startupState.kind === 'ambiguous') {
     throw new BootstrapInitializationError(
-      `S ha bloquejat el bootstrap per un estat ambigu previ: ${startupState.message}`,
+      `S'ha bloquejat el bootstrap per un estat ambigu previ: ${startupState.message}`,
     );
   }
 

@@ -336,7 +336,7 @@ test('createCatalogItem rejects invalid player ranges and unknown family referen
         playerCountMin: 5,
         playerCountMax: 4,
       }),
-    /El maxim de jugadors no pot ser inferior al minim/,
+    /El màxim de jugadors no pot ser inferior al mínim/,
   );
 
   await assert.rejects(
@@ -515,7 +515,7 @@ test('createCatalogItem rejects unknown groups and family mismatches against the
         itemType: 'rpg-book',
         displayName: 'Bestiary',
       }),
-    /La familia de l item ha de coincidir amb la del grup seleccionat/,
+    /La família de l'ítem ha de coincidir amb la del grup seleccionat/,
   );
 });
 
@@ -531,7 +531,7 @@ test('createCatalogMedia requires exactly one owner reference', async () => {
         mediaType: 'image',
         url: 'https://example.com/image.jpg',
       }),
-    /El media ha d apuntar exactament a una familia o a un item/,
+    /El media ha d'apuntar exactament a una família o a un ítem/,
   );
 
   await assert.rejects(
@@ -543,7 +543,7 @@ test('createCatalogMedia requires exactly one owner reference', async () => {
         mediaType: 'image',
         url: 'https://example.com/image.jpg',
       }),
-    /El media ha d apuntar exactament a una familia o a un item/,
+    /El media ha d'apuntar exactament a una família o a un ítem/,
   );
 });
 

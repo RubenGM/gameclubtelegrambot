@@ -100,7 +100,7 @@ export function createTrayApp({
 
     if (actionId === 'rebuild-restart') {
       if (!rebuildAndRestart) {
-        await runtime.showNotification('Game Club Bot', 'Aquesta instal.lacio no te habilitada l accio rebuild and restart.');
+        await runtime.showNotification('Game Club Bot', "Aquesta instal·lació no té habilitada l'acció rebuild and restart.");
         return;
       }
 

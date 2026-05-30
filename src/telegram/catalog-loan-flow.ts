@@ -621,7 +621,7 @@ function parseOptionalDate(text: string): string | null {
 
   const iso = parseDateLike(normalized);
   if (!iso) {
-    throw new Error('La data de retorn no es valida.');
+    throw new Error('La data de retorn no és vàlida.');
   }
 
   return iso;

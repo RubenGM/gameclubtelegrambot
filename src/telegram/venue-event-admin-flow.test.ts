@@ -445,7 +445,7 @@ test('handleTelegramVenueEventAdminText sends private warnings when a created ve
   await handleTelegramVenueEventAdminText(context);
 
   assert.deepEqual(privateMessages.map((item) => item.telegramUserId).sort((a, b) => a - b), [42, 55]);
-  assert.match(privateMessages[0]?.message ?? '', /possible conflicte amb l ocupacio del local/);
+  assert.match(privateMessages[0]?.message ?? '', /possible conflicte amb l'ocupació del local/);
   assert.match(privateMessages[0]?.message ?? '', /Campionat regional/);
   assert.match(privateMessages[0]?.message ?? '', /Azul/);
 });

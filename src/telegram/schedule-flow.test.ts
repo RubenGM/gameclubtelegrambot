@@ -1224,7 +1224,7 @@ test('handleTelegramScheduleText accepts one-digit hours when creating an activi
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = '120';
   assert.equal(await handleTelegramScheduleText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Tria si es mesa abierta o mesa cerrada\./);
+  assert.match(replies.at(-1)?.message ?? '', /Tria si és una taula oberta o una taula tancada\./);
   context.messageText = scheduleLabels.attendanceOpen;
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = '4';
@@ -2011,7 +2011,7 @@ test('handleTelegramScheduleText includes venue impact hints in the activity lis
   context.messageText = scheduleLabels.list;
 
   assert.equal(await handleTelegramScheduleText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Impacte local:<\/b> Campionat regional \(ocupacio full, impacte high\)/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Impacte local:<\/b> Campionat regional \(ocupació full, impacte high\)/);
 });
 
 test('handleTelegramScheduleCallback shows activity attendance and allows joining when seats remain', async () => {
@@ -2092,8 +2092,8 @@ test('handleTelegramScheduleCallback shows overlapping venue event context in th
   assert.equal(await handleTelegramScheduleCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Esdeveniments del local rellevants:<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /Campionat regional/);
-  assert.match(replies.at(-1)?.message ?? '', /ocupacio full, impacte high/);
-  assert.match(replies.at(-1)?.message ?? '', /Aixo no bloqueja automaticament l activitat/);
+  assert.match(replies.at(-1)?.message ?? '', /ocupació full, impacte high/);
+  assert.match(replies.at(-1)?.message ?? '', /Això no bloqueja automàticament l'activitat/);
 });
 
 test('handleTelegramScheduleCallback joins and leaves an activity updating attendance immediately', async () => {

@@ -47,7 +47,7 @@ export const venueEventAdminLabels = {
   impactHigh: 'Impacte alt',
   confirmCreate: 'Guardar esdeveniment',
   confirmEdit: 'Guardar canvis',
-  confirmCancel: 'Confirmar cancel.lacio',
+  confirmCancel: 'Confirmar cancel·lació',
   start: 'Inici',
   help: 'Ajuda',
   cancelFlow: '/cancel',
@@ -144,7 +144,7 @@ export async function handleTelegramVenueEventAdminCallback(context: TelegramVen
     const eventId = parseVenueEventId(callbackData, venueEventAdminCallbackPrefixes.edit);
     const event = await loadVenueEventOrThrow(context, eventId);
     await context.runtime.session.start({ flowKey: editFlowKey, stepKey: 'name', data: { eventId } });
-    await context.reply(`${formatVenueEventDetails(event)}\n\nEscriu el nou nom o tria una opcio del teclat.`, { ...buildKeepCurrentOptions(), parseMode: 'HTML' });
+    await context.reply(`${formatVenueEventDetails(event)}\n\nEscriu el nou nom o tria una opció del teclat.`, { ...buildKeepCurrentOptions(), parseMode: 'HTML' });
     return true;
   }
 
@@ -743,7 +743,7 @@ async function notifyVenueEventImpact({
   const intro =
     changeType === 'cancelled'
       ? 'Ja no hi ha impacte actiu del local per aquest esdeveniment.'
-      : 'S ha detectat un possible conflicte amb l ocupacio del local.';
+      : "S'ha detectat un possible conflicte amb l'ocupació del local.";
 
   const language = normalizeBotLanguage(resolveBotLanguage(context), 'ca');
   const progress = await startTelegramEditableProgress(

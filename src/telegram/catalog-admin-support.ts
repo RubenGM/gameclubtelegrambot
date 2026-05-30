@@ -257,7 +257,7 @@ export const catalogAdminLabels = {
   typeBook: 'Llibre',
   typeRpgBook: 'Llibre RPG',
   typeAccessory: 'Accessori',
-  noFamily: 'Sense familia',
+  noFamily: 'Sense família',
   noGroup: 'Sense grup',
   skipOptional: 'Ometre',
   keepCurrent: 'Mantenir valor actual',
@@ -278,7 +278,7 @@ export const catalogAdminLabels = {
   editFieldDescription: 'Descripcio',
   editFieldLanguage: 'Llengua',
   editFieldPublisher: 'Editorial',
-  editFieldPublicationYear: 'Any publicacio',
+  editFieldPublicationYear: 'Any publicació',
   editFieldPlayerMin: 'Minim jugadors',
   editFieldPlayerMax: 'Maxim jugadors',
   editFieldRecommendedAge: 'Edat recomanada',
@@ -289,8 +289,8 @@ export const catalogAdminLabels = {
   skipLookupImport: 'No importar dades',
   manualWikipediaUrl: 'Entrar URL manualment',
   refineLookupByAuthor: 'Refinar amb autor',
-  keepTypedTitle: 'Quedar-me amb el meu titol',
-  useApiTitle: 'Fer servir el titol de la API',
+  keepTypedTitle: 'Quedar-me amb el meu títol',
+  useApiTitle: "Fer servir el títol de l'API",
   bulkCreate: 'Afegir múltiples',
   askBulkNames: 'Escriu els noms separats per coma. Si usen coma literal, no els separis de moment.',
   bulkCreateAcknowledged: 'Gràcies! Ara processaré els resultats en segon pla. Quan acabi t\'enviaré un resum per aquí.',
@@ -781,7 +781,7 @@ async function handleCatalogAdminAutocorrectItem(
     actionKey: 'catalog.item.autocorrected',
     targetType: 'catalog-item',
     targetId: updated.id,
-    summary: `Item de cataleg autocorregit: ${updated.displayName}`,
+    summary: `Ítem de catàleg autocorregit: ${updated.displayName}`,
     details: { source: metadata?.source ?? importResult.source, query: importResult.query, boardGameGeekId: metadata?.boardGameGeekId ?? readBoardGameGeekId(draft.externalRefs) },
   });
 
@@ -846,7 +846,7 @@ async function handleCatalogAdminTranslateDescription(
       targetLanguage: 'es',
     }));
     if (!translated) {
-      await progress.complete(texts.translateDescriptionFailed.replace('{reason}', 'OpenCode no ha devuelto una traduccion valida.'));
+      await progress.complete(texts.translateDescriptionFailed.replace('{reason}', 'OpenCode no ha devuelto una traducción válida.'));
       return;
     }
 
@@ -876,7 +876,7 @@ async function handleCatalogAdminTranslateDescription(
       actionKey: 'catalog.item.description_translated',
       targetType: 'catalog-item',
       targetId: updated.id,
-      summary: `Descripcio de cataleg traduida: ${updated.displayName}`,
+      summary: `Descripció de catàleg traduïda: ${updated.displayName}`,
       details: {
         model: catalogBggDescriptionTranslationModel,
         originalLength: description.length,
@@ -926,7 +926,7 @@ async function assignCatalogItemOwner(context: TelegramCatalogAdminContext, item
     actionKey: 'catalog.item.owner_updated',
     targetType: 'catalog-item',
     targetId: String(itemId),
-    summary: 'Propietari de cataleg actualitzat',
+    summary: 'Propietari de catàleg actualitzat',
     details: { ownerTelegramUserId },
   });
   await context.reply(texts.ownerAssigned);
@@ -947,7 +947,7 @@ async function clearCatalogItemOwner(context: TelegramCatalogAdminContext, itemI
     actionKey: 'catalog.item.owner_cleared',
     targetType: 'catalog-item',
     targetId: String(itemId),
-    summary: 'Propietari de cataleg eliminat',
+    summary: 'Propietari de catàleg eliminat',
     details: {},
   });
   await context.reply(texts.ownerCleared);
@@ -1134,7 +1134,7 @@ function formatCatalogAutocorrectMismatchReason(
   draft: CatalogAutocorrectDraft,
 ): string {
   const returnedTitle = draft.displayName || draft.originalName || 'otro titulo';
-  return `La API ha devuelto "${returnedTitle}" al autocorregir "${item.displayName}". No he actualizado el item para evitar reemplazarlo por otro juego.`;
+  return `La API ha devuelto "${returnedTitle}" al autocorregir "${item.displayName}". No he actualizado el ítem para evitar reemplazarlo por otro juego.`;
 }
 
 function normalizeCatalogAutocorrectTitle(value: string): string {
@@ -1653,7 +1653,7 @@ async function resolveCatalogBulkCreateItem(
         actionKey: 'catalog.item.created',
         targetType: 'catalog-item',
         targetId: created.id,
-        summary: `Item de cataleg importat: ${created.displayName}`,
+        summary: `Ítem de catàleg importat: ${created.displayName}`,
         details: { itemType: created.itemType, familyId: created.familyId, groupId: created.groupId, lifecycleStatus: created.lifecycleStatus },
       });
       await tryCreateImportedImageMedia(context, created, candidate.importedData);
@@ -1731,7 +1731,7 @@ async function resolveCatalogBulkCreateItem(
       actionKey: 'catalog.item.created',
       targetType: 'catalog-item',
       targetId: created.id,
-      summary: `Item de cataleg importat: ${created.displayName}`,
+      summary: `Ítem de catàleg importat: ${created.displayName}`,
       details: { itemType: created.itemType, familyId: created.familyId, groupId: created.groupId, lifecycleStatus: created.lifecycleStatus },
     });
     await tryCreateImportedImageMedia(context, created, draft);
@@ -2137,7 +2137,7 @@ async function handleDeactivateSession(
     actionKey: 'catalog.item.deactivated',
     targetType: 'catalog-item',
     targetId: item.id,
-    summary: `Item de cataleg desactivat: ${item.displayName}`,
+    summary: `Ítem de catàleg desactivat: ${item.displayName}`,
     details: { displayName: item.displayName, lifecycleStatus: item.lifecycleStatus, deactivatedAt: item.deactivatedAt },
   });
   await context.runtime.session.cancel();
@@ -2480,7 +2480,7 @@ async function saveCreateDraftAndReturn(
     actionKey: 'catalog.item.created',
     targetType: 'catalog-item',
     targetId: item.id,
-    summary: `Item de cataleg creat: ${item.displayName}`,
+    summary: `Ítem de catàleg creat: ${item.displayName}`,
     details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
   });
   await tryCreateImportedImageMedia(context, item, data);
@@ -2524,7 +2524,7 @@ async function saveEditDraftAndReturn(
     actionKey: 'catalog.item.updated',
     targetType: 'catalog-item',
     targetId: updated.id,
-    summary: `Item de cataleg actualitzat: ${updated.displayName}`,
+    summary: `Ítem de catàleg actualitzat: ${updated.displayName}`,
     details: {
       previousDisplayName: item.displayName,
       displayName: updated.displayName,
@@ -2535,7 +2535,7 @@ async function saveEditDraftAndReturn(
     },
   });
   await context.runtime.session.cancel();
-    await context.reply(`Item de cataleg actualitzat correctament: ${updated.displayName} (#${updated.id}).`, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')));
+    await context.reply(`Ítem de catàleg actualitzat correctament: ${updated.displayName} (#${updated.id}).`, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')));
   return true;
 }
 
@@ -3222,7 +3222,7 @@ async function tryCreateImportedImageMedia(
         actionKey: 'catalog.media.created',
         targetType: 'catalog-media',
         targetId: media.id,
-        summary: `Portada de cataleg importada per l item #${item.id}`,
+        summary: `Portada de catàleg importada per l'ítem #${item.id}`,
         details: { itemId: item.id, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
       });
       return { status: 'created', mediaId: media.id, url: media.url };
@@ -3371,7 +3371,7 @@ async function importWikipediaBoardGameDraft(
       ok: false,
       error: {
         type: 'connection',
-        message: 'No he pogut connectar amb el cataleg extern en aquest moment.',
+        message: 'No he pogut connectar amb el catàleg extern en aquest moment.',
       },
     };
   }
@@ -3527,7 +3527,7 @@ async function createWikipediaImportedBoardGame(
     actionKey: 'catalog.item.created',
     targetType: 'catalog-item',
     targetId: item.id,
-    summary: `Item de cataleg creat: ${item.displayName}`,
+    summary: `Ítem de catàleg creat: ${item.displayName}`,
     details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
   });
   if (!(importedData as unknown as Record<string, unknown>).coverAttachment) {
@@ -3550,14 +3550,14 @@ async function createWikipediaImportedBoardGame(
 
 function importWikipediaErrorMessage(result: Extract<WikipediaBoardGameImportResult, { ok: false }>): string {
   if (result.error.type === 'not-found') {
-    return 'No he trobat aquest joc al cataleg extern. Continuem manualment.';
+    return 'No he trobat aquest joc al catàleg extern. Continuem manualment.';
   }
 
   if (result.error.type === 'connection') {
-    return 'No he pogut connectar amb el cataleg extern. Continuem manualment.';
+    return 'No he pogut connectar amb el catàleg extern. Continuem manualment.';
   }
 
-  return 'No he pogut importar les dades del cataleg extern. Continuem manualment.';
+  return 'No he pogut importar les dades del catàleg extern. Continuem manualment.';
 }
 
 async function handleBggCollectionImportSession(
@@ -3845,8 +3845,8 @@ function formatBggCollectionImportReconciling(language: 'ca' | 'es' | 'en', curr
 function formatBggCollectionImportProgress(language: 'ca' | 'es' | 'en', state: 'done' | 'failed'): string {
   const messages = {
     ca: {
-      done: 'Importacio BGG completada. Preparant resum...',
-      failed: 'Importacio BGG aturada.',
+      done: 'Importació BGG completada. Preparant resum...',
+      failed: 'Importació BGG aturada.',
     },
     es: {
       done: 'Importación BGG completada. Preparando resumen...',
@@ -3910,7 +3910,7 @@ async function reconcileBoardGameGeekCollectionImport(
         actionKey: 'catalog.item.updated',
         targetType: 'catalog-item',
         targetId: existingByBggId.id,
-        summary: `Item de cataleg actualitzat: ${draft.displayName}`,
+        summary: `Ítem de catàleg actualitzat: ${draft.displayName}`,
         details: { source: 'bgg-collection-import', boardGameGeekId: bggId, username: importResult.username },
       });
       updated += 1;
@@ -3951,7 +3951,7 @@ async function reconcileBoardGameGeekCollectionImport(
         actionKey: 'catalog.item.updated',
         targetType: 'catalog-item',
         targetId: matchingByName[0].id,
-        summary: `Item de cataleg actualitzat: ${draft.displayName}`,
+        summary: `Ítem de catàleg actualitzat: ${draft.displayName}`,
         details: { source: 'bgg-collection-import', boardGameGeekId: bggId, username: importResult.username },
       });
       updated += 1;
@@ -3983,7 +3983,7 @@ async function reconcileBoardGameGeekCollectionImport(
       actionKey: 'catalog.item.created',
       targetType: 'catalog-item',
       targetId: createdItem.id,
-      summary: `Item de cataleg creat: ${createdItem.displayName}`,
+      summary: `Ítem de catàleg creat: ${createdItem.displayName}`,
       details: { source: 'bgg-collection-import', boardGameGeekId: bggId, username: importResult.username },
     });
     await tryCreateImportedImageMedia(context, createdItem, draft);

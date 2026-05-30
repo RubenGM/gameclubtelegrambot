@@ -48,7 +48,7 @@ export async function resolveStartupState({
       return {
         kind: 'ambiguous',
         message:
-          `S ha detectat un fitxer temporal de bootstrap a ${tempConfigPath} sense configuracio final a ${configPath}. ` +
+          `S'ha detectat un fitxer temporal de bootstrap a ${tempConfigPath} sense configuració final a ${configPath}. ` +
           'Revisa i neteja aquest estat abans de tornar a arrencar.',
       };
     }
@@ -56,7 +56,7 @@ export async function resolveStartupState({
     return {
       kind: 'fresh',
       message:
-        `No s ha trobat cap configuracio runtime a ${configPath}. Cal executar el bootstrap inicial abans d arrencar el servei.`,
+        `No s'ha trobat cap configuració runtime a ${configPath}. Cal executar el bootstrap inicial abans d'arrencar el servei.`,
     };
   }
 
@@ -69,8 +69,8 @@ export async function resolveStartupState({
       return {
         kind: 'ambiguous',
         message:
-          `La configuracio runtime existent no es valida: ${error.message}. ` +
-          'Corregeix-la o restaura una configuracio coherent abans de continuar.',
+          `La configuració runtime existent no és vàlida: ${error.message}. ` +
+          'Corregeix-la o restaura una configuració coherent abans de continuar.',
       };
     }
 
@@ -86,7 +86,7 @@ export async function resolveStartupState({
     return {
       kind: 'ambiguous',
       message:
-        `La configuracio runtime existeix pero no s ha pogut verificar l estat durable d inicialitzacio: ${reason}. ` +
+        `La configuració runtime existeix però no s'ha pogut verificar l'estat durable d'inicialització: ${reason}. ` +
         'Revisa la connectivitat de PostgreSQL i l estat del bootstrap abans de continuar.',
     };
   }
@@ -95,7 +95,7 @@ export async function resolveStartupState({
     return {
       kind: 'ambiguous',
       message:
-        'La configuracio runtime existeix pero falta el marcador durable d inicialitzacio a la base de dades. ' +
+        "La configuració runtime existeix però falta el marcador durable d'inicialització a la base de dades. " +
         'El sistema podria haver quedat parcialment inicialitzat.',
     };
   }
@@ -122,7 +122,7 @@ export async function resolveStartupState({
     return {
       kind: 'ambiguous',
       message:
-        'La configuracio runtime existeix pero no hi ha cap administrador aprovat a la base de dades. ' +
+        'La configuració runtime existeix però no hi ha cap administrador aprovat a la base de dades. ' +
         'Aixo indica un estat de bootstrap incomplet o corrupte.',
     };
   }

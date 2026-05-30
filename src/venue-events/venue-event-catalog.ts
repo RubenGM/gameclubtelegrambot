@@ -184,7 +184,7 @@ export async function findRelevantVenueEventsForRange({
 function normalizeName(name: string): string {
   const normalized = name.trim();
   if (!normalized) {
-    throw new Error('El nom de l esdeveniment es obligatori');
+    throw new Error("El nom de l'esdeveniment és obligatori");
   }
   return normalized;
 }
@@ -197,27 +197,27 @@ function normalizeDescription(description: string | null | undefined): string | 
 function normalizeTimestamp(value: string, label: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`La data de ${label} ha de ser valida`);
+    throw new Error(`La data de ${label} ha de ser vàlida`);
   }
   return parsed.toISOString();
 }
 
 function ensureTimeRange(startsAt: string, endsAt: string): void {
   if (new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
-    throw new Error('El final ha de ser posterior a l inici');
+    throw new Error("El final ha de ser posterior a l'inici");
   }
 }
 
 function normalizeOccupancyScope(scope: VenueEventOccupancyScope): VenueEventOccupancyScope {
   if (scope !== 'partial' && scope !== 'full') {
-    throw new Error('L ocupacio del local no es valida');
+    throw new Error("L'ocupació del local no és vàlida");
   }
   return scope;
 }
 
 function normalizeImpactLevel(level: VenueEventImpactLevel): VenueEventImpactLevel {
   if (level !== 'low' && level !== 'medium' && level !== 'high') {
-    throw new Error('El nivell d impacte no es valid');
+    throw new Error("El nivell d'impacte no és vàlid");
   }
   return level;
 }

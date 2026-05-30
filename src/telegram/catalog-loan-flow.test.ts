@@ -47,7 +47,7 @@ function createLoanRepository(
     async createLoan(input) {
       const active = Array.from(loans.values()).find((loan) => loan.itemId === input.itemId && loan.returnedAt === null);
       if (active) {
-        throw new Error('Aquest item ja esta prestat.');
+        throw new Error('Aquest ítem ja està prestat.');
       }
 
       const loan: CatalogLoanRecord = {
@@ -325,7 +325,7 @@ test('catalog loan callbacks create, list and return loans', async () => {
   await handleTelegramCatalogLoanCallback(context);
 
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
-  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
+  assert.equal((await catalogLoanRepository.findActiveLoanByItemId(1))?.borrowerTelegramUserId, 7);
 
   replies.length = 0;
   context.callbackData = catalogLoanCallbackPrefixes.openMyLoans;

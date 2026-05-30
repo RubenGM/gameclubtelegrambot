@@ -85,19 +85,19 @@ export async function ensureBackupDependencies(
   }
 
   if (!(await isDebianLikeSystem())) {
-    throw new Error('No es poden auto-instal.lar dependencies fora d un sistema Debian compatible.');
+    throw new Error("No es poden auto-instal·lar dependències fora d'un sistema Debian compatible.");
   }
 
   const aptStatus = await run('sh', ['-lc', 'command -v apt-get']);
   if (aptStatus.exitCode !== 0) {
-    throw new Error('No s ha trobat apt-get per auto-instal.lar dependencies.');
+    throw new Error("No s'ha trobat apt-get per auto-instal·lar dependències.");
   }
 
   const commandPrefix = process.getuid?.() === 0 ? [] : ['sudo'];
   if (commandPrefix.length > 0) {
     const sudoStatus = await run('sh', ['-lc', 'command -v sudo']);
     if (sudoStatus.exitCode !== 0) {
-      throw new Error('Cal sudo per auto-instal.lar dependencies i no esta disponible.');
+      throw new Error('Cal sudo per auto-instal·lar dependències i no està disponible.');
     }
   }
 
@@ -120,7 +120,7 @@ export async function ensureBackupDependencies(
 
   if (stillMissing.length > 0) {
     throw new Error(
-      `No s han pogut instal.lar totes les dependencies necessaries: ${stillMissing.map((status) => status.command).join(', ')}.`,
+      `No s'han pogut instal·lar totes les dependències necessàries: ${stillMissing.map((status) => status.command).join(', ')}.`,
     );
   }
 

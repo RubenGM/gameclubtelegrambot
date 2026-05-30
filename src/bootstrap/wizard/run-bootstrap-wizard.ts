@@ -53,7 +53,7 @@ export async function runBootstrapWizard({
     ...providedDefaults,
   };
 
-  io.writeLine('Assistente de configuracio inicial de Game Club Telegram Bot');
+  io.writeLine('Assistent de configuració inicial de Game Club Telegram Bot');
   io.writeLine('Respon les preguntes seguents. Pots acceptar els valors per defecte quan apareguin.');
 
   const candidate = bootstrapConfigCandidateSchema.parse({
@@ -87,7 +87,7 @@ export async function runBootstrapWizard({
       ssl: defaults.databaseSsl,
     },
     adminElevation: {
-      password: await promptRequiredText(io, 'Contrasenya d elevacio administrativa', {
+      password: await promptRequiredText(io, "Contrasenya d'elevació administrativa", {
         secret: true,
       }),
     },
@@ -97,7 +97,7 @@ export async function runBootstrapWizard({
           min: 1,
           max: 2147483647,
           guidance:
-            'Introdueix el Telegram user ID numeric del primer administrador. No s inferira automaticament.',
+            "Introdueix el Telegram user ID numèric del primer administrador. No s'inferirà automàticament.",
         }),
         username: await promptOptionalText(io, 'Username del primer administrador'),
         displayName: await promptRequiredText(io, 'Nom visible del primer administrador'),
@@ -110,12 +110,12 @@ export async function runBootstrapWizard({
         }),
         eventRemindersEnabled: await promptBoolean(
           io,
-          'Activar recordatoris d esdeveniments per defecte',
+          "Activar recordatoris d'esdeveniments per defecte",
           {
             defaultValue: defaults.eventRemindersEnabled,
           },
         ),
-        eventReminderLeadHours: await promptInteger(io, 'Antelacio dels recordatoris en hores', {
+        eventReminderLeadHours: await promptInteger(io, 'Antelació dels recordatoris en hores', {
           defaultValue: String(defaults.eventReminderLeadHours),
           min: 1,
           max: 168,
@@ -128,18 +128,18 @@ export async function runBootstrapWizard({
   });
 
   io.writeLine('');
-  io.writeLine('Resum de la configuracio recollida');
+  io.writeLine('Resum de la configuració recollida');
   io.writeLine(renderConfigSummary(candidate));
   io.writeLine('');
 
-  const confirmed = await io.confirm('Vols acceptar aquesta configuracio?');
+  const confirmed = await io.confirm('Vols acceptar aquesta configuració?');
 
   if (!confirmed) {
-    io.writeLine('Configuracio descartada. No s ha persistit cap canvi.');
+    io.writeLine("Configuració descartada. No s'ha persistit cap canvi.");
     return null;
   }
 
-  io.writeLine('Configuracio validada. A continuacio es persistira a disc i s inicialitzara el sistema.');
+  io.writeLine("Configuració validada. A continuació es persistirà a disc i s'inicialitzarà el sistema.");
   return candidate;
 }
 
@@ -191,19 +191,19 @@ async function promptInteger(
     const finalValue = rawValue || options.defaultValue;
 
     if (!finalValue) {
-      io.writeLine(`Introdueix un numero enter entre ${options.min} i ${options.max}.`);
+      io.writeLine(`Introdueix un número enter entre ${options.min} i ${options.max}.`);
       continue;
     }
 
     if (!/^[-]?\d+$/.test(finalValue)) {
-      io.writeLine('Introdueix un numero enter valid.');
+      io.writeLine('Introdueix un número enter vàlid.');
       continue;
     }
 
     const parsedValue = Number(finalValue);
 
     if (parsedValue < options.min || parsedValue > options.max) {
-      io.writeLine(`Introdueix un numero enter entre ${options.min} i ${options.max}.`);
+      io.writeLine(`Introdueix un número enter entre ${options.min} i ${options.max}.`);
       continue;
     }
 

@@ -300,7 +300,7 @@ export async function setScheduleEventParticipantStatus({
   if (status === 'active') {
     const snapshot = await getScheduleCapacitySnapshot({ repository, eventId });
     if (snapshot.availableSeats <= 0) {
-      throw new Error('L activitat ja no te places disponibles');
+      throw new Error("L'activitat ja no té places disponibles");
     }
   }
 
@@ -515,7 +515,7 @@ export function getScheduleEventEndsAt(event: Pick<ScheduleEventRecord, 'startsA
 function normalizeTitle(title: string): string {
   const normalized = title.trim();
   if (!normalized) {
-    throw new Error('El titol de l activitat es obligatori');
+    throw new Error("El títol de l'activitat és obligatori");
   }
 
   return normalized;
@@ -535,7 +535,7 @@ function normalizeDetailsMessageId(value: number | null | undefined): number | n
     return null;
   }
   if (!Number.isInteger(value) || value <= 0) {
-    throw new Error('El missatge de detalls no es valid');
+    throw new Error('El missatge de detalls no és vàlid');
   }
   return value;
 }
@@ -543,7 +543,7 @@ function normalizeDetailsMessageId(value: number | null | undefined): number | n
 function normalizeStartsAt(startsAt: string): string {
   const parsed = new Date(startsAt);
   if (Number.isNaN(parsed.getTime())) {
-    throw new Error('La data d inici ha de ser valida');
+    throw new Error("La data d'inici ha de ser vàlida");
   }
 
   return parsed.toISOString();

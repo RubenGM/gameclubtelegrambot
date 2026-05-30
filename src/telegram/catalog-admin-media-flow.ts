@@ -116,7 +116,7 @@ export async function handleCatalogAdminMediaSession({
       actionKey: 'catalog.media.created',
       targetType: 'catalog-media',
       targetId: media.id,
-      summary: `Portada de cataleg guardada per l item #${media.itemId}`,
+      summary: `Portada de catàleg guardada per l'ítem #${media.itemId}`,
       details: { itemId: media.itemId, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
     });
     await session.cancel();
@@ -291,7 +291,7 @@ export async function handleCatalogAdminMediaSession({
       actionKey: isEditing ? 'catalog.media.updated' : 'catalog.media.created',
       targetType: 'catalog-media',
       targetId: media.id,
-      summary: isEditing ? `Media de cataleg actualitzat #${media.id}` : `Media de cataleg creat per l item #${media.itemId}`,
+      summary: isEditing ? `Media de catàleg actualitzat #${media.id}` : `Media de catàleg creat per l'ítem #${media.itemId}`,
       details: { itemId: media.itemId, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
     });
     await session.cancel();
@@ -392,7 +392,7 @@ async function createCatalogMediaFromDirectInput({
     actionKey: 'catalog.media.created',
     targetType: 'catalog-media',
     targetId: media.id,
-    summary: `Media de cataleg creat per l item #${media.itemId}`,
+    summary: `Media de catàleg creat per l'ítem #${media.itemId}`,
     details: { itemId: media.itemId, mediaType: media.mediaType, url: media.url, sortOrder: media.sortOrder },
   });
   await session.cancel();
@@ -405,7 +405,7 @@ function formatCatalogMediaProgress(language: 'ca' | 'es' | 'en', step: 'saving'
   const messages = {
     ca: {
       saving: 'Desant media a Storage...',
-      registering: 'Registrant media al cataleg...',
+      registering: 'Registrant media al catàleg...',
       done: 'Media processat.',
     },
     es: {
@@ -483,7 +483,7 @@ export async function handleCatalogAdminMediaDeleteSession({
     actionKey: 'catalog.media.deleted',
     targetType: 'catalog-media',
     targetId: Number(data.mediaId),
-    summary: `Media de cataleg eliminat #${Number(data.mediaId)}`,
+    summary: `Media de catàleg eliminat #${Number(data.mediaId)}`,
     details: { itemId: asNullableNumber(data.itemId) },
   });
   await session.cancel();

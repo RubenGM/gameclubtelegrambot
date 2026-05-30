@@ -114,7 +114,7 @@ export async function deactivateClubTable({
 function normalizeDisplayName(displayName: string): string {
   const normalized = displayName.trim();
   if (!normalized) {
-    throw new Error('El nom visible de la taula es obligatori');
+    throw new Error('El nom visible de la taula és obligatori');
   }
 
   return normalized;

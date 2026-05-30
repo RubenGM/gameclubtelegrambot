@@ -215,7 +215,7 @@ function classifyCommandFailure({
       code: 'permission-denied',
       operation,
       serviceName,
-      message: `Aquest usuari no te permisos per executar l'accio ${operation} sobre ${serviceName}.`,
+      message: `Aquest usuari no té permisos per executar l'acció ${operation} sobre ${serviceName}.`,
     });
   }
 
@@ -232,7 +232,7 @@ function classifyCommandFailure({
     code: 'command-failed',
     operation,
     serviceName,
-    message: `No s'ha pogut completar l'accio ${operation} per al servei ${serviceName}.`,
+    message: `No s'ha pogut completar l'acció ${operation} per al servei ${serviceName}.`,
   });
 }
 

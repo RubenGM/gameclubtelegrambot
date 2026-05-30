@@ -400,7 +400,7 @@ const catalogReadTexts = {
   },
   es: {
     available: 'Catálogo disponible:',
-    itemsWithoutFamilyGroup: 'Items sin familia ni grupo',
+    itemsWithoutFamilyGroup: 'Ítems sin familia ni grupo',
     searchHint: 'Usa /catalog_search <texto> para buscar un ítem concreto.',
     itemCount: (count: number) => `item${count === 1 ? '' : 's'}`,
     groupCount: (count: number) => `grupo${count === 1 ? '' : 's'}`,

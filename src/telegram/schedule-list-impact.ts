@@ -50,7 +50,7 @@ export async function formatScheduleListWithVenueImpact({
       const relevantVenueEvents = await loadRelevantVenueEvents(event);
       if (relevantVenueEvents.length > 0) {
         const summary = relevantVenueEvents
-          .map((venueEvent) => `${escapeHtml(venueEvent.name)} (ocupacio ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`)
+          .map((venueEvent) => `${escapeHtml(venueEvent.name)} (ocupació ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`)
           .join(', ');
         lines.push(`  <b>Impacte local:</b> ${summary}`);
       }

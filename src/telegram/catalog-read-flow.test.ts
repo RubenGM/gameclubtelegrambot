@@ -63,7 +63,7 @@ function createLoanRepository(initialLoans: CatalogLoanRecord[] = []): CatalogLo
     async createLoan(input) {
       const active = Array.from(loans.values()).find((loan) => loan.itemId === input.itemId && loan.returnedAt === null);
       if (active) {
-        throw new Error('Aquest item ja esta prestat.');
+        throw new Error('Aquest ítem ja està prestat.');
       }
 
       const loan: CatalogLoanRecord = {
@@ -478,7 +478,7 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
       { text: 'Anterior', callbackData: catalogReadCallbackPrefixes.pagePrev },
       { text: 'Següent', callbackData: catalogReadCallbackPrefixes.pageNext },
     ],
-    [{ text: 'Veure cataleg', callbackData: catalogReadCallbackPrefixes.overview }],
+    [{ text: 'Veure catàleg', callbackData: catalogReadCallbackPrefixes.overview }],
   ]);
 
   replies.length = 0;

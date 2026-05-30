@@ -65,7 +65,7 @@ test('runBootstrapFlow blocks when the system already looks initialized', async 
       }),
     (error: unknown) => {
       assert.equal(error instanceof BootstrapInitializationError, true);
-      assert.match(error instanceof Error ? error.message : '', /ja esta inicialitzat/);
+      assert.match(error instanceof Error ? error.message : '', /ja està inicialitzat/);
       return true;
     },
   );

@@ -418,7 +418,7 @@ export async function handleCatalogAdminCreateSession({
       return true;
     }
     await reply(
-      `${importWikipediaErrorMessage(importResult)}\n\nPots provar una altra opcio, entrar la URL manualment o ometre la importacio.`,
+      `${importWikipediaErrorMessage(importResult)}\n\nPots provar una altra opció, entrar la URL manualment o ometre la importació.`,
       buildWikipediaCandidateOptions(wikipediaCandidates, language),
     );
     return true;
@@ -594,10 +594,10 @@ function buildLookupChoiceOptions(language: 'ca' | 'es' | 'en', candidates: Cata
 
 function buildLookupTitleChoicePrompt(typedTitle: string, apiTitle: string): string {
   return [
-    'El titol trobat a la API no coincideix exactament amb el que has escrit.',
-    `- El teu titol: ${typedTitle}`,
-    `- Titol API: ${apiTitle}`,
-    'Tria quin titol vols fer servir.',
+    "El títol trobat a l'API no coincideix exactament amb el que has escrit.",
+    `- El teu títol: ${typedTitle}`,
+    `- Títol API: ${apiTitle}`,
+    'Tria quin títol vols fer servir.',
   ].join('\n');
 }
 

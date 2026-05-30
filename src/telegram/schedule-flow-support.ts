@@ -1521,9 +1521,9 @@ async function formatScheduleEventView(
           '<b>Esdeveniments del local rellevants:</b>',
           ...relevantVenueEvents.map(
             (venueEvent) =>
-              `- ${escapeHtml(venueEvent.name)} (${formatTimestamp(venueEvent.startsAt)} - ${formatTimestamp(venueEvent.endsAt)}, ocupacio ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`,
+              `- ${escapeHtml(venueEvent.name)} (${formatTimestamp(venueEvent.startsAt)} - ${formatTimestamp(venueEvent.endsAt)}, ocupació ${escapeHtml(venueEvent.occupancyScope)}, impacte ${escapeHtml(venueEvent.impactLevel)})`,
           ),
-          'Aixo no bloqueja automaticament l activitat; serveix com a context per decidir millor.',
+          "Això no bloqueja automàticament l'activitat; serveix com a context per decidir millor.",
         ]
       : []),
   ].join('\n');

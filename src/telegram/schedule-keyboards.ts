@@ -34,7 +34,7 @@ export const scheduleLabels = {
   initialOccupiedSeatsZero: '0',
   confirmCreate: 'Guardar activitat',
   confirmEdit: 'Guardar canvis',
-  confirmCancel: 'Confirmar cancel.lacio',
+  confirmCancel: 'Confirmar cancel·lació',
   reminder2h: '2h abans',
   reminder24h: '24h abans',
   reminderCustom: 'Personalitzat',

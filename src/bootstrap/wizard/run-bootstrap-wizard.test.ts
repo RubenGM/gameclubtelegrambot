@@ -41,13 +41,13 @@ test('runBootstrapWizard collects a complete runtime config candidate with defau
     'Nom de la base de dades',
     'Usuari de la base de dades',
     'Contrasenya de la base de dades',
-    'Contrasenya d elevacio administrativa',
+    "Contrasenya d'elevació administrativa",
     'Telegram user ID del primer administrador',
     'Username del primer administrador',
     'Nom visible del primer administrador',
     'Activar anuncis de grup per defecte',
-    'Activar recordatoris d esdeveniments per defecte',
-    'Antelacio dels recordatoris en hores',
+    "Activar recordatoris d'esdeveniments per defecte",
+    'Antelació dels recordatoris en hores',
   ]);
 
   assert.equal(config?.schemaVersion, 1);
@@ -63,7 +63,7 @@ test('runBootstrapWizard collects a complete runtime config candidate with defau
   assert.equal(config?.notifications.defaults.eventReminderLeadHours, 24);
 
   const renderedOutput = outputs.join('\n');
-  assert.match(renderedOutput, /Resum de la configuracio recollida/);
+  assert.match(renderedOutput, /Resum de la configuració recollida/);
   assert.doesNotMatch(renderedOutput, /telegram-secret-token/);
   assert.doesNotMatch(renderedOutput, /super-db-secret/);
   assert.doesNotMatch(renderedOutput, /admin-secret/);
@@ -111,10 +111,10 @@ test('runBootstrapWizard retries invalid answers with clear guidance', async () 
 
   const renderedOutput = outputs.join('\n');
   assert.match(renderedOutput, /El valor no pot quedar buit/);
-  assert.match(renderedOutput, /Introdueix un numero enter valid/);
-  assert.match(renderedOutput, /Introdueix un numero enter entre 1 i 2147483647/);
+  assert.match(renderedOutput, /Introdueix un número enter vàlid/);
+  assert.match(renderedOutput, /Introdueix un número enter entre 1 i 2147483647/);
   assert.match(renderedOutput, /Respon si o no/);
-  assert.match(renderedOutput, /Introdueix un numero enter entre 1 i 168/);
+  assert.match(renderedOutput, /Introdueix un número enter entre 1 i 168/);
 });
 
 test('runBootstrapWizard returns null when the operator rejects the final confirmation', async () => {
