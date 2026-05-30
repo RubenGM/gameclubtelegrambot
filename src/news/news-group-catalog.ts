@@ -84,9 +84,9 @@ export const newsGroupCategories: readonly NewsGroupCategoryDescriptor[] = [
       en: 'nuevos_miembros',
     },
     description: {
-      ca: 'altes web i benvingudes quan un admin aprova nous socis',
-      es: 'altas web y bienvenidas cuando un admin aprueba nuevos socios',
-      en: 'web signups and welcomes when an admin approves new members',
+      ca: 'altes web de nous socis',
+      es: 'altas web de nuevos socios',
+      en: 'new member web signups',
     },
     defaultSubscribed: false,
   },
@@ -298,7 +298,7 @@ function normalizeChatId(chatId: number): number {
 function normalizeCategoryKey(categoryKey: string): string {
   const normalized = categoryKey.trim();
   if (!normalized) {
-    throw new Error('La clau de categoria es obligatoria');
+    throw new Error('La clau de categoria és obligatòria');
   }
 
   return normalized;

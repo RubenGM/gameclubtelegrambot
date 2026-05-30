@@ -89,12 +89,9 @@ visible guardado en `users.display_name`, y evitar repetir inmediatamente la
 ultima plantilla enviada a ese usuario cuando existan alternativas.
 
 Cuando un admin aprueba una solicitud desde Telegram (`/approve` o el callback
-de revisión), no se envía bienvenida privada al usuario aprobado. El bot debe
-publicar una plantilla de bienvenida en los grupos con news mode habilitado y
-suscritos a `nuevos_miembros`; si la suscripción se hizo dentro de un topic,
-la bienvenida debe publicarse sólo en ese `message_thread_id`, no en todo el
-grupo. La entrada normal de alguien a un grupo donde esta el bot no debe
-disparar estas bienvenidas.
+de revisión), no se envía bienvenida privada al usuario aprobado ni se publica
+plantilla en grupos. Las bienvenidas de grupo sólo se envían cuando Telegram
+informa de una entrada real al grupo y ese grupo tiene `/autojoin enabled`.
 
 `/news` soporta supergrupos con topics. Las suscripciones se persisten por
 `chat_id` + `message_thread_id`: `message_thread_id = 0` representa el grupo

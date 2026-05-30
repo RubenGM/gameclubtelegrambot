@@ -240,7 +240,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
   assert.ok(events.includes('register:callback:approve_access:'));
   assert.ok(events.includes('runtime:database:1'));
   assert.ok(events.includes('reply:Com vols que et conegui el bot? Escriu el nom que vols mostrar.'));
-  assert.ok(events.some((event) => event.startsWith('reply:He registrat la teva sollicitud d acces.')));
+  assert.ok(events.some((event) => event.startsWith("reply:He registrat la teva sol·licitud d'accés.")));
   assert.ok(events.some((event) => event.startsWith('reply:Sol·licituds pendents:')));
   assert.ok(events.some((event) => event.includes('LFG (buscar grup): troba grup o jugadors per jugar.')));
   assert.equal(events.at(-2), 'start-polling');
@@ -290,7 +290,7 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
   ]);
 });
 
-test('approving membership publishes the configured welcome to subscribed new-member news groups only', async () => {
+test('approving membership from the bot does not publish welcome templates', async () => {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const privateMessages: Array<{ telegramUserId: number; message: string }> = [];
   const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
@@ -428,13 +428,7 @@ test('approving membership publishes the configured welcome to subscribed new-me
 
   assert.equal(replies[0]?.message.includes('aprovat') || replies[0]?.message.includes('aprobado'), true);
   assert.deepEqual(privateMessages, []);
-  assert.deepEqual(groupMessages, [
-    {
-      chatId: -200,
-      message: '<b>Benvingut Tester Club</b>',
-      options: { parseMode: 'HTML' },
-    },
-  ]);
+  assert.deepEqual(groupMessages, []);
 });
 
 test('joining a group does not publish a welcome template', async () => {
@@ -2176,7 +2170,7 @@ test('private free text auto-creates a pending access request with detailed guid
   assert.equal(membershipUsers.get(42)?.status, 'pending');
   assert.equal(membershipUsers.get(42)?.displayName, 'New Member');
   assert.match(replies[0]?.message ?? '', /Com vols que et conegui el bot/i);
-  assert.match(replies[1]?.message ?? '', /sollicitud d acces/i);
+  assert.match(replies[1]?.message ?? '', /sol·licitud d'accés/i);
   assert.match(replies[1]?.message ?? '', /administrador/i);
   assert.match(replies[1]?.message ?? '', /pendent/i);
 
@@ -3113,7 +3107,7 @@ test('/autojoin enabled stores group autojoin for admins', async () => {
   } as unknown as TelegramCommandHandlerContext);
 
   assert.equal(appMetadataRecords.get('telegram.membership-autojoin:-1001'), 'true');
-  assert.match(replies[0] ?? '', /Autojoin activado/);
+  assert.match(replies[0] ?? '', /Autojoin activat/);
 });
 
 test('group autojoin approves new non-bot members when enabled', async () => {
@@ -3191,6 +3185,76 @@ test('group autojoin approves new non-bot members when enabled', async () => {
   assert.equal(groupMessages[0]?.chatId, -1001);
   assert.equal(groupMessages[0]?.message, 'Bienvenido New Member');
   assert.equal(groupMessages[0]?.options?.parseMode, 'HTML');
+});
+
+test('group join does not approve or welcome members when autojoin is disabled', async () => {
+  const messageHandlers: TelegramCommandHandler[] = [];
+  const replies: string[] = [];
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const membershipUsers = new Map<number, { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }>();
+  const statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }> = [];
+  const auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }> = [];
+  const appMetadataRecords = new Map<string, string>([
+    ['telegram.welcome_templates', JSON.stringify([{
+      id: 'welcome_auto',
+      templateText: 'Bienvenido $USERNAME',
+      isEnabled: true,
+    }])],
+  ]);
+
+  registerHandlers({
+    bot: {
+      username: 'gameclub_test_bot',
+      use: () => {},
+      onCommand: () => {},
+      onCallback: () => {},
+      onText: () => {},
+      onMessage: (handler) => {
+        messageHandlers.push(handler);
+      },
+      sendPrivateMessage: async () => {},
+      startPolling: async () => {},
+      stopPolling: async () => {},
+    },
+    publicName: 'Game Club Bot',
+    adminElevationPasswordHash: 'hashed:admin-secret',
+  });
+
+  const messageHandler = messageHandlers[0];
+  assert.ok(messageHandler);
+
+  await messageHandler({
+    newChatMembers: [
+      { id: 42, username: 'new_member', first_name: 'New', last_name: 'Member' },
+    ],
+    reply: async (message: string) => {
+      replies.push(message);
+    },
+    runtime: createRuntimeForMembershipTest({
+      database: createMembershipDatabaseStub({
+        membershipUsers,
+        statusAuditLog,
+        auditEvents,
+        appMetadataRecords,
+      }),
+      chat: { kind: 'group', chatId: -1001, chatTitle: 'CAWA test' },
+      actor: {
+        telegramUserId: 99,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: true,
+        permissions: [],
+      },
+      groupMessages,
+    }),
+  } as unknown as TelegramCommandHandlerContext);
+
+  assert.equal(membershipUsers.has(42), false);
+  assert.deepEqual(statusAuditLog, []);
+  assert.deepEqual(auditEvents, []);
+  assert.deepEqual(replies, []);
+  assert.deepEqual(groupMessages, []);
 });
 
 function createRuntimeForMembershipTest({

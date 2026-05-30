@@ -5,8 +5,6 @@ import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import { createDatabaseVenueEventRepository } from '../venue-events/venue-event-catalog-store.js';
-import { newMembersNewsGroupCategory } from '../news/news-group-catalog.js';
-import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import {
   elevateApprovedUserToAdmin,
   grantAdminRoleToUser,
@@ -1387,7 +1385,7 @@ function createDefaultCommands({
       contexts: ['private'],
       access: 'admin',
       descriptionByLanguage: {
-        ca: 'Activa avisos privats de noves sollicituds d accés',
+        ca: "Activa avisos privats de noves sol·licituds d'accés",
         es: 'Activa avisos privados de nuevas solicitudes de acceso',
         en: 'Enable private alerts for new access requests',
       },
@@ -1413,7 +1411,7 @@ function createDefaultCommands({
       contexts: ['private'],
       access: 'admin',
       descriptionByLanguage: {
-        ca: 'Desactiva avisos privats de noves sollicituds d accés',
+        ca: "Desactiva avisos privats de noves sol·licituds d'accés",
         es: 'Desactiva avisos privados de nuevas solicitudes de acceso',
         en: 'Disable private alerts for new access requests',
       },
@@ -1473,7 +1471,7 @@ function createDefaultCommands({
       command: 'catalog_search',
       contexts: ['private'],
       access: 'approved',
-      description: 'Consulta i cerca el cataleg',
+      description: 'Consulta i cerca el catàleg',
       handle: async (context) => {
         await handleTelegramCatalogReadCommand(context);
       },
@@ -1522,7 +1520,7 @@ function createDefaultCommands({
       command: 'autojoin',
       contexts: ['group', 'group-news'],
       access: 'admin',
-      description: 'Activa o desactiva alta automatica de nous membres del grup',
+      description: "Activa o desactiva l'alta automàtica de nous membres del grup",
       handle: async (context) => {
         await handleMembershipAutojoinCommand(context);
       },
@@ -1539,7 +1537,7 @@ function createDefaultCommands({
       command: 'catalog',
       contexts: ['private'],
       access: 'approved',
-      description: 'Gestiona el cataleg manual del club',
+      description: 'Gestiona el catàleg manual del club',
       handle: async (context) => {
         await handleTelegramCatalogAdminText({ ...context, messageText: '/catalog' });
       },
@@ -1566,7 +1564,7 @@ function createDefaultCommands({
       command: 'review_access',
       contexts: ['private'],
       access: 'admin',
-      description: 'Revisa sollicituds pendents',
+      description: 'Revisa sol·licituds pendents',
       handle: async (context) => handleReviewAccess(context),
     },
     {
@@ -1580,7 +1578,7 @@ function createDefaultCommands({
       command: 'approve',
       contexts: ['private'],
       access: 'admin',
-      description: 'Aprova una sollicitud',
+      description: 'Aprova una sol·licitud',
       handle: async (context) => {
         const applicantTelegramUserId = parseCommandTarget(context.messageText, 'approve', context.runtime.bot.language ?? 'ca');
         const repository = createDatabaseMembershipAccessRepository({
@@ -1593,20 +1591,13 @@ function createDefaultCommands({
         });
 
         await context.reply(result.adminMessage);
-        if (result.outcome === 'approved') {
-          await publishPostApprovalWelcomeToNewsGroups({
-            context,
-            repository,
-            applicantTelegramUserId,
-          });
-        }
       },
     },
     {
       command: 'reject',
       contexts: ['private'],
       access: 'admin',
-      description: 'Rebutja una sollicitud',
+      description: 'Rebutja una sol·licitud',
       handle: async (context) => {
         const applicantTelegramUserId = parseCommandTarget(context.messageText, 'reject', context.runtime.bot.language ?? 'ca');
         const repository = createDatabaseMembershipAccessRepository({
@@ -1663,7 +1654,7 @@ function createDefaultCommands({
       command: 'start',
       contexts: ['private'],
       access: 'public',
-      description: 'Comprova que el bot esta actiu',
+      description: 'Comprova que el bot està actiu',
       handle: async (context) => {
         const startPayload = parseStartCommandPayload(context.messageText);
 
@@ -1724,7 +1715,7 @@ function createDefaultCommands({
       contexts: ['private'],
       access: 'admin',
       descriptionByLanguage: {
-        ca: 'Envia l estat actual de les funcionalitats',
+        ca: "Envia l'estat actual de les funcionalitats",
         es: 'Envía el estado actual de las funcionalidades',
         en: 'Send the current feature status report',
       },
@@ -2035,50 +2026,6 @@ async function buildStartReply({
   };
 }
 
-async function publishPostApprovalWelcomeToNewsGroups({
-  context,
-  repository,
-  applicantTelegramUserId,
-}: {
-  context: TelegramCommandHandlerContext;
-  repository: ReturnType<typeof createDatabaseMembershipAccessRepository>;
-  applicantTelegramUserId: number;
-}): Promise<void> {
-  const approvedApplicant = await repository.findUserByTelegramUserId(applicantTelegramUserId);
-  if (!approvedApplicant) {
-    return;
-  }
-
-  const storage = getWelcomeTemplateStorage(context);
-  const templateStore = createAppMetadataWelcomeTemplateStore({ storage });
-  const template = await pickRememberedRandomWelcomeTemplate({
-    storage,
-    templateStore,
-    telegramUserId: approvedApplicant.telegramUserId,
-  });
-  if (!template) {
-    return;
-  }
-
-  const newsGroupRepository = createDatabaseNewsGroupRepository({
-    database: context.runtime.services.database.db,
-  });
-  const subscribedGroups = await newsGroupRepository.listSubscribedGroupsByCategory(newMembersNewsGroupCategory);
-  if (subscribedGroups.length === 0) {
-    return;
-  }
-
-  const htmlMessage = renderWelcomeTemplateHtml(template, approvedApplicant.displayName);
-  await Promise.allSettled(
-    subscribedGroups.map((group) =>
-      sendWelcomeTemplateToGroupChat(context, group.chatId, {
-        template,
-        htmlMessage,
-        messageThreadId: group.messageThreadId,
-      })),
-  );
-}
-
 async function buildTodayAtClubSummaryForStart(
   context: TelegramCommandHandlerContext,
   language: 'ca' | 'es' | 'en',
@@ -2133,13 +2080,6 @@ function registerMembershipCallbacks({
     });
 
     await context.reply(result.adminMessage);
-    if (result.outcome === 'approved') {
-      await publishPostApprovalWelcomeToNewsGroups({
-        context,
-        repository,
-        applicantTelegramUserId,
-      });
-    }
   });
 
   bot.onCallback('reject_access:', async (context) => {
@@ -2925,7 +2865,7 @@ async function submitMembershipAccessRequest(
 async function handleMembershipAutojoinCommand(context: TelegramCommandHandlerContext): Promise<void> {
   const action = context.messageText?.trim().split(/\s+/)[1]?.toLowerCase();
   if (action !== 'enabled' && action !== 'disabled') {
-    await context.reply('Uso: /autojoin enabled o /autojoin disabled');
+    await context.reply('Ús: /autojoin enabled o /autojoin disabled');
     return;
   }
 
@@ -2941,21 +2881,21 @@ async function handleMembershipAutojoinCommand(context: TelegramCommandHandlerCo
 
   const chatLabel = context.runtime.chat.chatTitle ? ` en ${context.runtime.chat.chatTitle}` : '';
   if (result === 'enabled') {
-    await context.reply(`Autojoin activado${chatLabel}. Las nuevas entradas del grupo se aprobaran automaticamente como miembros.`);
+    await context.reply(`Autojoin activat${chatLabel}. Les noves entrades del grup s'aprovaran automàticament com a membres.`);
     return;
   }
 
   if (result === 'already-enabled') {
-    await context.reply(`Autojoin ya estaba activado${chatLabel}.`);
+    await context.reply(`Autojoin ja estava activat${chatLabel}.`);
     return;
   }
 
   if (result === 'disabled') {
-    await context.reply(`Autojoin desactivado${chatLabel}.`);
+    await context.reply(`Autojoin desactivat${chatLabel}.`);
     return;
   }
 
-  await context.reply(`Autojoin ya estaba desactivado${chatLabel}.`);
+  await context.reply(`Autojoin ja estava desactivat${chatLabel}.`);
 }
 
 async function handleMembershipAutojoinNewMembers(context: TelegramCommandHandlerContext): Promise<boolean> {

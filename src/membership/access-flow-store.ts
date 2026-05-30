@@ -381,7 +381,7 @@ export function createDatabaseMembershipAccessRepository({
           actionKey: 'membership.rejected',
           targetType: 'membership-user',
           targetId: String(input.telegramUserId),
-          summary: 'Sollicitud d acces rebutjada',
+          summary: "Sol·licitud d'accés rebutjada",
           details: {
             previousStatus: input.previousStatus,
             nextStatus: 'blocked',

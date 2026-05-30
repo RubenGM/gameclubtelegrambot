@@ -95,7 +95,7 @@ export async function updateMembershipDisplayName({
   if (!user) {
     return {
       outcome: 'missing',
-      message: 'No s ha trobat cap usuari amb aquest identificador.',
+      message: "No s'ha trobat cap usuari amb aquest identificador.",
     };
   }
 
@@ -140,7 +140,7 @@ export async function requestMembershipAccess({
   if (existing?.status === 'blocked') {
     return {
       outcome: 'blocked',
-      message: 'El teu accés esta blocat. Contacta amb l administracio del club si necessites revisio.',
+      message: "El teu accés està blocat. Contacta amb l'administració del club si necessites revisió.",
     };
   }
 
@@ -148,7 +148,7 @@ export async function requestMembershipAccess({
     return {
       outcome: 'already-pending',
       message:
-        'La teva sollicitud d acces ja esta pendent. Un administrador del club l ha de revisar abans que puguis fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
+        "La teva sol·licitud d'accés ja està pendent. Un administrador del club l'ha de revisar abans que puguis fer servir activitats, calendari, catàleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t'has registrat al bot.",
     };
   }
 
@@ -168,7 +168,7 @@ export async function requestMembershipAccess({
   return {
     outcome: 'created',
     message:
-      'He registrat la teva sollicitud d acces. Ara queda pendent de revisio per part d un administrador del club. Quan te l aprovin, ja podras fer servir activitats, calendari, cataleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t has registrat al bot.',
+      "He registrat la teva sol·licitud d'accés. Ara queda pendent de revisió per part d'un administrador del club. Quan te l'aprovin, ja podràs fer servir activitats, calendari, catàleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t'has registrat al bot.",
   };
 }
 
@@ -225,8 +225,8 @@ export async function approveMembershipRequest({
   if (!existing) {
     return {
       outcome: 'missing',
-      applicantMessage: 'No s ha trobat cap sollicitud per a aquest usuari.',
-      adminMessage: 'No hi ha cap sollicitud pendent per aquest usuari.',
+      applicantMessage: "No s'ha trobat cap sol·licitud per a aquest usuari.",
+      adminMessage: 'No hi ha cap sol·licitud pendent per a aquest usuari.',
     };
   }
 
@@ -241,8 +241,8 @@ export async function approveMembershipRequest({
   if (existing.status === 'blocked') {
     return {
       outcome: 'blocked',
-      applicantMessage: 'No s ha pogut aprovar la teva sollicitud perquè el compte esta blocat.',
-      adminMessage: 'Aquest usuari esta blocat i no es pot aprovar directament.',
+      applicantMessage: "No s'ha pogut aprovar la teva sol·licitud perquè el compte està blocat.",
+      adminMessage: 'Aquest usuari està blocat i no es pot aprovar directament.',
     };
   }
 
@@ -250,7 +250,7 @@ export async function approveMembershipRequest({
     return {
       outcome: 'missing',
       applicantMessage: 'Aquest usuari ha de tornar a demanar accés amb /access abans de poder-se aprovar.',
-      adminMessage: 'Aquest usuari no te cap sollicitud pendent activa. Primer ha de tornar a demanar /access.',
+      adminMessage: 'Aquest usuari no té cap sol·licitud pendent activa. Primer ha de tornar a demanar /access.',
     };
   }
 
@@ -262,7 +262,7 @@ export async function approveMembershipRequest({
 
   return {
     outcome: 'approved',
-    applicantMessage: 'La teva sollicitud ha estat aprovada. Ja pots utilitzar les funcionalitats del club.',
+    applicantMessage: 'La teva sol·licitud ha estat aprovada. Ja pots utilitzar les funcionalitats del club.',
     adminMessage: 'Usuari aprovat correctament.',
   };
 }
@@ -287,15 +287,15 @@ export async function rejectMembershipRequest({
   if (!existing) {
     return {
       outcome: 'missing',
-      applicantMessage: 'No s ha trobat cap sollicitud per a aquest usuari.',
-      adminMessage: 'No hi ha cap sollicitud pendent per aquest usuari.',
+      applicantMessage: "No s'ha trobat cap sol·licitud per a aquest usuari.",
+      adminMessage: 'No hi ha cap sol·licitud pendent per a aquest usuari.',
     };
   }
 
   if (existing.status === 'approved') {
     return {
       outcome: 'already-approved',
-      applicantMessage: 'Aquest usuari ja esta aprovat.',
+      applicantMessage: 'Aquest usuari ja està aprovat.',
       adminMessage: 'Aquest usuari ja estava aprovat.',
     };
   }
@@ -317,8 +317,8 @@ export async function rejectMembershipRequest({
 
   return {
     outcome: 'blocked',
-    applicantMessage: 'La teva sollicitud d accés ha estat rebutjada. Si creus que es un error, contacta amb el club.',
-    adminMessage: 'Sollicitud rebutjada i usuari blocat.',
+    applicantMessage: "La teva sol·licitud d'accés ha estat rebutjada. Si creus que és un error, contacta amb el club.",
+    adminMessage: 'Sol·licitud rebutjada i usuari blocat.',
   };
 }
 
@@ -342,24 +342,24 @@ export async function revokeMembershipAccess({
   if (!existing) {
     return {
       outcome: 'missing',
-      applicantMessage: 'No s ha trobat cap usuari amb aquest identificador.',
-      adminMessage: 'No s ha trobat cap usuari amb aquest identificador.',
+      applicantMessage: "No s'ha trobat cap usuari amb aquest identificador.",
+      adminMessage: "No s'ha trobat cap usuari amb aquest identificador.",
     };
   }
 
   if (existing.isAdmin) {
     return {
       outcome: 'admin-user',
-      applicantMessage: 'Els administradors no es poden expulsar des d aquest flux.',
-      adminMessage: 'Els administradors no es poden expulsar des d aquest flux.',
+      applicantMessage: "Els administradors no es poden expulsar des d'aquest flux.",
+      adminMessage: "Els administradors no es poden expulsar des d'aquest flux.",
     };
   }
 
   if (existing.status !== 'approved') {
     return {
       outcome: 'not-approved',
-      applicantMessage: 'Aquest usuari ja no te accés aprovat.',
-      adminMessage: 'Aquest usuari ja no te accés aprovat.',
+      applicantMessage: 'Aquest usuari ja no té accés aprovat.',
+      adminMessage: 'Aquest usuari ja no té accés aprovat.',
     };
   }
 
@@ -373,7 +373,7 @@ export async function revokeMembershipAccess({
   return {
     outcome: 'revoked',
     applicantMessage:
-      'Un administrador t ha revocat l accés al bot. Si vols tornar a entrar, torna a demanar accés amb /access.',
-    adminMessage: 'Accés revocat correctament. L usuari haura de tornar a demanar /access si vol reingressar.',
+      "Un administrador t'ha revocat l'accés al bot. Si vols tornar a entrar, torna a demanar accés amb /access.",
+    adminMessage: "Accés revocat correctament. L'usuari haurà de tornar a demanar /access si vol reingressar.",
   };
 }

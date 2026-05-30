@@ -73,11 +73,11 @@ Implementado:
 - La gestion de rol admin escribe auditoria en `user_permission_audit_log` y `audit_log`.
 - `/elevate_admin` eleva a admin usando hash de password runtime.
 - `/subscribe_requests` y `/unsubscribe_requests` permiten avisos privados de nuevas solicitudes.
-- `/autojoin enabled` y `/autojoin disabled` permiten a admins activar por grupo el alta automatica: cada usuario no bot que entre en ese grupo se crea como pendiente si hace falta y queda aprobado como miembro; los usuarios bloqueados no se reactivan automaticamente.
+- `/autojoin enabled` y `/autojoin disabled` permiten a admins activar por grupo el alta automatica: cada usuario no bot que entre en un grupo con autojoin activado se crea como pendiente si hace falta, queda aprobado como miembro y recibe una bienvenida de grupo si hay plantillas activas; con autojoin desactivado, la entrada al grupo no aprueba ni envia bienvenida. Los usuarios bloqueados no se reactivan automaticamente.
 - `/alta` registra solicitudes de alta desde la web en `member_signup_requests`, avisa por privado a admins aprobados y publica en grupos suscritos al feed `nuevos_miembros`.
 - `/admin/member-signups` permite revisar desde el panel web las solicitudes de alta recibidas, su estado, el resumen de avisos enviados y marcar cada solicitud como contactada, aprobada, rechazada o pendiente.
 - `/admin/welcome` permite a admins configurar plantillas aleatorias de bienvenida de grupo, con placeholder `$USERNAME`, GIF opcional mediante Telegram animation file ID, plantillas globales y plantillas especificas por Telegram user ID.
-- Al aprobar una solicitud desde Telegram (`/approve` o callbacks de revisión), el bot no envía bienvenida privada: publica una plantilla de bienvenida en los destinos de news suscritos al feed `nuevos_miembros` (grupo completo o topic). La entrada normal de alguien a un grupo donde está el bot no dispara bienvenidas.
+- Al aprobar una solicitud desde Telegram (`/approve` o callbacks de revisión), el bot no envía bienvenida privada ni publica plantillas en grupos. Las bienvenidas de grupo se envían sólo cuando Telegram informa de una entrada real al grupo y ese grupo tiene `/autojoin enabled`.
 - El teclado privado de admins incluye `Bienvenidas`, que lista las plantillas actuales con paginacion por botones de teclado, pie visible `Mostrando X-Y de Z. Página A/B`, un enlace inline compacto junto a cada plantilla para abrir su detalle, acciones de detalle para previsualizar, editar texto, editar GIF/video, activar/pausar, eliminar y crear una bienvenida nueva directamente desde Telegram enviando el texto con formato Telegram conservado (negrita, cursiva, etc.) y despues un GIF/video opcional como adjunto, aceptando animaciones Telegram, videos convertidos por el movil y archivos `.gif`.
 - En privado, los aliases secretos `Welcome`, `/welcome`, `Bienvenida` y `/bienvenida` envian al usuario una previsualizacion real de la bienvenida aleatoria que le tocaria, usando su nombre visible guardado; `/welcome 1` y `/bienvenida 1` fuerzan una plantilla concreta por posicion visible.
 - Las revocaciones notifican al usuario afectado y a admins suscritos.
@@ -221,8 +221,8 @@ Implementado:
 - `/news activar` dentro de un topic habilita el grupo y suscribe el feed de agenda (`events`) a ese topic para evitar que las actualizaciones de calendario caigan al general.
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
 - Las respuestas administrativas de `/news` confirman feed y destino por nombre de grupo cuando Telegram lo proporciona, y se borran automaticamente tras 1 minuto para no ensuciar el grupo o topic; las publicaciones reales de feeds se conservan.
-- Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs, altas web y bienvenidas por aprobación (`nuevos_miembros`).
-- Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem, altas web y bienvenidas por aprobación => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto como `events` si no tienen ese feed suscrito explícitamente.
+- Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs y altas web (`nuevos_miembros`).
+- Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem, altas web => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto como `events` si no tienen ese feed suscrito explícitamente.
 - `/admin/news` muestra los feeds disponibles y cuántos destinos activos hay suscritos a cada categoría.
 
 Pendiente:

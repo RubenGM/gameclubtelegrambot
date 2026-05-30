@@ -72,7 +72,7 @@ test('elevateApprovedUserToAdmin promotes an approved user with the correct pass
   });
 
   assert.equal(result.outcome, 'elevated');
-  assert.match(result.message, /Ara tens permisos d administrador/);
+  assert.match(result.message, /Ara tens permisos d'administrador/);
   assert.equal(repository.__auditLog.at(-1), 'role:42:true:42:membership.admin-elevated');
 });
 
@@ -133,7 +133,7 @@ test('elevateApprovedUserToAdmin rejects unapproved users even with the correct 
   });
 
   assert.equal(result.outcome, 'not-approved');
-  assert.match(result.message, /Nomes els usuaris aprovats poden demanar elevacio/);
+  assert.match(result.message, /Només els usuaris aprovats poden demanar elevació/);
 });
 
 test('elevateApprovedUserToAdmin rejects blocked users', async () => {
@@ -194,5 +194,5 @@ test('elevateApprovedUserToAdmin rejects incorrect passwords', async () => {
   });
 
   assert.equal(result.outcome, 'invalid-password');
-  assert.match(result.message, /Contrasenya d elevacio incorrecta/);
+  assert.match(result.message, /Contrasenya d'elevació incorrecta/);
 });
