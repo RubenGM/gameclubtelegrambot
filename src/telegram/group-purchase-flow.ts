@@ -43,6 +43,7 @@ const createFlowKey = 'group-purchase-create';
 const editFlowKey = 'group-purchase-edit';
 const participantFieldFlowKey = 'group-purchase-participant-fields';
 const groupPurchaseDetailsStartPayloadPrefix = 'group_purchase_details_';
+const groupPurchaseJoinStartPayloadPrefix = 'group_purchase_join_';
 
 export const groupPurchaseCallbackPrefixes = {
   join: 'group_purchase:join:',
@@ -169,6 +170,13 @@ export async function handleTelegramGroupPurchaseStartText(context: TelegramGrou
   if (detailsPurchaseId !== null && context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved) {
     const detail = await loadPurchaseDetailOrThrow(context, detailsPurchaseId);
     await sendGroupPurchaseDetailsMessage(context, detail, language);
+    return true;
+  }
+
+  const joinPurchaseId = parseStartPayload(context.messageText, groupPurchaseJoinStartPayloadPrefix);
+  if (joinPurchaseId !== null && context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved) {
+    const detail = await loadPurchaseDetailOrThrow(context, joinPurchaseId);
+    await context.reply(buildGroupPurchaseJoinPrompt(detail), buildGroupPurchaseJoinPromptOptions(detail));
     return true;
   }
 
@@ -1064,6 +1072,47 @@ function buildGroupPurchaseDetailOptions(
     : { parseMode: 'HTML' as const };
 }
 
+function buildGroupPurchaseGroupMessageOptions(
+  detail: Awaited<ReturnType<typeof loadPurchaseDetailOrThrow>>,
+): TelegramReplyOptions {
+  const purchaseId = detail.purchase.id;
+  const inlineKeyboard: NonNullable<TelegramReplyOptions['inlineKeyboard']> = [
+    [{ text: 'Detalle de compra conjunta', url: buildTelegramStartUrl(`group_purchase_${purchaseId}`) }],
+  ];
+
+  if (hasGroupPurchaseDetailsMessage(detail.purchase)) {
+    inlineKeyboard.push([{ text: 'Descripción', url: buildTelegramStartUrl(`${groupPurchaseDetailsStartPayloadPrefix}${purchaseId}`) }]);
+  }
+
+  if (detail.purchase.lifecycleStatus === 'open') {
+    inlineKeyboard.push([{ text: 'Participar', url: buildTelegramStartUrl(`${groupPurchaseJoinStartPayloadPrefix}${purchaseId}`) }]);
+  }
+
+  return { parseMode: 'HTML', inlineKeyboard };
+}
+
+function buildGroupPurchaseJoinPrompt(
+  detail: Awaited<ReturnType<typeof loadPurchaseDetailOrThrow>>,
+): string {
+  return [
+    `<b>${escapeHtml(detail.purchase.title)}</b>`,
+    '¿Quieres confirmar tu participación ahora o apuntarte a falta de confirmación?',
+  ].join('\n');
+}
+
+function buildGroupPurchaseJoinPromptOptions(
+  detail: Awaited<ReturnType<typeof loadPurchaseDetailOrThrow>>,
+): TelegramReplyOptions {
+  return {
+    parseMode: 'HTML',
+    inlineKeyboard: [
+      [{ text: 'Confirmarme ahora', callbackData: `${groupPurchaseCallbackPrefixes.joinConfirmed}${detail.purchase.id}` }],
+      [{ text: 'Apuntarme sin confirmar', callbackData: `${groupPurchaseCallbackPrefixes.joinInterested}${detail.purchase.id}` }],
+      [{ text: 'Ver detalle', url: buildTelegramStartUrl(`group_purchase_${detail.purchase.id}`) }],
+    ],
+  };
+}
+
 async function publishGroupPurchaseAnnouncement(
   context: TelegramGroupPurchaseContext,
   detail: Awaited<ReturnType<typeof loadPurchaseDetailOrThrow>>,
@@ -1080,13 +1129,14 @@ async function publishGroupPurchaseAnnouncement(
   }
 
   const message = formatGroupPurchaseGroupAnnouncement({ detail, language });
+  const options = buildGroupPurchaseGroupMessageOptions(detail);
   const snapshotStorage = resolveGroupPurchaseSnapshotStorage(context);
   const deleteMessage = context.runtime.bot.deleteMessage;
 
   await Promise.all(
     groups.map(async (group) => {
       try {
-        const sent = await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+        const sent = await sendGroupMessage(group.chatId, message, options);
         await rememberAndDeletePreviousGroupPurchaseMessage({
           purchaseId: detail.purchase.id,
           chatId: group.chatId,
@@ -1128,13 +1178,14 @@ async function publishGroupPurchaseSummaryUpdate(
     language,
     heading: 'Compra conjunta actualizada:',
   });
+  const options = buildGroupPurchaseGroupMessageOptions(detail);
   const snapshotStorage = resolveGroupPurchaseSnapshotStorage(context);
   const deleteMessage = context.runtime.bot.deleteMessage;
 
   await Promise.all(
     groups.map(async (group) => {
       try {
-        const sent = await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+        const sent = await sendGroupMessage(group.chatId, message, options);
         await rememberAndDeletePreviousGroupPurchaseMessage({
           purchaseId: detail.purchase.id,
           chatId: group.chatId,
@@ -1177,13 +1228,14 @@ async function publishGroupPurchaseParticipantUpdate(
     participantTelegramUserId,
     updateKind,
   });
+  const options = buildGroupPurchaseGroupMessageOptions(detail);
   const snapshotStorage = resolveGroupPurchaseSnapshotStorage(context);
   const deleteMessage = context.runtime.bot.deleteMessage;
 
   await Promise.all(
     groups.map(async (group) => {
       try {
-        const sent = await sendGroupMessage(group.chatId, message, { parseMode: 'HTML' });
+        const sent = await sendGroupMessage(group.chatId, message, options);
         await rememberAndDeletePreviousGroupPurchaseMessage({
           purchaseId: detail.purchase.id,
           chatId: group.chatId,

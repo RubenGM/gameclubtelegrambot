@@ -62,9 +62,8 @@ export function formatGroupPurchaseGroupAnnouncement({
   const purchase = detail.purchase;
   return [
     heading,
-    `<a href="${escapeHtml(buildTelegramStartUrl(`group_purchase_${purchase.id}`))}"><b>${escapeHtml(purchase.title)}</b></a>`,
+    `<b>${escapeHtml(purchase.title)}</b>`,
     `${texts.modeLabel}: ${escapeHtml(formatModeLabel(purchase, language))}`,
-    ...(formatGroupPurchaseDetailsLink(purchase, language) ? [formatGroupPurchaseDetailsLink(purchase, language)!] : []),
     ...formatSharedCostStatusLines(detail),
   ].join('\n');
 }
@@ -87,9 +86,8 @@ export function formatGroupPurchaseParticipantUpdateMessage({
       : `${participantName} se ha echado atrás`;
 
   return [
-    `<a href="${escapeHtml(buildTelegramStartUrl(`group_purchase_${detail.purchase.id}`))}"><b>${escapeHtml(detail.purchase.title)}</b></a>`,
+    `<b>${escapeHtml(detail.purchase.title)}</b>`,
     escapeHtml(updateLine),
-    ...(formatGroupPurchaseDetailsLink(detail.purchase, 'es') ? [formatGroupPurchaseDetailsLink(detail.purchase, 'es')!] : []),
     ...formatSharedCostStatusLines(detail),
   ].join('\n');
 }

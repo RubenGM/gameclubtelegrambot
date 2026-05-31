@@ -242,7 +242,7 @@ Implementado:
 - Campos personalizados de participante: entero, opcion simple o texto; pueden afectar cantidad.
 - Unirse como interesado o confirmado, editar valores, salir, gestionar participantes y cambiar estados.
 - Publicacion automatica de nuevas compras en grupos habilitados para notificaciones; cada compra mantiene un unico mensaje vivo por grupo y borra el mensaje anterior al publicar una actualizacion.
-- Actualizaciones automaticas en grupos cuando alguien se apunta, confirma, edita la compra o se echa atras; incluyen solo el enlace a la descripcion cuando existe y, en coste compartido, coste total, coste actual por persona y usuarios confirmados.
+- Actualizaciones automaticas en grupos cuando alguien se apunta, confirma, edita la compra o se echa atras; incluyen botones inline para detalle, descripcion y participacion privada, y en coste compartido muestran coste total, coste actual por persona y usuarios confirmados.
 - Mensajes asociados a una compra para trazabilidad interna.
 - Recordatorios persistentes antes del deadline de confirmacion.
 

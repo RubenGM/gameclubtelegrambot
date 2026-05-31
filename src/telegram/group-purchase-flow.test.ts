@@ -697,8 +697,13 @@ test('create flow stores a rich description message and publishes the open-descr
   assert.equal(purchases[0]?.description, 'Tapete con imagen de ejemplo');
   assert.equal(purchases[0]?.detailsMessageChatId, 1);
   assert.equal(purchases[0]?.detailsMessageId, 501);
-  assert.match(groupMessages[0]?.message ?? '', /start=group_purchase_details_1/);
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /start=group_purchase_details_1/);
   assert.doesNotMatch(groupMessages[0]?.message ?? '', /Tapete con imagen de ejemplo/);
+  assert.deepEqual(groupMessages[0]?.options?.inlineKeyboard, [
+    [{ text: 'Detalle de compra conjunta', url: 'https://t.me/cawa_management_bot?start=group_purchase_1' }],
+    [{ text: 'Descripción', url: 'https://t.me/cawa_management_bot?start=group_purchase_details_1' }],
+    [{ text: 'Participar', url: 'https://t.me/cawa_management_bot?start=group_purchase_join_1' }],
+  ]);
 
   context.messageText = '/start group_purchase_details_1';
   await handleTelegramGroupPurchaseStartText(context);
@@ -980,6 +985,29 @@ test('participant without custom fields does not see the no-op edit values actio
   ]);
 });
 
+test('group purchase join deep link asks privately whether to confirm now', async () => {
+  const repository = createRepository([buildPurchase({
+    id: 59,
+    title: 'Harmonies',
+    purchaseMode: 'shared_cost',
+    totalPriceCents: 4000,
+    unitPriceCents: null,
+    unitLabel: null,
+  })]);
+  const { context, replies } = createContext(repository);
+  context.messageText = '/start group_purchase_join_59';
+
+  await handleTelegramGroupPurchaseStartText(context);
+
+  assert.match(replies[0]?.message ?? '', /Harmonies/);
+  assert.match(replies[0]?.message ?? '', /confirmar tu participación ahora/);
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
+    [{ text: 'Confirmarme ahora', callbackData: 'group_purchase:join_confirmed:59' }],
+    [{ text: 'Apuntarme sin confirmar', callbackData: 'group_purchase:join_interested:59' }],
+    [{ text: 'Ver detalle', url: 'https://t.me/cawa_management_bot?start=group_purchase_59' }],
+  ]);
+});
+
 test('creator can join their own shared-cost purchase without answering extra fields', async () => {
   const repository = createRepository();
   const created = await repository.createPurchase({
@@ -1093,8 +1121,13 @@ test('editing a purchase publishes the updated summary with its description link
   assert.match(groupMessages[0]?.message ?? '', /Compra conjunta actualizada/);
   assert.doesNotMatch(groupMessages[0]?.message ?? '', /Nueva compra conjunta disponible/);
   assert.match(groupMessages[0]?.message ?? '', /Tapetes premium/);
-  assert.match(groupMessages[0]?.message ?? '', /start=group_purchase_details_52/);
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /start=group_purchase_details_52/);
   assert.doesNotMatch(groupMessages[0]?.message ?? '', /Nueva descripcion con foto/);
+  assert.deepEqual(groupMessages[0]?.options?.inlineKeyboard, [
+    [{ text: 'Detalle de compra conjunta', url: 'https://t.me/cawa_management_bot?start=group_purchase_52' }],
+    [{ text: 'Descripción', url: 'https://t.me/cawa_management_bot?start=group_purchase_details_52' }],
+    [{ text: 'Participar', url: 'https://t.me/cawa_management_bot?start=group_purchase_join_52' }],
+  ]);
 });
 
 test('creator can edit only the purchase description from the detail action', async () => {
@@ -1277,6 +1310,10 @@ test('shared-cost participant changes are published to enabled notification grou
   assert.match(groupMessages[1]?.message ?? '', /Coste total: 50,00€/);
   assert.match(groupMessages[1]?.message ?? '', /Coste actual por persona: 50,00€/);
   assert.match(groupMessages[1]?.message ?? '', /Usuarios confirmados actualmente: 1/);
+  assert.deepEqual(groupMessages[1]?.options?.inlineKeyboard, [
+    [{ text: 'Detalle de compra conjunta', url: 'https://t.me/cawa_management_bot?start=group_purchase_61' }],
+    [{ text: 'Participar', url: 'https://t.me/cawa_management_bot?start=group_purchase_join_61' }],
+  ]);
   assert.match(groupMessages[2]?.message ?? '', /Rubén se ha echado atrás/);
   assert.match(groupMessages[2]?.message ?? '', /Usuarios confirmados actualmente: 0/);
   assert.deepEqual(deletedMessages, [
