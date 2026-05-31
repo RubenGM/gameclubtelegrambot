@@ -393,6 +393,8 @@ export const groupPurchases = pgTable(
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     title: varchar('title', { length: 255 }).notNull(),
     description: text('description'),
+    detailsMessageChatId: bigint('details_message_chat_id', { mode: 'number' }),
+    detailsMessageId: bigint('details_message_id', { mode: 'number' }),
     purchaseMode: varchar('purchase_mode', { length: 16 }).notNull(),
     lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('open'),
     createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })

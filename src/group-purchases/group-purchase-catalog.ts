@@ -7,6 +7,8 @@ export interface GroupPurchaseRecord {
   id: number;
   title: string;
   description: string | null;
+  detailsMessageChatId: number | null;
+  detailsMessageId: number | null;
   purchaseMode: GroupPurchaseMode;
   lifecycleStatus: GroupPurchaseLifecycleStatus;
   createdByTelegramUserId: number;
@@ -83,6 +85,8 @@ export interface GroupPurchaseRepository {
   createPurchase(input: {
     title: string;
     description: string | null;
+    detailsMessageChatId?: number | null;
+    detailsMessageId?: number | null;
     purchaseMode: GroupPurchaseMode;
     createdByTelegramUserId: number;
     joinDeadlineAt: string | null;
@@ -97,6 +101,8 @@ export interface GroupPurchaseRepository {
     purchaseId: number;
     title: string;
     description: string | null;
+    detailsMessageChatId?: number | null;
+    detailsMessageId?: number | null;
     joinDeadlineAt: string | null;
     confirmDeadlineAt: string | null;
     totalPriceCents: number | null;
@@ -138,6 +144,8 @@ export async function createGroupPurchase({
   repository,
   title,
   description,
+  detailsMessageChatId,
+  detailsMessageId,
   purchaseMode,
   createdByTelegramUserId,
   joinDeadlineAt,
@@ -150,6 +158,8 @@ export async function createGroupPurchase({
   repository: GroupPurchaseRepository;
   title: string;
   description?: string | null;
+  detailsMessageChatId?: number | null;
+  detailsMessageId?: number | null;
   purchaseMode: GroupPurchaseMode;
   createdByTelegramUserId: number;
   joinDeadlineAt?: string | null;
@@ -184,6 +194,8 @@ export async function createGroupPurchase({
   return repository.createPurchase({
     title: normalizeTitle(title),
     description: normalizeOptionalText(description),
+    detailsMessageChatId: normalizeOptionalTelegramChatId(detailsMessageChatId),
+    detailsMessageId: normalizeOptionalMessageId(detailsMessageId),
     purchaseMode: normalizedMode,
     createdByTelegramUserId: normalizeTelegramUserId(createdByTelegramUserId, 'creator'),
     joinDeadlineAt: normalizedJoinDeadline,
@@ -363,6 +375,26 @@ function normalizeTelegramUserId(value: number, label: string): number {
     throw new Error(`Group purchase ${label} Telegram user id must be a positive integer`);
   }
 
+  return value;
+}
+
+function normalizeOptionalTelegramChatId(value: number | null | undefined): number | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!Number.isInteger(value) || value === 0) {
+    throw new Error('Group purchase details chat id must be a non-zero integer');
+  }
+  return value;
+}
+
+function normalizeOptionalMessageId(value: number | null | undefined): number | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error('Group purchase details message id must be a positive integer');
+  }
   return value;
 }
 

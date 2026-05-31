@@ -24,7 +24,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y procesos largos con progreso editable. |
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
 | Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `nuevos_miembros`; `/admin/news` resume feeds activos. |
-| Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, gestión de participantes y recordatorios de deadline.                                                    |
+| Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos automáticos a grupos, gestión de participantes y recordatorios.       |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
 | Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
@@ -237,10 +237,13 @@ Implementado:
 
 - `/group_purchases` con crear y listar.
 - Modos de compra por unidad o coste compartido.
+- Descripciones enriquecidas con texto y adjuntos opcionales, botón directo de edición para admins/creador y enlaces de descripcion en mensajes privados y de grupo; al editar se conserva un unico mensaje de detalle e intenta borrar el anterior.
 - Deadlines de union y confirmacion.
 - Campos personalizados de participante: entero, opcion simple o texto; pueden afectar cantidad.
 - Unirse como interesado o confirmado, editar valores, salir, gestionar participantes y cambiar estados.
-- Mensajes asociados a una compra y publicacion a grupo.
+- Publicacion automatica de nuevas compras en grupos habilitados para notificaciones; cada compra mantiene un unico mensaje vivo por grupo y borra el mensaje anterior al publicar una actualizacion.
+- Actualizaciones automaticas en grupos cuando alguien se apunta, confirma, edita la compra o se echa atras; incluyen solo el enlace a la descripcion cuando existe y, en coste compartido, coste total, coste actual por persona y usuarios confirmados.
+- Mensajes asociados a una compra para trazabilidad interna.
 - Recordatorios persistentes antes del deadline de confirmacion.
 
 Riesgos o pendientes:

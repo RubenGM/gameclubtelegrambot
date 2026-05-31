@@ -64,6 +64,8 @@ export function createDatabaseGroupPurchaseRepository({
           .values({
             title: input.title,
             description: input.description,
+            detailsMessageChatId: input.detailsMessageChatId,
+            detailsMessageId: input.detailsMessageId,
             purchaseMode: input.purchaseMode,
             createdByTelegramUserId: input.createdByTelegramUserId,
             joinDeadlineAt: asDate(input.joinDeadlineAt),
@@ -111,6 +113,8 @@ export function createDatabaseGroupPurchaseRepository({
         .set({
           title: input.title,
           description: input.description,
+          detailsMessageChatId: input.detailsMessageChatId,
+          detailsMessageId: input.detailsMessageId,
           joinDeadlineAt: asDate(input.joinDeadlineAt),
           confirmDeadlineAt: asDate(input.confirmDeadlineAt),
           totalPriceCents: input.totalPriceCents,
@@ -302,6 +306,8 @@ function mapGroupPurchaseRow(row: typeof groupPurchases.$inferSelect): GroupPurc
     id: row.id,
     title: row.title,
     description: row.description,
+    detailsMessageChatId: row.detailsMessageChatId,
+    detailsMessageId: row.detailsMessageId,
     purchaseMode: row.purchaseMode as GroupPurchaseRecord['purchaseMode'],
     lifecycleStatus: row.lifecycleStatus as GroupPurchaseRecord['lifecycleStatus'],
     createdByTelegramUserId: row.createdByTelegramUserId,

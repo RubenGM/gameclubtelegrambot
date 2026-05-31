@@ -232,6 +232,13 @@
       "when": 1780066800000,
       "tag": "0032_news_topic_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1780272720000,
+      "tag": "0033_group_purchase_details_message",
+      "breakpoints": true
     }
   ]
 }
