@@ -24,7 +24,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y procesos largos con progreso editable. |
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
 | Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `nuevos_miembros`; `/admin/news` resume feeds activos. |
-| Avisos                                       | 🟢 Operativo         | Socios y admins crean avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`, con archivo y expiración.          |
+| Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos automáticos a grupos, gestión de participantes y recordatorios.       |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
@@ -237,10 +237,11 @@ Estado: `operativo`.
 Implementado:
 
 - Botón privado `Avisos` y comandos `/avisos`/`/notices` para socios aprobados y admins sin distinción de creación.
-- Lista de avisos activos separada en dos mensajes: avisos propios cuando existan y avisos de otros socios siempre, aunque esté vacía.
+- Lista de avisos activos separada en dos mensajes: avisos propios cuando existan y avisos de otros socios siempre, aunque esté vacía; cada aviso incluye acciones inline para verlo y, si corresponde, editarlo o archivarlo.
 - Creación guiada con texto Telegram conservado como HTML seguro, adjuntos múltiples copiados desde el privado, duración permanente, por horas o hasta un día concreto.
 - Antes de crear, si no hay destinos suscritos a la categoría `/news` `avisos`, el bot avisa de que un admin debe configurar el canal/topic y no continúa.
-- Publicación sólo en grupos/topics suscritos específicamente a `avisos`, guardando cada `chat_id`, `message_thread_id` y `message_id` publicado.
+- Publicación sólo en grupos/topics suscritos específicamente a `avisos`, guardando cada `chat_id`, `message_thread_id` y `message_id` publicado; el mensaje publicado no muestra la duración interna del aviso.
+- Edición manual: el creador o cualquier admin puede modificar texto, adjuntos o duración; el bot borra las publicaciones anteriores y republica la versión actualizada.
 - Archivo manual: el creador puede archivar sus propios avisos y cualquier admin puede archivar cualquier aviso; al archivar se intenta borrar automáticamente cada mensaje publicado.
 - Expiración automática dentro del servicio cada 15 minutos: archiva avisos vencidos y borra sus publicaciones de forma best-effort.
 - `Inicio` incluye hasta 3 avisos activos recientes en el resumen privado.

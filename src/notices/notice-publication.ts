@@ -125,10 +125,7 @@ export async function deleteNoticePublications({
 
 export function formatNoticePublicationMessage(detail: NoticeDetailRecord): string {
   const body = detail.notice.textHtml ?? escapeHtml(detail.notice.text);
-  const footer = [
-    `<i>Aviso de ${escapeHtml(detail.notice.creatorDisplayName)}</i>`,
-    detail.notice.expiresAt ? `<i>Activo hasta ${escapeHtml(formatNoticeDateTime(detail.notice.expiresAt))}</i>` : '<i>Aviso permanente</i>',
-  ].join('\n');
+  const footer = `<i>Aviso de ${escapeHtml(detail.notice.creatorDisplayName)}</i>`;
   return [`<b>Aviso</b>`, body, footer].join('\n\n');
 }
 

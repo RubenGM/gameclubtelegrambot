@@ -2,7 +2,7 @@ import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
-import { createNotice, canArchiveNotice, type NoticeAttachmentRecord, type NoticeDetailRecord, type NoticeRecord, type NoticeRepository } from '../notices/notice-catalog.js';
+import { createNotice, updateNotice, canArchiveNotice, type NoticeAttachmentRecord, type NoticeDetailRecord, type NoticeRecord, type NoticeRepository } from '../notices/notice-catalog.js';
 import { createDatabaseNoticeRepository } from '../notices/notice-catalog-store.js';
 import { deleteNoticePublications, publishNoticeToSubscribedTargets } from '../notices/notice-publication.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
@@ -13,11 +13,13 @@ import { parseDate, parseDurationHours, parseDurationHoursMinutes, parseOptional
 import { buildCreateDurationOptions, buildDateOptions, buildSingleBackCancelKeyboard, scheduleLabels } from './schedule-keyboards.js';
 import { escapeHtml } from './schedule-presentation.js';
 import type { TelegramCommandHandlerContext, TelegramCommandRuntime } from './command-registry.js';
-import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramInlineButton, TelegramReplyOptions } from './runtime-boundary.js';
 
 export const noticeFlowKey = 'notices';
 
 export const noticeCallbackPrefixes = {
+  view: 'notice:view:',
+  edit: 'notice:edit:',
   archiveConfirm: 'notice:archive_confirm:',
   archive: 'notice:archive:',
 } as const;
@@ -170,11 +172,16 @@ export async function handleTelegramNoticeText(context: TelegramCommandHandlerCo
       await flowContext.reply(texts.askDurationMode, buildNoticeDurationModeOptions(language));
       return true;
     }
-    if (text !== texts.confirmCreate) {
-      await flowContext.reply(texts.confirmPrompt, buildNoticeConfirmOptions(language));
+    const confirmText = getNoticeConfirmText(session.data, language);
+    if (text !== confirmText) {
+      await flowContext.reply(getNoticeConfirmPrompt(session.data, language), buildNoticeConfirmOptions(language, session.data));
       return true;
     }
-    await completeNoticeCreate(flowContext, session.data, language);
+    if (isNoticeEditData(session.data)) {
+      await completeNoticeUpdate(flowContext, session.data, language);
+    } else {
+      await completeNoticeCreate(flowContext, session.data, language);
+    }
     return true;
   }
 
@@ -220,6 +227,14 @@ export async function handleTelegramNoticeMessage(context: TelegramCommandHandle
 
 export async function handleTelegramNoticeCallback(context: TelegramCommandHandlerContext): Promise<boolean> {
   const callbackData = context.callbackData ?? '';
+  if (callbackData.startsWith(noticeCallbackPrefixes.view)) {
+    await sendNoticeDetail(context as NoticeFlowContext, parseNoticeCallbackId(callbackData, noticeCallbackPrefixes.view));
+    return true;
+  }
+  if (callbackData.startsWith(noticeCallbackPrefixes.edit)) {
+    await startNoticeEdit(context as NoticeFlowContext, parseNoticeCallbackId(callbackData, noticeCallbackPrefixes.edit));
+    return true;
+  }
   if (callbackData.startsWith(noticeCallbackPrefixes.archiveConfirm)) {
     await sendNoticeArchiveConfirmation(context as NoticeFlowContext, parseNoticeCallbackId(callbackData, noticeCallbackPrefixes.archiveConfirm));
     return true;
@@ -265,7 +280,7 @@ async function sendNoticeMenu(context: NoticeFlowContext): Promise<void> {
   ]);
 
   if (own.length > 0) {
-    const inlineKeyboard = buildNoticeArchiveButtons(own, context);
+    const inlineKeyboard = buildNoticeActionButtons(own, context);
     await context.reply(formatNoticeListMessage({
       header: createTelegramI18n(language).notices.ownHeader,
       empty: createTelegramI18n(language).notices.noOwnNotices,
@@ -274,21 +289,23 @@ async function sendNoticeMenu(context: NoticeFlowContext): Promise<void> {
     }), {
       parseMode: 'HTML',
       ...(inlineKeyboard ? { inlineKeyboard } : {}),
-      ...buildNoticeMenuOptions(language),
     });
   }
 
-  const otherInlineKeyboard = buildNoticeArchiveButtons(others, context);
+  const otherInlineKeyboard = buildNoticeActionButtons(others, context);
+  const otherOptions = otherInlineKeyboard
+    ? { parseMode: 'HTML' as const, inlineKeyboard: otherInlineKeyboard }
+    : { parseMode: 'HTML' as const, ...buildNoticeMenuOptions(language) };
   await context.reply(formatNoticeListMessage({
     header: createTelegramI18n(language).notices.otherHeader,
     empty: createTelegramI18n(language).notices.noOtherNotices,
     notices: others,
     language,
-  }), {
-    parseMode: 'HTML',
-    ...(otherInlineKeyboard ? { inlineKeyboard: otherInlineKeyboard } : {}),
-    ...buildNoticeMenuOptions(language),
-  });
+  }), otherOptions);
+
+  if (otherInlineKeyboard) {
+    await context.reply(createTelegramI18n(language).notices.menuPrompt, buildNoticeMenuOptions(language));
+  }
 }
 
 async function startNoticeCreate(context: NoticeFlowContext): Promise<void> {
@@ -330,11 +347,10 @@ async function handleDurationMinutes(
 
 async function replyNoticeCreateConfirm(context: NoticeFlowContext, data: Record<string, unknown>): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-  const texts = createTelegramI18n(language).notices;
   await context.runtime.session.advance({ stepKey: 'confirm', data });
-  await context.reply(`${texts.confirmPrompt}\n\n${formatNoticeDraftSummary(data, language)}`, {
+  await context.reply(`${getNoticeConfirmPrompt(data, language)}\n\n${formatNoticeDraftSummary(data, language)}`, {
     parseMode: 'HTML',
-    ...buildNoticeConfirmOptions(language),
+    ...buildNoticeConfirmOptions(language, data),
   });
   return true;
 }
@@ -386,6 +402,124 @@ async function completeNoticeCreate(
   await sendNoticeMenu(context);
 }
 
+async function startNoticeEdit(context: NoticeFlowContext, noticeId: number): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).notices;
+  const detail = await resolveNoticeRepository(context).findNoticeDetail(noticeId);
+  if (!detail) {
+    await context.reply(texts.notFound, buildNoticeMenuOptions(language));
+    return;
+  }
+  if (!canManageNotice(detail.notice, context)) {
+    await context.reply(texts.cannotArchive, buildNoticeMenuOptions(language));
+    return;
+  }
+
+  const data = {
+    mode: 'edit',
+    noticeId,
+    text: detail.notice.text,
+    textHtml: detail.notice.textHtml,
+    expiresAt: detail.notice.expiresAt,
+    attachments: detail.attachments,
+  };
+  await context.runtime.session.start({
+    flowKey: noticeFlowKey,
+    stepKey: 'confirm',
+    data,
+  });
+  await context.reply(`${texts.editPrompt}\n\n${formatNoticeDraftSummary(data, language)}`, {
+    parseMode: 'HTML',
+    ...buildNoticeConfirmOptions(language, data),
+  });
+}
+
+async function completeNoticeUpdate(
+  context: NoticeFlowContext,
+  data: Record<string, unknown>,
+  language: BotLanguage,
+): Promise<void> {
+  const texts = createTelegramI18n(language).notices;
+  const repository = resolveNoticeRepository(context);
+  const noticeId = Number(data.noticeId);
+  const current = await repository.findNoticeDetail(noticeId);
+  if (!current) {
+    await context.reply(texts.notFound, buildNoticeMenuOptions(language));
+    return;
+  }
+  if (!canManageNotice(current.notice, context)) {
+    await context.reply(texts.cannotArchive, buildNoticeMenuOptions(language));
+    return;
+  }
+
+  const updated = await updateNotice({
+    repository,
+    noticeId,
+    text: String(data.text ?? ''),
+    textHtml: typeof data.textHtml === 'string' ? data.textHtml : null,
+    expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : null,
+    attachments: asDraftAttachments(data.attachments),
+  });
+  if (!updated || updated.notice.status !== 'active') {
+    await context.reply(texts.notFound, buildNoticeMenuOptions(language));
+    return;
+  }
+
+  const deletion = await deleteNoticePublications({
+    detail: current,
+    noticeRepository: repository,
+    telegram: context.runtime.bot,
+  });
+  const publication = await publishNoticeToSubscribedTargets({
+    detail: updated,
+    noticeRepository: repository,
+    newsGroupRepository: createDatabaseNewsGroupRepository({ database: context.runtime.services.database.db }),
+    telegram: context.runtime.bot,
+    auditRepository: createDatabaseAuditLogRepository({ database: context.runtime.services.database.db }),
+  });
+  await appendAuditEvent({
+    repository: createDatabaseAuditLogRepository({ database: context.runtime.services.database.db }),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'notice.updated',
+    targetType: 'notice',
+    targetId: updated.notice.id,
+    summary: 'Aviso editado manualmente',
+    details: {
+      deletedMessages: deletion.deleted,
+      deleteFailures: deletion.failures,
+      targets: publication.targets,
+      sentMessages: publication.sentMessages,
+      publishFailures: publication.failures,
+    },
+  });
+  await context.runtime.session.cancel();
+  await context.reply(
+    texts.updated
+      .replace('{deleted}', String(deletion.deleted))
+      .replace('{deleteFailures}', String(deletion.failures))
+      .replace('{sent}', String(publication.sentMessages))
+      .replace('{publishFailures}', String(publication.failures)),
+    buildNoticeMenuOptions(language),
+  );
+  await sendNoticeMenu(context);
+}
+
+async function sendNoticeDetail(context: NoticeFlowContext, noticeId: number): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).notices;
+  const detail = await resolveNoticeRepository(context).findNoticeDetail(noticeId);
+  if (!detail) {
+    await context.reply(texts.notFound, buildNoticeMenuOptions(language));
+    return;
+  }
+
+  const inlineKeyboard = buildNoticeDetailButtons(detail.notice, context);
+  await context.reply(formatNoticeDetailMessage(detail, language), {
+    parseMode: 'HTML',
+    ...(inlineKeyboard ? { inlineKeyboard } : {}),
+  });
+}
+
 async function sendNoticeArchiveConfirmation(context: NoticeFlowContext, noticeId: number): Promise<void> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).notices;
@@ -394,11 +528,7 @@ async function sendNoticeArchiveConfirmation(context: NoticeFlowContext, noticeI
     await context.reply(texts.notFound, buildNoticeMenuOptions(language));
     return;
   }
-  if (!canArchiveNotice({
-    notice: detail.notice,
-    actorTelegramUserId: context.runtime.actor.telegramUserId,
-    isAdmin: context.runtime.actor.isAdmin,
-  })) {
+  if (!canManageNotice(detail.notice, context)) {
     await context.reply(texts.cannotArchive, buildNoticeMenuOptions(language));
     return;
   }
@@ -406,7 +536,6 @@ async function sendNoticeArchiveConfirmation(context: NoticeFlowContext, noticeI
   await context.reply(`${texts.archivePrompt}\n\n${formatNoticeSummaryLine(detail.notice, language)}`, {
     parseMode: 'HTML',
     inlineKeyboard: [[{ text: texts.archiveConfirm, callbackData: `${noticeCallbackPrefixes.archive}${noticeId}`, semanticRole: 'danger' }]],
-    ...buildNoticeMenuOptions(language),
   });
 }
 
@@ -419,11 +548,7 @@ async function archiveNoticeFromTelegram(context: NoticeFlowContext, noticeId: n
     await context.reply(texts.notFound, buildNoticeMenuOptions(language));
     return;
   }
-  if (!canArchiveNotice({
-    notice: current.notice,
-    actorTelegramUserId: context.runtime.actor.telegramUserId,
-    isAdmin: context.runtime.actor.isAdmin,
-  })) {
+  if (!canManageNotice(current.notice, context)) {
     await context.reply(texts.cannotArchive, buildNoticeMenuOptions(language));
     return;
   }
@@ -487,6 +612,20 @@ function formatNoticeSummaryLine(notice: NoticeRecord, language: BotLanguage): s
   return `- <b>#${notice.id}</b> ${escapeHtml(truncateNoticeText(notice.text))} · ${escapeHtml(notice.creatorDisplayName)}${escapeHtml(expiry)}${attachmentSuffix}`;
 }
 
+function formatNoticeDetailMessage(detail: NoticeDetailRecord, language: BotLanguage): string {
+  const textHtml = detail.notice.textHtml ?? escapeHtml(detail.notice.text);
+  const expiresAt = detail.notice.expiresAt
+    ? formatNoticeDateTime(detail.notice.expiresAt, language)
+    : createTelegramI18n(language).notices.durationPermanent;
+  return [
+    `<b>${escapeHtml(createTelegramI18n(language).notices.detailHeader.replace('{id}', String(detail.notice.id)))}</b>`,
+    textHtml,
+    `<b>${escapeHtml(createTelegramI18n(language).notices.creatorLabel)}:</b> ${escapeHtml(detail.notice.creatorDisplayName)}`,
+    `<b>${escapeHtml(createTelegramI18n(language).notices.durationLabel)}:</b> ${escapeHtml(expiresAt)}`,
+    `<b>${escapeHtml(createTelegramI18n(language).notices.attachmentsLabel)}:</b> ${detail.attachments.length}`,
+  ].join('\n\n');
+}
+
 function formatNoticeDraftSummary(data: Record<string, unknown>, language: BotLanguage): string {
   const attachments = asDraftAttachments(data.attachments);
   const textHtml = typeof data.textHtml === 'string' ? data.textHtml : escapeHtml(String(data.text ?? ''));
@@ -499,18 +638,32 @@ function formatNoticeDraftSummary(data: Record<string, unknown>, language: BotLa
   ].join('\n\n');
 }
 
-function buildNoticeArchiveButtons(notices: NoticeRecord[], context: NoticeFlowContext) {
+function buildNoticeActionButtons(notices: NoticeRecord[], context: NoticeFlowContext) {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).notices;
-  const rows = notices
-    .filter((notice) => canArchiveNotice({
-      notice,
-      actorTelegramUserId: context.runtime.actor.telegramUserId,
-      isAdmin: context.runtime.actor.isAdmin,
-    }))
-    .slice(0, 8)
-    .map((notice) => [{ text: `${texts.archiveButton} #${notice.id}`, callbackData: `${noticeCallbackPrefixes.archiveConfirm}${notice.id}`, semanticRole: 'danger' as const }]);
+  const rows = notices.slice(0, 8).map((notice) => {
+    const row: TelegramInlineButton[] = [{ text: `${texts.viewButton} #${notice.id}`, callbackData: `${noticeCallbackPrefixes.view}${notice.id}`, semanticRole: 'secondary' }];
+    if (canManageNotice(notice, context)) {
+      row.push(
+        { text: `${texts.editButton} #${notice.id}`, callbackData: `${noticeCallbackPrefixes.edit}${notice.id}`, semanticRole: 'primary' as const },
+        { text: `${texts.archiveButton} #${notice.id}`, callbackData: `${noticeCallbackPrefixes.archiveConfirm}${notice.id}`, semanticRole: 'danger' as const },
+      );
+    }
+    return row;
+  });
   return rows.length > 0 ? rows : undefined;
+}
+
+function buildNoticeDetailButtons(notice: NoticeRecord, context: NoticeFlowContext) {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).notices;
+  if (!canManageNotice(notice, context)) {
+    return undefined;
+  }
+  return [[
+    { text: texts.editButton, callbackData: `${noticeCallbackPrefixes.edit}${notice.id}`, semanticRole: 'primary' as const },
+    { text: texts.archiveButton, callbackData: `${noticeCallbackPrefixes.archiveConfirm}${notice.id}`, semanticRole: 'danger' as const },
+  ]];
 }
 
 function buildNoticeMenuOptions(language: BotLanguage): TelegramReplyOptions {
@@ -548,13 +701,35 @@ function buildNoticeDurationModeOptions(language: BotLanguage): TelegramReplyOpt
   };
 }
 
-function buildNoticeConfirmOptions(language: BotLanguage): TelegramReplyOptions {
+function buildNoticeConfirmOptions(language: BotLanguage, data: Record<string, unknown> = {}): TelegramReplyOptions {
   const texts = createTelegramI18n(language).notices;
   return {
-    replyKeyboard: [[texts.editText, texts.editAttachments], [texts.editDuration], [texts.confirmCreate], ['/cancel']],
+    replyKeyboard: [[texts.editText, texts.editAttachments], [texts.editDuration], [getNoticeConfirmText(data, language)], ['/cancel']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };
+}
+
+function getNoticeConfirmText(data: Record<string, unknown>, language: BotLanguage): string {
+  const texts = createTelegramI18n(language).notices;
+  return isNoticeEditData(data) ? texts.confirmUpdate : texts.confirmCreate;
+}
+
+function getNoticeConfirmPrompt(data: Record<string, unknown>, language: BotLanguage): string {
+  const texts = createTelegramI18n(language).notices;
+  return isNoticeEditData(data) ? texts.editPrompt : texts.confirmPrompt;
+}
+
+function isNoticeEditData(data: Record<string, unknown>): boolean {
+  return data.mode === 'edit' && Number.isInteger(Number(data.noticeId)) && Number(data.noticeId) > 0;
+}
+
+function canManageNotice(notice: NoticeRecord, context: NoticeFlowContext): boolean {
+  return canArchiveNotice({
+    notice,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    isAdmin: context.runtime.actor.isAdmin,
+  });
 }
 
 function resolveNoticeRepository(context: NoticeFlowContext): NoticeRepository {

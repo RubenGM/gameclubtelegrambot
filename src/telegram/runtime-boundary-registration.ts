@@ -362,6 +362,12 @@ function registerNoticeCallbacks({
   bot.onCallback(noticeCallbackPrefixes.archive, async (context) => {
     await handleTelegramNoticeCallback(context);
   });
+  bot.onCallback(noticeCallbackPrefixes.view, async (context) => {
+    await handleTelegramNoticeCallback(context);
+  });
+  bot.onCallback(noticeCallbackPrefixes.edit, async (context) => {
+    await handleTelegramNoticeCallback(context);
+  });
 }
 
 function registerWelcomeTemplateAdminCallbacks({

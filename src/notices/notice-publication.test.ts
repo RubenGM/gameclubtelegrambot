@@ -40,6 +40,8 @@ test('publishNoticeToSubscribedTargets sends notice text and attachments to avis
     { toChatId: -200, messageThreadId: undefined },
   ]);
   assert.deepEqual(publications.map((publication) => publication.publicationKind), ['text', 'attachment', 'text', 'attachment']);
+  assert.equal(groupMessages[0]?.message.includes('Aviso permanente'), false);
+  assert.equal(groupMessages[0]?.message.includes('Activo hasta'), false);
 });
 
 test('deleteNoticePublications deletes every stored publication best effort', async () => {
@@ -102,6 +104,7 @@ function createNoticeRepository(
   let nextPublicationId = 1;
   return {
     createNotice: async () => detail,
+    updateNotice: async () => detail,
     findNoticeDetail: async () => detail,
     listActiveNotices: async () => [detail.notice],
     listDueActiveNotices: async () => [detail],

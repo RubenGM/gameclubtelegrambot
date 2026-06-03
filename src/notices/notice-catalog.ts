@@ -61,6 +61,13 @@ export interface NoticeRepository {
     expiresAt?: string | null;
     attachments?: Array<Omit<NoticeAttachmentRecord, 'id' | 'noticeId' | 'createdAt'>>;
   }): Promise<NoticeDetailRecord>;
+  updateNotice(input: {
+    noticeId: number;
+    text: string;
+    textHtml?: string | null;
+    expiresAt?: string | null;
+    attachments?: Array<Omit<NoticeAttachmentRecord, 'id' | 'noticeId' | 'createdAt'>>;
+  }): Promise<NoticeDetailRecord | null>;
   findNoticeDetail(noticeId: number): Promise<NoticeDetailRecord | null>;
   listActiveNotices(input?: {
     now?: string;
@@ -105,6 +112,33 @@ export async function createNotice({
   return repository.createNotice({
     createdByTelegramUserId: normalizeTelegramUserId(createdByTelegramUserId, 'creador'),
     creatorDisplayName: normalizeRequiredText(creatorDisplayName, 'creatorDisplayName').slice(0, 255),
+    text: normalizeRequiredText(text, 'text'),
+    textHtml: normalizeOptionalText(textHtml),
+    expiresAt: normalizeOptionalIsoDate(expiresAt),
+    attachments,
+  });
+}
+
+export async function updateNotice({
+  repository,
+  noticeId,
+  text,
+  textHtml,
+  expiresAt,
+  attachments = [],
+}: {
+  repository: NoticeRepository;
+  noticeId: number;
+  text: string;
+  textHtml?: string | null;
+  expiresAt?: string | null;
+  attachments?: Array<Omit<NoticeAttachmentRecord, 'id' | 'noticeId' | 'createdAt'>>;
+}): Promise<NoticeDetailRecord | null> {
+  if (!Number.isInteger(noticeId) || noticeId <= 0) {
+    throw new Error('noticeId debe ser positivo');
+  }
+  return repository.updateNotice({
+    noticeId,
     text: normalizeRequiredText(text, 'text'),
     textHtml: normalizeOptionalText(textHtml),
     expiresAt: normalizeOptionalIsoDate(expiresAt),

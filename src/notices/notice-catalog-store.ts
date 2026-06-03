@@ -57,6 +57,46 @@ export function createDatabaseNoticeRepository({
 
       return loadNoticeDetail(database, notice.id);
     },
+    async updateNotice(input) {
+      const updated = await database
+        .update(notices)
+        .set({
+          text: input.text,
+          textHtml: input.textHtml ?? null,
+          expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(notices.id, input.noticeId), eq(notices.status, 'active')))
+        .returning();
+
+      if (!updated[0]) {
+        const existing = await database.select().from(notices).where(eq(notices.id, input.noticeId)).limit(1);
+        return existing[0] ? loadNoticeDetail(database, input.noticeId) : null;
+      }
+
+      await database.delete(noticeAttachments).where(eq(noticeAttachments.noticeId, input.noticeId));
+      const attachmentInputs = input.attachments ?? [];
+      if (attachmentInputs.length > 0) {
+        await database.insert(noticeAttachments).values(
+          attachmentInputs.map((attachment) => ({
+            noticeId: input.noticeId,
+            sourceChatId: attachment.sourceChatId,
+            sourceMessageId: attachment.sourceMessageId,
+            attachmentKind: attachment.attachmentKind,
+            telegramFileId: attachment.telegramFileId,
+            telegramFileUniqueId: attachment.telegramFileUniqueId,
+            caption: attachment.caption,
+            originalFileName: attachment.originalFileName,
+            mimeType: attachment.mimeType,
+            fileSizeBytes: attachment.fileSizeBytes,
+            mediaGroupId: attachment.mediaGroupId,
+            sortOrder: attachment.sortOrder,
+          })),
+        );
+      }
+
+      return loadNoticeDetail(database, input.noticeId);
+    },
     async findNoticeDetail(noticeId) {
       const rows = await database.select().from(notices).where(eq(notices.id, noticeId)).limit(1);
       if (!rows[0]) {
