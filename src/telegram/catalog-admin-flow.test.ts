@@ -572,7 +572,7 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
   assert.match(replies.at(-1)?.message ?? '', /No hay ningún ítem de catálogo disponible ahora mismo\./);
 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
-    ['Crear item', 'Añadir múltiples'],
+    ['Crear ítem', 'Añadir múltiples'],
     ['Préstamos activos'],
     ['Listar juegos de mesa', 'Listar libros'],
     ['Listar libros RPG', 'Listar expansiones'],
@@ -812,7 +812,7 @@ test('handleTelegramCatalogAdminText lets approved non-admin members open the ca
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /No hay ningún ítem de catálogo disponible ahora mismo\./);
 
-  context.messageText = 'Crear item';
+  context.messageText = 'Crear ítem';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-create');
   assert.equal(getCurrentSession()?.stepKey, 'item-type');
@@ -875,7 +875,7 @@ test('handleTelegramCatalogAdminText runs bulk create and sends summary as priva
   context.messageText = 'Root';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession(), null);
-  assert.match(replies.at(-1)?.message ?? '', /Carrega multiple/);
+  assert.match(replies.at(-1)?.message ?? '', /Càrrega múltiple/);
 
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(privateMessages.length, 1);
@@ -944,7 +944,7 @@ test('handleTelegramCatalogAdminText offers unresolved bulk names as copyable te
 test('handleTelegramCatalogAdminText accepts Spanish item type buttons when creating', async () => {
   const { context, getCurrentSession, replies } = createContext({ language: 'es' });
 
-  context.messageText = 'Crear item';
+  context.messageText = 'Crear ítem';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Juego de mesa'],

@@ -2260,7 +2260,7 @@ test('handleTelegramStorageText hides catalog media category from storage naviga
     createCategory({
       id: 8,
       slug: 'catalog-media',
-      displayName: 'Imagenes de catalogo',
+      displayName: 'Imágenes de catálogo',
       storageThreadId: 11,
       categoryPurpose: 'user_uploads',
     }),
@@ -2296,14 +2296,14 @@ test('handleTelegramStorageText hides catalog media category from storage naviga
   await handleTelegramStorageText(context as never);
 
   assert.match(replies.at(-1)?.message ?? '', /Manuales/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Imagenes de catalogo/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Imágenes de catálogo/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_category_8/);
 
   context.messageText = 'Listar categorías';
   await handleTelegramStorageText(context as never);
 
   assert.match(replies.at(-1)?.message ?? '', /Manuales/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Imagenes de catalogo/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Imágenes de catálogo/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_category_8/);
 
   context.messageText = 'Listar tags';

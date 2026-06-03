@@ -40,3 +40,16 @@ test('Telegram API health warning is skipped when it would exceed message length
 
   assert.equal(monitor.appendWarning('12345678901234567890'), '12345678901234567890');
 });
+
+test('Telegram API health warning can be disabled for non-private chats', () => {
+  const monitor = createTelegramApiHealthMonitor({
+    now: () => new Date('2026-05-10T15:00:00.000Z'),
+  });
+  monitor.recordFailure('sendMessage', new Error('timeout'));
+
+  assert.equal(monitor.appendWarning('Hola grupo', { enabled: false }), 'Hola grupo');
+  assert.match(
+    monitor.appendWarning('Hola privado'),
+    /Problemas de conexión con Telegram detectados desde 2026-05-10 17:00:00/,
+  );
+});

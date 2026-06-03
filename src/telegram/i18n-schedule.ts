@@ -221,7 +221,7 @@ export const scheduleTexts = {
     inactiveTableCreate: 'La mesa seleccionada ya no está activa. Vuelve a elegir una mesa activa o continúa sin mesa.',
     inactiveTableEdit: 'La mesa seleccionada ya no está activa. Vuelve a elegir una mesa activa, mantén la mesa actual o elimínala.',
     invalidTableCreate: 'Para continuar, elige una mesa de los botones o selecciona Sin mesa.',
-    invalidTableEdit: 'Para continuar, elige una mesa de los botones, manten el valor actual o selecciona Sin mesa.',
+    invalidTableEdit: 'Para continuar, elige una mesa de los botones, mantén el valor actual o selecciona Sin mesa.',
     noScheduledEvents: 'No hay actividades programadas ahora mismo.',
     noScheduledEventsDay: 'No hay actividades programadas para este día.',
     joinButton: 'Apuntarme',

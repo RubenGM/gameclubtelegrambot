@@ -1,5 +1,11 @@
 # Agent Notes
 
+## Writing and docs
+
+- Spanish and Catalan prose/docs/reports/Markdown: preserve natural orthography,
+  including accents, `ñ`, `ç`, `l·l`, `¿`, `¡`, and normal Unicode. The
+  ASCII-only editing preference does not apply to these artifacts.
+
 ## Service Logs
 
 Use `./scripts/service-journal.sh` to inspect the Telegram bot journal. It sets
@@ -99,6 +105,20 @@ completo, y un valor positivo representa un topic concreto. Los comandos y
 callbacks ejecutados dentro de un topic deben gestionar ese topic; fuera de
 topic gestionan el grupo completo. Al publicar feeds, pasa siempre el
 `messageThreadId` del destino a Telegram.
+
+La feature privada **Avisos** (`/avisos`, `/notices` y botón `Avisos`) permite a
+socios aprobados publicar avisos con texto formateado y adjuntos en los
+grupos/topics suscritos específicamente a la categoría `/news` `avisos`. La
+suscripción es separada de `events` y no tiene alta por defecto. Al crear un
+aviso, si no hay destinos suscritos a `avisos`, el bot debe avisar al usuario
+para que contacte con un admin y no continuar la publicación. Los avisos se
+guardan con estado, creador, vencimiento opcional, adjuntos y una referencia a
+cada mensaje publicado (`chat_id`, `message_thread_id`, `message_id`) para poder
+borrarlos al archivar. Un socio puede archivar sus propios avisos; un admin
+puede archivar cualquier aviso. Al archivar manualmente o por expiración, el
+borrado de mensajes publicados es best-effort y los fallos se registran sin
+deshacer el archivo. `Inicio` muestra como máximo los 3 avisos activos más
+recientes.
 
 Nginx gestiona `80/tcp` y `443/tcp`; el backend `8787/tcp` debe permanecer
 interno y no abrirse en el router. El certificado HTTPS es de Let's Encrypt y

@@ -1,6 +1,6 @@
 # Estado real de features
 
-Ultima revision: 2026-05-29.
+Ultima revision: 2026-06-03.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -17,13 +17,14 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 | Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, canarios/reintentos Telegram, systemd/tray y backups.           |
 | Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname visible, bienvenidas, avisos privados y alta web en `/alta`.     |
-| Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, LFG etiquetado como buscar grupo y ayuda contextual por sección activa.                         |
+| Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG etiquetado como buscar grupo y ayuda contextual por sección activa.                 |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario, avisando impacto con progreso editable.                    |
 | Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y procesos largos con progreso editable. |
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
 | Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `nuevos_miembros`; `/admin/news` resume feeds activos. |
+| Avisos                                       | 🟢 Operativo         | Socios y admins crean avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`, con archivo y expiración.          |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos automáticos a grupos, gestión de participantes y recordatorios.       |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
@@ -45,7 +46,7 @@ Implementado:
 - PostgreSQL con Drizzle, schema central y migraciones en `src/infrastructure/database/schema.ts`.
 - Long polling con `allowed_updates` limitado a `message` y `callback_query` en `src/telegram/runtime-boundary-support.ts`.
 - Capa intermedia de reintentos para envios y operaciones Telegram en `src/telegram/telegram-api-retry.ts`, usada desde el boundary runtime.
-- Canario de salud de Telegram API: detecta fallos transitorios, mantiene estado degradado temporal y añade aviso a mensajes de texto mientras dura la incidencia.
+- Canario de salud de Telegram API: detecta fallos transitorios, mantiene estado degradado temporal y añade aviso a mensajes privados de texto mientras dura la incidencia; no añade ese estado al final de mensajes enviados a grupos.
 - El middleware global de Telegram responde los errores inesperados con el detalle exacto saneado para operador/usuario, en vez de ocultarlos tras un mensaje generico.
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
 - Herramienta `npm run opencode:image` y wrapper `scripts/opencode-cawa.sh` para enviar prompts/imagenes a OpenCode con el usuario operador; usa `openai/gpt-5.4-mini` por defecto y esta pensada como paso previo a búsquedas BGG o traducciones asistidas, no como fuente de metadatos.
@@ -95,8 +96,8 @@ Implementado:
 
 - `/language` y flujo de idioma en privado/grupo.
 - Menu principal dinamico por rol, estado, chat y sesion en `src/telegram/action-menu.ts`.
-- El menu aprobado/admin muestra "LFG (buscar grupo)" y una accion visible para cambiar el nombre mostrado por el bot; el menu admin añade tambien gestion rapida de bienvenidas desde Telegram.
-- `Inicio` y `/start` normal limpian cualquier sesion activa antes de reconstruir la portada, evitando dejar al usuario atrapado con un teclado de `/cancel`.
+- El menu aprobado/admin muestra "LFG (buscar grupo)", "Avisos" y una accion visible para cambiar el nombre mostrado por el bot; el menu admin añade tambien gestion rapida de bienvenidas desde Telegram.
+- `Inicio` y `/start` normal limpian cualquier sesion activa antes de reconstruir la portada, evitando dejar al usuario atrapado con un teclado de `/cancel`, y muestran hasta 3 avisos activos recientes.
 - Ayuda contextual en `src/telegram/command-registry.ts` y seccion activa gestionada desde `runtime-boundary-registration.ts`.
 - Soporte visible para `ca`, `es` y `en`.
 
@@ -222,12 +223,32 @@ Implementado:
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
 - Las respuestas administrativas de `/news` confirman feed y destino por nombre de grupo cuando Telegram lo proporciona, y se borran automaticamente tras 1 minuto para no ensuciar el grupo o topic; las publicaciones reales de feeds se conservan.
 - Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs y altas web (`nuevos_miembros`).
-- Publicación de novedades por categoría concreta (agenda => `events`, LFG, préstecs por tipus d’ítem, altas web => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto como `events` si no tienen ese feed suscrito explícitamente.
+- Publicación de novedades por categoría concreta (agenda => `events`, Avisos => `avisos`, LFG, préstecs por tipus d’ítem, altas web => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto como `events` si no tienen ese feed suscrito explícitamente.
 - `/admin/news` muestra los feeds disponibles y cuántos destinos activos hay suscritos a cada categoría.
 
 Pendiente:
 
 - Ninguna bloquejadora.
+
+## Avisos
+
+Estado: `operativo`.
+
+Implementado:
+
+- Botón privado `Avisos` y comandos `/avisos`/`/notices` para socios aprobados y admins sin distinción de creación.
+- Lista de avisos activos separada en dos mensajes: avisos propios cuando existan y avisos de otros socios siempre, aunque esté vacía.
+- Creación guiada con texto Telegram conservado como HTML seguro, adjuntos múltiples copiados desde el privado, duración permanente, por horas o hasta un día concreto.
+- Antes de crear, si no hay destinos suscritos a la categoría `/news` `avisos`, el bot avisa de que un admin debe configurar el canal/topic y no continúa.
+- Publicación sólo en grupos/topics suscritos específicamente a `avisos`, guardando cada `chat_id`, `message_thread_id` y `message_id` publicado.
+- Archivo manual: el creador puede archivar sus propios avisos y cualquier admin puede archivar cualquier aviso; al archivar se intenta borrar automáticamente cada mensaje publicado.
+- Expiración automática dentro del servicio cada 15 minutos: archiva avisos vencidos y borra sus publicaciones de forma best-effort.
+- `Inicio` incluye hasta 3 avisos activos recientes en el resumen privado.
+- Auditoría de creación, publicación, archivo manual y expiración.
+
+Riesgos o pendientes:
+
+- El borrado de mensajes publicados depende de que el bot tenga permisos adecuados en cada grupo/topic; si Telegram rechaza el borrado, el aviso queda archivado y el fallo se registra.
 
 ## Compras conjuntas
 
@@ -352,6 +373,7 @@ Pendiente:
 | Catalogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Prestamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
 | Compras conjuntas | `src/telegram/group-purchase-flow.test.ts`, `src/group-purchases/*.test.ts` |
+| Avisos | `src/telegram/notice-flow.test.ts`, `src/notices/*.test.ts`, `src/news/news-group-store.test.ts` |
 | Storage | `src/telegram/storage-flow.test.ts`, `src/storage/*.test.ts` |
 | Noticias | `src/telegram/news-group-flow.test.ts`, `src/news/news-group-store.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Operacion | `src/tui/*.test.ts`, `src/operations/*.test.ts`, `src/tray/*.test.ts` |

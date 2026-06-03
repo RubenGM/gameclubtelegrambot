@@ -88,8 +88,17 @@ import {
   handleTelegramNewsGroupText,
   newsGroupCallbackPrefixes,
 } from './news-group-flow.js';
+import {
+  buildNoticeStartSummary,
+  handleTelegramNoticeCallback,
+  handleTelegramNoticeCommand,
+  handleTelegramNoticeMessage,
+  handleTelegramNoticeText,
+  noticeCallbackPrefixes,
+} from './notice-flow.js';
 import { buildTodayAtClubSummary } from './today-at-club-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
+import { renderTelegramMessageTextAsHtml } from './telegram-entity-html.js';
 import {
   groupPurchaseCallbackPrefixes,
   handleTelegramGroupPurchaseCallback,
@@ -193,6 +202,7 @@ export function registerHandlers({
   registerScheduleCallbacks({ bot });
   registerGroupPurchaseCallbacks({ bot });
   registerLfgCallbacks({ bot });
+  registerNoticeCallbacks({ bot });
   registerNewsGroupCallbacks({ bot });
   registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
@@ -273,6 +283,11 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramNoticeText(context)) {
+      setActiveHelpSection(context, 'notices');
+      return;
+    }
+
     if (await handleTelegramVenueEventAdminText(context)) {
       return;
     }
@@ -328,7 +343,24 @@ function registerMessageHandlers({
       return;
     }
 
+    if (await handleTelegramNoticeMessage(context)) {
+      return;
+    }
+
     await handleTelegramStorageMessage(context);
+  });
+}
+
+function registerNoticeCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  bot.onCallback(noticeCallbackPrefixes.archiveConfirm, async (context) => {
+    await handleTelegramNoticeCallback(context);
+  });
+  bot.onCallback(noticeCallbackPrefixes.archive, async (context) => {
+    await handleTelegramNoticeCallback(context);
   });
 }
 
@@ -980,89 +1012,6 @@ function buildWelcomeTemplateHtmlLink(payload: string, label: string, bold = fal
   return `<a href="${escapeHtml(buildTelegramStartUrl(payload))}">${text}</a>`;
 }
 
-function renderTelegramMessageTextAsHtml(
-  text: string,
-  entities: TelegramCommandHandlerContext['messageEntities'],
-): string | null {
-  if (!entities?.length) {
-    return null;
-  }
-
-  const normalizedEntities = entities
-    .map((entity) => ({
-      ...entity,
-      end: entity.offset + entity.length,
-    }))
-    .filter((entity) => entity.offset >= 0 && entity.end <= text.length && entity.length > 0)
-    .sort((left, right) => left.offset - right.offset || right.end - left.end);
-
-  if (normalizedEntities.length === 0) {
-    return null;
-  }
-
-  const renderRange = (start: number, end: number, availableEntities: typeof normalizedEntities): string => {
-    let cursor = start;
-    const parts: string[] = [];
-
-    for (const entity of availableEntities) {
-      if (entity.offset < cursor || entity.offset < start || entity.end > end) {
-        continue;
-      }
-
-      if (entity.offset > cursor) {
-        parts.push(escapeHtml(text.slice(cursor, entity.offset)));
-      }
-
-      const nested = availableEntities.filter((candidate) =>
-        candidate !== entity && candidate.offset >= entity.offset && candidate.end <= entity.end);
-      const inner = renderRange(entity.offset, entity.end, nested);
-      parts.push(wrapTelegramEntityHtml(entity, inner, text.slice(entity.offset, entity.end)));
-      cursor = entity.end;
-    }
-
-    if (cursor < end) {
-      parts.push(escapeHtml(text.slice(cursor, end)));
-    }
-
-    return parts.join('');
-  };
-
-  return renderRange(0, text.length, normalizedEntities);
-}
-
-function wrapTelegramEntityHtml(
-  entity: { type: string; url?: string | undefined },
-  inner: string,
-  rawText: string,
-): string {
-  switch (entity.type) {
-    case 'bold':
-      return `<b>${inner}</b>`;
-    case 'italic':
-      return `<i>${inner}</i>`;
-    case 'underline':
-      return `<u>${inner}</u>`;
-    case 'strikethrough':
-      return `<s>${inner}</s>`;
-    case 'spoiler':
-      return `<tg-spoiler>${inner}</tg-spoiler>`;
-    case 'code':
-      return `<code>${inner}</code>`;
-    case 'pre':
-      return `<pre>${inner}</pre>`;
-    case 'blockquote':
-      return `<blockquote>${inner}</blockquote>`;
-    case 'expandable_blockquote':
-      return `<blockquote expandable>${inner}</blockquote>`;
-    case 'text_link':
-      return entity.url ? `<a href="${escapeHtml(entity.url)}">${inner}</a>` : inner;
-    case 'url':
-      return `<a href="${escapeHtml(rawText)}">${inner}</a>`;
-    default:
-      return inner;
-  }
-}
-
 function truncateWelcomeTemplateText(value: string): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
   return normalized.length > 90 ? `${normalized.slice(0, 87)}...` : normalized;
@@ -1496,6 +1445,32 @@ function createDefaultCommands({
       },
       handle: async (context) => {
         await handleTelegramLfgCommand(context);
+      },
+    },
+    {
+      command: 'notices',
+      contexts: ['private'],
+      access: 'approved',
+      descriptionByLanguage: {
+        ca: 'Consulta i publica avisos del club',
+        es: 'Consulta y publica avisos del club',
+        en: 'View and publish club notices',
+      },
+      handle: async (context) => {
+        await handleTelegramNoticeCommand(context);
+      },
+    },
+    {
+      command: 'avisos',
+      contexts: ['private'],
+      access: 'approved',
+      descriptionByLanguage: {
+        ca: 'Consulta i publica avisos del club',
+        es: 'Consulta y publica avisos del club',
+        en: 'View and publish club notices',
+      },
+      handle: async (context) => {
+        await handleTelegramNoticeCommand(context);
       },
     },
     {
@@ -2006,12 +1981,15 @@ async function buildStartReply({
       isApproved: context.runtime.actor.isApproved,
       language,
     });
-    const todaySummary = await buildTodayAtClubSummaryForStart(context, language);
+    const summaries = [
+      await buildTodayAtClubSummaryForStart(context, language),
+      await buildNoticeStartSummary(context, language),
+    ].filter((summary): summary is string => Boolean(summary));
     const options = await buildReplyOptionsForCurrentActionMenu(context);
 
     return {
-      message: todaySummary ? `${message}\n\n${todaySummary}` : message,
-      options: todaySummary ? { ...options, parseMode: 'HTML' } : options,
+      message: summaries.length > 0 ? `${message}\n\n${summaries.join('\n\n')}` : message,
+      options: summaries.length > 0 ? { ...options, parseMode: 'HTML' } : options,
     };
   }
 
@@ -2620,6 +2598,14 @@ async function handleTelegramActionMenuText(
       const handled = await handleTelegramLfgText(localizedContext);
       if (handled) {
         setActiveHelpSection(context, 'lfg');
+      }
+      return handled;
+    }
+
+    if (selection.actionId === 'notices') {
+      const handled = await handleTelegramNoticeText(localizedContext);
+      if (handled) {
+        setActiveHelpSection(context, 'notices');
       }
       return handled;
     }
