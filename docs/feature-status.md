@@ -123,12 +123,12 @@ Implementado:
 - Sesión LLM conversacional con expiración funcional de 15 minutos dentro del flujo `llm-command`.
 - Lecturas MVP desde repositorios internos para ayuda, agenda, catálogo, préstamos, Storage, avisos, compras conjuntas, LFG y estado básico de `/news`; los resultados se limitan a 5 elementos y derivan a privado si hay más.
 - Métricas saneadas persistidas en `audit_log` con intención, confianza, origen, tipo de chat, resultado, duración y motivo; no guardan texto literal del usuario, prompt completo ni respuesta completa de la LLM.
-- Confirmación LLM previa para escrituras y preparación/delegación a flujos normales para `notice.create`, `lfg.create`, `schedule.join`, `schedule.leave`, `group_purchase.join`, `catalog.loan.create` y `storage.upload.start`; la persistencia final sigue dependiendo de los handlers estándar y sus confirmaciones cuando existan.
+- Confirmación LLM previa para escrituras y preparación/delegación a flujos normales para `notice.create`, `notice.archive`, `lfg.create`, `schedule.join`, `schedule.leave`, `group_purchase.join`, `catalog.loan.create` y `storage.upload.start`; la persistencia final sigue dependiendo de los handlers estándar y sus confirmaciones cuando existan.
 
 Riesgos o pendientes:
 
 - La feature sigue apagada por defecto hasta validación operativa real con OpenCode en despliegue.
-- Falta conectar prellenado equivalente para el resto de escrituras (`schedule.create`, creación/edición de catálogo, creación/edición de compras, archivo de avisos y edición de Storage) sin duplicar reglas de negocio.
+- Falta conectar prellenado equivalente para el resto de escrituras (`schedule.create`, creación/edición de catálogo, creación/edición de compras y edición de Storage) sin duplicar reglas de negocio.
 - Las lecturas MVP son resúmenes básicos; falta UX de detalle largo por privado y selección guiada entre múltiples resultados.
 
 ## Mesas

@@ -8,7 +8,7 @@ import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import { catalogLoanCallbackPrefixes, handleTelegramCatalogLoanCallback } from './catalog-loan-flow.js';
 import { groupPurchaseCallbackPrefixes, handleTelegramGroupPurchaseCallback } from './group-purchase-flow.js';
 import { handleTelegramLfgText } from './lfg-flow.js';
-import { noticeFlowKey, handleTelegramNoticeText } from './notice-flow.js';
+import { noticeCallbackPrefixes, noticeFlowKey, handleTelegramNoticeCallback, handleTelegramNoticeText } from './notice-flow.js';
 import { scheduleCallbackPrefixes, handleTelegramScheduleCallback } from './schedule-flow.js';
 import { storageCallbackPrefixes, handleTelegramStorageCallback, handleTelegramStorageText } from './storage-flow.js';
 import { executeTelegramLlmReadAction } from './llm-command-read-actions.js';
@@ -311,6 +311,17 @@ async function prepareConfirmedWrite(
     });
     await handleTelegramNoticeText({ ...context, messageText: '__llm_prefill__' });
     return true;
+  }
+
+  if (pending.intent === 'notice.archive') {
+    const noticeId = pickNumberParam(pending.params, ['noticeId', 'id']);
+    if (noticeId === null) {
+      return false;
+    }
+    return handleTelegramNoticeCallback({
+      ...context,
+      callbackData: `${noticeCallbackPrefixes.archiveConfirm}${noticeId}`,
+    });
   }
 
   if (pending.intent === 'lfg.create') {
