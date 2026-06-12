@@ -888,14 +888,16 @@ async function handleCatalogAdminQuickBggMetadataImport(
   });
 
   await progress.complete(texts.quickBggMetadataImported);
-  await replyWithCatalogAdminItemDetail(context, updated, language);
+  await replyWithCatalogAdminItemDetail(context, updated, language, {
+    footerLines: await buildQuickBggMetadataNavigationLines(context, updated, language),
+  });
 }
 
 async function replyWithCatalogAdminItemDetail(
   context: TelegramCatalogAdminContext,
   item: CatalogItemRecord,
   language: 'ca' | 'es' | 'en',
-  { full = false }: { full?: boolean } = {},
+  { full = false, footerLines = [] }: { full?: boolean; footerLines?: string[] } = {},
 ): Promise<void> {
   await sendCatalogItemCoverIfPresent(context, { itemId: item.id });
   await context.runtime.session.start({
@@ -905,9 +907,53 @@ async function replyWithCatalogAdminItemDetail(
   });
   await replyWithCatalogAdminItemInspection({
     reply: context.reply,
-    detailsMessage: full ? await formatCatalogItemDetails(context, item) : await formatCatalogItemSummary(context, item),
+    detailsMessage: full
+      ? appendCatalogDetailFooterLines(await formatCatalogItemDetails(context, item), footerLines)
+      : appendCatalogDetailFooterLines(await formatCatalogItemSummary(context, item), footerLines),
     replyKeyboard: await buildCatalogItemDetailReplyKeyboard(context, item, language),
   });
+}
+
+async function buildQuickBggMetadataNavigationLines(
+  context: TelegramCatalogAdminContext,
+  currentItem: CatalogItemRecord,
+  language: 'ca' | 'es' | 'en',
+): Promise<string[]> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const items = await listCatalogItems({ repository: resolveCatalogRepository(context) });
+  const candidates = items
+    .filter((item) => item.id === currentItem.id || isBoardGameGeekReimportRecommended(item))
+    .filter((item) => item.itemType === 'board-game' || item.itemType === 'expansion')
+    .sort(compareCatalogItemsForNavigation);
+  const currentIndex = candidates.findIndex((item) => item.id === currentItem.id);
+  if (currentIndex < 0) {
+    return [];
+  }
+
+  const previous = candidates.slice(0, currentIndex).reverse().find((item) => item.id !== currentItem.id) ?? null;
+  const next = candidates.slice(currentIndex + 1).find((item) => item.id !== currentItem.id) ?? null;
+  const links = [
+    previous ? formatCatalogNavigationLink(texts.quickBggMetadataPrevious, previous) : null,
+    next ? formatCatalogNavigationLink(texts.quickBggMetadataNext, next) : null,
+  ].filter((line): line is string => line !== null);
+  if (links.length === 0) {
+    return [];
+  }
+  return [formatHtmlField(texts.quickBggMetadataNavigation, links.join(' · '))];
+}
+
+function compareCatalogItemsForNavigation(a: CatalogItemRecord, b: CatalogItemRecord): number {
+  const byName = a.displayName.localeCompare(b.displayName, 'ca-ES', { sensitivity: 'base', numeric: true });
+  return byName !== 0 ? byName : a.id - b.id;
+}
+
+function formatCatalogNavigationLink(label: string, item: CatalogItemRecord): string {
+  const url = buildCatalogAdminItemDeepLink(item.id);
+  return `<a href="${escapeHtml(url)}">${escapeHtml(`${label}: ${item.displayName}`)}</a>`;
+}
+
+function appendCatalogDetailFooterLines(message: string, footerLines: string[]): string {
+  return footerLines.length > 0 ? `${message}\n${footerLines.join('\n')}` : message;
 }
 
 async function handleCatalogAdminTranslateDescription(

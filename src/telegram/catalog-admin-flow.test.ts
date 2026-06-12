@@ -611,6 +611,28 @@ test('handleTelegramCatalogAdminText imports a BGG collection and refreshes exis
   const repository = createRepository({
     items: [
       {
+        id: 2,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Before Pending',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: { boardGameGeekId: '12' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '12' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
         id: 3,
         familyId: null,
         groupId: null,
@@ -627,6 +649,50 @@ test('handleTelegramCatalogAdminText imports a BGG collection and refreshes exis
         playTimeMinutes: 60,
         externalRefs: { boardGameGeekId: '101', boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/101' },
         metadata: { source: 'boardgamegeek', boardGameGeekId: '101' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 4,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Next Pending',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: { boardGameGeekId: '14' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '14' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 5,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Fresh BGG Game',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: { boardGameGeekId: '15' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '15', averageWeight: 2.1 },
         lifecycleStatus: 'active',
         createdAt: '2026-04-04T10:00:00.000Z',
         updatedAt: '2026-04-04T10:00:00.000Z',
@@ -2334,12 +2400,34 @@ test('handleTelegramCatalogAdminStartText refreshes only BGG metadata from the q
   const repository = createRepository({
     items: [
       {
+        id: 2,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Before Pending',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: { boardGameGeekId: '12' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '12' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
         id: 3,
         familyId: null,
         groupId: null,
         itemType: 'board-game',
-        displayName: 'Old BGG Game',
-        originalName: 'Old BGG Game',
+        displayName: 'Middle BGG Game',
+        originalName: 'Middle BGG Game',
         description: 'Descripción manual',
         language: 'ES',
         publisher: 'Manual Publisher',
@@ -2350,6 +2438,50 @@ test('handleTelegramCatalogAdminStartText refreshes only BGG metadata from the q
         playTimeMinutes: 90,
         externalRefs: { bggId: '13' },
         metadata: { source: 'boardgamegeek', boardGameGeekId: '13', customFlag: true },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 4,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Next Pending',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: { boardGameGeekId: '14' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '14' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 5,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Fresh BGG Game',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: { boardGameGeekId: '15' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '15', averageWeight: 2.1 },
         lifecycleStatus: 'active',
         createdAt: '2026-04-04T10:00:00.000Z',
         updatedAt: '2026-04-04T10:00:00.000Z',
@@ -2413,10 +2545,10 @@ test('handleTelegramCatalogAdminStartText refreshes only BGG metadata from the q
   context.messageText = '/start catalog_admin_bgg_meta_3';
   assert.equal(await handleTelegramCatalogAdminStartText(context), true);
 
-  assert.deepEqual(importCalls, ['Old BGG Game [API #13]']);
+  assert.deepEqual(importCalls, ['Middle BGG Game [API #13]']);
   assert.deepEqual(translationCalls, []);
   const updated = await repository.findItemById(3);
-  assert.equal(updated?.displayName, 'Old BGG Game');
+  assert.equal(updated?.displayName, 'Middle BGG Game');
   assert.equal(updated?.description, 'Descripción manual');
   assert.equal(updated?.publisher, 'Manual Publisher');
   assert.equal(updated?.publicationYear, 2000);
@@ -2438,7 +2570,14 @@ test('handleTelegramCatalogAdminStartText refreshes only BGG metadata from the q
     mechanics: ['Trading'],
   });
   assert.match(replies[0]?.message ?? '', /Metadatos BGG actualizados/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Reimportación BGG recomendada/);
+  const detailMessage = replies.at(-1)?.message ?? '';
+  assert.doesNotMatch(detailMessage, /Reimportación BGG recomendada/);
+  assert.match(detailMessage, /<b>Navegación BGG pendiente:<\/b>/);
+  assert.match(detailMessage, /catalog_admin_item_2/);
+  assert.match(detailMessage, /Anterior: Before Pending/);
+  assert.match(detailMessage, /catalog_admin_item_4/);
+  assert.match(detailMessage, /Siguiente: Next Pending/);
+  assert.doesNotMatch(detailMessage, /catalog_admin_item_5/);
 });
 
 test('handleTelegramCatalogAdminCallback shows the storage cover before item details', async () => {
