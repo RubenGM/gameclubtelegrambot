@@ -241,18 +241,18 @@ const catalogBggDescriptionTranslationModel = process.env.GAMECLUB_BGG_DESCRIPTI
 const catalogOpencodeBin = process.env.GAMECLUB_OPENCODE_BIN?.trim() || 'opencode';
 
 export const catalogAdminLabels = {
-  openMenu: 'Cataleg',
-  create: 'Crear item',
-  list: 'Llistar items',
+  openMenu: 'Catàleg',
+  create: 'Crear ítem',
+  list: 'Llistar ítems',
   listBoardGames: 'Llistar jocs de taula',
   listExpansions: 'Llistar expansions',
   listBooks: 'Llistar llibres',
   listRpgBooks: 'Llistar llibres RPG',
   searchByName: 'Cerca per nom',
-  importBggCollection: 'Importar col.leccio BGG',
-  edit: 'Editar item',
-  addMedia: 'Afegir media',
-  deactivate: 'Desactivar item',
+  importBggCollection: 'Importar col·lecció BGG',
+  edit: 'Editar ítem',
+  addMedia: 'Afegir mèdia',
+  deactivate: 'Desactivar ítem',
   typeBoardGame: 'Joc de taula',
   typeBook: 'Llibre',
   typeRpgBook: 'Llibre RPG',
@@ -261,30 +261,30 @@ export const catalogAdminLabels = {
   noGroup: 'Sense grup',
   skipOptional: 'Ometre',
   keepCurrent: 'Mantenir valor actual',
-  confirmCreate: 'Guardar item',
+  confirmCreate: 'Guardar ítem',
   confirmEdit: 'Guardar canvis',
-  confirmDeactivate: 'Confirmar desactivacio',
-  confirmMediaCreate: 'Guardar media',
-  confirmMediaEdit: 'Guardar canvis media',
-  confirmMediaDelete: 'Confirmar eliminacio media',
+  confirmDeactivate: 'Confirmar desactivació',
+  confirmMediaCreate: 'Guardar mèdia',
+  confirmMediaEdit: 'Guardar canvis de mèdia',
+  confirmMediaDelete: 'Confirmar eliminació de mèdia',
   mediaTypeImage: 'Imatge',
-  mediaTypeLink: 'Enllac',
+  mediaTypeLink: 'Enllaç',
   mediaTypeDocument: 'Document',
   editFieldDisplayName: 'Nom visible',
   editFieldItemType: 'Tipus',
-  editFieldFamily: 'Familia',
+  editFieldFamily: 'Família',
   editFieldGroup: 'Grup',
   editFieldOriginalName: 'Nom original',
-  editFieldDescription: 'Descripcio',
+  editFieldDescription: 'Descripció',
   editFieldLanguage: 'Llengua',
   editFieldPublisher: 'Editorial',
   editFieldPublicationYear: 'Any publicació',
-  editFieldPlayerMin: 'Minim jugadors',
-  editFieldPlayerMax: 'Maxim jugadors',
+  editFieldPlayerMin: 'Mínim de jugadors',
+  editFieldPlayerMax: 'Màxim de jugadors',
   editFieldRecommendedAge: 'Edat recomanada',
   editFieldPlayTimeMinutes: 'Durada',
-  editFieldExternalRefs: 'Referencies externes',
-  editFieldMetadata: 'Metadata',
+  editFieldExternalRefs: 'Referències externes',
+  editFieldMetadata: 'Metadades',
   importLookupData: 'Importar dades',
   skipLookupImport: 'No importar dades',
   manualWikipediaUrl: 'Entrar URL manualment',
@@ -300,7 +300,7 @@ export const catalogAdminLabels = {
   bulkCreateSummaryNoMatch: 'Sense coincidència clara',
   bulkCreateSummaryAmbiguous: 'Ambigus',
   bulkCreateSummaryError: 'Errors',
-  bulkCreateSummaryManualFallback: 'Pots fer la resta manualment un a un amb aquesta opció: Crear item.',
+  bulkCreateSummaryManualFallback: 'Pots fer la resta manualment un a un amb aquesta opció: Crear ítem.',
   bulkCreateManualButton: 'Afegir manualment',
   bulkCreateComplete: 'Completar',
   bulkCreateCompleted: 'Procés completat.',
@@ -1080,7 +1080,7 @@ async function importCatalogAutocorrectDraft(
     };
   }
 
-  return { ok: false, reason: 'Este tipo de item no tiene una API de autocorreccion configurada.' };
+  return { ok: false, reason: 'Este tipo de ítem no tiene una API de autocorrección configurada.' };
 }
 
 function mapBoardGameAutocorrectImportResult({
@@ -1133,7 +1133,7 @@ function formatCatalogAutocorrectMismatchReason(
   item: CatalogItemRecord,
   draft: CatalogAutocorrectDraft,
 ): string {
-  const returnedTitle = draft.displayName || draft.originalName || 'otro titulo';
+  const returnedTitle = draft.displayName || draft.originalName || 'otro título';
   return `La API ha devuelto "${returnedTitle}" al autocorregir "${item.displayName}". No he actualizado el ítem para evitar reemplazarlo por otro juego.`;
 }
 
@@ -1809,7 +1809,7 @@ function formatCatalogBulkCreateSummary({
 
 function formatCatalogBulkCreateProgress(language: 'ca' | 'es' | 'en', current: number, total: number, itemName: string): string {
   const messages = {
-    ca: `Carrega multiple en curs (${current}/${total}): ${itemName}`,
+    ca: `Càrrega múltiple en curs (${current}/${total}): ${itemName}`,
     es: `Carga múltiple en curso (${current}/${total}): ${itemName}`,
     en: `Bulk load in progress (${current}/${total}): ${itemName}`,
   } as const;
@@ -1818,7 +1818,7 @@ function formatCatalogBulkCreateProgress(language: 'ca' | 'es' | 'en', current: 
 
 function formatCatalogBulkCreateDone(language: 'ca' | 'es' | 'en'): string {
   const messages = {
-    ca: 'Carrega multiple completada. Enviant resum...',
+    ca: 'Càrrega múltiple completada. Enviant resum...',
     es: 'Carga múltiple completada. Enviando resumen...',
     en: 'Bulk load completed. Sending summary...',
   } as const;
@@ -3227,7 +3227,7 @@ async function tryCreateImportedImageMedia(
       });
       return { status: 'created', mediaId: media.id, url: media.url };
     } catch {
-      // La importacion de portada no debe bloquear el alta o sincronizacion del item.
+      // La importación de portada no debe bloquear el alta o sincronización del ítem.
       return { status: 'failed' };
     }
   } catch (error) {
@@ -3237,7 +3237,7 @@ async function tryCreateImportedImageMedia(
       elapsedMs: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),
     }));
-    // La importacion de portada es best-effort y no debe bloquear altas o sincronizaciones.
+    // La importación de portada es best-effort y no debe bloquear altas o sincronizaciones.
     return { status: 'failed' };
   }
 }
@@ -3824,7 +3824,7 @@ function formatBggCollectionImportError(
     return `${texts.bggCollectionImportFailed} BoardGameGeek no terminó de preparar la respuesta al ${stageLabel} para ${error.username}.`;
   }
   if (error.reason === 'no-importable-items') {
-    return `${texts.bggCollectionImportFailed} No he encontrado items importables para ${error.username} al ${stageLabel}${statusLabel}.`;
+    return `${texts.bggCollectionImportFailed} No he encontrado ítems importables para ${error.username} al ${stageLabel}${statusLabel}.`;
   }
   if (error.reason === 'invalid-thing-response') {
     return `${texts.bggCollectionImportFailed} BoardGameGeek devolvió detalles no utilizables para ${error.username}.`;
@@ -3835,7 +3835,7 @@ function formatBggCollectionImportError(
 
 function formatBggCollectionImportReconciling(language: 'ca' | 'es' | 'en', current: number, total: number): string {
   const messages = {
-    ca: `Reconciliant col.leccio BGG (${current}/${total})...`,
+    ca: `Reconciliant col·lecció BGG (${current}/${total})...`,
     es: `Reconciliando colección BGG (${current}/${total})...`,
     en: `Reconciling BGG collection (${current}/${total})...`,
   } as const;

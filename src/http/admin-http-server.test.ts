@@ -507,7 +507,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     const configPage = await fetch(`${baseUrl}/admin/config`, { headers: { cookie } });
     assert.equal(configPage.status, 200);
     const configHtml = await configPage.text();
-    assert.match(configHtml, /Configuracion tecnica/);
+    assert.match(configHtml, /Configuración técnica/);
     assert.match(configHtml, /Runtime config/);
     assert.match(configHtml, /Nou token de Telegram/);
     assert.doesNotMatch(configHtml, /Logs/);
@@ -594,7 +594,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.equal(adminStorageRootPage.status, 200);
     const adminStorageRootHtml = await adminStorageRootPage.text();
     assert.match(adminStorageRootHtml, /Storage admin/);
-    assert.match(adminStorageRootHtml, /Categorias principales/);
+    assert.match(adminStorageRootHtml, /Categorías principales/);
     assert.match(adminStorageRootHtml, /Reglamentos/);
     assert.match(adminStorageRootHtml, /\/admin\/storage\?categoryId=3/);
     assert.doesNotMatch(adminStorageRootHtml, /Manual de campaña/);
@@ -602,7 +602,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     const adminStorageCategoryPage = await fetch(`${baseUrl}/admin/storage?categoryId=3`, { headers: { cookie } });
     assert.equal(adminStorageCategoryPage.status, 200);
     const adminStorageCategoryHtml = await adminStorageCategoryPage.text();
-    assert.match(adminStorageCategoryHtml, /Categoria: Reglamentos/);
+    assert.match(adminStorageCategoryHtml, /Categoría: Reglamentos/);
     assert.match(adminStorageCategoryHtml, /Ayudas de juego/);
     assert.match(adminStorageCategoryHtml, /Manual de campaña/);
     assert.match(adminStorageCategoryHtml, /Entradas directas/);

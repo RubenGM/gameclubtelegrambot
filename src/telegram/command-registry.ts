@@ -28,7 +28,8 @@ export type TelegramHelpSection =
   | 'catalog'
   | 'group_purchases'
   | 'storage'
-  | 'lfg';
+  | 'lfg'
+  | 'notices';
 
 export interface TelegramCommandRuntime {
   bot: {
@@ -201,6 +202,7 @@ export function renderTelegramHelpMessage({
     lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
     lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
     lines.push(`${i18n.actionMenu.lfg}: ${i18n.common.helpLfgAction}`);
+    lines.push(`${i18n.actionMenu.notices}: ${i18n.common.helpNoticesAction}`);
     lines.push(`${i18n.actionMenu.welcomeTemplates}: ${i18n.common.helpWelcomeTemplatesAction}`);
     lines.push(`${i18n.actionMenu.changeDisplayName}: ${i18n.common.helpChangeDisplayNameAction}`);
     lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
@@ -215,6 +217,7 @@ export function renderTelegramHelpMessage({
   lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
   lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
   lines.push(`${i18n.actionMenu.lfg}: ${i18n.common.helpLfgAction}`);
+  lines.push(`${i18n.actionMenu.notices}: ${i18n.common.helpNoticesAction}`);
   lines.push(`${i18n.actionMenu.changeDisplayName}: ${i18n.common.helpChangeDisplayNameAction}`);
   lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
   lines.push('');
@@ -240,6 +243,7 @@ function helpTextForSection(
       `${actionMenu.storage}: ${common.helpStorageAction}`,
       `${actionMenu.groupPurchases}: ${common.helpGroupPurchasesAction}`,
       `${actionMenu.lfg}: ${common.helpLfgAction}`,
+      `${actionMenu.notices}: ${common.helpNoticesAction}`,
       `${actionMenu.welcomeTemplates}: ${common.helpWelcomeTemplatesAction}`,
       `${actionMenu.changeDisplayName}: ${common.helpChangeDisplayNameAction}`,
       `${actionMenu.language}: ${common.helpLanguageAction}`,
@@ -255,6 +259,7 @@ function helpTextForSection(
       `${actionMenu.storage}: ${common.helpStorageAction}`,
       `${actionMenu.groupPurchases}: ${common.helpGroupPurchasesAction}`,
       `${actionMenu.lfg}: ${common.helpLfgAction}`,
+      `${actionMenu.notices}: ${common.helpNoticesAction}`,
       `${actionMenu.changeDisplayName}: ${common.helpChangeDisplayNameAction}`,
       `${actionMenu.language}: ${common.helpLanguageAction}`,
     ].join('\n');
@@ -309,6 +314,14 @@ function helpTextForSection(
       `${common.helpSectionHeader} ${actionMenu.storage}`,
       common.helpContextStorage,
       common.helpSectionStorageDetail,
+    ].join('\n');
+  }
+
+  if (section === 'notices') {
+    return [
+      `${common.helpSectionHeader} ${actionMenu.notices}`,
+      common.helpSectionNoticesDetail,
+      common.helpContextNotices,
     ].join('\n');
   }
 

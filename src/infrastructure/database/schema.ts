@@ -387,12 +387,87 @@ export const newsGroupSubscriptions = pgTable(
   }),
 );
 
+export const notices = pgTable(
+  'notices',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    creatorDisplayName: varchar('creator_display_name', { length: 255 }).notNull(),
+    text: text('text').notNull(),
+    textHtml: text('text_html'),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    archivedByTelegramUserId: bigint('archived_by_telegram_user_id', { mode: 'number' }).references(() => users.telegramUserId),
+    archiveReason: text('archive_reason'),
+  },
+  (table) => ({
+    statusLookup: index('notices_status_idx').on(table.status),
+    creatorLookup: index('notices_created_by_telegram_user_id_idx').on(table.createdByTelegramUserId),
+    expiresAtLookup: index('notices_expires_at_idx').on(table.expiresAt),
+    createdAtLookup: index('notices_created_at_idx').on(table.createdAt),
+  }),
+);
+
+export const noticeAttachments = pgTable(
+  'notice_attachments',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    noticeId: bigint('notice_id', { mode: 'number' })
+      .notNull()
+      .references(() => notices.id, { onDelete: 'cascade' }),
+    sourceChatId: bigint('source_chat_id', { mode: 'number' }).notNull(),
+    sourceMessageId: integer('source_message_id').notNull(),
+    attachmentKind: varchar('attachment_kind', { length: 16 }).notNull(),
+    telegramFileId: text('telegram_file_id'),
+    telegramFileUniqueId: text('telegram_file_unique_id'),
+    caption: text('caption'),
+    originalFileName: text('original_file_name'),
+    mimeType: text('mime_type'),
+    fileSizeBytes: integer('file_size_bytes'),
+    mediaGroupId: varchar('media_group_id', { length: 128 }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    noticeLookup: index('notice_attachments_notice_id_idx').on(table.noticeId),
+  }),
+);
+
+export const noticePublications = pgTable(
+  'notice_publications',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    noticeId: bigint('notice_id', { mode: 'number' })
+      .notNull()
+      .references(() => notices.id, { onDelete: 'cascade' }),
+    chatId: bigint('chat_id', { mode: 'number' }).notNull(),
+    messageThreadId: integer('message_thread_id').notNull().default(0),
+    messageId: integer('message_id').notNull(),
+    publicationKind: varchar('publication_kind', { length: 16 }).notNull(),
+    attachmentId: bigint('attachment_id', { mode: 'number' }).references(() => noticeAttachments.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => ({
+    noticeLookup: index('notice_publications_notice_id_idx').on(table.noticeId),
+    destinationLookup: index('notice_publications_destination_idx').on(table.chatId, table.messageThreadId),
+    uniqueMessage: uniqueIndex('notice_publications_message_unique').on(table.chatId, table.messageId),
+  }),
+);
+
 export const groupPurchases = pgTable(
   'group_purchases',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     title: varchar('title', { length: 255 }).notNull(),
     description: text('description'),
+    detailsMessageChatId: bigint('details_message_chat_id', { mode: 'number' }),
+    detailsMessageId: bigint('details_message_id', { mode: 'number' }),
     purchaseMode: varchar('purchase_mode', { length: 16 }).notNull(),
     lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('open'),
     createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })

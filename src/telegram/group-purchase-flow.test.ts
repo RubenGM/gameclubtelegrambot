@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log.js';
-import type { NewsGroupRecord, NewsGroupRepository, NewsGroupSubscriptionRecord } from '../news/news-group-catalog.js';
+import {
+  groupPurchaseNewsGroupCategory,
+  resolveNewsGroupCategory,
+  type NewsGroupRecord,
+  type NewsGroupRepository,
+  type NewsGroupSubscriptionRecord,
+} from '../news/news-group-catalog.js';
 import type {
   GroupPurchaseDetailRecord,
   GroupPurchaseFieldRecord,
@@ -54,6 +60,8 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
         id: purchaseId,
         title: input.title,
         description: input.description,
+        detailsMessageChatId: input.detailsMessageChatId ?? null,
+        detailsMessageId: input.detailsMessageId ?? null,
         purchaseMode: input.purchaseMode,
         lifecycleStatus: 'open',
         createdByTelegramUserId: input.createdByTelegramUserId,
@@ -98,6 +106,8 @@ function createRepository(initialPurchases: GroupPurchaseRecord[] = []): GroupPu
         ...existing,
         title: input.title,
         description: input.description,
+        detailsMessageChatId: Object.hasOwn(input, 'detailsMessageChatId') ? input.detailsMessageChatId ?? null : existing.detailsMessageChatId,
+        detailsMessageId: Object.hasOwn(input, 'detailsMessageId') ? input.detailsMessageId ?? null : existing.detailsMessageId,
         joinDeadlineAt: input.joinDeadlineAt,
         confirmDeadlineAt: input.confirmDeadlineAt,
         totalPriceCents: input.totalPriceCents,
@@ -212,7 +222,17 @@ function createAuditRepository(): AuditLogRepository & { __events: AuditLogEvent
   };
 }
 
-function createNewsGroupRepository(initialGroups: NewsGroupRecord[] = []): NewsGroupRepository {
+function createNewsGroupRepository(
+  initialGroups: NewsGroupRecord[] = [],
+  initialSubscriptions: NewsGroupSubscriptionRecord[] = [],
+): NewsGroupRepository {
+  const subscriptions = new Map<string, NewsGroupSubscriptionRecord>(
+    initialSubscriptions.map((subscription) => [
+      `${subscription.chatId}:${subscription.messageThreadId ?? 0}:${subscription.categoryKey}`,
+      subscription,
+    ]),
+  );
+
   return {
     async findGroupByChatId(chatId) {
       return initialGroups.find((group) => group.chatId === chatId) ?? null;
@@ -223,8 +243,10 @@ function createNewsGroupRepository(initialGroups: NewsGroupRecord[] = []): NewsG
     async upsertGroup() {
       throw new Error('not implemented');
     },
-    async listSubscriptionsByChatId(): Promise<NewsGroupSubscriptionRecord[]> {
-      return [];
+    async listSubscriptionsByChatId(chatId, input = {}): Promise<NewsGroupSubscriptionRecord[]> {
+      return Array.from(subscriptions.values())
+        .filter((subscription) => subscription.chatId === chatId)
+        .filter((subscription) => !('messageThreadId' in input) || subscription.messageThreadId === (input.messageThreadId ?? null));
     },
     async upsertSubscription() {
       throw new Error('not implemented');
@@ -232,8 +254,24 @@ function createNewsGroupRepository(initialGroups: NewsGroupRecord[] = []): NewsG
     async deleteSubscription() {
       return false;
     },
-    async listSubscribedGroupsByCategory() {
-      return initialGroups.filter((group) => group.isEnabled).map((group) => ({ ...group, messageThreadId: null }));
+    async listSubscribedGroupsByCategory(categoryKey) {
+      const explicit = Array.from(subscriptions.values())
+        .filter((subscription) => subscription.categoryKey === categoryKey)
+        .flatMap((subscription) => {
+          const group = initialGroups.find((candidate) => candidate.chatId === subscription.chatId);
+          return group?.isEnabled ? [{ ...group, messageThreadId: subscription.messageThreadId }] : [];
+        });
+
+      if (!resolveNewsGroupCategory(categoryKey)?.defaultSubscribed) {
+        return explicit;
+      }
+
+      const explicitChatIds = new Set(explicit.map((group) => group.chatId));
+      const defaults = initialGroups
+        .filter((group) => group.isEnabled && !explicitChatIds.has(group.chatId))
+        .map((group) => ({ ...group, messageThreadId: null }));
+
+      return [...explicit, ...defaults];
     },
     async isNewsEnabledGroup(chatId) {
       return initialGroups.some((group) => group.chatId === chatId && group.isEnabled);
@@ -258,13 +296,19 @@ function createContext(
   context: TelegramCommandHandlerContext;
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
   privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }>;
-  groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }>;
+  groupMessages: Array<{ chatId: number; messageId: number; message: string; options?: TelegramReplyOptions }>;
+  forwardedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number }>;
+  deletedMessages: Array<{ chatId: number; messageId: number }>;
   getCurrentSession(): ConversationSessionRecord | null;
 } {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }> = [];
-  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const groupMessages: Array<{ chatId: number; messageId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const forwardedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number }> = [];
+  const deletedMessages: Array<{ chatId: number; messageId: number }> = [];
+  const metadataRecords = new Map<string, string>();
   let currentSession: ConversationSessionRecord | null = null;
+  let nextGroupMessageId = 1000;
 
   return {
     context: {
@@ -281,7 +325,16 @@ function createContext(
             privateMessages.push({ telegramUserId, message, ...(options ? { options } : {}) });
           },
           sendGroupMessage: async (chatId: number, message: string, options?: TelegramReplyOptions) => {
-            groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
+            const messageId = nextGroupMessageId++;
+            groupMessages.push({ chatId, messageId, message, ...(options ? { options } : {}) });
+            return { messageId };
+          },
+          forwardMessage: async ({ fromChatId, messageId, toChatId }: { fromChatId: number; messageId: number; toChatId: number }) => {
+            forwardedMessages.push({ fromChatId, messageId, toChatId });
+            return { messageId: messageId + 1 };
+          },
+          deleteMessage: async ({ chatId, messageId }: { chatId: number; messageId: number }) => {
+            deletedMessages.push({ chatId, messageId });
           },
         },
         services: {
@@ -340,12 +393,30 @@ function createContext(
         },
       },
       groupPurchaseRepository: repository,
+      groupPurchaseSnapshotStorage: {
+        async get(key: string) {
+          return metadataRecords.get(key) ?? null;
+        },
+        async set(key: string, value: string) {
+          metadataRecords.set(key, value);
+        },
+        async delete(key: string) {
+          return metadataRecords.delete(key);
+        },
+        async listByPrefix(prefix: string) {
+          return Array.from(metadataRecords.entries())
+            .filter(([key]) => key.startsWith(prefix))
+            .map(([key, value]) => ({ key, value }));
+        },
+      },
       auditRepository,
       newsGroupRepository,
     } as unknown as TelegramCommandHandlerContext,
     replies,
     privateMessages,
     groupMessages,
+    forwardedMessages,
+    deletedMessages,
     getCurrentSession() {
       return currentSession;
     },
@@ -357,6 +428,8 @@ function buildPurchase(overrides: Partial<GroupPurchaseRecord> = {}): GroupPurch
     id: 7,
     title: 'Pedido de dados',
     description: 'Compra conjunta',
+    detailsMessageChatId: null,
+    detailsMessageId: null,
     purchaseMode: 'per_item',
     lifecycleStatus: 'open',
     createdByTelegramUserId: 42,
@@ -548,7 +621,7 @@ test('create flow shows a summary before saving the purchase', async () => {
 
   assert.deepEqual(replies.at(-1), {
     message:
-      'Revisa el resum abans de guardar:\n\nTitol: Pedido de dados\nDescripcio: Compra conjunta\nMode: Per unitats\nPreu unitari: 1.25 EUR\nUnitat visible: dado\nData limit per apuntar-se: Sense data limit\nData limit per confirmar-se: Sense data limit\nCamps:\n- Cantidad (numero, quantitat)',
+      'Revisa el resum abans de guardar:\n\nTitol: Pedido de dados\nDescripció: Compra conjunta\nMode: Per unitats\nPreu unitari: 1.25 EUR\nUnitat visible: dado\nData limit per apuntar-se: Sense data limit\nData limit per confirmar-se: Sense data limit\nCamps:\n- Cantidad (número, quantitat)',
     options: {
       replyKeyboard: [[successButton('Guardar compra')], [dangerButton('/cancel')]],
       resizeKeyboard: true,
@@ -584,7 +657,18 @@ test('create flow does not let per-item purchases continue without a quantity fi
 
 test('shared-cost create flow can skip configurable fields and save directly', async () => {
   const repository = createRepository();
-  const { context, getCurrentSession } = createContext(repository);
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ]);
+  const { context, getCurrentSession, groupMessages } = createContext(repository, { newsGroupRepository });
 
   for (const messageText of ['Crear compra', 'Juego conjunto', 'Compra compartida', 'Cost compartit', '50', 'Ometre', 'Ometre', 'Seguir', 'Guardar compra']) {
     context.messageText = messageText;
@@ -595,6 +679,126 @@ test('shared-cost create flow can skip configurable fields and save directly', a
   const purchases = await repository.listPurchases();
   assert.equal(purchases.length, 1);
   assert.equal(purchases[0]?.purchaseMode, 'shared_cost');
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.chatId, -200);
+  assert.equal(groupMessages[0]?.options?.messageThreadId, undefined);
+  assert.match(groupMessages[0]?.message ?? '', /Nueva compra conjunta disponible/);
+  assert.match(groupMessages[0]?.message ?? '', /Juego conjunto/);
+  assert.match(groupMessages[0]?.message ?? '', /Coste total: 50,00€/);
+  assert.match(groupMessages[0]?.message ?? '', /Usuarios confirmados actualmente: 0/);
+});
+
+test('shared-cost create flow publishes to group-purchase news destinations by group and topic', async () => {
+  const repository = createRepository();
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+    {
+      chatId: -201,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ], [
+    {
+      chatId: -200,
+      messageThreadId: null,
+      categoryKey: groupPurchaseNewsGroupCategory,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+    },
+    {
+      chatId: -201,
+      messageThreadId: 77,
+      categoryKey: groupPurchaseNewsGroupCategory,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+    },
+  ]);
+  const { context, groupMessages } = createContext(repository, { newsGroupRepository });
+
+  for (const messageText of ['Crear compra', 'Juego conjunto', 'Compra compartida', 'Cost compartit', '50', 'Ometre', 'Ometre', 'Seguir', 'Guardar compra']) {
+    context.messageText = messageText;
+    await handleTelegramGroupPurchaseText(context);
+  }
+
+  assert.deepEqual(groupMessages.map((message) => ({
+    chatId: message.chatId,
+    messageThreadId: message.options?.messageThreadId ?? null,
+  })), [
+    { chatId: -200, messageThreadId: null },
+    { chatId: -201, messageThreadId: 77 },
+  ]);
+  assert.match(groupMessages[0]?.message ?? '', /Nueva compra conjunta disponible/);
+  assert.match(groupMessages[1]?.message ?? '', /Nueva compra conjunta disponible/);
+});
+
+test('create flow stores a rich description message and publishes the open-description link', async () => {
+  const repository = createRepository();
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ]);
+  const { context, groupMessages, forwardedMessages } = createContext(repository, { newsGroupRepository });
+
+  context.messageText = 'Crear compra';
+  await handleTelegramGroupPurchaseText(context);
+  context.messageText = 'Tapetes personalizados';
+  await handleTelegramGroupPurchaseText(context);
+  delete context.messageText;
+  context.messageId = 501;
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'photo-1',
+    fileUniqueId: 'photo-u1',
+    caption: 'Tapete con imagen de ejemplo',
+    originalFileName: null,
+    mimeType: null,
+    fileSizeBytes: null,
+    mediaGroupId: null,
+    messageId: 501,
+  };
+  await handleTelegramGroupPurchaseText(context);
+  delete context.messageMedia;
+
+  for (const messageText of ['Cost compartit', '50', 'Ometre', 'Ometre', 'Seguir', 'Guardar compra']) {
+    context.messageText = messageText;
+    await handleTelegramGroupPurchaseText(context);
+  }
+
+  const purchases = await repository.listPurchases();
+  assert.equal(purchases[0]?.description, 'Tapete con imagen de ejemplo');
+  assert.equal(purchases[0]?.detailsMessageChatId, 1);
+  assert.equal(purchases[0]?.detailsMessageId, 501);
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /start=group_purchase_details_1/);
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /Tapete con imagen de ejemplo/);
+  assert.deepEqual(groupMessages[0]?.options?.inlineKeyboard, [
+    [{ text: 'Detalle de compra conjunta', url: 'https://t.me/cawa_management_bot?start=group_purchase_1' }],
+    [{ text: 'Descripción', url: 'https://t.me/cawa_management_bot?start=group_purchase_details_1' }],
+    [{ text: 'Participar', url: 'https://t.me/cawa_management_bot?start=group_purchase_join_1' }],
+  ]);
+
+  context.messageText = '/start group_purchase_details_1';
+  await handleTelegramGroupPurchaseStartText(context);
+
+  assert.deepEqual(forwardedMessages, [{ fromChatId: 1, messageId: 501, toChatId: 1 }]);
 });
 
 test('handleTelegramGroupPurchaseText completes a per-item create flow and saves the purchase', async () => {
@@ -639,7 +843,7 @@ test('handleTelegramGroupPurchaseCallback starts the participant field flow when
     purchaseMode: 'per_item',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-06-30T21:00:00.000Z',
     totalPriceCents: null,
     unitPriceCents: 125,
     unitLabel: 'dado',
@@ -674,7 +878,7 @@ test('participant field flow saves answers and enables self confirmation', async
     purchaseMode: 'per_item',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-06-30T21:00:00.000Z',
     totalPriceCents: null,
     unitPriceCents: 125,
     unitLabel: 'dado',
@@ -722,7 +926,7 @@ test('participant can join as confirmed and still complete required field answer
     purchaseMode: 'per_item',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-06-30T21:00:00.000Z',
     totalPriceCents: null,
     unitPriceCents: 125,
     unitLabel: 'dado',
@@ -763,7 +967,7 @@ test('participant can reopen the field flow to edit their own answers', async ()
     purchaseMode: 'per_item',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-06-30T21:00:00.000Z',
     totalPriceCents: null,
     unitPriceCents: 125,
     unitLabel: 'dado',
@@ -807,7 +1011,7 @@ test('participant can leave an active group purchase', async () => {
     purchaseMode: 'per_item',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-06-30T21:00:00.000Z',
     totalPriceCents: null,
     unitPriceCents: 125,
     unitLabel: 'dado',
@@ -851,10 +1055,46 @@ test('creator detail view exposes participant management actions', async () => {
     [{ text: 'Apuntar-me com interessat', callbackData: 'group_purchase:join_interested:7' }],
     [{ text: 'Apuntar-me i confirmar', callbackData: 'group_purchase:join_confirmed:7' }],
     [{ text: 'Editar compra', callbackData: 'group_purchase:edit_purchase:7' }],
+    [{ text: 'Editar descripció', callbackData: 'group_purchase:edit_description:7' }],
     [{ text: 'Gestionar participants', callbackData: 'group_purchase:manage_participants:7' }],
-    [{ text: 'Publicar missatge', callbackData: 'group_purchase:publish_message:7' }],
-    [{ text: 'Publicar en grup', callbackData: 'group_purchase:publish_group:7' }],
     [{ text: 'Cerrar compra', callbackData: 'group_purchase:lifecycle:7:closed' }, { text: 'Cancelar compra', callbackData: 'group_purchase:lifecycle:7:cancelled' }, { text: 'Archivar', callbackData: 'group_purchase:lifecycle:7:archived' }],
+  ]);
+});
+
+test('participant without custom fields does not see the no-op edit values action', async () => {
+  const repository = createRepository([buildPurchase({ id: 58 })]);
+  await repository.upsertParticipant({ purchaseId: 58, participantTelegramUserId: 7, status: 'interested' });
+  const { context, replies } = createContext(repository);
+  context.messageText = '/start group_purchase_58';
+
+  await handleTelegramGroupPurchaseStartText(context);
+
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
+    [{ text: 'Desapuntar-me', callbackData: 'group_purchase:leave:58' }],
+    [{ text: 'Confirmar-me', callbackData: 'group_purchase:confirm:58' }],
+  ]);
+});
+
+test('group purchase join deep link asks privately whether to confirm now', async () => {
+  const repository = createRepository([buildPurchase({
+    id: 59,
+    title: 'Harmonies',
+    purchaseMode: 'shared_cost',
+    totalPriceCents: 4000,
+    unitPriceCents: null,
+    unitLabel: null,
+  })]);
+  const { context, replies } = createContext(repository);
+  context.messageText = '/start group_purchase_join_59';
+
+  await handleTelegramGroupPurchaseStartText(context);
+
+  assert.match(replies[0]?.message ?? '', /Harmonies/);
+  assert.match(replies[0]?.message ?? '', /confirmar tu participación ahora/);
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
+    [{ text: 'Confirmarme ahora', callbackData: 'group_purchase:join_confirmed:59' }],
+    [{ text: 'Apuntarme sin confirmar', callbackData: 'group_purchase:join_interested:59' }],
+    [{ text: 'Ver detalle', url: 'https://t.me/cawa_management_bot?start=group_purchase_59' }],
   ]);
 });
 
@@ -891,7 +1131,7 @@ test('participant can join directly as confirmed when the purchase is open', asy
     purchaseMode: 'shared_cost',
     createdByTelegramUserId: 42,
     joinDeadlineAt: null,
-    confirmDeadlineAt: '2026-05-30T21:00:00.000Z',
+    confirmDeadlineAt: '2026-06-30T21:00:00.000Z',
     totalPriceCents: 5000,
     unitPriceCents: null,
     unitLabel: null,
@@ -928,6 +1168,106 @@ test('creator can edit purchase title and description', async () => {
   assert.equal(purchase?.title, 'Pedido de dados premium');
   assert.equal(purchase?.description, 'Nueva descripcion');
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'group_purchase.updated');
+});
+
+test('editing a purchase publishes the updated summary with its description link', async () => {
+  const repository = createRepository([buildPurchase({
+    id: 52,
+    createdByTelegramUserId: 7,
+    purchaseMode: 'shared_cost',
+    detailsMessageChatId: 1,
+    detailsMessageId: 555,
+    totalPriceCents: 6000,
+    unitPriceCents: null,
+    unitLabel: null,
+  })]);
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ]);
+  const { context, groupMessages, deletedMessages } = createContext(repository, { newsGroupRepository });
+
+  context.callbackData = 'group_purchase:edit_purchase:52';
+  await handleTelegramGroupPurchaseCallback(context);
+  delete context.callbackData;
+  context.messageText = 'Tapetes premium';
+  await handleTelegramGroupPurchaseText(context);
+  context.messageId = 777;
+  context.messageText = 'Nueva descripcion con foto';
+  await handleTelegramGroupPurchaseText(context);
+
+  const purchase = await repository.findPurchaseById(52);
+  assert.equal(purchase?.description, 'Nueva descripcion con foto');
+  assert.equal(purchase?.detailsMessageId, 777);
+  assert.deepEqual(deletedMessages, [{ chatId: 1, messageId: 555 }]);
+  assert.equal(groupMessages.length, 1);
+  assert.match(groupMessages[0]?.message ?? '', /Compra conjunta actualizada/);
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /Nueva compra conjunta disponible/);
+  assert.match(groupMessages[0]?.message ?? '', /Tapetes premium/);
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /start=group_purchase_details_52/);
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /Nueva descripcion con foto/);
+  assert.deepEqual(groupMessages[0]?.options?.inlineKeyboard, [
+    [{ text: 'Detalle de compra conjunta', url: 'https://t.me/cawa_management_bot?start=group_purchase_52' }],
+    [{ text: 'Descripción', url: 'https://t.me/cawa_management_bot?start=group_purchase_details_52' }],
+    [{ text: 'Participar', url: 'https://t.me/cawa_management_bot?start=group_purchase_join_52' }],
+  ]);
+});
+
+test('creator can edit only the purchase description from the detail action', async () => {
+  const repository = createRepository([buildPurchase({
+    id: 54,
+    title: 'Tapetes',
+    createdByTelegramUserId: 7,
+    description: 'Descripcion anterior',
+    detailsMessageChatId: 1,
+    detailsMessageId: 700,
+  })]);
+  const { context, deletedMessages } = createContext(repository);
+
+  context.callbackData = 'group_purchase:edit_description:54';
+  await handleTelegramGroupPurchaseCallback(context);
+  delete context.callbackData;
+  context.messageId = 701;
+  context.messageText = 'Descripcion nueva';
+  await handleTelegramGroupPurchaseText(context);
+
+  const purchase = await repository.findPurchaseById(54);
+  assert.equal(purchase?.title, 'Tapetes');
+  assert.equal(purchase?.description, 'Descripcion nueva');
+  assert.equal(purchase?.detailsMessageId, 701);
+  assert.deepEqual(deletedMessages, [{ chatId: 1, messageId: 700 }]);
+});
+
+test('clearing a purchase description deletes the previous details message', async () => {
+  const repository = createRepository([buildPurchase({
+    id: 53,
+    createdByTelegramUserId: 7,
+    description: 'Descripcion anterior',
+    detailsMessageChatId: 1,
+    detailsMessageId: 600,
+  })]);
+  const { context, deletedMessages } = createContext(repository);
+
+  context.callbackData = 'group_purchase:edit_purchase:53';
+  await handleTelegramGroupPurchaseCallback(context);
+  delete context.callbackData;
+  context.messageText = 'Pedido sin descripcion';
+  await handleTelegramGroupPurchaseText(context);
+  context.messageText = 'Ometre';
+  await handleTelegramGroupPurchaseText(context);
+
+  const purchase = await repository.findPurchaseById(53);
+  assert.equal(purchase?.description, null);
+  assert.equal(purchase?.detailsMessageChatId, null);
+  assert.equal(purchase?.detailsMessageId, null);
+  assert.deepEqual(deletedMessages, [{ chatId: 1, messageId: 600 }]);
 });
 
 test('creator can mark a participant as paid from the management callbacks', async () => {
@@ -1020,31 +1360,18 @@ test('participant status change returns to the participant management list with 
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 });
 
-test('creator can publish a private update to active participants', async () => {
-  const repository = createRepository([buildPurchase({ id: 31, createdByTelegramUserId: 7 })]);
-  await repository.upsertParticipant({ purchaseId: 31, participantTelegramUserId: 77, status: 'confirmed' });
-  await repository.upsertParticipant({ purchaseId: 31, participantTelegramUserId: 88, status: 'removed' });
-  const { context, replies, privateMessages, getCurrentSession } = createContext(repository);
-
-  context.callbackData = 'group_purchase:publish_message:31';
-  await handleTelegramGroupPurchaseCallback(context);
-
-  assert.equal(getCurrentSession()?.flowKey, 'group-purchase-publish-message');
-  assert.equal(replies.at(-1)?.message, 'Escriu el missatge que vols enviar a les persones apuntades.');
-
-  delete context.callbackData;
-  context.messageText = 'Ya he hecho el pedido';
-  await handleTelegramGroupPurchaseText(context);
-
-  assert.equal(getCurrentSession(), null);
-  assert.equal(privateMessages.length, 1);
-  assert.equal(privateMessages[0]?.telegramUserId, 77);
-  assert.match(privateMessages[0]?.message ?? '', /Este es un mensaje sobre la compra conjunta/);
-  assert.match(privateMessages[0]?.message ?? '', /Ya he hecho el pedido/);
-});
-
-test('creator can publish a group announcement to subscribed groups', async () => {
-  const repository = createRepository([buildPurchase({ id: 61, createdByTelegramUserId: 7 })]);
+test('shared-cost participant changes are published to enabled notification groups', async () => {
+  const repository = createRepository([buildPurchase({
+    id: 61,
+    title: 'Juego conjunto',
+    purchaseMode: 'shared_cost',
+    createdByTelegramUserId: 42,
+    joinDeadlineAt: null,
+    confirmDeadlineAt: '2026-06-30T21:00:00.000Z',
+    totalPriceCents: 5000,
+    unitPriceCents: null,
+    unitLabel: null,
+  })]);
   const newsGroupRepository = createNewsGroupRepository([
     {
       chatId: -200,
@@ -1056,15 +1383,103 @@ test('creator can publish a group announcement to subscribed groups', async () =
       disabledAt: null,
     },
   ]);
-  const { context, groupMessages } = createContext(repository, { newsGroupRepository });
+  const { context, groupMessages, deletedMessages } = createContext(repository, { newsGroupRepository });
 
-  context.callbackData = 'group_purchase:publish_group:61';
+  context.callbackData = 'group_purchase:join_interested:61';
+  await handleTelegramGroupPurchaseCallback(context);
+  context.callbackData = 'group_purchase:confirm:61';
+  await handleTelegramGroupPurchaseCallback(context);
+  context.callbackData = 'group_purchase:leave:61';
   await handleTelegramGroupPurchaseCallback(context);
 
-  assert.equal(groupMessages.length, 1);
-  assert.equal(groupMessages[0]?.chatId, -200);
-  assert.match(groupMessages[0]?.message ?? '', /Pedido de dados/);
-  assert.match(groupMessages[0]?.message ?? '', /start=group_purchase_61/);
+  assert.equal(groupMessages.length, 3);
+  assert.match(groupMessages[0]?.message ?? '', /Rubén se ha apuntado, a falta de confirmación/);
+  assert.match(groupMessages[0]?.message ?? '', /Coste total: 50,00€/);
+  assert.match(groupMessages[0]?.message ?? '', /Coste actual por persona: pendiente de confirmaciones/);
+  assert.match(groupMessages[1]?.message ?? '', /Rubén ha confirmado su participación/);
+  assert.match(groupMessages[1]?.message ?? '', /Coste total: 50,00€/);
+  assert.match(groupMessages[1]?.message ?? '', /Coste actual por persona: 50,00€/);
+  assert.match(groupMessages[1]?.message ?? '', /Usuarios confirmados actualmente: 1/);
+  assert.deepEqual(groupMessages[1]?.options?.inlineKeyboard, [
+    [{ text: 'Detalle de compra conjunta', url: 'https://t.me/cawa_management_bot?start=group_purchase_61' }],
+    [{ text: 'Participar', url: 'https://t.me/cawa_management_bot?start=group_purchase_join_61' }],
+  ]);
+  assert.match(groupMessages[2]?.message ?? '', /Rubén se ha echado atrás/);
+  assert.match(groupMessages[2]?.message ?? '', /Usuarios confirmados actualmente: 0/);
+  assert.deepEqual(deletedMessages, [
+    { chatId: -200, messageId: 1000 },
+    { chatId: -200, messageId: 1001 },
+  ]);
+});
+
+test('shared-cost participant updates keep separate snapshots for group and topic destinations', async () => {
+  const repository = createRepository([buildPurchase({
+    id: 62,
+    title: 'Juego conjunto',
+    purchaseMode: 'shared_cost',
+    createdByTelegramUserId: 42,
+    joinDeadlineAt: null,
+    confirmDeadlineAt: '2026-06-30T21:00:00.000Z',
+    totalPriceCents: 5000,
+    unitPriceCents: null,
+    unitLabel: null,
+  })]);
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+    {
+      chatId: -201,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ], [
+    {
+      chatId: -200,
+      messageThreadId: null,
+      categoryKey: groupPurchaseNewsGroupCategory,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+    },
+    {
+      chatId: -201,
+      messageThreadId: 77,
+      categoryKey: groupPurchaseNewsGroupCategory,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+    },
+  ]);
+  const { context, groupMessages, deletedMessages } = createContext(repository, { newsGroupRepository });
+
+  context.callbackData = 'group_purchase:join_interested:62';
+  await handleTelegramGroupPurchaseCallback(context);
+  context.callbackData = 'group_purchase:confirm:62';
+  await handleTelegramGroupPurchaseCallback(context);
+
+  assert.deepEqual(groupMessages.map((message) => ({
+    chatId: message.chatId,
+    messageThreadId: message.options?.messageThreadId ?? null,
+    messageId: message.messageId,
+  })), [
+    { chatId: -200, messageThreadId: null, messageId: 1000 },
+    { chatId: -201, messageThreadId: 77, messageId: 1001 },
+    { chatId: -200, messageThreadId: null, messageId: 1002 },
+    { chatId: -201, messageThreadId: 77, messageId: 1003 },
+  ]);
+  assert.deepEqual(deletedMessages, [
+    { chatId: -200, messageId: 1000 },
+    { chatId: -201, messageId: 1001 },
+  ]);
 });
 
 test('creator can close a purchase and leaves an audit trail', async () => {

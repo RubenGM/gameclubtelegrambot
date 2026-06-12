@@ -10,12 +10,15 @@ import {
   type TelegramBoundary,
   type TelegramFatalRuntimeErrorHandler,
 } from '../telegram/runtime-boundary.js';
+import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createDatabaseCatalogLoanReminderRepository } from '../catalog/catalog-loan-reminder-store.js';
 import { sendDueCatalogLoanReminders } from '../catalog/catalog-loan-reminders.js';
 import { createDatabaseGroupPurchaseRepository } from '../group-purchases/group-purchase-catalog-store.js';
 import { createDatabaseGroupPurchaseReminderRepository } from '../group-purchases/group-purchase-reminder-store.js';
 import { sendDueGroupPurchaseReminders } from '../group-purchases/group-purchase-reminders.js';
+import { createDatabaseNoticeRepository } from '../notices/notice-catalog-store.js';
+import { expireDueNotices } from '../notices/notice-expiration.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import { createDatabaseScheduleEventReminderRepository } from '../schedule/schedule-reminder-store.js';
 import { sendDueScheduleEventReminders } from '../schedule/schedule-reminders.js';
@@ -74,33 +77,40 @@ export function createApp({
     }),
   startScheduleReminders = ({ services, telegram }) =>
     createScheduleReminderWorker({
-      enabled: config.notifications.defaults.eventRemindersEnabled,
+      enabled: true,
       intervalMs: 60_000,
       logger: {
         error: logger.error?.bind(logger) ?? (() => {}),
       },
       runOnce: async () => {
-        await sendDueScheduleEventReminders({
-          scheduleRepository: createDatabaseScheduleRepository({ database: services.database.db }),
-          reminderRepository: createDatabaseScheduleEventReminderRepository({ database: services.database.db }),
-          leadHours: config.notifications.defaults.eventReminderLeadHours,
-          maxLeadHours: 168,
-          language: config.bot.language,
-          sendPrivateMessage: telegram.sendPrivateMessage,
-        });
-        await sendDueGroupPurchaseReminders({
-          groupPurchaseRepository: createDatabaseGroupPurchaseRepository({ database: services.database.db }),
-          reminderRepository: createDatabaseGroupPurchaseReminderRepository({ database: services.database.db }),
-          leadHours: 24,
-          language: config.bot.language,
-          sendPrivateMessage: telegram.sendPrivateMessage,
-        });
-        await sendDueCatalogLoanReminders({
-          catalogLoanRepository: createDatabaseCatalogLoanRepository({ database: services.database.db }),
-          reminderRepository: createDatabaseCatalogLoanReminderRepository({ database: services.database.db }),
-          leadHours: config.notifications.defaults.eventReminderLeadHours,
-          language: config.bot.language,
-          sendPrivateMessage: telegram.sendPrivateMessage,
+        if (config.notifications.defaults.eventRemindersEnabled) {
+          await sendDueScheduleEventReminders({
+            scheduleRepository: createDatabaseScheduleRepository({ database: services.database.db }),
+            reminderRepository: createDatabaseScheduleEventReminderRepository({ database: services.database.db }),
+            leadHours: config.notifications.defaults.eventReminderLeadHours,
+            maxLeadHours: 168,
+            language: config.bot.language,
+            sendPrivateMessage: telegram.sendPrivateMessage,
+          });
+          await sendDueGroupPurchaseReminders({
+            groupPurchaseRepository: createDatabaseGroupPurchaseRepository({ database: services.database.db }),
+            reminderRepository: createDatabaseGroupPurchaseReminderRepository({ database: services.database.db }),
+            leadHours: 24,
+            language: config.bot.language,
+            sendPrivateMessage: telegram.sendPrivateMessage,
+          });
+          await sendDueCatalogLoanReminders({
+            catalogLoanRepository: createDatabaseCatalogLoanRepository({ database: services.database.db }),
+            reminderRepository: createDatabaseCatalogLoanReminderRepository({ database: services.database.db }),
+            leadHours: config.notifications.defaults.eventReminderLeadHours,
+            language: config.bot.language,
+            sendPrivateMessage: telegram.sendPrivateMessage,
+          });
+        }
+        await maybeExpireDueNotices({
+          services,
+          telegram,
+          logger,
         });
       },
     }),
@@ -108,7 +118,10 @@ export function createApp({
     createAdminHttpServer({
       config,
       services,
-      telegramSender: telegram,
+      telegramSender: {
+        sendPrivateMessage: telegram.sendPrivateMessage.bind(telegram),
+        ...(telegram.sendGroupMessage ? { sendGroupMessage: async (chatId, message, options) => { await telegram.sendGroupMessage?.(chatId, message, options); } } : {}),
+      },
       logger: {
         info: logger.info.bind(logger),
         error: logger.error?.bind(logger) ?? (() => {}),
@@ -216,6 +229,39 @@ export function createApp({
       }
     },
   };
+}
+
+let lastNoticeExpirationRunAt = 0;
+const noticeExpirationIntervalMs = 15 * 60 * 1000;
+
+async function maybeExpireDueNotices({
+  services,
+  telegram,
+  logger,
+}: {
+  services: InfrastructureRuntimeServices;
+  telegram: TelegramBoundary;
+  logger: LoggerLike;
+}): Promise<void> {
+  const now = Date.now();
+  if (now - lastNoticeExpirationRunAt < noticeExpirationIntervalMs) {
+    return;
+  }
+
+  lastNoticeExpirationRunAt = now;
+  const result = await expireDueNotices({
+    noticeRepository: createDatabaseNoticeRepository({ database: services.database.db }),
+    telegram,
+    auditRepository: createDatabaseAuditLogRepository({ database: services.database.db }),
+    now: new Date(now),
+  });
+  if (result.archived > 0 || result.deleteFailures > 0) {
+    logger.info({
+      archived: result.archived,
+      deletedMessages: result.deletedMessages,
+      deleteFailures: result.deleteFailures,
+    }, 'Expired notices processed');
+  }
 }
 
 function normalizeError(error: unknown, fallbackMessage: string): Error {

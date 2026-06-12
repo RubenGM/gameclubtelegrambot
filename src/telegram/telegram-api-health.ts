@@ -10,7 +10,7 @@ export interface TelegramApiHealthMonitor {
   recordFailure(operation: string, error: unknown): TelegramApiHealthSnapshot;
   recordSuccess(operation: string): TelegramApiHealthSnapshot;
   snapshot(): TelegramApiHealthSnapshot;
-  appendWarning(message: string): string;
+  appendWarning(message: string, options?: { enabled?: boolean }): string;
 }
 
 export interface TelegramApiHealthMonitorOptions {
@@ -76,7 +76,11 @@ export function createTelegramApiHealthMonitor({
       return snapshot();
     },
     snapshot,
-    appendWarning(message) {
+    appendWarning(message, options) {
+      if (options?.enabled === false) {
+        return message;
+      }
+
       const current = snapshot();
       if (!current.degraded || !current.detectedAt) {
         return message;

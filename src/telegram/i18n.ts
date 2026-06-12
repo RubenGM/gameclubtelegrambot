@@ -3,6 +3,7 @@ import { actionMenuTexts, commonTexts, languageTexts } from './i18n-common.js';
 import { membershipTexts } from './i18n-membership.js';
 import { groupPurchaseTexts } from './i18n-group-purchases.js';
 import { lfgTexts } from './i18n-lfg.js';
+import { noticeTexts } from './i18n-notices.js';
 import { scheduleTexts } from './i18n-schedule.js';
 import { storageTexts } from './i18n-storage.js';
 import { listNewsGroupCategories, newsGroupCategoryLines } from '../news/news-group-catalog.js';
@@ -50,6 +51,7 @@ export function createTelegramI18n(language: BotLanguage) {
     newsGroup: newsGroupTexts[language],
     groupPurchases: groupPurchaseTexts[language],
     lfg: lfgTexts[language],
+    notices: noticeTexts[language],
     storage: storageTexts[language],
   };
 }
@@ -229,7 +231,7 @@ const venueEventAdminTexts = {
     confirmPrompt: 'Confirma o cancel·la el procés.',
     noEvents: 'No hi ha esdeveniments del local actius ara mateix.',
     editButton: 'Editar',
-    cancelButton: 'Cancel.lar',
+    cancelButton: 'Cancel·lar',
     noDescription: 'Sense descripció',
     detailsSchedule: 'Horari',
     detailsOccupancy: 'Ocupació',
@@ -391,7 +393,7 @@ const catalogReadTexts = {
     available: 'Catàleg disponible:',
     itemsWithoutFamilyGroup: 'Ítems sense família ni grup',
     searchHint: 'Fes servir /catalog_search <text> per cercar un ítem concret.',
-    itemCount: (count: number) => `item${count === 1 ? '' : 's'}`,
+    itemCount: (count: number) => `ítem${count === 1 ? '' : 's'}`,
     groupCount: (count: number) => `grup${count === 1 ? '' : 's'}`,
     noResults: 'No he trobat cap coincidència per a "{query}".',
     searchResults: 'Resultats per a "{query}":',
@@ -402,7 +404,7 @@ const catalogReadTexts = {
     available: 'Catálogo disponible:',
     itemsWithoutFamilyGroup: 'Ítems sin familia ni grupo',
     searchHint: 'Usa /catalog_search <texto> para buscar un ítem concreto.',
-    itemCount: (count: number) => `item${count === 1 ? '' : 's'}`,
+    itemCount: (count: number) => `ítem${count === 1 ? '' : 's'}`,
     groupCount: (count: number) => `grupo${count === 1 ? '' : 's'}`,
     noResults: 'No he encontrado ninguna coincidencia para "{query}".',
     searchResults: 'Resultados para "{query}":',
@@ -471,7 +473,7 @@ const newsGroupTexts = {
     noSubscriptions: 'Categorías suscritas: ninguna',
     commands: 'Comandos: /news estado, /news ayuda, /news activar, /news desactivar, /news suscribir <categoría>, /news desuscribir <categoría>',
     help: [
-      'Sólo los administradores del bot pueden gestionar las news de un grupo.',
+      'Solo los administradores del bot pueden gestionar las news de un grupo.',
       '',
       'Funcionamiento:',
       '- /news o /news estado: muestra si el grupo recibe avisos y las categorías suscritas.',
@@ -484,7 +486,7 @@ const newsGroupTexts = {
       'Categorías disponibles:',
       ...buildNewsGroupAvailableCategoryLines('es').split('\n'),
     ].join('\n'),
-    adminOnly: 'Sólo los administradores del bot pueden gestionar las news del grupo.',
+    adminOnly: 'Solo los administradores del bot pueden gestionar las news del grupo.',
     categorySubscribed: 'Categoría "{category}" suscrita.',
     categoryRemoved: 'Categoría "{category}" eliminada.',
     categoryNotSubscribed: 'La categoría "{category}" no estaba suscrita.',

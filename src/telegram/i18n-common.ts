@@ -28,6 +28,7 @@ export const commonTexts = {
     helpSectionStorageDetail: 'A l’emmagatzematge pots veure categories, cercar arxius, obrir entrades per ID i gestionar fitxers.',
     helpSectionGroupPurchasesDetail: 'A les compres conjuntes pots veure compres obertes, crear-ne de noves, apuntar-te-hi i gestionar participants i confirmacions.',
     helpSectionLfgDetail: 'Al menú de LFG pots veure jugadors o grups buscant-se, publicar una nova cerca i gestionar els teus anuncis.',
+    helpSectionNoticesDetail: 'Als avisos pots publicar missatges amb format i adjunts als canals/topics subscrits i arxivar els teus avisos actius.',
     helpFooterPrivate: "Escriu-me en privat per obrir el menú principal del club. Des d'aquí només et puc orientar i deixar-te canviar l'idioma.",
     helpPendingApproval:
       "Encara no tens l'accés aprovat. La teva sol·licitud està pendent de revisió. Quan un administrador l'aprovi, podràs fer servir activitats, calendari, catàleg i taules. Si vols agilitzar-ho, avisa un administrador i digues-li que ja t'has registrat al bot.",
@@ -39,6 +40,7 @@ export const commonTexts = {
     helpStorageAction: 'consulta material guardat del club.',
     helpGroupPurchasesAction: 'segueix i participa en comandes compartides.',
     helpLfgAction: 'troba grup o jugadors per jugar.',
+    helpNoticesAction: 'publica avisos als canals configurats del club.',
     helpWelcomeTemplatesAction: 'configura missatges de benvinguda amb GIF opcionals.',
     helpChangeDisplayNameAction: 'canvia el nom amb què et veurà el bot.',
     helpReviewAccessAction: 'revisa i resol les sol·licituds pendents.',
@@ -51,6 +53,8 @@ export const commonTexts = {
       'Aquí pots veure compres obertes, obrir-ne de noves, convidar participants i comprovar estat i confirmació de pagaments o assistència.',
     helpContextLfg:
       'Aquí pots veure jugadors que busquen grup, veure anuncis de grups que busquen jugadors i publicar o tancar els teus propis anuncis de joc.',
+    helpContextNotices:
+      'Aquí pots crear avisos amb format i adjunts, veure els avisos actius i arxivar els teus. Els admins poden arxivar qualsevol aviso.',
     helpContextStorage:
       'Aquí pots veure categories, cercar arxius, obrir entrades per ID i pujar adjunts si tens permís o permís especial de l’administrador.',
     welcomeIntro: 'Hola, soc el bot de {publicName}. Em pots usar per mirar activitats, gestionar taules, fer compres conjuntes o trobar companys per jugar.',
@@ -164,6 +168,7 @@ export const commonTexts = {
     helpSectionStorageDetail: 'En el almacenamiento puedes ver categorías, buscar archivos, abrir entradas por ID y gestionar archivos.',
     helpSectionGroupPurchasesDetail: 'En compras conjuntas puedes ver compras abiertas, crear nuevas, apuntarte y gestionar participantes y confirmaciones.',
     helpSectionLfgDetail: 'En el LFG puedes ver jugadores o grupos buscando juego, publicar una nueva búsqueda y gestionar tus anuncios.',
+    helpSectionNoticesDetail: 'En avisos puedes publicar mensajes con formato y adjuntos en los canales/topics suscritos y archivar tus avisos activos.',
     helpFooterPrivate: 'Escríbeme en privado para abrir el menú principal del club. Desde aquí solo puedo orientarte y dejarte cambiar el idioma.',
     helpPendingApproval:
       'Todavía no tienes el acceso aprobado. Tu solicitud está pendiente de revisión. Cuando un administrador la apruebe, ya podrás usar actividades, calendario, catálogo y mesas. Si quieres agilizarlo, avisa a un administrador y dile que ya te has registrado en el bot.',
@@ -175,6 +180,7 @@ export const commonTexts = {
     helpStorageAction: 'consulta material guardado del club.',
     helpGroupPurchasesAction: 'sigue y participa en pedidos compartidos.',
     helpLfgAction: 'encuentra grupo o jugadores para jugar.',
+    helpNoticesAction: 'publica avisos en los canales configurados del club.',
     helpWelcomeTemplatesAction: 'configura mensajes de bienvenida con GIF opcionales.',
     helpChangeDisplayNameAction: 'cambia el nombre con el que te verá el bot.',
     helpReviewAccessAction: 'revisa y resuelve las solicitudes pendientes.',
@@ -187,6 +193,8 @@ export const commonTexts = {
       'Aquí puedes ver compras abiertas, crear una, invitar participantes y revisar el estado y confirmación de cada compra.',
     helpContextLfg:
       'Aquí puedes ver jugadores que buscan grupo, anuncios de grupos que buscan jugadores y publicar o cerrar tus propios anuncios.',
+    helpContextNotices:
+      'Aquí puedes crear avisos con formato y adjuntos, ver los avisos activos y archivar los tuyos. Los admins pueden archivar cualquier aviso.',
     helpContextStorage:
       'Aquí puedes ver categorías, buscar archivos, abrir entradas por ID y subir adjuntos si tienes permisos o aprobación de administración.',
     welcomeIntro: 'Hola, soy el bot de {publicName}. Me puedes usar para mirar actividades, gestionar mesas, hacer pedidos conjuntos o encontrar gente para jugar.',
@@ -300,6 +308,7 @@ export const commonTexts = {
     helpSectionStorageDetail: 'In storage you can browse categories, search files, open entries by ID, and upload files.',
     helpSectionGroupPurchasesDetail: 'In group purchases you can view open purchases, create new ones, join them, and manage participants and confirmations.',
     helpSectionLfgDetail: 'In LFG you can see players or groups looking for matches, post a new search, and manage your ads.',
+    helpSectionNoticesDetail: 'In notices you can publish formatted messages with attachments to subscribed channels/topics and archive your active notices.',
     helpFooterPrivate: 'Message me in private to open the main club menu. From here I can only guide you and let you change the language.',
     helpPendingApproval:
       'Your access is still pending approval. Ask a club administrator to approve your request so you can use activities, calendar, catalog, and tables.',
@@ -311,6 +320,7 @@ export const commonTexts = {
     helpStorageAction: 'check stored club material.',
     helpGroupPurchasesAction: 'follow and join shared orders.',
     helpLfgAction: 'find a group or players to play.',
+    helpNoticesAction: 'publish notices in the configured club channels.',
     helpWelcomeTemplatesAction: 'configure welcome messages with optional GIFs.',
     helpChangeDisplayNameAction: 'change the name the bot uses for you.',
     helpReviewAccessAction: 'review and resolve pending access requests.',
@@ -323,6 +333,8 @@ export const commonTexts = {
       'You can browse open shared purchases, create new ones, invite participants, and track order status and confirmations.',
     helpContextLfg:
       'You can see players looking for a group, groups looking for players, and publish or close your own ads.',
+    helpContextNotices:
+      'You can create notices with formatting and attachments, view active notices, and archive yours. Admins can archive any notice.',
     helpContextStorage:
       'You can browse categories, search files, open entries by ID, and upload attachments if you have permission.',
     welcomeIntro: 'Hi, I am the {publicName} bot. You can use me to check activities, manage tables, create shared purchases, or find people to play games.',
@@ -420,6 +432,7 @@ export const actionMenuTexts = {
     storage: 'Emmagatzematge',
     groupPurchases: 'Compres conjuntes',
     lfg: 'LFG (buscar grup)',
+    notices: 'Avisos',
     tables: 'Taules',
     reviewAccess: 'Revisar sol·licituds',
     manageUsers: 'Administrar usuaris',
@@ -442,6 +455,7 @@ export const actionMenuTexts = {
     storage: 'Almacenamiento',
     groupPurchases: 'Compras conjuntas',
     lfg: 'LFG (buscar grupo)',
+    notices: 'Avisos',
     tables: 'Mesas',
     reviewAccess: 'Revisar solicitudes',
     manageUsers: 'Administrar usuarios',
@@ -464,6 +478,7 @@ export const actionMenuTexts = {
     storage: 'Storage',
     groupPurchases: 'Group purchases',
     lfg: 'LFG (find group)',
+    notices: 'Notices',
     tables: 'Tables',
     reviewAccess: 'Review requests',
     manageUsers: 'Manage users',

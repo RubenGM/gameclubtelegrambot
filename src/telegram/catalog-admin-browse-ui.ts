@@ -29,7 +29,7 @@ export function formatCatalogAdminFamilyBrowseMessage({
   }
 
   if (looseItemLines.length > 0) {
-    lines.push('Items sense grup:');
+    lines.push('Ítems sense grup:');
     lines.push(...looseItemLines);
   }
 
@@ -103,7 +103,7 @@ function compactCatalogAdminMessage(lines: string[]): string {
   const omittedCount = lines.length - visibleLines.length;
   if (omittedCount > 0) {
     visibleLines.push('');
-    visibleLines.push(`... ${omittedCount} lineas mas. Usa la busqueda o los botones para abrir un item concreto.`);
+    visibleLines.push(`... ${omittedCount} líneas más. Usa la búsqueda o los botones para abrir un ítem concreto.`);
   }
 
   return visibleLines.join('\n');

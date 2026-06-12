@@ -1234,7 +1234,7 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Revisar sol·licituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes', 'LFG (buscar grup)'], ['Benvingudes', 'Canviar nom'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Revisar sol·licituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes', 'LFG (buscar grup)'], ['Avisos', 'Benvingudes'], ['Canviar nom'], ['Idioma', 'Ajuda']]);
   assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
   assert.match(replies[0]?.message ?? '', /sol·licituds/i);
   assert.match(replies[1]?.message ?? '', /Què pots fer ara/);
@@ -1933,9 +1933,10 @@ test('cancel restores the default action menu after an active flow', async () =>
             [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
             [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
             [{ text: 'Compres conjuntes', semanticRole: 'primary' }, { text: 'LFG (buscar grup)', semanticRole: 'primary' }],
-            [{ text: 'Canviar nom', semanticRole: 'secondary' }, { text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
+            [{ text: 'Avisos', semanticRole: 'primary' }, { text: 'Canviar nom', semanticRole: 'secondary' }],
+            [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
           ],
-          actionRows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['change_display_name', 'language', 'help']],
+          actionRows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'change_display_name'], ['language', 'help']],
           actions: [
             { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
             { id: 'tables_read', label: 'Taules', telemetryActionKey: 'menu.tables', uxSection: 'primary' },
@@ -1943,6 +1944,7 @@ test('cancel restores the default action menu after an active flow', async () =>
             { id: 'storage', label: 'Emmagatzematge', telemetryActionKey: 'menu.storage', uxSection: 'primary' },
             { id: 'group_purchases', label: 'Compres conjuntes', telemetryActionKey: 'menu.group_purchases', uxSection: 'primary' },
             { id: 'lfg', label: 'LFG (buscar grup)', telemetryActionKey: 'menu.lfg', uxSection: 'primary' },
+            { id: 'notices', label: 'Avisos', telemetryActionKey: 'menu.notices', uxSection: 'primary' },
             { id: 'change_display_name', label: 'Canviar nom', telemetryActionKey: 'menu.change_display_name', uxSection: 'utility' },
             { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
             { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
@@ -2071,7 +2073,8 @@ test('start menu action clears active flow before showing the default keyboard',
     ['Activitats', 'Taules'],
     ['Catàleg', 'Emmagatzematge'],
     ['Compres conjuntes', 'LFG (buscar grup)'],
-    ['Canviar nom', 'Idioma', 'Ajuda'],
+    ['Avisos', 'Canviar nom'],
+    ['Idioma', 'Ajuda'],
   ]);
 
   await telegram.stop();
@@ -2603,7 +2606,7 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
 
   assert.equal(telegram.status.bot, 'connected');
   assert.match(replies[0]?.message ?? '', /Des del menú pots obrir activitats, taules i catàleg/);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes', 'LFG (buscar grup)'], ['Canviar nom', 'Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes', 'LFG (buscar grup)'], ['Avisos', 'Canviar nom'], ['Idioma', 'Ajuda']]);
   assert.deepEqual(auditEvents, [
     {
       actionKey: 'telegram.menu.shown',
@@ -2614,8 +2617,8 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
         chatKind: 'private',
         actorRole: 'member',
         language: 'ca',
-        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'storage', 'group_purchases', 'lfg', 'change_display_name', 'language', 'help'],
-        visibleLabels: ['Activitats', 'Taules', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'LFG (buscar grup)', 'Canviar nom', 'Idioma', 'Ajuda'],
+        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'storage', 'group_purchases', 'lfg', 'notices', 'change_display_name', 'language', 'help'],
+        visibleLabels: ['Activitats', 'Taules', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'LFG (buscar grup)', 'Avisos', 'Canviar nom', 'Idioma', 'Ajuda'],
       },
     },
   ]);

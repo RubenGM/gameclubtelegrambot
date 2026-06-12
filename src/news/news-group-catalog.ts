@@ -12,6 +12,8 @@ type CatalogLoanCategoryItemType = 'board-game' | 'book' | 'rpg-book';
 
 export type NewsGroupCategoryKey =
   | 'events'
+  | 'avisos'
+  | 'group-purchases'
   | 'lfg:players'
   | 'lfg:groups'
   | 'nuevos_miembros'
@@ -42,6 +44,36 @@ export const newsGroupCategories: readonly NewsGroupCategoryDescriptor[] = [
       ca: 'activitats i calendari del club',
       es: 'actividades y calendario del club',
       en: 'club activities and calendar',
+    },
+    defaultSubscribed: true,
+  },
+  {
+    key: 'avisos',
+    aliases: ['avisos', 'aviso', 'notices', 'notice', 'alerts', 'alertas'],
+    label: {
+      ca: 'avisos',
+      es: 'avisos',
+      en: 'notices',
+    },
+    description: {
+      ca: 'avisos publicats pels socis del club',
+      es: 'avisos publicados por los socios del club',
+      en: 'notices published by club members',
+    },
+    defaultSubscribed: false,
+  },
+  {
+    key: 'group-purchases',
+    aliases: ['group-purchases', 'group purchases', 'compras', 'compras conjuntas', 'compres', 'compres conjuntes'],
+    label: {
+      ca: 'group-purchases',
+      es: 'group-purchases',
+      en: 'group-purchases',
+    },
+    description: {
+      ca: 'compres conjuntes del club',
+      es: 'compras conjuntas del club',
+      en: 'club group purchases',
     },
     defaultSubscribed: true,
   },
@@ -149,6 +181,8 @@ export const newsGroupCategoryDefaults = newsGroupCategories.filter((category) =
 export const lfgPlayerNewsCategory = 'lfg:players' as const;
 export const lfgGroupNewsCategory = 'lfg:groups' as const;
 export const eventsNewsGroupCategory = 'events' as const;
+export const noticesNewsGroupCategory = 'avisos' as const;
+export const groupPurchaseNewsGroupCategory = 'group-purchases' as const;
 export const newMembersNewsGroupCategory = 'nuevos_miembros' as const;
 
 export const catalogLoanNewsCategoryByItemType: Partial<Record<CatalogLoanCategoryItemType, NewsGroupCategoryKey>> = {

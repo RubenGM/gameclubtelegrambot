@@ -83,7 +83,7 @@ export function formatCatalogAdminGroupDetails({
     `<b>${escapeHtml(group.displayName)}</b>`,
     formatHtmlField(texts.family, escapeHtml(familyName ?? texts.noFamily)),
     formatHtmlField(texts.description, escapeHtml(group.description ?? texts.noDescription)),
-    '<b>Items:</b>',
-    ...(itemLines.length > 0 ? itemLines : ['- Cap item assignat']),
+    '<b>Ítems:</b>',
+    ...(itemLines.length > 0 ? itemLines : ['- Cap ítem assignat']),
   ].join('\n');
 }

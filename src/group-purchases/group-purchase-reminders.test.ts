@@ -150,6 +150,8 @@ function createPurchase(input: {
     id: input.id,
     title: input.title,
     description: null,
+    detailsMessageChatId: null,
+    detailsMessageId: null,
     purchaseMode: 'shared_cost',
     lifecycleStatus: input.lifecycleStatus ?? 'open',
     createdByTelegramUserId: 42,

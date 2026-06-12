@@ -44,6 +44,10 @@ export interface TelegramBoundaryStatus {
 export interface TelegramBoundary {
   status: TelegramBoundaryStatus;
   sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
+  sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
+  copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+  forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
+  deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -350,6 +354,10 @@ export async function createTelegramBoundary({
         bot: 'connected',
       },
       sendPrivateMessage: bot.sendPrivateMessage.bind(bot),
+      ...(bot.sendGroupMessage ? { sendGroupMessage: bot.sendGroupMessage.bind(bot) } : {}),
+      ...(bot.copyMessage ? { copyMessage: bot.copyMessage.bind(bot) } : {}),
+      ...(bot.forwardMessage ? { forwardMessage: bot.forwardMessage.bind(bot) } : {}),
+      ...(bot.deleteMessage ? { deleteMessage: bot.deleteMessage.bind(bot) } : {}),
       async stop() {
         await bot.stopPolling();
         logger.info({}, 'Telegram bot long polling stopped');
@@ -520,7 +528,7 @@ function createGrammyTelegramBot({
     },
     async sendGroupMessage(chatId, message, options) {
       const result = await withTelegramApiRetry(retryOptions('sendGroupMessage'), () =>
-        bot.api.sendMessage(chatId, apiHealth.appendWarning(message), options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
+        bot.api.sendMessage(chatId, message, options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
       );
       const messageId = resolveTelegramMessageId(result);
       return messageId ? { messageId } : undefined;
@@ -943,7 +951,9 @@ function createTelegramCommandContext(
     ...context,
     ...(context.from ? { from: context.from } : {}),
     async reply(message: string, options?: TelegramReplyOptions) {
-      const messageWithHealthWarning = apiHealth ? apiHealth.appendWarning(message) : message;
+      const messageWithHealthWarning = apiHealth
+        ? apiHealth.appendWarning(message, { enabled: context.chat?.type === 'private' })
+        : message;
       const result = await withTelegramApiRetry({
         operation: 'reply',
         ...(logger ? { logger } : {}),
