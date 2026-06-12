@@ -194,6 +194,7 @@ const bggCollectionImportFlowKey = 'catalog-admin-bgg-collection-import';
 const catalogAdminStartPayloadPrefix = 'catalog_admin_item_';
 const catalogAdminFullItemStartPayloadPrefix = 'catalog_admin_item_full_';
 const catalogAdminQuickBggMetadataStartPayloadPrefix = 'catalog_admin_bgg_meta_';
+const updateBggCommandPattern = /^\/update_bgg(?:@\w+)?$/i;
 const bulkCreateRateLimitMs = 700;
 const bulkCreateItemLimit = 100;
 const catalogOwnerSelectorPageSize = 8;
@@ -371,13 +372,22 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
     return false;
   }
 
-  if (isCatalogAdminSession(context.runtime.session.current?.flowKey)) {
-    return handleActiveCatalogSession(context, text);
-  }
-
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const i18n = createTelegramI18n(language);
   const texts = i18n.catalogAdmin;
+
+  if (updateBggCommandPattern.test(text)) {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    await handleCatalogAdminBulkBggMetadataUpdate(context);
+    return true;
+  }
+
+  if (isCatalogAdminSession(context.runtime.session.current?.flowKey)) {
+    return handleActiveCatalogSession(context, text);
+  }
 
   const letterCommandPayload = parseCatalogAdminLetterStartPayload(text);
   if (letterCommandPayload !== null) {
@@ -835,18 +845,39 @@ async function handleCatalogAdminQuickBggMetadataImport(
     editFailedEvent: 'catalog.quick-bgg-metadata.progress-edit.failed',
   });
 
+  const result = await refreshCatalogItemBggMetadataOnly(context, item);
+  if (!result.ok) {
+    await progress.complete(texts.quickBggMetadataFailed.replace('{reason}', result.reason));
+    return;
+  }
+
+  await progress.complete(texts.quickBggMetadataImported);
+  await replyWithCatalogAdminItemDetail(context, result.updated, language, {
+    footerLines: await buildQuickBggMetadataNavigationLines(context, result.updated, language),
+  });
+}
+
+type QuickBggMetadataRefreshResult =
+  | { ok: true; updated: CatalogItemRecord }
+  | { ok: false; reason: string };
+
+async function refreshCatalogItemBggMetadataOnly(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+): Promise<QuickBggMetadataRefreshResult> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const boardGameGeekId = readBoardGameGeekIdFromItem(item);
   const importResult = await importCatalogAutocorrectDraft(context, item, {
-    ...(readBoardGameGeekIdFromItem(item) ? { boardGameGeekId: readBoardGameGeekIdFromItem(item)! } : {}),
+    ...(boardGameGeekId ? { boardGameGeekId } : {}),
   });
   if (!importResult.ok) {
-    await progress.complete(texts.quickBggMetadataFailed.replace('{reason}', importResult.reason));
-    return;
+    return { ok: false, reason: importResult.reason };
   }
 
   const importedMetadata = cleanCatalogAutocorrectMetadata(importResult.draft.metadata, importResult.draft.externalRefs);
   if (!importedMetadata || !hasModernBoardGameGeekMetadata(importedMetadata)) {
-    await progress.complete(texts.quickBggMetadataFailed.replace('{reason}', texts.quickBggMetadataMissing));
-    return;
+    return { ok: false, reason: texts.quickBggMetadataMissing };
   }
 
   const mergedMetadata = {
@@ -887,10 +918,132 @@ async function handleCatalogAdminQuickBggMetadataImport(
     },
   });
 
-  await progress.complete(texts.quickBggMetadataImported);
-  await replyWithCatalogAdminItemDetail(context, updated, language, {
-    footerLines: await buildQuickBggMetadataNavigationLines(context, updated, language),
-  });
+  return { ok: true, updated };
+}
+
+type BulkBggMetadataUpdateStats = {
+  total: number;
+  checked: number;
+  updated: number;
+  skippedFresh: number;
+  skippedWithoutBgg: number;
+  failed: Array<{ item: CatalogItemRecord; reason: string }>;
+};
+
+async function handleCatalogAdminBulkBggMetadataUpdate(context: TelegramCatalogAdminContext): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const stats: BulkBggMetadataUpdateStats = {
+    total: 0,
+    checked: 0,
+    updated: 0,
+    skippedFresh: 0,
+    skippedWithoutBgg: 0,
+    failed: [],
+  };
+  const progress = await startTelegramEditableProgress(
+    context,
+    formatBulkBggMetadataProgressMessage(texts, stats, null, texts.bulkBggMetadataStarting),
+    { editFailedEvent: 'catalog.bulk-bgg-metadata.progress-edit.failed' },
+    { parseMode: 'HTML' },
+  );
+  const items = (await listCatalogItems({ repository: resolveCatalogRepository(context) }))
+    .filter((item) => item.itemType === 'board-game' || item.itemType === 'expansion')
+    .sort(compareCatalogItemsForNavigation);
+  stats.total = items.length;
+  await progress.update(formatBulkBggMetadataProgressMessage(texts, stats, null, texts.bulkBggMetadataStarting), { parseMode: 'HTML' });
+
+  if (items.length === 0) {
+    await progress.complete(formatBulkBggMetadataSummaryMessage(texts, stats), { parseMode: 'HTML' });
+    return;
+  }
+
+  for (const item of items) {
+    await progress.update(formatBulkBggMetadataProgressMessage(texts, stats, item, texts.bulkBggMetadataChecking), { parseMode: 'HTML' });
+    const metadata = asNullableObject(item.metadata);
+    if (!isBoardGameGeekBackedItem(item, metadata)) {
+      stats.checked += 1;
+      stats.skippedWithoutBgg += 1;
+      continue;
+    }
+    if (!isBoardGameGeekReimportRecommended(item)) {
+      stats.checked += 1;
+      stats.skippedFresh += 1;
+      continue;
+    }
+
+    await progress.update(formatBulkBggMetadataProgressMessage(texts, stats, item, texts.bulkBggMetadataImportingItem), { parseMode: 'HTML' });
+    const result = await refreshCatalogItemBggMetadataOnly(context, item);
+    stats.checked += 1;
+    if (result.ok) {
+      stats.updated += 1;
+    } else {
+      stats.failed.push({ item, reason: result.reason });
+    }
+  }
+
+  await progress.complete(formatBulkBggMetadataSummaryMessage(texts, stats), { parseMode: 'HTML' });
+}
+
+function formatBulkBggMetadataProgressMessage(
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+  stats: BulkBggMetadataUpdateStats,
+  currentItem: CatalogItemRecord | null,
+  status: string,
+): string {
+  const currentLine = currentItem
+    ? `\n${formatHtmlField(texts.bulkBggMetadataCurrentItem, escapeHtml(currentItem.displayName))}`
+    : '';
+  return [
+    `<b>${escapeHtml(texts.bulkBggMetadataTitle)}</b>`,
+    formatBulkBggMetadataProgressBar(stats.checked, stats.total),
+    escapeHtml(status),
+    `${escapeHtml(texts.bulkBggMetadataCounters)}: ${formatBulkBggMetadataCounters(texts, stats)}`,
+  ].join('\n') + currentLine;
+}
+
+function formatBulkBggMetadataSummaryMessage(
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+  stats: BulkBggMetadataUpdateStats,
+): string {
+  const lines = [
+    `<b>${escapeHtml(texts.bulkBggMetadataCompleted)}</b>`,
+    formatBulkBggMetadataProgressBar(stats.checked, stats.total),
+    `${escapeHtml(texts.bulkBggMetadataCounters)}: ${formatBulkBggMetadataCounters(texts, stats)}`,
+  ];
+  if (stats.total === 0) {
+    lines.push(escapeHtml(texts.bulkBggMetadataNoItems));
+  }
+  if (stats.failed.length > 0) {
+    lines.push(
+      '',
+      `<b>${escapeHtml(texts.bulkBggMetadataFailures)}</b>`,
+      ...stats.failed.slice(0, 10).map(({ item, reason }) => `- ${escapeHtml(item.displayName)}: ${escapeHtml(reason)}`),
+    );
+    if (stats.failed.length > 10) {
+      lines.push(escapeHtml(texts.bulkBggMetadataMoreFailures.replace('{count}', String(stats.failed.length - 10))));
+    }
+  }
+  return lines.join('\n');
+}
+
+function formatBulkBggMetadataCounters(
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+  stats: BulkBggMetadataUpdateStats,
+): string {
+  return [
+    `${escapeHtml(texts.bulkBggMetadataUpdated)} ${stats.updated}`,
+    `${escapeHtml(texts.bulkBggMetadataFresh)} ${stats.skippedFresh}`,
+    `${escapeHtml(texts.bulkBggMetadataWithoutBgg)} ${stats.skippedWithoutBgg}`,
+    `${escapeHtml(texts.bulkBggMetadataErrors)} ${stats.failed.length}`,
+  ].join(' · ');
+}
+
+function formatBulkBggMetadataProgressBar(done: number, total: number): string {
+  const width = 12;
+  const filled = total > 0 ? Math.min(width, Math.max(0, Math.round((done / total) * width))) : 0;
+  const empty = width - filled;
+  return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${done}/${total}`;
 }
 
 async function replyWithCatalogAdminItemDetail(

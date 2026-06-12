@@ -1581,6 +1581,14 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'update_bgg',
+      contexts: ['private'],
+      access: 'admin',
+      handle: async (context) => {
+        await handleTelegramCatalogAdminText({ ...context, messageText: '/update_bgg' });
+      },
+    },
+    {
       command: 'review_access',
       contexts: ['private'],
       access: 'admin',
@@ -2628,6 +2636,14 @@ async function handleTelegramActionMenuText(
 
     if (selection.actionId === 'ask_bot') {
       return handleTelegramLlmMenuText(context);
+    }
+
+    if (selection.actionId === 'update_bgg') {
+      const handled = await handleTelegramCatalogAdminText({ ...context, messageText: '/update_bgg' });
+      if (handled) {
+        setActiveHelpSection(context, 'catalog');
+      }
+      return handled;
     }
 
     const localizedContext = { ...context, messageText: selection.label };

@@ -740,7 +740,7 @@ export function isTelegramRawCommandMatch(
 }
 
 export function isTelegramInternalTextCommand(messageText: string): boolean {
-  return /^(?:\/catalog_admin_letters_[A-Za-z0-9_-]+|\/cat_[A-Za-z0-9_-]+)(?:@[A-Za-z0-9_]+)?$/.test(messageText.trim());
+  return /^(?:\/catalog_admin_letters_[A-Za-z0-9_-]+|\/cat_[A-Za-z0-9_-]+|\/update_bgg)(?:@[A-Za-z0-9_]+)?$/.test(messageText.trim());
 }
 
 function escapeRegExp(value: string): string {

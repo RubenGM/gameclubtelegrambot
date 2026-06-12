@@ -220,6 +220,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isAdmin,
   },
   {
+    id: 'update_bgg',
+    label: (language) => createTelegramI18n(language).actionMenu.updateBgg,
+    telemetryActionKey: 'menu.update_bgg',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'language',
     label: (language) => createTelegramI18n(language).actionMenu.language,
     telemetryActionKey: 'menu.language',
@@ -280,7 +289,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-tools',
     matches: () => false,
-    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['member_debug'], ['start', 'help']],
+    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg'], ['member_debug'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',
