@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log.js';
-import type { NewsGroupRecord, NewsGroupRepository, NewsGroupSubscriptionRecord } from '../news/news-group-catalog.js';
+import {
+  groupPurchaseNewsGroupCategory,
+  resolveNewsGroupCategory,
+  type NewsGroupRecord,
+  type NewsGroupRepository,
+  type NewsGroupSubscriptionRecord,
+} from '../news/news-group-catalog.js';
 import type {
   GroupPurchaseDetailRecord,
   GroupPurchaseFieldRecord,
@@ -216,7 +222,17 @@ function createAuditRepository(): AuditLogRepository & { __events: AuditLogEvent
   };
 }
 
-function createNewsGroupRepository(initialGroups: NewsGroupRecord[] = []): NewsGroupRepository {
+function createNewsGroupRepository(
+  initialGroups: NewsGroupRecord[] = [],
+  initialSubscriptions: NewsGroupSubscriptionRecord[] = [],
+): NewsGroupRepository {
+  const subscriptions = new Map<string, NewsGroupSubscriptionRecord>(
+    initialSubscriptions.map((subscription) => [
+      `${subscription.chatId}:${subscription.messageThreadId ?? 0}:${subscription.categoryKey}`,
+      subscription,
+    ]),
+  );
+
   return {
     async findGroupByChatId(chatId) {
       return initialGroups.find((group) => group.chatId === chatId) ?? null;
@@ -227,8 +243,10 @@ function createNewsGroupRepository(initialGroups: NewsGroupRecord[] = []): NewsG
     async upsertGroup() {
       throw new Error('not implemented');
     },
-    async listSubscriptionsByChatId(): Promise<NewsGroupSubscriptionRecord[]> {
-      return [];
+    async listSubscriptionsByChatId(chatId, input = {}): Promise<NewsGroupSubscriptionRecord[]> {
+      return Array.from(subscriptions.values())
+        .filter((subscription) => subscription.chatId === chatId)
+        .filter((subscription) => !('messageThreadId' in input) || subscription.messageThreadId === (input.messageThreadId ?? null));
     },
     async upsertSubscription() {
       throw new Error('not implemented');
@@ -236,8 +254,24 @@ function createNewsGroupRepository(initialGroups: NewsGroupRecord[] = []): NewsG
     async deleteSubscription() {
       return false;
     },
-    async listSubscribedGroupsByCategory() {
-      return initialGroups.filter((group) => group.isEnabled).map((group) => ({ ...group, messageThreadId: null }));
+    async listSubscribedGroupsByCategory(categoryKey) {
+      const explicit = Array.from(subscriptions.values())
+        .filter((subscription) => subscription.categoryKey === categoryKey)
+        .flatMap((subscription) => {
+          const group = initialGroups.find((candidate) => candidate.chatId === subscription.chatId);
+          return group?.isEnabled ? [{ ...group, messageThreadId: subscription.messageThreadId }] : [];
+        });
+
+      if (!resolveNewsGroupCategory(categoryKey)?.defaultSubscribed) {
+        return explicit;
+      }
+
+      const explicitChatIds = new Set(explicit.map((group) => group.chatId));
+      const defaults = initialGroups
+        .filter((group) => group.isEnabled && !explicitChatIds.has(group.chatId))
+        .map((group) => ({ ...group, messageThreadId: null }));
+
+      return [...explicit, ...defaults];
     },
     async isNewsEnabledGroup(chatId) {
       return initialGroups.some((group) => group.chatId === chatId && group.isEnabled);
@@ -647,10 +681,66 @@ test('shared-cost create flow can skip configurable fields and save directly', a
   assert.equal(purchases[0]?.purchaseMode, 'shared_cost');
   assert.equal(groupMessages.length, 1);
   assert.equal(groupMessages[0]?.chatId, -200);
+  assert.equal(groupMessages[0]?.options?.messageThreadId, undefined);
   assert.match(groupMessages[0]?.message ?? '', /Nueva compra conjunta disponible/);
   assert.match(groupMessages[0]?.message ?? '', /Juego conjunto/);
   assert.match(groupMessages[0]?.message ?? '', /Coste total: 50,00€/);
   assert.match(groupMessages[0]?.message ?? '', /Usuarios confirmados actualmente: 0/);
+});
+
+test('shared-cost create flow publishes to group-purchase news destinations by group and topic', async () => {
+  const repository = createRepository();
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+    {
+      chatId: -201,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ], [
+    {
+      chatId: -200,
+      messageThreadId: null,
+      categoryKey: groupPurchaseNewsGroupCategory,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+    },
+    {
+      chatId: -201,
+      messageThreadId: 77,
+      categoryKey: groupPurchaseNewsGroupCategory,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+    },
+  ]);
+  const { context, groupMessages } = createContext(repository, { newsGroupRepository });
+
+  for (const messageText of ['Crear compra', 'Juego conjunto', 'Compra compartida', 'Cost compartit', '50', 'Ometre', 'Ometre', 'Seguir', 'Guardar compra']) {
+    context.messageText = messageText;
+    await handleTelegramGroupPurchaseText(context);
+  }
+
+  assert.deepEqual(groupMessages.map((message) => ({
+    chatId: message.chatId,
+    messageThreadId: message.options?.messageThreadId ?? null,
+  })), [
+    { chatId: -200, messageThreadId: null },
+    { chatId: -201, messageThreadId: 77 },
+  ]);
+  assert.match(groupMessages[0]?.message ?? '', /Nueva compra conjunta disponible/);
+  assert.match(groupMessages[1]?.message ?? '', /Nueva compra conjunta disponible/);
 });
 
 test('create flow stores a rich description message and publishes the open-description link', async () => {
@@ -1319,6 +1409,76 @@ test('shared-cost participant changes are published to enabled notification grou
   assert.deepEqual(deletedMessages, [
     { chatId: -200, messageId: 1000 },
     { chatId: -200, messageId: 1001 },
+  ]);
+});
+
+test('shared-cost participant updates keep separate snapshots for group and topic destinations', async () => {
+  const repository = createRepository([buildPurchase({
+    id: 62,
+    title: 'Juego conjunto',
+    purchaseMode: 'shared_cost',
+    createdByTelegramUserId: 42,
+    joinDeadlineAt: null,
+    confirmDeadlineAt: '2026-06-30T21:00:00.000Z',
+    totalPriceCents: 5000,
+    unitPriceCents: null,
+    unitLabel: null,
+  })]);
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+    {
+      chatId: -201,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+      enabledAt: '2026-04-20T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ], [
+    {
+      chatId: -200,
+      messageThreadId: null,
+      categoryKey: groupPurchaseNewsGroupCategory,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+    },
+    {
+      chatId: -201,
+      messageThreadId: 77,
+      categoryKey: groupPurchaseNewsGroupCategory,
+      createdAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+    },
+  ]);
+  const { context, groupMessages, deletedMessages } = createContext(repository, { newsGroupRepository });
+
+  context.callbackData = 'group_purchase:join_interested:62';
+  await handleTelegramGroupPurchaseCallback(context);
+  context.callbackData = 'group_purchase:confirm:62';
+  await handleTelegramGroupPurchaseCallback(context);
+
+  assert.deepEqual(groupMessages.map((message) => ({
+    chatId: message.chatId,
+    messageThreadId: message.options?.messageThreadId ?? null,
+    messageId: message.messageId,
+  })), [
+    { chatId: -200, messageThreadId: null, messageId: 1000 },
+    { chatId: -201, messageThreadId: 77, messageId: 1001 },
+    { chatId: -200, messageThreadId: null, messageId: 1002 },
+    { chatId: -201, messageThreadId: 77, messageId: 1003 },
+  ]);
+  assert.deepEqual(deletedMessages, [
+    { chatId: -200, messageId: 1000 },
+    { chatId: -201, messageId: 1001 },
   ]);
 });
 

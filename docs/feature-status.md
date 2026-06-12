@@ -1,6 +1,6 @@
 # Estado real de features
 
-Ultima revision: 2026-06-03.
+Última revisión: 2026-06-12.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -25,7 +25,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
 | Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `nuevos_miembros`; `/admin/news` resume feeds activos. |
 | Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
-| Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos automáticos a grupos, gestión de participantes y recordatorios.       |
+| Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
 | Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
@@ -222,8 +222,8 @@ Implementado:
 - `/news activar` dentro de un topic habilita el grupo y suscribe el feed de agenda (`events`) a ese topic para evitar que las actualizaciones de calendario caigan al general.
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
 - Las respuestas administrativas de `/news` confirman feed y destino por nombre de grupo cuando Telegram lo proporciona, y se borran automaticamente tras 1 minuto para no ensuciar el grupo o topic; las publicaciones reales de feeds se conservan.
-- Catálogo canónico de categories de noticias y aliases reutilizado por agenda, LFG, préstecs y altas web (`nuevos_miembros`).
-- Publicación de novedades por categoría concreta (agenda => `events`, Avisos => `avisos`, LFG, préstecs por tipus d’ítem, altas web => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto como `events` si no tienen ese feed suscrito explícitamente.
+- Catálogo canónico de categorías de noticias y aliases reutilizado por agenda, LFG, préstamos, compras conjuntas y altas web (`nuevos_miembros`).
+- Publicación de novedades por categoría concreta (agenda => `events`, Avisos => `avisos`, compras conjuntas => `group-purchases`, LFG, préstamos por tipo de ítem, altas web => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto, como `events` y `group-purchases`, si no tienen ese feed suscrito explícitamente.
 - `/admin/news` muestra los feeds disponibles y cuántos destinos activos hay suscritos a cada categoría.
 
 Pendiente:
@@ -263,8 +263,9 @@ Implementado:
 - Deadlines de union y confirmacion.
 - Campos personalizados de participante: entero, opcion simple o texto; pueden afectar cantidad.
 - Unirse como interesado o confirmado, editar valores, salir, gestionar participantes y cambiar estados.
-- Publicacion automatica de nuevas compras en grupos habilitados para notificaciones; cada compra mantiene un unico mensaje vivo por grupo y borra el mensaje anterior al publicar una actualizacion.
-- Actualizaciones automaticas en grupos cuando alguien se apunta, confirma, edita la compra o se echa atras; incluyen botones inline para detalle, descripcion y participacion privada, y en coste compartido muestran coste total, coste actual por persona y usuarios confirmados.
+- Publicación automática de nuevas compras en destinos `/news group-purchases`: por defecto llega al grupo completo habilitado, y si existe una suscripción explícita por topic se publica con su `message_thread_id`.
+- Cada compra mantiene un único mensaje vivo por destino `chat_id` + `message_thread_id` y borra el mensaje anterior al publicar una actualización.
+- Actualizaciones automáticas en grupos/topics cuando alguien se apunta, confirma, edita la compra o se echa atrás; incluyen botones inline para detalle, descripción y participación privada, y en coste compartido muestran coste total, coste actual por persona y usuarios confirmados.
 - Mensajes asociados a una compra para trazabilidad interna.
 - Recordatorios persistentes antes del deadline de confirmacion.
 

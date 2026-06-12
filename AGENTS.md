@@ -106,6 +106,12 @@ callbacks ejecutados dentro de un topic deben gestionar ese topic; fuera de
 topic gestionan el grupo completo. Al publicar feeds, pasa siempre el
 `messageThreadId` del destino a Telegram.
 
+Las compras conjuntas publican en la categoría `/news` `group-purchases`, con
+alta por defecto para grupos habilitados. Si existe una suscripción explícita de
+`group-purchases` en un topic, las publicaciones y actualizaciones deben usar
+ese `message_thread_id` y los snapshots se distinguen por `chat_id` +
+`message_thread_id`.
+
 La feature privada **Avisos** (`/avisos`, `/notices` y botón `Avisos`) permite a
 socios aprobados publicar avisos con texto formateado y adjuntos en los
 grupos/topics suscritos específicamente a la categoría `/news` `avisos`. La

@@ -11,7 +11,7 @@ import {
   type GroupPurchaseRepository,
 } from '../group-purchases/group-purchase-catalog.js';
 import { createDatabaseGroupPurchaseRepository } from '../group-purchases/group-purchase-catalog-store.js';
-import type { NewsGroupRepository } from '../news/news-group-catalog.js';
+import { groupPurchaseNewsGroupCategory, type NewsGroupRepository } from '../news/news-group-catalog.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import { createDatabaseAppMetadataSessionStorage, type AppMetadataSessionStorage } from './conversation-session-store.js';
@@ -1123,7 +1123,7 @@ async function publishGroupPurchaseAnnouncement(
     return;
   }
 
-  const groups = await resolveNewsGroupRepository(context).listGroups({ includeDisabled: false });
+  const groups = await resolveNewsGroupRepository(context).listSubscribedGroupsByCategory(groupPurchaseNewsGroupCategory);
   if (groups.length === 0) {
     return;
   }
@@ -1136,11 +1136,14 @@ async function publishGroupPurchaseAnnouncement(
   await Promise.all(
     groups.map(async (group) => {
       try {
-        const sent = await sendGroupMessage(group.chatId, message, options);
+        const sent = await sendGroupMessage(group.chatId, message, {
+          ...options,
+          ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
+        });
         await rememberAndDeletePreviousGroupPurchaseMessage({
           purchaseId: detail.purchase.id,
           chatId: group.chatId,
-          messageThreadId: null,
+          messageThreadId: group.messageThreadId,
           sent,
           snapshotStorage,
           ...(deleteMessage ? { deleteMessage } : {}),
@@ -1150,6 +1153,7 @@ async function publishGroupPurchaseAnnouncement(
           event: 'group-purchase.announcement.group-send.failed',
           purchaseId: detail.purchase.id,
           chatId: group.chatId,
+          messageThreadId: group.messageThreadId,
           error: error instanceof Error ? error.message : String(error),
         }));
         // No bloqueja la publicació local.
@@ -1168,7 +1172,7 @@ async function publishGroupPurchaseSummaryUpdate(
     return;
   }
 
-  const groups = await resolveNewsGroupRepository(context).listGroups({ includeDisabled: false });
+  const groups = await resolveNewsGroupRepository(context).listSubscribedGroupsByCategory(groupPurchaseNewsGroupCategory);
   if (groups.length === 0) {
     return;
   }
@@ -1185,11 +1189,14 @@ async function publishGroupPurchaseSummaryUpdate(
   await Promise.all(
     groups.map(async (group) => {
       try {
-        const sent = await sendGroupMessage(group.chatId, message, options);
+        const sent = await sendGroupMessage(group.chatId, message, {
+          ...options,
+          ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
+        });
         await rememberAndDeletePreviousGroupPurchaseMessage({
           purchaseId: detail.purchase.id,
           chatId: group.chatId,
-          messageThreadId: null,
+          messageThreadId: group.messageThreadId,
           sent,
           snapshotStorage,
           ...(deleteMessage ? { deleteMessage } : {}),
@@ -1199,6 +1206,7 @@ async function publishGroupPurchaseSummaryUpdate(
           event: 'group-purchase.summary-update.group-send.failed',
           purchaseId: detail.purchase.id,
           chatId: group.chatId,
+          messageThreadId: group.messageThreadId,
           error: error instanceof Error ? error.message : String(error),
         }));
         // No bloquea la edición privada si un grupo ya no acepta mensajes.
@@ -1218,7 +1226,7 @@ async function publishGroupPurchaseParticipantUpdate(
     return;
   }
 
-  const groups = await resolveNewsGroupRepository(context).listGroups({ includeDisabled: false });
+  const groups = await resolveNewsGroupRepository(context).listSubscribedGroupsByCategory(groupPurchaseNewsGroupCategory);
   if (groups.length === 0) {
     return;
   }
@@ -1235,11 +1243,14 @@ async function publishGroupPurchaseParticipantUpdate(
   await Promise.all(
     groups.map(async (group) => {
       try {
-        const sent = await sendGroupMessage(group.chatId, message, options);
+        const sent = await sendGroupMessage(group.chatId, message, {
+          ...options,
+          ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
+        });
         await rememberAndDeletePreviousGroupPurchaseMessage({
           purchaseId: detail.purchase.id,
           chatId: group.chatId,
-          messageThreadId: null,
+          messageThreadId: group.messageThreadId,
           sent,
           snapshotStorage,
           ...(deleteMessage ? { deleteMessage } : {}),
@@ -1251,6 +1262,7 @@ async function publishGroupPurchaseParticipantUpdate(
           participantTelegramUserId,
           updateKind,
           chatId: group.chatId,
+          messageThreadId: group.messageThreadId,
           error: error instanceof Error ? error.message : String(error),
         }));
         // No bloquea la acción privada si un grupo ya no acepta mensajes.
