@@ -3,6 +3,7 @@ import { findLlmCommandCapability } from './llm-command-actions.js';
 import type { LlmCommandDecision } from './llm-command-schema.js';
 
 export type LlmCommandRouteOutcome =
+  | { type: 'answer_directly'; message: string; intent: string }
   | { type: 'ask_clarification'; message: string; intent: string }
   | { type: 'execute_read'; intent: string; params: Record<string, unknown> }
   | { type: 'request_confirmation'; intent: string; params: Record<string, unknown>; message: string }
@@ -49,6 +50,14 @@ export function routeLlmCommandDecision(
     };
   }
 
+  if (decision.action.type === 'answer_directly') {
+    return {
+      type: 'answer_directly',
+      message: decision.reply.text,
+      intent: decision.intent,
+    };
+  }
+
   const threshold = localRisk === 'read_only'
     ? context.readConfidenceThreshold
     : context.writeConfidenceThreshold;
@@ -77,7 +86,7 @@ export function routeLlmCommandDecision(
     };
   }
 
-  if (decision.action.type !== 'call_internal_handler' && decision.action.type !== 'answer_directly') {
+  if (decision.action.type !== 'call_internal_handler') {
     return { type: 'unsupported', message: decision.reply.text };
   }
 

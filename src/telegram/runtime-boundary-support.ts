@@ -30,6 +30,8 @@ import { registerHandlers, toGrammyReplyOptions } from './runtime-boundary-regis
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
+import type { LlmCommandService } from './llm-command-service.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { createTelegramApiHealthMonitor, type TelegramApiHealthMonitor } from './telegram-api-health.js';
 import { withTelegramApiRetry } from './telegram-api-retry.js';
@@ -191,6 +193,8 @@ export interface TelegramRuntime {
   wikipediaBoardGameImportService: ReturnType<typeof createWikipediaBoardGameImportService>;
   boardGameGeekCollectionImportService: ReturnType<typeof createBoardGameGeekCollectionImportService>;
   descriptionTranslator?: CatalogDescriptionTranslator;
+  llmCommands?: ResolvedLlmCommandConfig;
+  llmCommandService?: LlmCommandService;
   chat?: TelegramChatContext;
   actor?: TelegramActor;
   authorization?: AuthorizationService;

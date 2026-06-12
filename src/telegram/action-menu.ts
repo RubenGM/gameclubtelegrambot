@@ -11,6 +11,7 @@ export interface TelegramActionMenuContext {
   chat: TelegramChatContext;
   session: ConversationSessionRecord | null;
   language: BotLanguage;
+  llmCommandsEnabled?: boolean;
 }
 
 export interface TelegramResolvedActionMenu {
@@ -147,6 +148,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
   {
+    id: 'ask_bot',
+    label: (language) => createTelegramI18n(language).actionMenu.askBot,
+    telemetryActionKey: 'menu.ask_bot',
+    uxSection: 'primary',
+    buttonRole: 'primary',
+    contexts: ['private'],
+    isVisible: (context) => Boolean(context.llmCommandsEnabled) && context.actor.isApproved && !context.actor.isBlocked,
+  },
+  {
     id: 'admin',
     label: (language) => createTelegramI18n(language).actionMenu.admin,
     telemetryActionKey: 'menu.admin',
@@ -265,7 +275,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'notices'], ['change_display_name', 'admin'], ['language', 'help']],
+    rows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'notices'], ['change_display_name', 'admin'], ['ask_bot'], ['language', 'help']],
   },
   {
     id: 'private-admin-tools',
@@ -279,7 +289,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'change_display_name'], ['language', 'help']],
+    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'change_display_name'], ['ask_bot'], ['language', 'help']],
   },
   {
     id: 'private-pending-default',

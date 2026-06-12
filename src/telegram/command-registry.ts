@@ -6,6 +6,8 @@ import type { ConversationSessionRuntime } from './conversation-session.js';
 import type { TelegramMessageEntity, TelegramReplyOptions, TelegramSentMessage } from './runtime-boundary.js';
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
+import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
+import type { LlmCommandService } from './llm-command-service.js';
 
 export class TelegramInteractionError extends Error {
   cancelSession: boolean;
@@ -51,6 +53,8 @@ export interface TelegramCommandRuntime {
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
   services: InfrastructureRuntimeServices;
+  llmCommands?: ResolvedLlmCommandConfig;
+  llmCommandService?: LlmCommandService;
   chat: TelegramChatContext;
   actor: TelegramActor;
   authorization: AuthorizationService;

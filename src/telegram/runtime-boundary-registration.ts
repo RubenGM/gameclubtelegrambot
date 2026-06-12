@@ -86,6 +86,11 @@ import {
   lfgCallbackPrefixes,
 } from './lfg-flow.js';
 import {
+  handleTelegramLlmAskCommand,
+  handleTelegramLlmFallbackText,
+  handleTelegramLlmMenuText,
+} from './llm-command-flow.js';
+import {
   handleTelegramNewsGroupCallback,
   handleTelegramNewsGroupText,
   newsGroupCallbackPrefixes,
@@ -314,6 +319,10 @@ function registerTextHandlers({
 
     if (await handleTelegramCatalogReadText(context)) {
       setActiveHelpSection(context, 'catalog');
+      return;
+    }
+
+    if (await handleTelegramLlmFallbackText(context)) {
       return;
     }
   });
@@ -1299,6 +1308,19 @@ function createDefaultCommands({
   adminElevationPasswordHash: string;
 }): TelegramCommandDefinition[] {
   return [
+    {
+      command: 'ask',
+      contexts: ['private'],
+      access: 'approved',
+      descriptionByLanguage: {
+        ca: 'Pregunta al bot en llenguatge natural',
+        es: 'Pregunta al bot en lenguaje natural',
+        en: 'Ask the bot in natural language',
+      },
+      handle: async (context) => {
+        await handleTelegramLlmAskCommand(context);
+      },
+    },
     {
       command: 'elevate_admin',
       contexts: ['private'],
@@ -2513,6 +2535,7 @@ async function handleTelegramActionMenuText(
     chat: context.runtime.chat,
     session: context.runtime.session.current,
     language,
+    llmCommandsEnabled: Boolean(context.runtime.llmCommands?.enabled),
   };
   const selection = resolveTelegramMenuSelection({
     context: actionMenuContext,
@@ -2583,6 +2606,10 @@ async function handleTelegramActionMenuText(
         }),
       );
       return true;
+    }
+
+    if (selection.actionId === 'ask_bot') {
+      return handleTelegramLlmMenuText(context);
     }
 
     const localizedContext = { ...context, messageText: selection.label };

@@ -210,6 +210,58 @@ test('resolveTelegramActionMenu shows a compact member menu for approved non-adm
   });
 });
 
+test('resolveTelegramActionMenu shows Preguntar al bot only when LLM commands are enabled', async () => {
+  const menu = resolveTelegramActionMenu({
+    context: {
+      ...createContext({
+        actor: {
+          telegramUserId: 77,
+          status: 'approved',
+          isApproved: true,
+          isBlocked: false,
+          isAdmin: false,
+          permissions: [],
+        },
+        chat: {
+          kind: 'private',
+          chatId: 1,
+        },
+      }),
+      language: 'es',
+      llmCommandsEnabled: true,
+    },
+  });
+
+  assert.equal(menu?.actions.some((action) => action.id === 'ask_bot' && action.label === 'Preguntar al bot'), true);
+  assert.deepEqual(resolveTelegramMenuSelection({
+    context: {
+      ...createContext({
+        actor: {
+          telegramUserId: 77,
+          status: 'approved',
+          isApproved: true,
+          isBlocked: false,
+          isAdmin: false,
+          permissions: [],
+        },
+        chat: {
+          kind: 'private',
+          chatId: 1,
+        },
+      }),
+      language: 'es',
+      llmCommandsEnabled: true,
+    },
+    text: 'Preguntar al bot',
+  }), {
+    menuId: 'private-approved-default',
+    actionId: 'ask_bot',
+    label: 'Preguntar al bot',
+    telemetryActionKey: 'menu.ask_bot',
+    uxSection: 'primary',
+  });
+});
+
 test('resolveTelegramMenuSelection maps translated button text to stable menu action metadata', async () => {
   const selection = resolveTelegramMenuSelection({
     context: createContext({

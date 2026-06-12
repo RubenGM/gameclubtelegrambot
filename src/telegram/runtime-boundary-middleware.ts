@@ -6,6 +6,8 @@ import { createDatabaseMembershipAccessRepository } from '../membership/access-f
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import { resolveLlmCommandConfig } from './llm-command-config.js';
+import { createLlmCommandService } from './llm-command-service.js';
 import {
   resolveTelegramChatContext,
 } from './chat-context.js';
@@ -64,11 +66,28 @@ export function createMiddlewarePipeline({
     ...optionalDeepLTimeout(process.env.GAMECLUB_DEEPL_TIMEOUT_MS),
     opencodeBin: process.env.GAMECLUB_OPENCODE_BIN?.trim() || 'opencode',
   });
+  const llmCommands = resolveLlmCommandConfig(config);
+  const llmCommandService = createLlmCommandService({
+    config: {
+      opencodeBin: llmCommands.opencodeBin,
+      model: llmCommands.model,
+      timeoutMs: llmCommands.timeoutMs,
+    },
+  });
 
   return [
     createErrorHandlingMiddleware({ logger }),
     createLoggingMiddleware({ logger }),
-    createRuntimeContextMiddleware({ config, services, bot, wikipediaBoardGameImportService, boardGameGeekCollectionImportService, descriptionTranslator }),
+    createRuntimeContextMiddleware({
+      config,
+      services,
+      bot,
+      wikipediaBoardGameImportService,
+      boardGameGeekCollectionImportService,
+      descriptionTranslator,
+      llmCommands,
+      llmCommandService,
+    }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
     createActorMiddleware({ services, loadActor }),
     createLanguageMiddleware({ config, languagePreferenceStore }),
@@ -222,6 +241,8 @@ function createRuntimeContextMiddleware({
   wikipediaBoardGameImportService,
   boardGameGeekCollectionImportService,
   descriptionTranslator,
+  llmCommands,
+  llmCommandService,
 }: {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
@@ -229,6 +250,8 @@ function createRuntimeContextMiddleware({
   wikipediaBoardGameImportService: ReturnType<typeof createWikipediaBoardGameImportService>;
   boardGameGeekCollectionImportService: ReturnType<typeof createBoardGameGeekCollectionImportService>;
   descriptionTranslator: ReturnType<typeof createCatalogDescriptionTranslator>;
+  llmCommands: ReturnType<typeof resolveLlmCommandConfig>;
+  llmCommandService: ReturnType<typeof createLlmCommandService>;
 }): TelegramMiddleware {
   return async (context, next) => {
     configureTelegramDeepLinks({ botUsername: await resolveBotUsername(bot) });
@@ -257,6 +280,8 @@ function createRuntimeContextMiddleware({
       wikipediaBoardGameImportService,
       boardGameGeekCollectionImportService,
       descriptionTranslator,
+      llmCommands,
+      llmCommandService,
     };
 
     await next();
