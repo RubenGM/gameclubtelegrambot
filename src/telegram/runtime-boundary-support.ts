@@ -31,6 +31,7 @@ import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
+import type { LlmCommandMetrics } from './llm-command-metrics.js';
 import type { LlmCommandService } from './llm-command-service.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { createTelegramApiHealthMonitor, type TelegramApiHealthMonitor } from './telegram-api-health.js';
@@ -196,6 +197,7 @@ export interface TelegramRuntime {
   descriptionTranslator?: CatalogDescriptionTranslator;
   llmCommands?: ResolvedLlmCommandConfig;
   llmCommandService?: LlmCommandService;
+  llmCommandMetrics?: LlmCommandMetrics;
   chat?: TelegramChatContext;
   actor?: TelegramActor;
   authorization?: AuthorizationService;

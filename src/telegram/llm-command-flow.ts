@@ -2,6 +2,8 @@ import type { TelegramCommandHandlerContext } from './command-registry.js';
 import { buildLlmCommandPrompt } from './llm-command-prompt.js';
 import { routeLlmCommandDecision, type LlmCommandRouteOutcome } from './llm-command-router.js';
 import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
+import type { LlmCommandMetricAction, LlmCommandMetricResult, LlmCommandMetrics } from './llm-command-metrics.js';
+import { LlmCommandServiceError } from './llm-command-service.js';
 import type { BotLanguage } from './i18n.js';
 import { executeTelegramLlmReadAction } from './llm-command-read-actions.js';
 
@@ -13,6 +15,7 @@ export type TelegramLlmCommandContext = TelegramCommandHandlerContext & {
     llmCommandService?: {
       interpret(prompt: string): Promise<import('./llm-command-schema.js').LlmCommandDecision>;
     };
+    llmCommandMetrics?: LlmCommandMetrics;
   };
 };
 
@@ -123,6 +126,7 @@ async function handleTelegramLlmCommandText(
   }
 
   const language = (context.runtime.bot.language ?? 'ca') as BotLanguage;
+  const startedAt = Date.now();
   const prompt = buildLlmCommandPrompt({
     userText: input.text,
     language,
@@ -134,7 +138,21 @@ async function handleTelegramLlmCommandText(
     maxPromptChars: config.maxPromptChars,
   });
 
-  const decision = await service.interpret(prompt);
+  let decision: Awaited<ReturnType<typeof service.interpret>>;
+  try {
+    decision = await service.interpret(prompt);
+  } catch (error) {
+    await recordLlmCommandMetric(context, {
+      source: input.source,
+      language,
+      startedAt,
+      action: 'failure',
+      result: metricResultForError(error),
+      reason: metricReasonForError(error),
+    });
+    await context.reply('No he podido interpretar la petición ahora mismo. Prueba de nuevo en unos momentos o usa el menú normal.');
+    return;
+  }
   const outcome = routeLlmCommandDecision(decision, {
     isApproved: context.runtime.actor.isApproved,
     isAdmin: context.runtime.actor.isAdmin,
@@ -148,6 +166,16 @@ async function handleTelegramLlmCommandText(
     userText: input.text,
     intent: decision.intent,
     replyText: resolveOutcomeReply(outcome),
+  });
+  await recordLlmCommandMetric(context, {
+    source: input.source,
+    language,
+    startedAt,
+    intent: decision.intent,
+    confidence: decision.confidence,
+    action: metricActionForOutcome(outcome),
+    result: metricResultForOutcome(outcome),
+    reason: metricReasonForOutcome(outcome),
   });
   await replyWithOutcome(context, outcome);
 }
@@ -170,6 +198,97 @@ function resolveOutcomeReply(outcome: LlmCommandRouteOutcome): string {
     return outcome.message;
   }
   return 'He entendido la petición.';
+}
+
+async function recordLlmCommandMetric(
+  context: TelegramLlmCommandContext,
+  input: {
+    source: TelegramLlmCommandEntrySource;
+    language: BotLanguage;
+    startedAt: number;
+    intent?: string;
+    confidence?: number;
+    action: LlmCommandMetricAction;
+    result: LlmCommandMetricResult;
+    reason?: string | null;
+  },
+): Promise<void> {
+  const metrics = context.runtime.llmCommandMetrics;
+  if (!metrics) {
+    return;
+  }
+
+  try {
+    await metrics.record({
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      chatId: context.runtime.chat.chatId,
+      chatKind: context.runtime.chat.kind,
+      hasTopic: Boolean(context.messageThreadId),
+      entrySource: input.source,
+      language: input.language,
+      intent: input.intent ?? null,
+      confidence: input.confidence ?? null,
+      action: input.action,
+      result: input.result,
+      reason: input.reason ?? null,
+      elapsedMs: Date.now() - input.startedAt,
+    });
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: 'telegram.llm_command.metric.failed',
+      error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+    }));
+  }
+}
+
+function metricActionForOutcome(outcome: LlmCommandRouteOutcome): LlmCommandMetricAction {
+  if (outcome.type === 'execute_read' || outcome.type === 'answer_directly') {
+    return 'read';
+  }
+  if (outcome.type === 'request_confirmation') {
+    return 'confirmation';
+  }
+  if (outcome.type === 'ask_clarification') {
+    return 'clarification';
+  }
+  return outcome.type;
+}
+
+function metricResultForOutcome(outcome: LlmCommandRouteOutcome): LlmCommandMetricResult {
+  if (outcome.type === 'permission_denied') {
+    return 'permission_denied';
+  }
+  if (outcome.type === 'unsupported') {
+    return 'action_not_allowlisted';
+  }
+  return 'success';
+}
+
+function metricReasonForOutcome(outcome: LlmCommandRouteOutcome): string | null {
+  if (outcome.type === 'confidence_too_low') {
+    return `threshold:${outcome.threshold}`;
+  }
+  if (outcome.type === 'private_chat_required') {
+    return outcome.targetIntent;
+  }
+  return null;
+}
+
+function metricResultForError(error: unknown): LlmCommandMetricResult {
+  if (error instanceof LlmCommandServiceError) {
+    if (error.code === 'timeout') return 'timeout';
+    if (error.code === 'invalid_json') return 'invalid_json';
+    if (error.code === 'not_configured') return 'not_configured';
+    if (error.code === 'process_failed') return 'process_failed';
+  }
+  return 'unknown_error';
+}
+
+function metricReasonForError(error: unknown): string {
+  if (error instanceof LlmCommandServiceError) {
+    return error.code;
+  }
+  return error instanceof Error ? error.name : 'unknown';
 }
 
 async function startTelegramLlmCommandSession(context: TelegramLlmCommandContext): Promise<void> {

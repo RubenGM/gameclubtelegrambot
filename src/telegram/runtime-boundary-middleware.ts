@@ -7,6 +7,7 @@ import { resolveTelegramDisplayName } from '../membership/display-name.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { resolveLlmCommandConfig } from './llm-command-config.js';
+import { createAuditLogLlmCommandMetrics } from './llm-command-metrics.js';
 import { createLlmCommandService } from './llm-command-service.js';
 import {
   resolveTelegramChatContext,
@@ -74,6 +75,9 @@ export function createMiddlewarePipeline({
       timeoutMs: llmCommands.timeoutMs,
     },
   });
+  const llmCommandMetrics = createAuditLogLlmCommandMetrics({
+    database: services.database.db,
+  });
 
   return [
     createErrorHandlingMiddleware({ logger }),
@@ -87,6 +91,7 @@ export function createMiddlewarePipeline({
       descriptionTranslator,
       llmCommands,
       llmCommandService,
+      llmCommandMetrics,
     }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
     createActorMiddleware({ services, loadActor }),
@@ -243,6 +248,7 @@ function createRuntimeContextMiddleware({
   descriptionTranslator,
   llmCommands,
   llmCommandService,
+  llmCommandMetrics,
 }: {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
@@ -252,6 +258,7 @@ function createRuntimeContextMiddleware({
   descriptionTranslator: ReturnType<typeof createCatalogDescriptionTranslator>;
   llmCommands: ReturnType<typeof resolveLlmCommandConfig>;
   llmCommandService: ReturnType<typeof createLlmCommandService>;
+  llmCommandMetrics: ReturnType<typeof createAuditLogLlmCommandMetrics>;
 }): TelegramMiddleware {
   return async (context, next) => {
     configureTelegramDeepLinks({ botUsername: await resolveBotUsername(bot) });
@@ -282,6 +289,7 @@ function createRuntimeContextMiddleware({
       descriptionTranslator,
       llmCommands,
       llmCommandService,
+      llmCommandMetrics,
     };
 
     await next();

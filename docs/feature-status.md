@@ -122,12 +122,12 @@ Implementado:
 - Lecturas en grupos/topics cuando el usuario menciona explícitamente al bot o responde a un mensaje suyo; las respuestas conservan `message_thread_id`.
 - Sesión LLM conversacional con expiración funcional de 15 minutos dentro del flujo `llm-command`.
 - Lecturas MVP desde repositorios internos para ayuda, agenda, catálogo, préstamos, Storage, avisos, compras conjuntas, LFG y estado básico de `/news`; los resultados se limitan a 5 elementos y derivan a privado si hay más.
+- Métricas saneadas persistidas en `audit_log` con intención, confianza, origen, tipo de chat, resultado, duración y motivo; no guardan texto literal del usuario, prompt completo ni respuesta completa de la LLM.
 
 Riesgos o pendientes:
 
 - La feature sigue apagada por defecto hasta validación operativa real con OpenCode en despliegue.
 - Las escrituras interpretadas se derivan o piden confirmación, pero falta conectar el prellenado y ejecución final con los handlers normales.
-- Falta persistir métricas saneadas de intención/confianza/error sin texto literal.
 - Las lecturas MVP son resúmenes básicos; falta UX de detalle largo por privado y selección guiada entre múltiples resultados.
 
 ## Mesas

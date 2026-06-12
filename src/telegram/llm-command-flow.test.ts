@@ -9,7 +9,9 @@ import {
   type TelegramLlmCommandContext,
 } from './llm-command-flow.js';
 import { defaultLlmCommandConfig } from './llm-command-config.js';
+import type { LlmCommandMetricInput } from './llm-command-metrics.js';
 import type { LlmCommandDecision } from './llm-command-schema.js';
+import { LlmCommandServiceError } from './llm-command-service.js';
 import type { ConversationSessionRecord, ConversationSessionRuntime } from './conversation-session.js';
 
 test('handleTelegramLlmAskCommand starts a session when no prompt is provided', async () => {
@@ -39,6 +41,20 @@ test('handleTelegramLlmAskCommand interprets explicit text through the injected 
   assert.equal(context.replies.at(-1), 'Puedes preguntarme por actividades, catálogo y Storage.');
   assert.equal(context.servicePrompts.length, 1);
   assert.match(context.servicePrompts[0] ?? '', /que puedes hacer/);
+  assert.deepEqual(context.metrics.map((metric) => ({
+    entrySource: metric.entrySource,
+    intent: metric.intent,
+    confidence: metric.confidence,
+    action: metric.action,
+    result: metric.result,
+  })), [{
+    entrySource: 'ask_command',
+    intent: 'help.capabilities',
+    confidence: 0.95,
+    action: 'read',
+    result: 'success',
+  }]);
+  assert.doesNotMatch(JSON.stringify(context.metrics), /que puedes hacer/);
 });
 
 test('handleTelegramLlmMenuText is gated by feature flag and starts a session when enabled', async () => {
@@ -89,6 +105,42 @@ test('handleTelegramLlmFallbackText only handles group text when it mentions or 
   assert.deepEqual(mentioned.replyOptions.at(-1), { messageThreadId: 42 });
 });
 
+test('handleTelegramLlmAskCommand records sanitized failure metrics without leaking prompts', async () => {
+  const context = createContext({
+    messageText: '/ask texto privado sensible',
+    serviceError: new LlmCommandServiceError('invalid_json', 'raw response was not parseable'),
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies.at(-1), 'No he podido interpretar la petición ahora mismo. Prueba de nuevo en unos momentos o usa el menú normal.');
+  assert.deepEqual(context.metrics.map((metric) => ({
+    entrySource: metric.entrySource,
+    intent: metric.intent,
+    action: metric.action,
+    result: metric.result,
+    reason: metric.reason,
+  })), [{
+    entrySource: 'ask_command',
+    intent: null,
+    action: 'failure',
+    result: 'invalid_json',
+    reason: 'invalid_json',
+  }]);
+  assert.doesNotMatch(JSON.stringify(context.metrics), /texto privado sensible/);
+});
+
+test('handleTelegramLlmAskCommand continues when metric persistence fails', async () => {
+  const context = createContext({
+    messageText: '/ask que puedes hacer',
+    metricsError: new Error('database temporarily unavailable'),
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies.at(-1), 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.');
+});
+
 function createContext({
   messageText = 'texto',
   decision = helpDecision(),
@@ -97,6 +149,8 @@ function createContext({
   chatKind = 'private',
   messageThreadId,
   replyToBotMessage = false,
+  serviceError,
+  metricsError,
 }: {
   messageText?: string;
   decision?: LlmCommandDecision;
@@ -105,15 +159,19 @@ function createContext({
   chatKind?: 'private' | 'group' | 'group-news';
   messageThreadId?: number;
   replyToBotMessage?: boolean;
+  serviceError?: Error;
+  metricsError?: Error;
 }): TelegramLlmCommandContext & {
   replies: string[];
   replyOptions: unknown[];
   servicePrompts: string[];
+  metrics: LlmCommandMetricInput[];
   session: ConversationSessionRuntime;
 } {
   const replies: string[] = [];
   const replyOptions: unknown[] = [];
   const servicePrompts: string[] = [];
+  const metrics: LlmCommandMetricInput[] = [];
   const session = createSessionRuntime();
   return {
     messageText,
@@ -161,13 +219,25 @@ function createContext({
       llmCommandService: {
         async interpret(prompt) {
           servicePrompts.push(prompt);
+          if (serviceError) {
+            throw serviceError;
+          }
           return decision;
+        },
+      },
+      llmCommandMetrics: {
+        async record(input) {
+          if (metricsError) {
+            throw metricsError;
+          }
+          metrics.push(input);
         },
       },
     },
     replies,
     replyOptions,
     servicePrompts,
+    metrics,
     session,
   };
 }

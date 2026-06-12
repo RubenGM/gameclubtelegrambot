@@ -7,6 +7,7 @@ import type { TelegramMessageEntity, TelegramReplyOptions, TelegramSentMessage }
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
 import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
+import type { LlmCommandMetrics } from './llm-command-metrics.js';
 import type { LlmCommandService } from './llm-command-service.js';
 
 export class TelegramInteractionError extends Error {
@@ -55,6 +56,7 @@ export interface TelegramCommandRuntime {
   services: InfrastructureRuntimeServices;
   llmCommands?: ResolvedLlmCommandConfig;
   llmCommandService?: LlmCommandService;
+  llmCommandMetrics?: LlmCommandMetrics;
   chat: TelegramChatContext;
   actor: TelegramActor;
   authorization: AuthorizationService;
