@@ -2863,7 +2863,7 @@ test('handleTelegramStorageText edits storage entry metadata', async () => {
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'edit-entry-action');
 
-  context.messageText = 'Modificar descripción';
+  context.messageText = 'Modificar nombre';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'edit-entry-description');
 
@@ -3421,7 +3421,7 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   assert.match(replies.at(-1)?.message ?? '', /#pdf \(0 archivos\)/);
   assert.match(replies.at(-1)?.message ?? '', /#rol \(0 archivos\)/);
 
-  context.messageText = 'Modificar descripción';
+  context.messageText = 'Modificar nombre';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'upload-description');
   context.messageText = 'Manual de campana';
@@ -3647,7 +3647,7 @@ test('handleTelegramStorageMessage uses forwarded media captions as upload descr
   context.messageText = 'Omitir';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'upload-preview');
-  assert.match(replies.at(-1)?.message ?? '', /Descripción:<\/b> Printable Scenery - Rise of the Halflings; Warlock/);
+  assert.match(replies.at(-1)?.message ?? '', /Nombre:<\/b> Printable Scenery - Rise of the Halflings; Warlock/);
 
   context.messageText = 'Completar';
   await handleTelegramStorageText(context as never);

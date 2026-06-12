@@ -223,7 +223,7 @@ const resourceDefs: ResourceDef[] = [
   ], { column: 'lifecycle_status', value: 'archived', timestampColumn: 'archived_at' }),
   resource('storage_entries', 'Storage entradas', 'storage_entries', 'id', 'description', ['category_id', 'lifecycle_status'], ['id', 'category_id', 'source_kind', 'description', 'lifecycle_status'], [
     { column: 'category_id', label: 'Category ID', type: 'number' },
-    { column: 'description', label: 'Description', type: 'string', nullable: true },
+    { column: 'description', label: 'Name', type: 'string', nullable: true },
     { column: 'tags', label: 'Tags', type: 'json' },
     { column: 'lifecycle_status', label: 'Lifecycle', type: 'string' },
   ], { column: 'lifecycle_status', value: 'deleted', timestampColumn: 'deleted_at', actorColumn: 'deleted_by_telegram_user_id' }),
@@ -4014,7 +4014,7 @@ function adminStoragePage(
     ['Categorías avanzadas', 'Vista tabular tecnica de categorías.', '/admin/resources/storage_categories'],
     ['Sin creacion web', 'La creacion de archivos se mantiene exclusivamente en /storage desde Telegram.', '/admin/storage'],
   ]);
-  const searchForm = `<form class="admin-search-bar" method="get"><label>Buscar en Storage<input name="q" value="${escapeHtml(search)}" placeholder="Descripción, categoría o tag"></label><button type="submit">Buscar</button>${categoryId ? `<a href="/admin/storage?categoryId=${encodeURIComponent(String(categoryId))}">Limpiar busqueda</a>` : ''}</form>`;
+  const searchForm = `<form class="admin-search-bar" method="get"><label>Buscar en Storage<input name="q" value="${escapeHtml(search)}" placeholder="Nombre, categoría o tag"></label><button type="submit">Buscar</button>${categoryId ? `<a href="/admin/storage?categoryId=${encodeURIComponent(String(categoryId))}">Limpiar busqueda</a>` : ''}</form>`;
   const breadcrumb = renderStorageAdminBreadcrumbs(overview);
   const categoryCards = overview.visibleCategories.length === 0
     ? `<p class="muted">${overview.selectedCategory ? 'No hay subcategorías en esta categoría.' : 'No hay categorías principales de Storage.'}</p>`
@@ -4045,7 +4045,7 @@ function adminStoragePage(
 }
 
 function renderStorageEntryAdminCard(entry: StorageEntryAdminRow): string {
-  const description = entry.description?.trim() || 'Sin descripción';
+  const description = entry.description?.trim() || 'Sin nombre';
   const imageCount = Number(entry.image_count) > 0 ? Number(entry.image_count) : 0;
   const previewUrl = `/admin/storage/media/${encodeURIComponent(String(entry.id))}/0`;
   const preview = entry.preview_telegram_file_id
@@ -4138,13 +4138,13 @@ function storageEntryEditPage(entry: StorageEntryAdminRow, categories: StorageCa
   return page({
     title: `Editar Storage #${entry.id}`,
     shell: 'admin',
-    body: `${errorHtml}<form method="post">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Categoría<select name="categoryId" required>${categoryOptions}</select></label><label>Estado<select name="lifecycleStatus"><option value="active"${entry.lifecycle_status === 'active' ? ' selected' : ''}>active</option><option value="deleted"${entry.lifecycle_status === 'deleted' ? ' selected' : ''}>deleted</option><option value="missing_source"${entry.lifecycle_status === 'missing_source' ? ' selected' : ''}>missing_source</option></select></label><label>Tags<input name="tags" value="${escapeHtml(asTagArray(entry.tags).join(', '))}" placeholder="rol, pdf, campaña"></label></div><label>Descripción<textarea name="description">${escapeHtml(entry.description ?? '')}</textarea></label><button type="submit">Guardar entrada</button> <a href="/admin/storage">Cancelar</a></form>`,
+    body: `${errorHtml}<form method="post">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Categoría<select name="categoryId" required>${categoryOptions}</select></label><label>Estado<select name="lifecycleStatus"><option value="active"${entry.lifecycle_status === 'active' ? ' selected' : ''}>active</option><option value="deleted"${entry.lifecycle_status === 'deleted' ? ' selected' : ''}>deleted</option><option value="missing_source"${entry.lifecycle_status === 'missing_source' ? ' selected' : ''}>missing_source</option></select></label><label>Tags<input name="tags" value="${escapeHtml(asTagArray(entry.tags).join(', '))}" placeholder="rol, pdf, campaña"></label></div><label>Nombre<textarea name="description">${escapeHtml(entry.description ?? '')}</textarea></label><button type="submit">Guardar entrada</button> <a href="/admin/storage">Cancelar</a></form>`,
   });
 }
 
 function storageEntryDeletePage(entry: StorageEntryAdminRow | null, csrfToken: string, error = ''): string {
   const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
-  const title = entry ? `#${entry.id} · ${entry.description ?? 'Sin descripción'}` : 'Entrada no encontrada';
+  const title = entry ? `#${entry.id} · ${entry.description ?? 'Sin nombre'}` : 'Entrada no encontrada';
   return page({
     title: 'Eliminar entrada de Storage',
     shell: 'admin',
