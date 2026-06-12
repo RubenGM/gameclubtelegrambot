@@ -87,7 +87,7 @@ function isRetryableTelegramApiError(error: unknown): boolean {
 function resolveRetryDelayMs(error: unknown, attempt: number): number {
   const retryAfterSeconds = readTelegramRetryAfterSeconds(error);
   if (retryAfterSeconds !== null) {
-    return Math.min(maxRetryDelayMs, Math.max(0, retryAfterSeconds * 1_000));
+    return Math.max(0, retryAfterSeconds * 1_000);
   }
 
   return Math.min(maxRetryDelayMs, baseRetryDelayMs * 2 ** (attempt - 1));

@@ -45,7 +45,7 @@ Implementado:
 - Configuracion runtime validada con `zod` y editor/wizard en `src/config/*` y `src/bootstrap/*`.
 - PostgreSQL con Drizzle, schema central y migraciones en `src/infrastructure/database/schema.ts`.
 - Long polling con `allowed_updates` limitado a `message` y `callback_query` en `src/telegram/runtime-boundary-support.ts`.
-- Capa intermedia de reintentos para envios y operaciones Telegram en `src/telegram/telegram-api-retry.ts`, usada desde el boundary runtime.
+- Capa intermedia de reintentos para envios y operaciones Telegram en `src/telegram/telegram-api-retry.ts`, usada desde el boundary runtime; respeta `retry_after` de Telegram sin recortarlo al máximo de backoff propio.
 - Canario de salud de Telegram API: detecta fallos transitorios, mantiene estado degradado temporal y añade aviso a mensajes privados de texto mientras dura la incidencia; no añade ese estado al final de mensajes enviados a grupos.
 - El middleware global de Telegram responde los errores inesperados con el detalle exacto saneado para operador/usuario, en vez de ocultarlos tras un mensaje generico.
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
