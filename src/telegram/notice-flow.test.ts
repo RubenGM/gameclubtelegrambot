@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { NoticeDetailRecord, NoticeRepository, NoticeRecord } from '../notices/notice-catalog.js';
+import { formatNoticePublicationPayload, telegramNoticePublicationMaxLength } from '../notices/notice-publication.js';
 import type { TelegramCommandHandlerContext, TelegramCommandRuntime } from './command-registry.js';
-import { handleTelegramNoticeCallback, handleTelegramNoticeCommand } from './notice-flow.js';
+import { handleTelegramNoticeCallback, handleTelegramNoticeCommand, handleTelegramNoticeText, noticeFlowKey } from './notice-flow.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
 test('handleTelegramNoticeCommand sends own notices only when present and always sends other notices list', async () => {
@@ -65,15 +66,48 @@ test('handleTelegramNoticeCallback sends archive confirmation as inline keyboard
   assert.equal(replies[0]?.options?.replyKeyboard, undefined);
 });
 
+test('handleTelegramNoticeText rejects text when the final published message would exceed Telegram limit', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const advances: Array<{ stepKey: string; data: Record<string, unknown> }> = [];
+  const repository = createNoticeRepository([]);
+  const overhead = formatNoticePublicationPayload({ text: '', creatorDisplayName: 'Tester' }).length;
+  const context = createContext({
+    replies,
+    repository,
+    messageText: 'a'.repeat(telegramNoticePublicationMaxLength - overhead + 1),
+    sessionCurrent: {
+      flowKey: noticeFlowKey,
+      stepKey: 'text',
+      data: {},
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    },
+    advances,
+  });
+
+  const handled = await handleTelegramNoticeText(context);
+
+  assert.equal(handled, true);
+  assert.equal(advances.length, 0);
+  assert.match(replies[0]?.message ?? '', /demasiado largo/);
+  assert.deepEqual(replies[0]?.options?.replyKeyboard?.[0], ['/cancel']);
+});
+
 function createContext({
   replies,
   repository,
+  messageText,
+  sessionCurrent = null,
+  advances = [],
 }: {
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
   repository: NoticeRepository;
+  messageText?: string;
+  sessionCurrent?: { flowKey: string; stepKey: string; data: Record<string, unknown>; expiresAt: string } | null;
+  advances?: Array<{ stepKey: string; data: Record<string, unknown> }>;
 }): TelegramCommandHandlerContext & { noticeRepository: NoticeRepository } {
   return {
     from: { id: 42, first_name: 'Tester' },
+    ...(messageText !== undefined ? { messageText } : {}),
     runtime: {
       bot: {
         publicName: 'Game Club Bot',
@@ -98,9 +132,12 @@ function createContext({
         can: () => false,
       },
       session: {
-        current: null,
+        current: sessionCurrent,
         start: async () => ({ flowKey: 'x', stepKey: 'x', data: {}, expiresAt: '2099-01-01T00:00:00.000Z' }),
-        advance: async () => ({ flowKey: 'x', stepKey: 'x', data: {}, expiresAt: '2099-01-01T00:00:00.000Z' }),
+        advance: async ({ stepKey, data }: { stepKey: string; data: Record<string, unknown> }) => {
+          advances.push({ stepKey, data });
+          return { flowKey: noticeFlowKey, stepKey, data, expiresAt: '2099-01-01T00:00:00.000Z' };
+        },
         cancel: async () => true,
       },
     } as unknown as TelegramCommandRuntime,

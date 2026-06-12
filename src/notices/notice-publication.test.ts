@@ -4,7 +4,13 @@ import assert from 'node:assert/strict';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
 import type { NoticeDetailRecord, NoticePublicationRecord, NoticeRepository } from './notice-catalog.js';
 import { expireDueNotices } from './notice-expiration.js';
-import { deleteNoticePublications, publishNoticeToSubscribedTargets } from './notice-publication.js';
+import {
+  deleteNoticePublications,
+  formatNoticePublicationPayload,
+  publishNoticeToSubscribedTargets,
+  telegramNoticePublicationMaxLength,
+  validateNoticePublicationPayloadLength,
+} from './notice-publication.js';
 
 test('publishNoticeToSubscribedTargets sends notice text and attachments to avisos destinations', async () => {
   const publications: Array<Omit<NoticePublicationRecord, 'id' | 'createdAt' | 'deletedAt'>> = [];
@@ -42,6 +48,64 @@ test('publishNoticeToSubscribedTargets sends notice text and attachments to avis
   assert.deepEqual(publications.map((publication) => publication.publicationKind), ['text', 'attachment', 'text', 'attachment']);
   assert.equal(groupMessages[0]?.message.includes('Aviso permanente'), false);
   assert.equal(groupMessages[0]?.message.includes('Activo hasta'), false);
+});
+
+test('validateNoticePublicationPayloadLength accepts a final Telegram payload exactly at the limit', () => {
+  const overhead = formatNoticePublicationPayload({ text: '', creatorDisplayName: 'Tester' }).length;
+  const text = 'a'.repeat(telegramNoticePublicationMaxLength - overhead);
+
+  const result = validateNoticePublicationPayloadLength({ text, creatorDisplayName: 'Tester' });
+
+  assert.deepEqual(result, {
+    valid: true,
+    length: telegramNoticePublicationMaxLength,
+    maxLength: telegramNoticePublicationMaxLength,
+  });
+});
+
+test('validateNoticePublicationPayloadLength rejects final Telegram payloads over the limit', () => {
+  const overhead = formatNoticePublicationPayload({ text: '', creatorDisplayName: 'Tester' }).length;
+  const text = 'a'.repeat(telegramNoticePublicationMaxLength - overhead + 1);
+
+  const result = validateNoticePublicationPayloadLength({ text, creatorDisplayName: 'Tester' });
+
+  assert.deepEqual(result, {
+    valid: false,
+    length: telegramNoticePublicationMaxLength + 1,
+    maxLength: telegramNoticePublicationMaxLength,
+  });
+});
+
+test('publishNoticeToSubscribedTargets rejects overlong notice text before sending partial publications', async () => {
+  const publications: Array<Omit<NoticePublicationRecord, 'id' | 'createdAt' | 'deletedAt'>> = [];
+  const overhead = formatNoticePublicationPayload({ text: '', creatorDisplayName: 'Tester' }).length;
+  const detail = createNoticeDetail({
+    notice: {
+      ...createNoticeDetail().notice,
+      text: 'a'.repeat(telegramNoticePublicationMaxLength - overhead + 1),
+      textHtml: null,
+    },
+  });
+  let sendAttempts = 0;
+
+  await assert.rejects(
+    publishNoticeToSubscribedTargets({
+      detail,
+      noticeRepository: createNoticeRepository(detail, publications),
+      newsGroupRepository: createNewsGroupRepository(),
+      telegram: {
+        sendGroupMessage: async () => {
+          sendAttempts += 1;
+          return { messageId: 1 };
+        },
+        copyMessage: async () => ({ messageId: 2 }),
+      },
+    }),
+    /too long/,
+  );
+
+  assert.equal(sendAttempts, 0);
+  assert.deepEqual(publications, []);
 });
 
 test('deleteNoticePublications deletes every stored publication best effort', async () => {

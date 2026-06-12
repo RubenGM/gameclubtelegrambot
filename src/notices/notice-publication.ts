@@ -5,6 +5,8 @@ import type { TelegramReplyOptions, TelegramSentMessage } from '../telegram/runt
 import { escapeHtml } from '../telegram/schedule-presentation.js';
 import type { NoticeDetailRecord, NoticeRepository, NoticePublicationRecord } from './notice-catalog.js';
 
+export const telegramNoticePublicationMaxLength = 4096;
+
 export interface NoticeTelegramPublisher {
   sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
   copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
@@ -25,6 +27,7 @@ export async function publishNoticeToSubscribedTargets({
   telegram: NoticeTelegramPublisher;
   auditRepository?: AuditLogRepository;
 }): Promise<{ targets: number; sentMessages: number; failures: number }> {
+  assertNoticePublicationMessageLength(detail);
   const targets = await newsGroupRepository.listSubscribedGroupsByCategory(noticesNewsGroupCategory);
   if (!telegram.sendGroupMessage || targets.length === 0) {
     return { targets: targets.length, sentMessages: 0, failures: 0 };
@@ -124,9 +127,56 @@ export async function deleteNoticePublications({
 }
 
 export function formatNoticePublicationMessage(detail: NoticeDetailRecord): string {
-  const body = detail.notice.textHtml ?? escapeHtml(detail.notice.text);
-  const footer = `<i>Aviso de ${escapeHtml(detail.notice.creatorDisplayName)}</i>`;
+  return formatNoticePublicationPayload({
+    text: detail.notice.text,
+    textHtml: detail.notice.textHtml,
+    creatorDisplayName: detail.notice.creatorDisplayName,
+  });
+}
+
+export function formatNoticePublicationPayload({
+  text,
+  textHtml,
+  creatorDisplayName,
+}: {
+  text: string;
+  textHtml?: string | null | undefined;
+  creatorDisplayName: string;
+}): string {
+  const body = textHtml ?? escapeHtml(text);
+  const footer = `<i>Aviso de ${escapeHtml(creatorDisplayName)}</i>`;
   return [`<b>Aviso</b>`, body, footer].join('\n\n');
+}
+
+export function validateNoticePublicationMessageLength(detail: NoticeDetailRecord): { valid: true; length: number; maxLength: number } | { valid: false; length: number; maxLength: number } {
+  return validateNoticePublicationPayloadLength({
+    text: detail.notice.text,
+    textHtml: detail.notice.textHtml,
+    creatorDisplayName: detail.notice.creatorDisplayName,
+  });
+}
+
+export function validateNoticePublicationPayloadLength({
+  text,
+  textHtml,
+  creatorDisplayName,
+}: {
+  text: string;
+  textHtml?: string | null | undefined;
+  creatorDisplayName: string;
+}): { valid: true; length: number; maxLength: number } | { valid: false; length: number; maxLength: number } {
+  const length = formatNoticePublicationPayload({ text, textHtml, creatorDisplayName }).length;
+  if (length > telegramNoticePublicationMaxLength) {
+    return { valid: false, length, maxLength: telegramNoticePublicationMaxLength };
+  }
+  return { valid: true, length, maxLength: telegramNoticePublicationMaxLength };
+}
+
+export function assertNoticePublicationMessageLength(detail: NoticeDetailRecord): void {
+  const result = validateNoticePublicationMessageLength(detail);
+  if (!result.valid) {
+    throw new Error(`Notice publication message is too long: ${result.length}/${result.maxLength}`);
+  }
 }
 
 function transferNoticeAttachment({

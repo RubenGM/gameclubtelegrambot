@@ -4,7 +4,7 @@ import { createDatabaseMembershipAccessRepository } from '../membership/access-f
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
 import { createNotice, updateNotice, canArchiveNotice, type NoticeAttachmentRecord, type NoticeDetailRecord, type NoticeRecord, type NoticeRepository } from '../notices/notice-catalog.js';
 import { createDatabaseNoticeRepository } from '../notices/notice-catalog-store.js';
-import { deleteNoticePublications, publishNoticeToSubscribedTargets } from '../notices/notice-publication.js';
+import { deleteNoticePublications, publishNoticeToSubscribedTargets, validateNoticePublicationPayloadLength } from '../notices/notice-publication.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { noticesNewsGroupCategory } from '../news/news-group-catalog.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
@@ -67,11 +67,23 @@ export async function handleTelegramNoticeText(context: TelegramCommandHandlerCo
       await flowContext.reply(texts.invalidText, buildNoticeCancelOptions());
       return true;
     }
+    const textHtml = renderTelegramMessageTextAsHtml(text, flowContext.messageEntities);
+    const creatorDisplayName = resolveTelegramDisplayName(flowContext.from);
+    const lengthValidation = validateNoticePublicationPayloadLength({ text, textHtml, creatorDisplayName });
+    if (!lengthValidation.valid) {
+      await flowContext.reply(
+        texts.textTooLong
+          .replace('{length}', String(lengthValidation.length))
+          .replace('{max}', String(lengthValidation.maxLength)),
+        buildNoticeCancelOptions(),
+      );
+      return true;
+    }
     await flowContext.runtime.session.advance({
       stepKey: 'attachments',
       data: {
         text,
-        textHtml: renderTelegramMessageTextAsHtml(text, flowContext.messageEntities),
+        textHtml,
         attachments: [],
       },
     });
@@ -363,6 +375,21 @@ async function completeNoticeCreate(
   const texts = createTelegramI18n(language).notices;
   const repository = resolveNoticeRepository(context);
   const displayName = await resolveCreatorDisplayName(context);
+  const lengthValidation = validateNoticePublicationPayloadLength({
+    text: String(data.text ?? ''),
+    textHtml: typeof data.textHtml === 'string' ? data.textHtml : null,
+    creatorDisplayName: displayName,
+  });
+  if (!lengthValidation.valid) {
+    await context.reply(
+      texts.textTooLong
+        .replace('{length}', String(lengthValidation.length))
+        .replace('{max}', String(lengthValidation.maxLength)),
+      buildNoticeCancelOptions(),
+    );
+    await context.runtime.session.advance({ stepKey: 'text', data });
+    return;
+  }
   const detail = await createNotice({
     repository,
     createdByTelegramUserId: context.runtime.actor.telegramUserId,
@@ -449,6 +476,21 @@ async function completeNoticeUpdate(
   }
   if (!canManageNotice(current.notice, context)) {
     await context.reply(texts.cannotArchive, buildNoticeMenuOptions(language));
+    return;
+  }
+  const lengthValidation = validateNoticePublicationPayloadLength({
+    text: String(data.text ?? ''),
+    textHtml: typeof data.textHtml === 'string' ? data.textHtml : null,
+    creatorDisplayName: current.notice.creatorDisplayName,
+  });
+  if (!lengthValidation.valid) {
+    await context.reply(
+      texts.textTooLong
+        .replace('{length}', String(lengthValidation.length))
+        .replace('{max}', String(lengthValidation.maxLength)),
+      buildNoticeCancelOptions(),
+    );
+    await context.runtime.session.advance({ stepKey: 'text', data });
     return;
   }
 
