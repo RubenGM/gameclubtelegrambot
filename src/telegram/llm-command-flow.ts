@@ -16,7 +16,7 @@ export type TelegramLlmCommandContext = TelegramCommandHandlerContext & {
   };
 };
 
-export type TelegramLlmCommandEntrySource = 'ask_command' | 'menu_button' | 'private_fallback' | 'session';
+export type TelegramLlmCommandEntrySource = 'ask_command' | 'menu_button' | 'private_fallback' | 'group_mention' | 'session';
 
 export async function handleTelegramLlmAskCommand(context: TelegramLlmCommandContext): Promise<void> {
   const text = parseAskCommandText(context.messageText ?? '');
@@ -69,6 +69,20 @@ export async function handleTelegramLlmFallbackText(context: TelegramLlmCommandC
   }
 
   const config = getLlmCommandConfig(context);
+  if (
+    config?.enabled &&
+    isExplicitGroupLlmRequest(context, text) &&
+    context.runtime.actor.isApproved &&
+    !context.runtime.actor.isBlocked
+  ) {
+    await handleTelegramLlmCommandText(context, {
+      source: 'group_mention',
+      text: stripBotMention(context, text),
+      force: true,
+    });
+    return true;
+  }
+
   if (
     !config?.enabled ||
     !config.privateFallbackEnabled ||
@@ -142,12 +156,13 @@ async function replyWithOutcome(
   context: TelegramLlmCommandContext,
   outcome: LlmCommandRouteOutcome,
 ): Promise<void> {
+  const options = context.messageThreadId ? { messageThreadId: context.messageThreadId } : undefined;
   if (outcome.type === 'execute_read') {
-    await context.reply(await executeTelegramLlmReadAction(context, outcome));
+    await context.reply(await executeTelegramLlmReadAction(context, outcome), options);
     return;
   }
 
-  await context.reply(resolveOutcomeReply(outcome));
+  await context.reply(resolveOutcomeReply(outcome), options);
 }
 
 function resolveOutcomeReply(outcome: LlmCommandRouteOutcome): string {
@@ -258,6 +273,35 @@ function getLlmCommandConfig(context: TelegramLlmCommandContext): ResolvedLlmCom
 
 function isLlmCommandsEnabled(context: TelegramLlmCommandContext): boolean {
   return Boolean(getLlmCommandConfig(context)?.enabled);
+}
+
+function isExplicitGroupLlmRequest(context: TelegramLlmCommandContext, text: string): boolean {
+  if (context.runtime.chat.kind === 'private') {
+    return false;
+  }
+  if (context.replyToBotMessage) {
+    return true;
+  }
+
+  const username = context.runtime.bot.username;
+  if (!username) {
+    return false;
+  }
+
+  return new RegExp(`(^|\\s)@${escapeRegExp(username)}\\b`, 'i').test(text);
+}
+
+function stripBotMention(context: TelegramLlmCommandContext, text: string): string {
+  const username = context.runtime.bot.username;
+  if (!username) {
+    return text;
+  }
+
+  return text.replace(new RegExp(`(^|\\s)@${escapeRegExp(username)}\\b`, 'ig'), ' ').trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function truncateForSession(value: string): string {

@@ -18,7 +18,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, canarios/reintentos Telegram, systemd/tray y backups.           |
 | Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname visible, bienvenidas, avisos privados y alta web en `/alta`.     |
 | Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG etiquetado como buscar grupo y ayuda contextual por sección activa.                 |
-| Asistente LLM de órdenes naturales           | 🟠 Parcial           | `/ask`, botón privado y fallback privado bajo feature flag; interpreta JSON allowlisted con OpenCode y ejecuta lecturas MVP acotadas.       |
+| Asistente LLM de órdenes naturales           | 🟠 Parcial           | `/ask`, botón privado, fallback privado y menciones/replies en grupos bajo feature flag; lecturas MVP acotadas desde repositorios internos. |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario, avisando impacto con progreso editable.                    |
@@ -119,13 +119,13 @@ Implementado:
 - Comando privado `/ask` para socios aprobados.
 - Botón privado `Preguntar al bot` visible sólo cuando la feature está habilitada.
 - Fallback privado configurable con `GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED`, ejecutado al final de la cadena de handlers para no capturar comandos, botones ni sesiones existentes.
+- Lecturas en grupos/topics cuando el usuario menciona explícitamente al bot o responde a un mensaje suyo; las respuestas conservan `message_thread_id`.
 - Sesión LLM conversacional con expiración funcional de 15 minutos dentro del flujo `llm-command`.
 - Lecturas MVP desde repositorios internos para ayuda, agenda, catálogo, préstamos, Storage, avisos, compras conjuntas, LFG y estado básico de `/news`; los resultados se limitan a 5 elementos y derivan a privado si hay más.
 
 Riesgos o pendientes:
 
 - La feature sigue apagada por defecto hasta validación operativa real con OpenCode en despliegue.
-- No hay todavía interpretación por mención o reply en grupos/topics.
 - Las escrituras interpretadas se derivan o piden confirmación, pero falta conectar el prellenado y ejecución final con los handlers normales.
 - Falta persistir métricas saneadas de intención/confianza/error sin texto literal.
 - Las lecturas MVP son resúmenes básicos; falta UX de detalle largo por privado y selección guiada entre múltiples resultados.

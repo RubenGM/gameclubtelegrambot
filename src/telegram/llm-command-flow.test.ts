@@ -68,44 +68,77 @@ test('handleTelegramLlmFallbackText ignores ordinary text unless fallback is ena
   assert.equal(enabled.replies.at(-1), 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.');
 });
 
+test('handleTelegramLlmFallbackText only handles group text when it mentions or replies to the bot', async () => {
+  const ignored = createContext({
+    chatKind: 'group',
+    messageText: 'que actividades hay hoy',
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(ignored), false);
+  assert.equal(ignored.servicePrompts.length, 0);
+
+  const mentioned = createContext({
+    chatKind: 'group-news',
+    messageText: '@gameclubbot que puedes hacer',
+    messageThreadId: 42,
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(mentioned), true);
+  assert.match(mentioned.servicePrompts[0] ?? '', /que puedes hacer/);
+  assert.doesNotMatch(mentioned.servicePrompts[0] ?? '', /@gameclubbot/);
+  assert.deepEqual(mentioned.replyOptions.at(-1), { messageThreadId: 42 });
+});
+
 function createContext({
   messageText = 'texto',
   decision = helpDecision(),
   llmEnabled = true,
   privateFallbackEnabled = true,
+  chatKind = 'private',
+  messageThreadId,
+  replyToBotMessage = false,
 }: {
   messageText?: string;
   decision?: LlmCommandDecision;
   llmEnabled?: boolean;
   privateFallbackEnabled?: boolean;
+  chatKind?: 'private' | 'group' | 'group-news';
+  messageThreadId?: number;
+  replyToBotMessage?: boolean;
 }): TelegramLlmCommandContext & {
   replies: string[];
+  replyOptions: unknown[];
   servicePrompts: string[];
   session: ConversationSessionRuntime;
 } {
   const replies: string[] = [];
+  const replyOptions: unknown[] = [];
   const servicePrompts: string[] = [];
   const session = createSessionRuntime();
   return {
     messageText,
+    ...(messageThreadId !== undefined ? { messageThreadId } : {}),
+    replyToBotMessage,
     from: {
       id: 123,
       first_name: 'Ada',
     },
-    async reply(message) {
+    async reply(message, options) {
       replies.push(message);
+      replyOptions.push(options);
     },
     runtime: {
       bot: {
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
         language: 'es',
+        username: 'gameclubbot',
         async sendPrivateMessage() {},
       },
       services: {} as TelegramLlmCommandContext['runtime']['services'],
       chat: {
-        kind: 'private',
-        chatId: 123,
+        kind: chatKind,
+        chatId: chatKind === 'private' ? 123 : -100123,
       },
       actor: {
         telegramUserId: 123,
@@ -133,6 +166,7 @@ function createContext({
       },
     },
     replies,
+    replyOptions,
     servicePrompts,
     session,
   };
