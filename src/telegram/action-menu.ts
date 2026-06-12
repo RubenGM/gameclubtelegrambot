@@ -147,6 +147,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
   {
+    id: 'admin',
+    label: (language) => createTelegramI18n(language).actionMenu.admin,
+    telemetryActionKey: 'menu.admin',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'member_debug',
     label: (language) => createTelegramI18n(language).actionMenu.memberDebug,
     telemetryActionKey: 'menu.member_debug',
@@ -256,7 +265,12 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'welcome_templates'], ['change_display_name'], ['language', 'help']],
+    rows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'notices'], ['change_display_name', 'admin'], ['language', 'help']],
+  },
+  {
+    id: 'private-admin-tools',
+    matches: () => false,
+    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['member_debug'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',
@@ -353,6 +367,105 @@ export function resolveTelegramMenuSelection({
 
   return {
     menuId: menu.menuId,
+    actionId: action.id,
+    label: action.label(context.language),
+    telemetryActionKey: action.telemetryActionKey,
+    uxSection: action.uxSection,
+  };
+}
+
+export function resolveTelegramAdminActionMenu({
+  context,
+}: {
+  context: TelegramActionMenuContext;
+}): TelegramResolvedActionMenu | undefined {
+  if (context.chat.kind !== 'private' || !context.actor.isAdmin || context.session !== null) {
+    return undefined;
+  }
+
+  return resolveActionMenuById('private-admin-tools', context);
+}
+
+export function resolveTelegramAdminMenuSelection({
+  context,
+  text,
+}: {
+  context: TelegramActionMenuContext;
+  text: string;
+}): TelegramResolvedMenuSelection | undefined {
+  const normalizedText = text.trim();
+  if (!normalizedText || context.chat.kind !== 'private' || !context.actor.isAdmin || context.session !== null) {
+    return undefined;
+  }
+
+  return resolveMenuSelectionById({
+    context,
+    menuId: 'private-admin-tools',
+    text: normalizedText,
+  });
+}
+
+function resolveActionMenuById(
+  menuId: string,
+  context: TelegramActionMenuContext,
+): TelegramResolvedActionMenu | undefined {
+  const menu = menuDefinitions.find((candidate) => candidate.id === menuId);
+  if (!menu) {
+    return undefined;
+  }
+
+  const visibleRows = resolveVisibleActionRows(menu, context);
+
+  const replyKeyboard = visibleRows.map((row) =>
+    row.map((action) => ({
+      text: action.label(context.language),
+      semanticRole: action.buttonRole,
+    })),
+  );
+
+  if (replyKeyboard.length === 0) {
+    return undefined;
+  }
+
+  return {
+    menuId: menu.id,
+    replyKeyboard,
+    actionRows: visibleRows.map((row) => row.map((action) => action.id)),
+    actions: visibleRows.flat().map((action) => ({
+      id: action.id,
+      label: action.label(context.language),
+      telemetryActionKey: action.telemetryActionKey,
+      uxSection: action.uxSection,
+    })),
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function resolveMenuSelectionById({
+  context,
+  menuId,
+  text,
+}: {
+  context: TelegramActionMenuContext;
+  menuId: string;
+  text: string;
+}): TelegramResolvedMenuSelection | undefined {
+  const menuDefinition = menuDefinitions.find((candidate) => candidate.id === menuId);
+  if (!menuDefinition) {
+    return undefined;
+  }
+
+  const visibleActions = resolveVisibleActionRows(menuDefinition, context).flat();
+  const action = visibleActions.find((candidate) =>
+    supportedBotLanguages.some((language) => candidate.label(language) === text),
+  );
+  if (!action) {
+    return undefined;
+  }
+
+  return {
+    menuId,
     actionId: action.id,
     label: action.label(context.language),
     telemetryActionKey: action.telemetryActionKey,

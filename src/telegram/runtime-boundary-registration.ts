@@ -42,6 +42,8 @@ import {
 } from '../membership/autojoin-store.js';
 import {
   resolveTelegramActionMenu,
+  resolveTelegramAdminActionMenu,
+  resolveTelegramAdminMenuSelection,
   resolveTelegramMenuSelection,
   type TelegramResolvedActionMenu,
 } from './action-menu.js';
@@ -2505,18 +2507,33 @@ async function handleTelegramActionMenuText(
   }
 
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const actionMenuContext = {
+    actor: context.runtime.actor,
+    authorization: context.runtime.authorization,
+    chat: context.runtime.chat,
+    session: context.runtime.session.current,
+    language,
+  };
   const selection = resolveTelegramMenuSelection({
-    context: {
-      actor: context.runtime.actor,
-      authorization: context.runtime.authorization,
-      chat: context.runtime.chat,
-      session: context.runtime.session.current,
-      language,
-    },
+    context: actionMenuContext,
+    text,
+  }) ?? resolveTelegramAdminMenuSelection({
+    context: actionMenuContext,
     text,
   });
 
   if (selection && selection.uxSection !== 'flow') {
+    if (selection.actionId === 'admin') {
+      const adminMenu = resolveTelegramAdminActionMenu({ context: actionMenuContext });
+      if (!adminMenu) {
+        return false;
+      }
+
+      await recordTelegramMenuShown(context, adminMenu);
+      await context.reply(createTelegramI18n(language).common.adminMenuOpened, adminMenu);
+      return true;
+    }
+
     if (selection.actionId === 'review_access') {
       if (context.runtime.chat.kind === 'private' && context.runtime.actor.isAdmin) {
         await handleReviewAccess(context);
@@ -3144,14 +3161,18 @@ async function recordCurrentMenuActionSelection(
     return;
   }
 
+  const actionMenuContext = {
+    actor: context.runtime.actor,
+    authorization: context.runtime.authorization,
+    chat: context.runtime.chat,
+    session: context.runtime.session.current,
+    language: context.runtime.bot.language ?? 'ca',
+  };
   const selection = resolveTelegramMenuSelection({
-    context: {
-      actor: context.runtime.actor,
-      authorization: context.runtime.authorization,
-      chat: context.runtime.chat,
-      session: context.runtime.session.current,
-      language: context.runtime.bot.language ?? 'ca',
-    },
+    context: actionMenuContext,
+    text,
+  }) ?? resolveTelegramAdminMenuSelection({
+    context: actionMenuContext,
     text,
   });
   if (!selection || selection.uxSection === 'flow') {

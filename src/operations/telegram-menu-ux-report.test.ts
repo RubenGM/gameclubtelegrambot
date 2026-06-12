@@ -53,18 +53,30 @@ test('buildTelegramMenuUxReportSnapshot aggregates summary top actions and role 
         actorRole: 'admin',
         language: 'ca',
         menuId: 'private-admin-default',
-        visibleActionIds: ['review_access', 'manage_users', 'schedule'],
-        visibleLabels: ['Revisar sol·licituds', 'Administrar usuaris', 'Activitats'],
+        visibleActionIds: ['schedule', 'catalog', 'admin'],
+        visibleLabels: ['Activitats', 'Catàleg', 'Admin'],
       },
       createdAt: '2026-04-20T11:00:00.000Z',
     },
     {
-      actionKey: 'telegram.menu.action_selected',
-      targetId: 'private-admin-default',
+      actionKey: 'telegram.menu.shown',
+      targetId: 'private-admin-tools',
       details: {
         actorRole: 'admin',
         language: 'ca',
-        menuId: 'private-admin-default',
+        menuId: 'private-admin-tools',
+        visibleActionIds: ['review_access', 'manage_users', 'tables', 'welcome_templates'],
+        visibleLabels: ['Revisar sol·licituds', 'Administrar usuaris', 'Taules', 'Benvingudes'],
+      },
+      createdAt: '2026-04-20T11:02:00.000Z',
+    },
+    {
+      actionKey: 'telegram.menu.action_selected',
+      targetId: 'private-admin-tools',
+      details: {
+        actorRole: 'admin',
+        language: 'ca',
+        menuId: 'private-admin-tools',
         actionId: 'review_access',
         telemetryActionKey: 'menu.review_access',
         label: 'Revisar sol·licituds',
@@ -102,10 +114,10 @@ test('buildTelegramMenuUxReportSnapshot aggregates summary top actions and role 
   });
 
   assert.deepEqual(snapshot.summary, {
-    menuShownCount: 3,
+    menuShownCount: 4,
     actionSelectedCount: 3,
-    interactionRate: 1,
-    distinctMenus: 3,
+    interactionRate: 0.75,
+    distinctMenus: 4,
     distinctActions: 2,
   });
   assert.deepEqual(snapshot.topActions, [
@@ -134,9 +146,9 @@ test('buildTelegramMenuUxReportSnapshot aggregates summary top actions and role 
     },
     {
       actorRole: 'admin',
-      menuShownCount: 1,
+      menuShownCount: 2,
       actionSelectedCount: 1,
-      interactionRate: 1,
+      interactionRate: 0.5,
       topActionKey: 'menu.review_access',
     },
     {

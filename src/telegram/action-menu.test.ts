@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveTelegramActionMenu, resolveTelegramMenuSelection } from './action-menu.js';
+import {
+  resolveTelegramActionMenu,
+  resolveTelegramAdminActionMenu,
+  resolveTelegramAdminMenuSelection,
+  resolveTelegramMenuSelection,
+} from './action-menu.js';
 import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext } from './chat-context.js';
@@ -87,32 +92,76 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
   assert.deepEqual(menu, {
     menuId: 'private-admin-default',
     replyKeyboard: [
-      [{ text: 'Revisar sol·licituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
-      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
-      [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
-      [{ text: 'Compres conjuntes', semanticRole: 'primary' }, { text: 'LFG (buscar grup)', semanticRole: 'primary' }],
-      [{ text: 'Avisos', semanticRole: 'primary' }, { text: 'Benvingudes', semanticRole: 'secondary' }],
-      [{ text: 'Canviar nom', semanticRole: 'secondary' }],
+      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Catàleg', semanticRole: 'primary' }],
+      [{ text: 'Emmagatzematge', semanticRole: 'primary' }, { text: 'Compres conjuntes', semanticRole: 'primary' }],
+      [{ text: 'LFG (buscar grup)', semanticRole: 'primary' }, { text: 'Avisos', semanticRole: 'primary' }],
+      [{ text: 'Canviar nom', semanticRole: 'secondary' }, { text: 'Admin', semanticRole: 'secondary' }],
       [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'welcome_templates'], ['change_display_name'], ['language', 'help']],
+    actionRows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'notices'], ['change_display_name', 'admin'], ['language', 'help']],
     actions: [
-      { id: 'review_access', label: 'Revisar sol·licituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
-      { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
-      { id: 'tables', label: 'Taules', telemetryActionKey: 'menu.tables_admin', uxSection: 'admin' },
       { id: 'catalog', label: 'Catàleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
       { id: 'storage', label: 'Emmagatzematge', telemetryActionKey: 'menu.storage', uxSection: 'primary' },
       { id: 'group_purchases', label: 'Compres conjuntes', telemetryActionKey: 'menu.group_purchases', uxSection: 'primary' },
       { id: 'lfg', label: 'LFG (buscar grup)', telemetryActionKey: 'menu.lfg', uxSection: 'primary' },
       { id: 'notices', label: 'Avisos', telemetryActionKey: 'menu.notices', uxSection: 'primary' },
-      { id: 'welcome_templates', label: 'Benvingudes', telemetryActionKey: 'menu.welcome_templates', uxSection: 'admin' },
       { id: 'change_display_name', label: 'Canviar nom', telemetryActionKey: 'menu.change_display_name', uxSection: 'utility' },
+      { id: 'admin', label: 'Admin', telemetryActionKey: 'menu.admin', uxSection: 'admin' },
       { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
       { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
+  });
+});
+
+test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () => {
+  const context = createContext({
+    actor: {
+      telegramUserId: 99,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: true,
+      permissions: [],
+    },
+    chat: {
+      kind: 'private',
+      chatId: 1,
+    },
+  });
+
+  const menu = resolveTelegramAdminActionMenu({ context });
+
+  assert.deepEqual(menu, {
+    menuId: 'private-admin-tools',
+    replyKeyboard: [
+      [{ text: 'Revisar sol·licituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
+      [{ text: 'Taules', semanticRole: 'primary' }, { text: 'Benvingudes', semanticRole: 'secondary' }],
+      [{ text: 'Menú soci', semanticRole: 'secondary' }],
+      [{ text: 'Inici', semanticRole: 'navigation' }, { text: 'Ajuda', semanticRole: 'help' }],
+    ],
+    actionRows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['member_debug'], ['start', 'help']],
+    actions: [
+      { id: 'review_access', label: 'Revisar sol·licituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
+      { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
+      { id: 'tables', label: 'Taules', telemetryActionKey: 'menu.tables_admin', uxSection: 'admin' },
+      { id: 'welcome_templates', label: 'Benvingudes', telemetryActionKey: 'menu.welcome_templates', uxSection: 'admin' },
+      { id: 'member_debug', label: 'Menú soci', telemetryActionKey: 'menu.member_debug', uxSection: 'utility' },
+      { id: 'start', label: 'Inici', telemetryActionKey: 'menu.start', uxSection: 'utility' },
+      { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  });
+
+  assert.deepEqual(resolveTelegramAdminMenuSelection({ context, text: 'Benvingudes' }), {
+    menuId: 'private-admin-tools',
+    actionId: 'welcome_templates',
+    label: 'Benvingudes',
+    telemetryActionKey: 'menu.welcome_templates',
+    uxSection: 'admin',
   });
 });
 
@@ -238,27 +287,22 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
   assert.deepEqual(menu, {
     menuId: 'private-admin-default',
     replyKeyboard: [
-      [{ text: 'Revisar sol·licituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
-      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
-      [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
-      [{ text: 'Compres conjuntes', semanticRole: 'primary' }, { text: 'LFG (buscar grup)', semanticRole: 'primary' }],
-      [{ text: 'Avisos', semanticRole: 'primary' }, { text: 'Benvingudes', semanticRole: 'secondary' }],
-      [{ text: 'Canviar nom', semanticRole: 'secondary' }],
+      [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Catàleg', semanticRole: 'primary' }],
+      [{ text: 'Emmagatzematge', semanticRole: 'primary' }, { text: 'Compres conjuntes', semanticRole: 'primary' }],
+      [{ text: 'LFG (buscar grup)', semanticRole: 'primary' }, { text: 'Avisos', semanticRole: 'primary' }],
+      [{ text: 'Canviar nom', semanticRole: 'secondary' }, { text: 'Admin', semanticRole: 'secondary' }],
       [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'welcome_templates'], ['change_display_name'], ['language', 'help']],
+    actionRows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'notices'], ['change_display_name', 'admin'], ['language', 'help']],
     actions: [
-      { id: 'review_access', label: 'Revisar sol·licituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
-      { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
-      { id: 'tables', label: 'Taules', telemetryActionKey: 'menu.tables_admin', uxSection: 'admin' },
       { id: 'catalog', label: 'Catàleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
       { id: 'storage', label: 'Emmagatzematge', telemetryActionKey: 'menu.storage', uxSection: 'primary' },
       { id: 'group_purchases', label: 'Compres conjuntes', telemetryActionKey: 'menu.group_purchases', uxSection: 'primary' },
       { id: 'lfg', label: 'LFG (buscar grup)', telemetryActionKey: 'menu.lfg', uxSection: 'primary' },
       { id: 'notices', label: 'Avisos', telemetryActionKey: 'menu.notices', uxSection: 'primary' },
-      { id: 'welcome_templates', label: 'Benvingudes', telemetryActionKey: 'menu.welcome_templates', uxSection: 'admin' },
       { id: 'change_display_name', label: 'Canviar nom', telemetryActionKey: 'menu.change_display_name', uxSection: 'utility' },
+      { id: 'admin', label: 'Admin', telemetryActionKey: 'menu.admin', uxSection: 'admin' },
       { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
       { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
     ],

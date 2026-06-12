@@ -137,6 +137,7 @@ export const commonTexts = {
     welcomeTemplatesDeletePrompt: 'Confirma que vols eliminar aquesta benvinguda.',
     welcomePreviewNoTemplates: 'Encara no hi ha cap benvinguda configurada.',
     currentLanguage: 'Idioma actual: {language}',
+    adminMenuOpened: "Menú d'administració.",
     memberMenuDebugOpened: 'Mostrant el menú normal de soci aprovat.',
   },
   es: {
@@ -277,6 +278,7 @@ export const commonTexts = {
     welcomeTemplatesDeletePrompt: 'Confirma que quieres eliminar esta bienvenida.',
     welcomePreviewNoTemplates: 'Todavía no hay ninguna bienvenida configurada.',
     currentLanguage: 'Idioma actual: {language}',
+    adminMenuOpened: 'Menú de administración.',
     memberMenuDebugOpened: 'Mostrando el menú normal de socio aprobado.',
   },
   en: {
@@ -417,6 +419,7 @@ export const commonTexts = {
     welcomeTemplatesDeletePrompt: 'Confirm that you want to delete this welcome message.',
     welcomePreviewNoTemplates: 'No welcome message has been configured yet.',
     currentLanguage: 'Current language: {language}',
+    adminMenuOpened: 'Administration menu.',
     memberMenuDebugOpened: 'Showing the standard approved member menu.',
   },
 } as const;
@@ -433,6 +436,7 @@ export const actionMenuTexts = {
     groupPurchases: 'Compres conjuntes',
     lfg: 'LFG (buscar grup)',
     notices: 'Avisos',
+    admin: 'Admin',
     tables: 'Taules',
     reviewAccess: 'Revisar sol·licituds',
     manageUsers: 'Administrar usuaris',
@@ -456,6 +460,7 @@ export const actionMenuTexts = {
     groupPurchases: 'Compras conjuntas',
     lfg: 'LFG (buscar grupo)',
     notices: 'Avisos',
+    admin: 'Admin',
     tables: 'Mesas',
     reviewAccess: 'Revisar solicitudes',
     manageUsers: 'Administrar usuarios',
@@ -479,6 +484,7 @@ export const actionMenuTexts = {
     groupPurchases: 'Group purchases',
     lfg: 'LFG (find group)',
     notices: 'Notices',
+    admin: 'Admin',
     tables: 'Tables',
     reviewAccess: 'Review requests',
     manageUsers: 'Manage users',
