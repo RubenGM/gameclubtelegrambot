@@ -17,7 +17,7 @@ export interface LlmCommandServiceConfig {
 
 export interface LlmCommandService {
   interpret(prompt: string): Promise<LlmCommandDecision>;
-  generateJson(prompt: string): Promise<unknown>;
+  generateJson(prompt: string, schemaPath?: string): Promise<unknown>;
 }
 
 export type LlmCommandSpawn = (
@@ -45,7 +45,12 @@ export function createLlmCommandService({
 }): LlmCommandService {
   return {
     interpret: (prompt) => runOpencodeJsonPrompt({ prompt, config, spawnImpl }),
-    generateJson: (prompt) => runOpencodeRawJsonPrompt({ prompt, config, spawnImpl }),
+    generateJson: (prompt, schemaPath) => runOpencodeRawJsonPrompt({
+      prompt,
+      config,
+      spawnImpl,
+      ...(schemaPath ? { schemaPath } : {}),
+    }),
   };
 }
 
@@ -102,17 +107,19 @@ async function runOpencodeRawJsonPrompt({
   prompt,
   config,
   spawnImpl,
+  schemaPath = 'src/telegram/llm-storage-refinement.schema.json',
 }: {
   prompt: string;
   config: LlmCommandServiceConfig;
   spawnImpl: LlmCommandSpawn;
+  schemaPath?: string;
 }): Promise<unknown> {
   if ((config.provider ?? 'opencode') === 'codex') {
     const stdout = await runCodexJsonPrompt({
       prompt,
       config,
       spawnImpl,
-      schemaPath: 'src/telegram/llm-storage-refinement.schema.json',
+      schemaPath,
     });
     try {
       return JSON.parse(stdout.trim());

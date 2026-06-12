@@ -6,6 +6,7 @@ import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { createDatabaseNoticeRepository } from '../notices/notice-catalog-store.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import { createDatabaseStorageRepository } from '../storage/storage-catalog-store.js';
+import type { CatalogItemRecord, CatalogItemType } from '../catalog/catalog-model.js';
 import type { StorageEntryDetailRecord } from '../storage/storage-catalog.js';
 import type { TelegramLlmCommandContext } from './llm-command-flow.js';
 import type { LlmCommandIntent } from './llm-command-actions.js';
@@ -33,9 +34,11 @@ export async function executeTelegramLlmReadAction(
     case 'schedule.search':
       return renderScheduleEvents(await listScheduleUpcoming(context, input.params), scheduleTitle(input.params));
     case 'catalog.search':
-      return renderCatalogItems(await searchCatalog(context, textParam(input.params, 'query')), 'Resultados del catálogo');
+      return renderCatalogItems(await searchCatalog(context, input.params), 'Resultados del catálogo');
     case 'catalog.detail':
-      return renderCatalogItems(await searchCatalog(context, textParam(input.params, 'query')), 'Detalle del catálogo');
+      return renderCatalogItems(await searchCatalog(context, input.params), 'Detalle del catálogo');
+    case 'catalog.recommend':
+      return recommendCatalogItems(context, input.params, input.userText, input.progress);
     case 'catalog.loan.list':
       return renderCatalogLoans(await listCatalogLoans(context), 'Tus préstamos activos');
     case 'storage.search':
@@ -84,16 +87,24 @@ async function listScheduleUpcoming(context: TelegramLlmCommandContext, params: 
   return filterByQuery(events, textParam(params, 'query'), (event) => [event.title, event.description]);
 }
 
-async function searchCatalog(context: TelegramLlmCommandContext, query: string | null) {
+async function searchCatalog(context: TelegramLlmCommandContext, params: Record<string, unknown>) {
   const repository = createDatabaseCatalogRepository({ database: context.runtime.services.database.db });
+  const query = textParam(params, 'query');
+  const playerCount = numberParam(params, 'playerCount');
+  const itemType = catalogItemTypeParam(params);
+  const availableOnly = booleanParam(params, 'availableOnly') === true;
   const items = await repository.listItems({ includeDeactivated: false });
+  const activeLoanItemIds = availableOnly ? await listActiveCatalogLoanItemIds(context) : new Set<number>();
   return filterByQuery(items, query, (item) => [
     item.displayName,
     item.originalName,
     item.description,
     item.publisher,
     item.itemType,
-  ]);
+  ])
+    .filter((item) => itemType === null || item.itemType === itemType)
+    .filter((item) => playerCount === null || catalogItemSupportsPlayerCount(item, playerCount))
+    .filter((item) => !availableOnly || !activeLoanItemIds.has(item.id));
 }
 
 async function listCatalogLoans(context: TelegramLlmCommandContext) {
@@ -102,6 +113,71 @@ async function listCatalogLoans(context: TelegramLlmCommandContext) {
     return repository.listActiveLoansWithItemsByBorrower(context.runtime.actor.telegramUserId);
   }
   return repository.listActiveLoansWithItems();
+}
+
+async function listActiveCatalogLoanItemIds(context: TelegramLlmCommandContext): Promise<Set<number>> {
+  const repository = createDatabaseCatalogLoanRepository({ database: context.runtime.services.database.db });
+  const loans = await repository.listActiveLoansWithItems();
+  return new Set(loans.map((loan) => loan.itemId));
+}
+
+async function recommendCatalogItems(
+  context: TelegramLlmCommandContext,
+  params: Record<string, unknown>,
+  userText?: string,
+  progress?: { update(message: string): Promise<boolean> },
+): Promise<string> {
+  const repository = createDatabaseCatalogRepository({ database: context.runtime.services.database.db });
+  const activeLoanItemIds = await listActiveCatalogLoanItemIds(context);
+  const query = textParam(params, 'query');
+  const playerCount = numberParam(params, 'playerCount');
+  const requestedItemType = catalogItemTypeParam(params);
+  const itemType = requestedItemType ?? 'board-game';
+  const availableOnly = booleanParam(params, 'availableOnly') !== false;
+  const allItems = await repository.listItems({ includeDeactivated: false });
+  const candidates = filterByQuery(allItems, query, (item) => [
+    item.displayName,
+    item.originalName,
+    item.description,
+    item.publisher,
+    item.itemType,
+  ])
+    .filter((item) => item.itemType === itemType)
+    .filter((item) => playerCount === null || catalogItemSupportsPlayerCount(item, playerCount))
+    .filter((item) => !availableOnly || !activeLoanItemIds.has(item.id))
+    .slice(0, 40)
+    .map((item) => ({
+      item,
+      available: !activeLoanItemIds.has(item.id),
+    }));
+
+  if (candidates.length === 0) {
+    return describeEmptyCatalogRecommendation({ playerCount, availableOnly, itemType });
+  }
+
+  const service = context.runtime.llmCommandService;
+  if (!service?.generateJson) {
+    return renderCatalogRecommendationFallback(candidates.slice(0, 3), playerCount);
+  }
+
+  await progress?.update('He encontrado juegos candidatos. Estoy eligiendo una recomendación...');
+  try {
+    const parsed = await runCatalogRecommendationWithProgress(
+      () => service.generateJson(
+        buildCatalogRecommendationPrompt({
+          userText: userText ?? '',
+          params,
+          playerCount,
+          candidates,
+        }),
+        'src/telegram/llm-catalog-recommendation.schema.json',
+      ),
+      progress,
+    );
+    return renderCatalogRecommendationFromLlm(parsed, candidates, playerCount);
+  } catch {
+    return renderCatalogRecommendationFallback(candidates.slice(0, 3), playerCount);
+  }
 }
 
 async function listStorageCategories(context: TelegramLlmCommandContext) {
@@ -180,14 +256,17 @@ function renderScheduleEvents(events: Array<{ id: number; title: string; startsA
   return renderList(title, events, (event) => `${linkToStart(`schedule_event_${event.id}`, event.title)} - ${escapeHtml(formatDateTime(event.startsAt))} (${event.capacity} plazas)`);
 }
 
-function renderCatalogItems(items: Array<{ id: number; displayName: string; originalName: string | null; itemType: string }>, title: string): string {
+function renderCatalogItems(items: Array<{ id: number; displayName: string; originalName: string | null; itemType: string; playerCountMin?: number | null; playerCountMax?: number | null }>, title: string): string {
   if (items.length === 0) {
     return `${title}: no hay resultados.`;
   }
   return renderList(
     title,
     items,
-    (item) => `${linkToStart(`catalog_read_item_${item.id}`, item.displayName)}${item.originalName ? ` (${escapeHtml(item.originalName)})` : ''} - ${escapeHtml(item.itemType)}`,
+    (item) => {
+      const players = renderPlayerRange(item.playerCountMin ?? null, item.playerCountMax ?? null);
+      return `${linkToStart(`catalog_read_item_${item.id}`, item.displayName)}${item.originalName ? ` (${escapeHtml(item.originalName)})` : ''} - ${escapeHtml(item.itemType)}${players ? ` - ${players}` : ''}`;
+    },
     linkToStart('catalog_read', 'Abrir catálogo completo'),
   );
 }
@@ -274,6 +353,188 @@ function resolveStorageMoreLink(entries: Array<{ category: { id: number; display
     return linkToStart(`storage_category_${firstCategory.id}`, `Ver todos en ${firstCategory.displayName}`);
   }
   return linkToStart('storage_root', 'Abrir Storage');
+}
+
+interface CatalogRecommendationCandidate {
+  item: CatalogItemRecord;
+  available: boolean;
+}
+
+async function runCatalogRecommendationWithProgress<T>(
+  task: () => Promise<T>,
+  progress?: { update(message: string): Promise<boolean> },
+): Promise<T> {
+  if (!progress) {
+    return task();
+  }
+  let index = 0;
+  let editInFlight = false;
+  const messages = [
+    'Sigo revisando juegos compatibles...',
+    'Estoy comparando jugadores, descripción y duración...',
+    'La recomendación está tardando más de lo normal...',
+  ];
+  const interval = setInterval(() => {
+    const message = messages[Math.min(index, messages.length - 1)];
+    index += 1;
+    if (!message || editInFlight) {
+      return;
+    }
+    editInFlight = true;
+    void progress.update(message).finally(() => {
+      editInFlight = false;
+    });
+  }, 8000);
+  try {
+    return await task();
+  } finally {
+    clearInterval(interval);
+  }
+}
+
+function buildCatalogRecommendationPrompt(input: {
+  userText: string;
+  params: Record<string, unknown>;
+  playerCount: number | null;
+  candidates: CatalogRecommendationCandidate[];
+}): string {
+  return [
+    'Eres un recomendador de juegos de mesa para el catalogo de un club.',
+    'El bot ya ha filtrado candidatos reales del catalogo por disponibilidad, tipo y numero de jugadores cuando corresponde.',
+    'Elige de 1 a 3 candidatos que encajen mejor con la peticion. No inventes juegos ni IDs.',
+    'Devuelve solo JSON valido con esta forma: {"intro":"breve","selectedIds":[1],"reasons":[{"id":1,"reason":"breve"}]}.',
+    'No incluyas HTML ni Markdown. El bot añadira los enlaces a los juegos.',
+    '',
+    `Peticion original del usuario: ${input.userText}`,
+    `Parametros interpretados: ${JSON.stringify(input.params)}`,
+    `Numero de jugadores pedido: ${input.playerCount ?? 'no especificado'}`,
+    'Candidatos:',
+    JSON.stringify(input.candidates.map(formatCatalogRecommendationCandidate)),
+  ].join('\n');
+}
+
+function formatCatalogRecommendationCandidate(candidate: CatalogRecommendationCandidate): Record<string, unknown> {
+  const item = candidate.item;
+  return {
+    id: item.id,
+    displayName: item.displayName,
+    originalName: item.originalName,
+    itemType: item.itemType,
+    description: item.description,
+    language: item.language,
+    publisher: item.publisher,
+    publicationYear: item.publicationYear,
+    players: {
+      min: item.playerCountMin,
+      max: item.playerCountMax,
+    },
+    recommendedAge: item.recommendedAge,
+    playTimeMinutes: item.playTimeMinutes,
+    available: candidate.available,
+    metadata: item.metadata,
+  };
+}
+
+function renderCatalogRecommendationFromLlm(
+  parsed: unknown,
+  candidates: CatalogRecommendationCandidate[],
+  playerCount: number | null,
+): string {
+  const byId = new Map(candidates.map((candidate) => [candidate.item.id, candidate]));
+  const selectedIds = parseSelectedRecommendationIds(parsed, byId);
+  if (selectedIds.length === 0) {
+    return renderCatalogRecommendationFallback(candidates.slice(0, 3), playerCount);
+  }
+  const reasonById = parseRecommendationReasons(parsed, new Set(selectedIds));
+  const intro = parseRecommendationIntro(parsed) ?? 'Te recomiendo:';
+  const rows = selectedIds
+    .map((id) => byId.get(id))
+    .filter((candidate): candidate is CatalogRecommendationCandidate => Boolean(candidate))
+    .map((candidate) => {
+      const reason = reasonById.get(candidate.item.id);
+      const details = [
+        renderPlayerRange(candidate.item.playerCountMin, candidate.item.playerCountMax),
+        candidate.item.playTimeMinutes !== null ? `${candidate.item.playTimeMinutes} min` : null,
+        candidate.available ? 'disponible' : null,
+      ].filter(Boolean).join(', ');
+      return `${linkToStart(`catalog_read_item_${candidate.item.id}`, candidate.item.displayName)}${details ? ` (${escapeHtml(details)})` : ''}${reason ? ` - ${escapeHtml(reason)}` : ''}`;
+    });
+  return `${escapeHtml(intro)}\n\n${rows.map((row, index) => `${index + 1}. ${row}`).join('\n')}`;
+}
+
+function renderCatalogRecommendationFallback(
+  candidates: CatalogRecommendationCandidate[],
+  playerCount: number | null,
+): string {
+  const intro = playerCount === null
+    ? 'He encontrado estos juegos disponibles que podrían encajar:'
+    : `He encontrado estos juegos disponibles para ${playerCount} personas:`;
+  return `${escapeHtml(intro)}\n\n${candidates.map((candidate, index) => {
+    const players = renderPlayerRange(candidate.item.playerCountMin, candidate.item.playerCountMax);
+    const details = [
+      players,
+      candidate.item.playTimeMinutes !== null ? `${candidate.item.playTimeMinutes} min` : null,
+    ].filter(Boolean).join(', ');
+    return `${index + 1}. ${linkToStart(`catalog_read_item_${candidate.item.id}`, candidate.item.displayName)}${details ? ` (${escapeHtml(details)})` : ''}`;
+  }).join('\n')}`;
+}
+
+function describeEmptyCatalogRecommendation(input: {
+  playerCount: number | null;
+  availableOnly: boolean;
+  itemType: CatalogItemType;
+}): string {
+  const type = input.itemType === 'board-game' ? 'juegos de mesa' : 'ítems del catálogo';
+  const players = input.playerCount === null ? '' : ` para ${input.playerCount} personas`;
+  const availability = input.availableOnly ? ' disponibles' : '';
+  return `No he encontrado ${type}${availability}${players} con los metadatos actuales.`;
+}
+
+function parseSelectedRecommendationIds(
+  parsed: unknown,
+  candidates: Map<number, CatalogRecommendationCandidate>,
+): number[] {
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { selectedIds?: unknown }).selectedIds)) {
+    return [];
+  }
+  const selected: number[] = [];
+  for (const value of (parsed as { selectedIds: unknown[] }).selectedIds) {
+    const id = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+    if (Number.isInteger(id) && candidates.has(id) && !selected.includes(id)) {
+      selected.push(id);
+    }
+    if (selected.length >= 3) {
+      break;
+    }
+  }
+  return selected;
+}
+
+function parseRecommendationReasons(parsed: unknown, selectedIds: Set<number>): Map<number, string> {
+  const reasons = new Map<number, string>();
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { reasons?: unknown }).reasons)) {
+    return reasons;
+  }
+  for (const entry of (parsed as { reasons: unknown[] }).reasons) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const rawId = (entry as { id?: unknown }).id;
+    const id = typeof rawId === 'number' ? rawId : typeof rawId === 'string' ? Number(rawId) : Number.NaN;
+    const reason = (entry as { reason?: unknown }).reason;
+    if (Number.isInteger(id) && selectedIds.has(id) && typeof reason === 'string' && reason.trim()) {
+      reasons.set(id, reason.trim());
+    }
+  }
+  return reasons;
+}
+
+function parseRecommendationIntro(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== 'object') {
+    return null;
+  }
+  const intro = (parsed as { intro?: unknown }).intro;
+  return typeof intro === 'string' && intro.trim() ? intro.trim() : null;
 }
 
 async function refineStorageSearchWithLlm(
@@ -436,6 +697,68 @@ function endOfCurrentWeek(from: Date): Date {
 function arrayParam(params: Record<string, unknown>, key: string): string[] {
   const value = params[key];
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
+}
+
+function numberParam(params: Record<string, unknown>, key: string): number | null {
+  const value = params[key];
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value.trim()) : Number.NaN;
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function booleanParam(params: Record<string, unknown>, key: string): boolean | null {
+  const value = params[key];
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (['true', '1', 'yes', 'si', 'sí', 'available', 'disponible'].includes(normalized)) {
+    return true;
+  }
+  if (['false', '0', 'no'].includes(normalized)) {
+    return false;
+  }
+  return null;
+}
+
+function catalogItemTypeParam(params: Record<string, unknown>): CatalogItemType | null {
+  const value = textParam(params, 'itemType');
+  if (
+    value === 'board-game' ||
+    value === 'expansion' ||
+    value === 'book' ||
+    value === 'rpg-book' ||
+    value === 'accessory'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function catalogItemSupportsPlayerCount(item: CatalogItemRecord, playerCount: number): boolean {
+  if (item.playerCountMin === null && item.playerCountMax === null) {
+    return false;
+  }
+  return (item.playerCountMin === null || item.playerCountMin <= playerCount)
+    && (item.playerCountMax === null || item.playerCountMax >= playerCount);
+}
+
+function renderPlayerRange(min: number | null, max: number | null): string | null {
+  if (min === null && max === null) {
+    return null;
+  }
+  if (min !== null && max !== null && min === max) {
+    return `${min} jugadores`;
+  }
+  if (min !== null && max !== null) {
+    return `${min}-${max} jugadores`;
+  }
+  if (min !== null) {
+    return `desde ${min} jugadores`;
+  }
+  return `hasta ${max} jugadores`;
 }
 
 function normalizeSearchText(value: string): string {

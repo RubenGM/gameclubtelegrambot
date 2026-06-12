@@ -104,6 +104,35 @@ test('createLlmCommandService invokes Codex generic JSON with the Storage refine
   assert.equal(calls[0]?.args.at(calls[0].args.indexOf('--output-schema') + 1), 'src/telegram/llm-storage-refinement.schema.json');
 });
 
+test('createLlmCommandService can pass a custom Codex JSON schema', async () => {
+  const calls: Array<{ command: string; args: string[]; prompt: string }> = [];
+  const service = createLlmCommandService({
+    config: {
+      provider: 'codex',
+      codexBin: './scripts/codex-cawa.sh',
+      model: 'gpt-5.4-mini',
+      reasoningEffort: 'low',
+      timeoutMs: 1000,
+    },
+    spawnImpl: createSpawnDouble({
+      stdout: 'Codex progress output that is not JSON',
+      onPrompt: (call) => {
+        calls.push(call);
+        const outputPath = call.args[call.args.indexOf('-o') + 1];
+        if (!outputPath) {
+          throw new Error('missing Codex output path');
+        }
+        writeFileSync(outputPath, JSON.stringify({ intro: 'Prueba', selectedIds: [1], reasons: [{ id: 1, reason: 'encaja' }] }));
+      },
+    }),
+  });
+
+  const parsed = await service.generateJson('recommend prompt', 'src/telegram/llm-catalog-recommendation.schema.json');
+
+  assert.deepEqual(parsed, { intro: 'Prueba', selectedIds: [1], reasons: [{ id: 1, reason: 'encaja' }] });
+  assert.equal(calls[0]?.args.at(calls[0].args.indexOf('--output-schema') + 1), 'src/telegram/llm-catalog-recommendation.schema.json');
+});
+
 test('createLlmCommandService classifies missing Codex output files', async () => {
   const service = createLlmCommandService({
     config: {

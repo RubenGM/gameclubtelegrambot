@@ -29,6 +29,8 @@ export function buildLlmCommandPrompt(input: LlmCommandPromptInput): string {
     'No uses answer_directly para agenda, catalogo, Storage, prestamos, avisos, compras, LFG o noticias; el bot consultara sus repositorios internos.',
     'Para "esta semana" en agenda usa intent=schedule.search y params.dateRange="this_week".',
     'Distingue catalogo y Storage: catalogo son articulos fisicos/prestables del club; Storage son archivos o material subido.',
+    'Para recomendaciones de juegos de mesa del catalogo usa catalog.recommend. Extrae playerCount si el usuario dice "4 personas", "cuatro jugadores", etc. Si pide disponible, marca availableOnly=true. Para juegos de mesa usa itemType="board-game".',
+    'Para busquedas de catalogo con filtros concretos tambien puedes usar catalog.search con playerCount, availableOnly e itemType; no metas esos filtros dentro de query.',
     'Storage puede contener STL para impresion 3D y material de juegos de rol como libros, manuales, aventuras, fichas, mapas, ayudas, imagenes o cualquier otro archivo.',
     'Si el usuario pide libros de rol, material de rol, aventuras, fichas, mapas, PDFs, documentos, archivos, STL o contenido subido, usa storage.search salvo que pida explicitamente un item fisico/prestable del catalogo.',
     'Las acciones administrativas no se ejecutan por IA: marca requiresAdmin=true y usa unsupported.',
@@ -43,7 +45,7 @@ export function buildLlmCommandPrompt(input: LlmCommandPromptInput): string {
     ...capabilities.map(formatCapabilityLine),
     '',
     'Formato JSON obligatorio:',
-    '{"version":1,"language":"es","intent":"help.capabilities","confidence":0.95,"reply":{"text":"...","sendNow":false},"needsClarification":false,"clarification":null,"requiresConfirmation":false,"confirmation":null,"action":{"type":"call_internal_handler","name":"help.capabilities","params":{}},"safety":{"requiresApprovedMember":false,"requiresAdmin":false,"risk":"read_only","publicSideEffect":false,"destructive":false,"requiresPrivateChat":false}}',
+    '{"version":1,"language":"es","intent":"help.capabilities","confidence":0.95,"reply":{"text":"...","sendNow":false},"needsClarification":false,"clarification":null,"requiresConfirmation":false,"confirmation":null,"action":{"type":"call_internal_handler","name":"help.capabilities","params":{"query":null,"dateRange":null,"tag":null,"fileExtensions":[],"id":null,"noticeId":null,"entryId":null,"categoryId":null,"itemId":null,"eventId":null,"purchaseId":null,"title":null,"text":null,"message":null,"body":null,"content":null,"description":null,"playerCount":null,"availableOnly":null,"itemType":null,"expiresAt":null,"startsAt":null,"groupTitle":null}},"safety":{"requiresApprovedMember":false,"requiresAdmin":false,"risk":"read_only","publicSideEffect":false,"destructive":false,"requiresPrivateChat":false}}',
   ];
 
   if (input.history && input.history.length > 0) {

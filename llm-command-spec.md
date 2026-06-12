@@ -375,6 +375,8 @@ acción que ya tenga derecho a hacer por comandos o menús.
 - Buscar actividades por fecha, mesa, juego, organizador o plazas.
 - Buscar en catálogo por título, título original, editorial, tipo, familia,
   grupo, disponibilidad, jugadores, edad, duración o propietario.
+- Pedir recomendaciones de catálogo usando filtros del bot, como número de
+  jugadores y disponibilidad.
 - Consultar detalle de un item del catálogo.
 - Buscar en Storage por texto, categoría, subcategoría, tag, tipo de archivo,
   nombre visible o extensión.
@@ -837,6 +839,13 @@ Salida:
 ```
 
 ### Búsqueda de catálogo
+
+Las recomendaciones de catálogo usan una acción separada, `catalog.recommend`,
+cuando el usuario pide que el bot elija o sugiera uno o varios juegos. La LLM
+debe extraer filtros estructurados (`playerCount`, `availableOnly`, `itemType`)
+en vez de meterlos dentro de `query`. El bot filtra los candidatos reales por
+metadatos y préstamos activos, envía la lista resultante a la LLM para que elija
+y redacta la respuesta final con enlaces a los detalles del bot.
 
 Usuario:
 

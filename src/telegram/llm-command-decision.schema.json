@@ -29,6 +29,7 @@
         "schedule.leave",
         "catalog.search",
         "catalog.detail",
+        "catalog.recommend",
         "catalog.create",
         "catalog.edit",
         "catalog.loan.create",
@@ -156,6 +157,9 @@
         "body",
         "content",
         "description",
+        "playerCount",
+        "availableOnly",
+        "itemType",
         "expiresAt",
         "startsAt",
         "groupTitle"
@@ -178,6 +182,9 @@
         "body": { "type": ["string", "null"] },
         "content": { "type": ["string", "null"] },
         "description": { "type": ["string", "null"] },
+        "playerCount": { "type": ["integer", "null"] },
+        "availableOnly": { "type": ["boolean", "null"] },
+        "itemType": { "type": ["string", "null"], "enum": ["board-game", "expansion", "book", "rpg-book", "accessory", null] },
         "expiresAt": { "type": ["string", "null"] },
         "startsAt": { "type": ["string", "null"] },
         "groupTitle": { "type": ["string", "null"] }

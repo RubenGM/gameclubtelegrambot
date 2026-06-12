@@ -118,6 +118,24 @@ test('routeLlmCommandDecision executes data read intents even when the LLM selec
   });
 });
 
+test('routeLlmCommandDecision executes catalog recommendations as read-only actions', () => {
+  const outcome = routeLlmCommandDecision({
+    ...readDecision(),
+    intent: 'catalog.recommend',
+    action: {
+      type: 'call_internal_handler',
+      name: 'catalog.recommend',
+      params: { playerCount: 4, availableOnly: true, itemType: 'board-game', query: null },
+    },
+  }, baseContext);
+
+  assert.deepEqual(outcome, {
+    type: 'execute_read',
+    intent: 'catalog.recommend',
+    params: { playerCount: 4, availableOnly: true, itemType: 'board-game', query: null },
+  });
+});
+
 test('routeLlmCommandDecision requires approved access for member capabilities', () => {
   const outcome = routeLlmCommandDecision(readDecision(), {
     ...baseContext,
