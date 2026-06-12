@@ -845,7 +845,10 @@ cuando el usuario pide que el bot elija o sugiera uno o varios juegos. La LLM
 debe extraer filtros estructurados (`playerCount`, `availableOnly`, `itemType`)
 en vez de meterlos dentro de `query`. El bot filtra los candidatos reales por
 metadatos y préstamos activos, envía la lista resultante a la LLM para que elija
-y redacta la respuesta final con enlaces a los detalles del bot.
+y redacta la respuesta final con enlaces a los detalles del bot. Si no hay
+coincidencia exacta, el bot puede proponer alternativas cercanas por número de
+jugadores, juegos que encajan pero están prestados, o juegos disponibles sin
+metadatos completos de jugadores antes de responder que no hay resultados.
 
 Usuario:
 

@@ -135,29 +135,22 @@ async function recommendCatalogItems(
   const itemType = requestedItemType ?? 'board-game';
   const availableOnly = booleanParam(params, 'availableOnly') !== false;
   const allItems = await repository.listItems({ includeDeactivated: false });
-  const candidates = filterByQuery(allItems, query, (item) => [
-    item.displayName,
-    item.originalName,
-    item.description,
-    item.publisher,
-    item.itemType,
-  ])
-    .filter((item) => item.itemType === itemType)
-    .filter((item) => playerCount === null || catalogItemSupportsPlayerCount(item, playerCount))
-    .filter((item) => !availableOnly || !activeLoanItemIds.has(item.id))
-    .slice(0, 40)
-    .map((item) => ({
-      item,
-      available: !activeLoanItemIds.has(item.id),
-    }));
+  const candidateSet = selectCatalogRecommendationCandidateSet({
+    items: allItems,
+    activeLoanItemIds,
+    query,
+    playerCount,
+    itemType,
+    availableOnly,
+  });
 
-  if (candidates.length === 0) {
+  if (candidateSet.candidates.length === 0) {
     return describeEmptyCatalogRecommendation({ playerCount, availableOnly, itemType });
   }
 
   const service = context.runtime.llmCommandService;
   if (!service?.generateJson) {
-    return renderCatalogRecommendationFallback(candidates.slice(0, 3), playerCount);
+    return renderCatalogRecommendationFallback(candidateSet);
   }
 
   await progress?.update('He encontrado juegos candidatos. Estoy eligiendo una recomendación...');
@@ -168,15 +161,15 @@ async function recommendCatalogItems(
           userText: userText ?? '',
           params,
           playerCount,
-          candidates,
+          candidateSet,
         }),
         'src/telegram/llm-catalog-recommendation.schema.json',
       ),
       progress,
     );
-    return renderCatalogRecommendationFromLlm(parsed, candidates, playerCount);
+    return renderCatalogRecommendationFromLlm(parsed, candidateSet);
   } catch {
-    return renderCatalogRecommendationFallback(candidates.slice(0, 3), playerCount);
+    return renderCatalogRecommendationFallback(candidateSet);
   }
 }
 
@@ -358,6 +351,15 @@ function resolveStorageMoreLink(entries: Array<{ category: { id: number; display
 interface CatalogRecommendationCandidate {
   item: CatalogItemRecord;
   available: boolean;
+  matchNote: string | null;
+}
+
+type CatalogRecommendationMode = 'exact' | 'nearby_players' | 'borrowed' | 'missing_player_metadata';
+
+interface CatalogRecommendationCandidateSet {
+  mode: CatalogRecommendationMode;
+  intro: string;
+  candidates: CatalogRecommendationCandidate[];
 }
 
 async function runCatalogRecommendationWithProgress<T>(
@@ -396,11 +398,12 @@ function buildCatalogRecommendationPrompt(input: {
   userText: string;
   params: Record<string, unknown>;
   playerCount: number | null;
-  candidates: CatalogRecommendationCandidate[];
+  candidateSet: CatalogRecommendationCandidateSet;
 }): string {
   return [
     'Eres un recomendador de juegos de mesa para el catalogo de un club.',
     'El bot ya ha filtrado candidatos reales del catalogo por disponibilidad, tipo y numero de jugadores cuando corresponde.',
+    'Si los candidatos son fallback, respeta el aviso del bot y no digas que cumplen el filtro exacto.',
     'Elige de 1 a 3 candidatos que encajen mejor con la peticion. No inventes juegos ni IDs.',
     'Devuelve solo JSON valido con esta forma: {"intro":"breve","selectedIds":[1],"reasons":[{"id":1,"reason":"breve"}]}.',
     'No incluyas HTML ni Markdown. El bot añadira los enlaces a los juegos.',
@@ -408,8 +411,10 @@ function buildCatalogRecommendationPrompt(input: {
     `Peticion original del usuario: ${input.userText}`,
     `Parametros interpretados: ${JSON.stringify(input.params)}`,
     `Numero de jugadores pedido: ${input.playerCount ?? 'no especificado'}`,
+    `Modo de candidatos: ${input.candidateSet.mode}`,
+    `Aviso obligatorio del bot: ${input.candidateSet.intro}`,
     'Candidatos:',
-    JSON.stringify(input.candidates.map(formatCatalogRecommendationCandidate)),
+    JSON.stringify(input.candidateSet.candidates.map(formatCatalogRecommendationCandidate)),
   ].join('\n');
 }
 
@@ -431,22 +436,23 @@ function formatCatalogRecommendationCandidate(candidate: CatalogRecommendationCa
     recommendedAge: item.recommendedAge,
     playTimeMinutes: item.playTimeMinutes,
     available: candidate.available,
+    matchNote: candidate.matchNote,
     metadata: item.metadata,
   };
 }
 
 function renderCatalogRecommendationFromLlm(
   parsed: unknown,
-  candidates: CatalogRecommendationCandidate[],
-  playerCount: number | null,
+  candidateSet: CatalogRecommendationCandidateSet,
 ): string {
-  const byId = new Map(candidates.map((candidate) => [candidate.item.id, candidate]));
+  const byId = new Map(candidateSet.candidates.map((candidate) => [candidate.item.id, candidate]));
   const selectedIds = parseSelectedRecommendationIds(parsed, byId);
   if (selectedIds.length === 0) {
-    return renderCatalogRecommendationFallback(candidates.slice(0, 3), playerCount);
+    return renderCatalogRecommendationFallback(candidateSet);
   }
   const reasonById = parseRecommendationReasons(parsed, new Set(selectedIds));
-  const intro = parseRecommendationIntro(parsed) ?? 'Te recomiendo:';
+  const parsedIntro = parseRecommendationIntro(parsed);
+  const intro = candidateSet.mode === 'exact' && parsedIntro ? parsedIntro : candidateSet.intro;
   const rows = selectedIds
     .map((id) => byId.get(id))
     .filter((candidate): candidate is CatalogRecommendationCandidate => Boolean(candidate))
@@ -455,28 +461,119 @@ function renderCatalogRecommendationFromLlm(
       const details = [
         renderPlayerRange(candidate.item.playerCountMin, candidate.item.playerCountMax),
         candidate.item.playTimeMinutes !== null ? `${candidate.item.playTimeMinutes} min` : null,
-        candidate.available ? 'disponible' : null,
+        candidate.available ? 'disponible' : 'prestado',
       ].filter(Boolean).join(', ');
-      return `${linkToStart(`catalog_read_item_${candidate.item.id}`, candidate.item.displayName)}${details ? ` (${escapeHtml(details)})` : ''}${reason ? ` - ${escapeHtml(reason)}` : ''}`;
+      const note = candidate.matchNote ? ` ${escapeHtml(candidate.matchNote)}` : '';
+      return `${linkToStart(`catalog_read_item_${candidate.item.id}`, candidate.item.displayName)}${details ? ` (${escapeHtml(details)})` : ''}${note}${reason ? ` - ${escapeHtml(reason)}` : ''}`;
     });
   return `${escapeHtml(intro)}\n\n${rows.map((row, index) => `${index + 1}. ${row}`).join('\n')}`;
 }
 
-function renderCatalogRecommendationFallback(
-  candidates: CatalogRecommendationCandidate[],
-  playerCount: number | null,
-): string {
-  const intro = playerCount === null
-    ? 'He encontrado estos juegos disponibles que podrían encajar:'
-    : `He encontrado estos juegos disponibles para ${playerCount} personas:`;
-  return `${escapeHtml(intro)}\n\n${candidates.map((candidate, index) => {
+function renderCatalogRecommendationFallback(candidateSet: CatalogRecommendationCandidateSet): string {
+  return `${escapeHtml(candidateSet.intro)}\n\n${candidateSet.candidates.slice(0, 3).map((candidate, index) => {
     const players = renderPlayerRange(candidate.item.playerCountMin, candidate.item.playerCountMax);
     const details = [
       players,
       candidate.item.playTimeMinutes !== null ? `${candidate.item.playTimeMinutes} min` : null,
+      candidate.available ? 'disponible' : 'prestado',
     ].filter(Boolean).join(', ');
-    return `${index + 1}. ${linkToStart(`catalog_read_item_${candidate.item.id}`, candidate.item.displayName)}${details ? ` (${escapeHtml(details)})` : ''}`;
+    const note = candidate.matchNote ? ` ${escapeHtml(candidate.matchNote)}` : '';
+    return `${index + 1}. ${linkToStart(`catalog_read_item_${candidate.item.id}`, candidate.item.displayName)}${details ? ` (${escapeHtml(details)})` : ''}${note}`;
   }).join('\n')}`;
+}
+
+export function selectCatalogRecommendationCandidateSet(input: {
+  items: CatalogItemRecord[];
+  activeLoanItemIds: Set<number>;
+  query: string | null;
+  playerCount: number | null;
+  itemType: CatalogItemType;
+  availableOnly: boolean;
+}): CatalogRecommendationCandidateSet {
+  const baseItems = filterByQuery(input.items, input.query, (item) => [
+    item.displayName,
+    item.originalName,
+    item.description,
+    item.publisher,
+    item.itemType,
+  ]).filter((item) => item.itemType === input.itemType);
+  const availableFilter = (item: CatalogItemRecord) => !input.availableOnly || !input.activeLoanItemIds.has(item.id);
+  const toCandidate = (item: CatalogItemRecord, matchNote: string | null = null): CatalogRecommendationCandidate => ({
+    item,
+    available: !input.activeLoanItemIds.has(item.id),
+    matchNote,
+  });
+
+  const exact = baseItems
+    .filter((item) => input.playerCount === null || catalogItemSupportsPlayerCount(item, input.playerCount))
+    .filter(availableFilter)
+    .slice(0, 40)
+    .map((item) => toCandidate(item));
+  if (exact.length > 0) {
+    return {
+      mode: 'exact',
+      intro: input.playerCount === null
+        ? 'He encontrado estos juegos disponibles que podrían encajar:'
+        : `He encontrado estos juegos disponibles para ${input.playerCount} personas:`,
+      candidates: exact,
+    };
+  }
+
+  if (input.playerCount !== null) {
+    const playerCount = input.playerCount;
+    const nearbyCounts = [playerCount - 1, playerCount + 1].filter((count) => count > 0);
+    const nearby = baseItems
+      .filter((item) => !catalogItemSupportsPlayerCount(item, playerCount))
+      .filter((item) => nearbyCounts.some((count) => catalogItemSupportsPlayerCount(item, count)))
+      .filter(availableFilter)
+      .slice(0, 40)
+      .map((item) => toCandidate(item, '(opción cercana por número de jugadores)'));
+    if (nearby.length > 0) {
+      return {
+        mode: 'nearby_players',
+        intro: `No he encontrado juegos disponibles exactamente para ${playerCount} personas. Te dejo opciones cercanas por número de jugadores:`,
+        candidates: nearby,
+      };
+    }
+  }
+
+  if (input.availableOnly) {
+    const borrowed = baseItems
+      .filter((item) => input.activeLoanItemIds.has(item.id))
+      .filter((item) => input.playerCount === null || catalogItemSupportsPlayerCount(item, input.playerCount))
+      .slice(0, 40)
+      .map((item) => toCandidate(item, '(ahora mismo está prestado)'));
+    if (borrowed.length > 0) {
+      return {
+        mode: 'borrowed',
+        intro: input.playerCount === null
+          ? 'No he encontrado juegos disponibles con ese filtro. Estos encajan, pero ahora están prestados:'
+          : `No he encontrado juegos disponibles para ${input.playerCount} personas. Estos encajan, pero ahora están prestados:`,
+        candidates: borrowed,
+      };
+    }
+  }
+
+  if (input.playerCount !== null) {
+    const missingMetadata = baseItems
+      .filter((item) => item.playerCountMin === null && item.playerCountMax === null)
+      .filter(availableFilter)
+      .slice(0, 40)
+      .map((item) => toCandidate(item, '(sin metadatos de jugadores)'));
+    if (missingMetadata.length > 0) {
+      return {
+        mode: 'missing_player_metadata',
+        intro: `No he encontrado juegos disponibles con metadatos que confirmen ${input.playerCount} personas. Estas opciones disponibles no tienen ese dato completo:`,
+        candidates: missingMetadata,
+      };
+    }
+  }
+
+  return {
+    mode: 'exact',
+    intro: 'No he encontrado recomendaciones con los filtros actuales.',
+    candidates: [],
+  };
 }
 
 function describeEmptyCatalogRecommendation(input: {
