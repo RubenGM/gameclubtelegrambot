@@ -22,6 +22,25 @@ const telegramButtonAppearanceByRoleSchema = z
   .strict()
   .optional();
 
+const booleanFromEnvSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) {
+    return false;
+  }
+
+  return value;
+}, z.boolean());
+
+const integerFromEnvSchema = z.coerce.number().int();
+const numberFromEnvSchema = z.coerce.number();
+
 const defaultNotificationDefaults = {
   groupAnnouncementsEnabled: true,
   eventRemindersEnabled: true,
@@ -89,6 +108,22 @@ export const runtimeConfigSchema = z.object({
         .default(defaultNotificationDefaults),
     })
     .default({ defaults: defaultNotificationDefaults }),
+  llmCommands: z
+    .object({
+      enabled: booleanFromEnvSchema.default(false),
+      privateFallbackEnabled: booleanFromEnvSchema.default(true),
+      opencodeBin: z.string().trim().min(1).optional(),
+      model: z.string().trim().min(1).default('openai/gpt-5.4-mini'),
+      reasoningEffort: z.string().trim().min(1).default('low'),
+      timeoutMs: integerFromEnvSchema.min(1000).max(120000).default(20000),
+      maxHistory: integerFromEnvSchema.min(0).max(50).default(8),
+      sessionTtlMinutes: integerFromEnvSchema.min(1).max(120).default(15),
+      maxPromptChars: integerFromEnvSchema.min(1000).max(100000).default(12000),
+      readConfidenceThreshold: numberFromEnvSchema.min(0).max(1).default(0.75),
+      writeConfidenceThreshold: numberFromEnvSchema.min(0).max(1).default(0.9),
+      dryRun: booleanFromEnvSchema.default(false),
+    })
+    .optional(),
   featureFlags: z.record(z.string(), z.boolean()).default({}),
 });
 
