@@ -229,7 +229,7 @@ async function replyWithOutcome(
   context: TelegramLlmCommandContext,
   outcome: LlmCommandRouteOutcome,
 ): Promise<void> {
-  const options = context.messageThreadId ? { messageThreadId: context.messageThreadId } : undefined;
+  const options = buildLlmReplyOptions(context);
   if (outcome.type === 'execute_read') {
     await context.reply(await executeTelegramLlmReadAction(context, outcome), options);
     return;
@@ -240,6 +240,21 @@ async function replyWithOutcome(
   }
 
   await context.reply(resolveOutcomeReply(outcome), options);
+}
+
+function buildLlmReplyOptions(context: TelegramLlmCommandContext): Parameters<TelegramLlmCommandContext['reply']>[1] {
+  const messageThreadId = context.messageThreadId;
+  const privateUrl = context.runtime.chat.kind !== 'private' && context.runtime.bot.username
+    ? `https://t.me/${context.runtime.bot.username}?start=llm_ask`
+    : undefined;
+  if (!messageThreadId && !privateUrl) {
+    return undefined;
+  }
+
+  return {
+    ...(messageThreadId ? { messageThreadId } : {}),
+    ...(privateUrl ? { inlineKeyboard: [[{ text: 'Abrir privado', url: privateUrl }]] } : {}),
+  };
 }
 
 function resolveOutcomeReply(outcome: LlmCommandRouteOutcome): string {

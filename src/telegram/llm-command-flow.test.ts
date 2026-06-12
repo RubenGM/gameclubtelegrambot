@@ -104,7 +104,10 @@ test('handleTelegramLlmFallbackText only handles group text when it mentions or 
   assert.equal(await handleTelegramLlmFallbackText(mentioned), true);
   assert.match(mentioned.servicePrompts[0] ?? '', /que puedes hacer/);
   assert.doesNotMatch(mentioned.servicePrompts[0] ?? '', /@gameclubbot/);
-  assert.deepEqual(mentioned.replyOptions.at(-1), { messageThreadId: 42 });
+  assert.deepEqual(mentioned.replyOptions.at(-1), {
+    messageThreadId: 42,
+    inlineKeyboard: [[{ text: 'Abrir privado', url: 'https://t.me/gameclubbot?start=llm_ask' }]],
+  });
 });
 
 test('handleTelegramLlmAskCommand records sanitized failure metrics without leaking prompts', async () => {
