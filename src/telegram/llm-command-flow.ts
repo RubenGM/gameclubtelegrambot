@@ -4,9 +4,13 @@ import { routeLlmCommandDecision, type LlmCommandRouteOutcome } from './llm-comm
 import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
 import type { LlmCommandMetricAction, LlmCommandMetricResult, LlmCommandMetrics } from './llm-command-metrics.js';
 import { LlmCommandServiceError } from './llm-command-service.js';
-import type { BotLanguage } from './i18n.js';
+import { createTelegramI18n, type BotLanguage } from './i18n.js';
+import { catalogLoanCallbackPrefixes, handleTelegramCatalogLoanCallback } from './catalog-loan-flow.js';
+import { groupPurchaseCallbackPrefixes, handleTelegramGroupPurchaseCallback } from './group-purchase-flow.js';
 import { handleTelegramLfgText } from './lfg-flow.js';
 import { noticeFlowKey, handleTelegramNoticeText } from './notice-flow.js';
+import { scheduleCallbackPrefixes, handleTelegramScheduleCallback } from './schedule-flow.js';
+import { storageCallbackPrefixes, handleTelegramStorageCallback, handleTelegramStorageText } from './storage-flow.js';
 import { executeTelegramLlmReadAction } from './llm-command-read-actions.js';
 
 export const llmCommandFlowKey = 'llm-command';
@@ -334,6 +338,53 @@ async function prepareConfirmedWrite(
     }
     await handleTelegramLfgText({ ...context, messageText: '__llm_prefill__' });
     return true;
+  }
+
+  if (pending.intent === 'schedule.join' || pending.intent === 'schedule.leave') {
+    const eventId = pickNumberParam(pending.params, ['eventId', 'scheduleEventId', 'activityId', 'id']);
+    if (eventId === null) {
+      return false;
+    }
+    return handleTelegramScheduleCallback({
+      ...context,
+      callbackData: `${pending.intent === 'schedule.join' ? scheduleCallbackPrefixes.join : scheduleCallbackPrefixes.leave}${eventId}`,
+    });
+  }
+
+  if (pending.intent === 'group_purchase.join') {
+    const purchaseId = pickNumberParam(pending.params, ['purchaseId', 'groupPurchaseId', 'id']);
+    if (purchaseId === null) {
+      return false;
+    }
+    return handleTelegramGroupPurchaseCallback({
+      ...context,
+      callbackData: `${groupPurchaseCallbackPrefixes.joinInterested}${purchaseId}`,
+    });
+  }
+
+  if (pending.intent === 'catalog.loan.create') {
+    const itemId = pickNumberParam(pending.params, ['itemId', 'catalogItemId', 'id']);
+    if (itemId === null) {
+      return false;
+    }
+    return handleTelegramCatalogLoanCallback({
+      ...context,
+      callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}`,
+    });
+  }
+
+  if (pending.intent === 'storage.upload.start') {
+    const categoryId = pickNumberParam(pending.params, ['categoryId', 'storageCategoryId', 'id']);
+    if (categoryId !== null) {
+      return handleTelegramStorageCallback({
+        ...context,
+        callbackData: `${storageCallbackPrefixes.uploadCategory}${categoryId}`,
+      });
+    }
+    return handleTelegramStorageText({
+      ...context,
+      messageText: createTelegramI18n((context.runtime.bot.language ?? 'ca') as BotLanguage).storage.upload,
+    });
   }
 
   return false;

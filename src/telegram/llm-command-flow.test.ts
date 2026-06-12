@@ -187,6 +187,101 @@ test('handleTelegramLlmCallback cancels a pending write confirmation', async () 
   assert.equal(context.replies.at(-1), 'Operación cancelada.');
 });
 
+test('handleTelegramLlmCallback delegates schedule joins to the normal schedule flow', async () => {
+  const upserts: unknown[] = [];
+  const context = createContext({
+    messageText: '/ask apuntame a la actividad 7',
+    decision: writeDecision('schedule.join', { eventId: 7 }),
+    overrides: {
+      scheduleRepository: {
+        async findEventById(eventId: number) {
+          return eventId === 7 ? scheduleEvent() : null;
+        },
+        async listParticipants() {
+          return [];
+        },
+        async upsertParticipant(input: unknown) {
+          upserts.push(input);
+          return {
+            scheduleEventId: 7,
+            participantTelegramUserId: 123,
+            status: 'active',
+            addedByTelegramUserId: 123,
+            removedByTelegramUserId: null,
+            reminderLeadHours: null,
+            reminderPreferenceConfigured: false,
+            joinedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            leftAt: null,
+          };
+        },
+        async findParticipant() {
+          return null;
+        },
+      },
+      venueEventRepository: {
+        async listVenueEvents() {
+          return [];
+        },
+      },
+      membershipRepository: {
+        async findUserByTelegramUserId() {
+          return null;
+        },
+      },
+      tableRepository: {
+        async findTableById() {
+          return null;
+        },
+      },
+    },
+  });
+
+  await handleTelegramLlmAskCommand(context);
+  context.callbackData = llmCommandCallbackPrefixes.confirmWrite;
+
+  assert.equal(await handleTelegramLlmCallback(context), true);
+  assert.equal(upserts.length, 1);
+  assert.equal(context.session.current?.flowKey, 'schedule-join-reminder');
+  assert.equal(context.session.current?.data.eventId, 7);
+  assert.match(context.replies.at(-1) ?? '', /T'has apuntat correctament/);
+});
+
+test('handleTelegramLlmCallback starts a normal Storage upload when category id is provided', async () => {
+  const context = createContext({
+    messageText: '/ask sube esto a storage categoria 5',
+    decision: writeDecision('storage.upload.start', { categoryId: 5 }),
+    overrides: {
+      storageRepository: {
+        async findCategoryById(categoryId: number) {
+          return categoryId === 5
+            ? {
+              id: 5,
+              slug: 'manuales',
+              displayName: 'Manuales',
+              description: null,
+              parentCategoryId: null,
+              categoryPurpose: 'user_uploads',
+              lifecycleStatus: 'active',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+            : null;
+        },
+      },
+    },
+  });
+
+  await handleTelegramLlmAskCommand(context);
+  context.callbackData = llmCommandCallbackPrefixes.confirmWrite;
+
+  assert.equal(await handleTelegramLlmCallback(context), true);
+  assert.equal(context.session.current?.flowKey, 'storage-upload');
+  assert.equal(context.session.current?.stepKey, 'upload-media');
+  assert.equal(context.session.current?.data.categoryId, 5);
+  assert.match(context.replies.at(-1) ?? '', /envía|envia|send/i);
+});
+
 function createContext({
   messageText = 'texto',
   decision = helpDecision(),
@@ -197,6 +292,7 @@ function createContext({
   replyToBotMessage = false,
   serviceError,
   metricsError,
+  overrides,
 }: {
   messageText?: string;
   decision?: LlmCommandDecision;
@@ -207,6 +303,7 @@ function createContext({
   replyToBotMessage?: boolean;
   serviceError?: Error;
   metricsError?: Error;
+  overrides?: Record<string, unknown>;
 }): TelegramLlmCommandContext & {
   replies: string[];
   replyOptions: unknown[];
@@ -285,6 +382,7 @@ function createContext({
     servicePrompts,
     metrics,
     session,
+    ...overrides,
   };
 }
 
@@ -357,28 +455,36 @@ function helpDecision(): LlmCommandDecision {
 }
 
 function noticeCreateDecision(): LlmCommandDecision {
+  return writeDecision('notice.create', {
+    text: 'Mañana abrimos media hora más tarde.',
+  }, 'Voy a preparar un aviso con el texto "Mañana abrimos media hora más tarde.".');
+}
+
+function writeDecision(
+  intent: LlmCommandDecision['intent'],
+  params: Record<string, unknown>,
+  confirmationText = 'Voy a preparar el flujo normal.',
+): LlmCommandDecision {
   return {
     version: 1,
     language: 'es',
-    intent: 'notice.create',
+    intent,
     confidence: 0.95,
     reply: {
-      text: 'Preparo un aviso.',
+      text: 'Preparo el flujo normal.',
       sendNow: false,
     },
     needsClarification: false,
     clarification: null,
     requiresConfirmation: true,
     confirmation: {
-      text: 'Voy a preparar un aviso con el texto "Mañana abrimos media hora más tarde.".',
+      text: confirmationText,
       params: {},
     },
     action: {
       type: 'call_internal_handler',
-      name: 'notice.create',
-      params: {
-        text: 'Mañana abrimos media hora más tarde.',
-      },
+      name: intent,
+      params,
     },
     safety: {
       requiresApprovedMember: true,
@@ -388,5 +494,31 @@ function noticeCreateDecision(): LlmCommandDecision {
       destructive: false,
       requiresPrivateChat: true,
     },
+  };
+}
+
+function scheduleEvent() {
+  const now = new Date();
+  return {
+    id: 7,
+    title: 'Partida de prueba',
+    description: null,
+    detailsMessageChatId: null,
+    detailsMessageId: null,
+    startsAt: new Date(now.getTime() + 86_400_000).toISOString(),
+    durationMinutes: 180,
+    organizerTelegramUserId: 456,
+    createdByTelegramUserId: 456,
+    tableId: null,
+    catalogItemId: null,
+    attendanceMode: 'open',
+    initialOccupiedSeats: 0,
+    capacity: 4,
+    lifecycleStatus: 'scheduled',
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    cancelledAt: null,
+    cancelledByTelegramUserId: null,
+    cancellationReason: null,
   };
 }

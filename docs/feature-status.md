@@ -18,7 +18,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, canarios/reintentos Telegram, systemd/tray y backups.           |
 | Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname visible, bienvenidas, avisos privados y alta web en `/alta`.     |
 | Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG etiquetado como buscar grupo y ayuda contextual por sección activa.                 |
-| Asistente LLM de órdenes naturales           | 🟠 Parcial           | `/ask`, botón privado, fallback privado y menciones/replies en grupos bajo feature flag; lecturas MVP acotadas desde repositorios internos. |
+| Asistente LLM de órdenes naturales           | 🟠 Parcial           | `/ask`, botón privado, fallback privado y menciones en grupos bajo feature flag; lecturas MVP y escrituras confirmadas parciales.            |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario, avisando impacto con progreso editable.                    |
@@ -123,12 +123,12 @@ Implementado:
 - Sesión LLM conversacional con expiración funcional de 15 minutos dentro del flujo `llm-command`.
 - Lecturas MVP desde repositorios internos para ayuda, agenda, catálogo, préstamos, Storage, avisos, compras conjuntas, LFG y estado básico de `/news`; los resultados se limitan a 5 elementos y derivan a privado si hay más.
 - Métricas saneadas persistidas en `audit_log` con intención, confianza, origen, tipo de chat, resultado, duración y motivo; no guardan texto literal del usuario, prompt completo ni respuesta completa de la LLM.
-- Confirmación LLM previa para escrituras y preparación de flujos normales prellenados para `notice.create` y `lfg.create`; la persistencia final sigue dependiendo del botón de confirmación del flujo estándar.
+- Confirmación LLM previa para escrituras y preparación/delegación a flujos normales para `notice.create`, `lfg.create`, `schedule.join`, `schedule.leave`, `group_purchase.join`, `catalog.loan.create` y `storage.upload.start`; la persistencia final sigue dependiendo de los handlers estándar y sus confirmaciones cuando existan.
 
 Riesgos o pendientes:
 
 - La feature sigue apagada por defecto hasta validación operativa real con OpenCode en despliegue.
-- Falta conectar prellenado equivalente para el resto de escrituras (`schedule.*`, compras, préstamos, Storage y archivo/edición) sin duplicar reglas de negocio.
+- Falta conectar prellenado equivalente para el resto de escrituras (`schedule.create`, creación/edición de catálogo, creación/edición de compras, archivo de avisos y edición de Storage) sin duplicar reglas de negocio.
 - Las lecturas MVP son resúmenes básicos; falta UX de detalle largo por privado y selección guiada entre múltiples resultados.
 
 ## Mesas
