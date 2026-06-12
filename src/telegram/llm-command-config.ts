@@ -3,7 +3,9 @@ import type { RuntimeConfig } from '../config/runtime-config.js';
 export interface ResolvedLlmCommandConfig {
   enabled: boolean;
   privateFallbackEnabled: boolean;
+  provider: 'codex' | 'opencode';
   opencodeBin?: string | undefined;
+  codexBin?: string | undefined;
   model: string;
   reasoningEffort: string;
   timeoutMs: number;
@@ -18,9 +20,11 @@ export interface ResolvedLlmCommandConfig {
 export const defaultLlmCommandConfig: ResolvedLlmCommandConfig = {
   enabled: false,
   privateFallbackEnabled: true,
-  model: 'openai/gpt-5.4-mini',
+  provider: 'codex',
+  codexBin: './scripts/codex-cawa.sh',
+  model: 'gpt-5.4-mini',
   reasoningEffort: 'low',
-  timeoutMs: 20000,
+  timeoutMs: 60000,
   maxHistory: 8,
   sessionTtlMinutes: 15,
   maxPromptChars: 12000,

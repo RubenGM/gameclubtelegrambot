@@ -16,6 +16,12 @@ test('buildLlmCommandPrompt includes allowed read capabilities and user context'
   assert.match(prompt, /schedule\.today/);
   assert.match(prompt, /storage\.search/);
   assert.match(prompt, /chat: group con topic/);
+  assert.match(prompt, /No uses answer_directly para agenda/);
+  assert.match(prompt, /params\.dateRange="this_week"/);
+  assert.match(prompt, /catalogo son articulos fisicos\/prestables/);
+  assert.match(prompt, /material de juegos de rol como libros, manuales, aventuras, fichas, mapas/);
+  assert.match(prompt, /Si el usuario pide libros de rol/);
+  assert.match(prompt, /usa storage\.search/);
   assert.doesNotMatch(prompt, /notice\.create/);
 });
 

@@ -24,7 +24,7 @@ Examples:
 Prefer this wrapper over calling `journalctl` directly when debugging runtime
 Telegram failures.
 
-## OpenCode / IA desde el bot
+## OpenCode, Codex / IA desde el bot
 
 Cuando una feature del bot necesite usar IA mediante OpenCode, no ejecutes
 `opencode` directamente desde el servicio. Usa siempre el wrapper:
@@ -43,6 +43,27 @@ lugar de hardcodear `opencode`. Si necesitas enviar el prompt por stdin, usa:
 
 ```bash
 printf 'prompt\n' | ./scripts/opencode-cawa.sh run --stdin --model openai/gpt-5.4-mini
+```
+
+Para el intérprete LLM de órdenes naturales se prefiere Codex en modo no
+interactivo. No ejecutes `codex` directamente desde el servicio; usa siempre el
+wrapper:
+
+```bash
+./scripts/codex-cawa.sh
+```
+
+En despliegue, el servicio apunta a ese wrapper con `GAMECLUB_CODEX_BIN`.
+Codex también debe ejecutarse como el usuario operador `cawa`, donde están las
+credenciales ChatGPT/Codex. El instalador mantiene una regla sudoers limitada
+para permitir sólo esa ejecución.
+
+Para nuevas integraciones Codex, lee `GAMECLUB_CODEX_BIN` y llama a ese binario
+en lugar de hardcodear `codex`. Si necesitas enviar el prompt por stdin y
+forzar salida estructurada, usa:
+
+```bash
+printf 'prompt\n' | ./scripts/codex-cawa.sh exec --ephemeral --sandbox read-only --model gpt-5.4-mini -c 'model_reasoning_effort="low"' --output-schema src/telegram/llm-command-decision.schema.json -o /tmp/output.json -
 ```
 
 ## Local validation workflow

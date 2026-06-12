@@ -59,6 +59,29 @@ test('handleTelegramLlmAskCommand interprets explicit text through the injected 
   assert.doesNotMatch(JSON.stringify(context.metrics), /que puedes hacer/);
 });
 
+test('handleTelegramLlmAskCommand sends an immediate editable receipt before interpreting', async () => {
+  const context = createContext({
+    messageText: '/ask crea un aviso diciendo que abrimos tarde',
+    decision: noticeCreateDecision(),
+    editableProgress: true,
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies[0], 'Petición recibida. Estoy analizando lo que pides...');
+  assert.equal(context.replies.length, 1);
+  assert.deepEqual(context.edits.map((edit) => edit.text), [
+    'Petición entendida. Preparando confirmación...',
+    'Voy a preparar un aviso con el texto "Mañana abrimos media hora más tarde.".\n\n¿Quieres que prepare el flujo normal con estos datos?',
+  ]);
+  assert.deepEqual(context.edits.at(-1)?.options, {
+    inlineKeyboard: [[
+      { text: 'Preparar', callbackData: llmCommandCallbackPrefixes.confirmWrite, semanticRole: 'success' },
+      { text: 'Cancelar', callbackData: llmCommandCallbackPrefixes.cancelWrite, semanticRole: 'danger' },
+    ]],
+  });
+});
+
 test('handleTelegramLlmMenuText is gated by feature flag and starts a session when enabled', async () => {
   const disabled = createContext({
     llmEnabled: false,
@@ -133,6 +156,18 @@ test('handleTelegramLlmAskCommand records sanitized failure metrics without leak
     reason: 'invalid_json',
   }]);
   assert.doesNotMatch(JSON.stringify(context.metrics), /texto privado sensible/);
+});
+
+test('handleTelegramLlmAskCommand tells the user when interpretation times out', async () => {
+  const context = createContext({
+    messageText: '/ask qué STL tenemos para Mutant Chronicles?',
+    serviceError: new LlmCommandServiceError('timeout', 'OpenCode timed out after 60000 ms'),
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies.at(-1), 'La IA ha tardado demasiado en interpretar la petición. Prueba de nuevo en unos momentos o usa el menú normal.');
+  assert.equal(context.metrics.at(-1)?.result, 'timeout');
 });
 
 test('handleTelegramLlmAskCommand continues when metric persistence fails', async () => {
@@ -292,6 +327,7 @@ function createContext({
   replyToBotMessage = false,
   serviceError,
   metricsError,
+  editableProgress = false,
   overrides,
 }: {
   messageText?: string;
@@ -303,16 +339,19 @@ function createContext({
   replyToBotMessage?: boolean;
   serviceError?: Error;
   metricsError?: Error;
+  editableProgress?: boolean;
   overrides?: Record<string, unknown>;
 }): TelegramLlmCommandContext & {
   replies: string[];
   replyOptions: unknown[];
+  edits: Array<{ chatId: number; messageId: number; text: string; options?: unknown }>;
   servicePrompts: string[];
   metrics: LlmCommandMetricInput[];
   session: ConversationSessionRuntime;
 } {
   const replies: string[] = [];
   const replyOptions: unknown[] = [];
+  const edits: Array<{ chatId: number; messageId: number; text: string; options?: unknown }> = [];
   const servicePrompts: string[] = [];
   const metrics: LlmCommandMetricInput[] = [];
   const session = createSessionRuntime();
@@ -327,6 +366,7 @@ function createContext({
     async reply(message, options) {
       replies.push(message);
       replyOptions.push(options);
+      return { message_id: replies.length };
     },
     runtime: {
       bot: {
@@ -335,6 +375,13 @@ function createContext({
         language: 'es',
         username: 'gameclubbot',
         async sendPrivateMessage() {},
+        ...(editableProgress
+          ? {
+              async editMessageText(input: { chatId: number; messageId: number; text: string; options?: unknown }) {
+                edits.push(input);
+              },
+            }
+          : {}),
       },
       services: {} as TelegramLlmCommandContext['runtime']['services'],
       chat: {
@@ -367,6 +414,10 @@ function createContext({
           }
           return decision;
         },
+        async generateJson(prompt) {
+          servicePrompts.push(prompt);
+          return {};
+        },
       },
       llmCommandMetrics: {
         async record(input) {
@@ -379,6 +430,7 @@ function createContext({
     },
     replies,
     replyOptions,
+    edits,
     servicePrompts,
     metrics,
     session,

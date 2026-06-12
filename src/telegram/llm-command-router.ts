@@ -33,8 +33,8 @@ export function routeLlmCommandDecision(
     return { type: 'unsupported', message: decision.reply.text };
   }
 
-  const localRisk = resolveLocalRisk(decision);
-  if (capability.requiresAdmin || decision.safety.requiresAdmin || localRisk === 'admin') {
+  const localRisk = resolveLocalRisk(decision, capability.risk);
+  if (capability.requiresAdmin || localRisk === 'admin') {
     return { type: 'admin_rejected', message: llmCommandAdminRejectedMessage };
   }
 
@@ -46,14 +46,6 @@ export function routeLlmCommandDecision(
     return {
       type: 'ask_clarification',
       message: decision.clarification?.question ?? decision.reply.text,
-      intent: decision.intent,
-    };
-  }
-
-  if (decision.action.type === 'answer_directly') {
-    return {
-      type: 'answer_directly',
-      message: decision.reply.text,
       intent: decision.intent,
     };
   }
@@ -86,20 +78,33 @@ export function routeLlmCommandDecision(
     };
   }
 
-  if (decision.action.type !== 'call_internal_handler') {
-    return { type: 'unsupported', message: decision.reply.text };
+  if (decision.action.type === 'answer_directly' && decision.intent === 'help.capabilities') {
+    return {
+      type: 'answer_directly',
+      message: decision.reply.text,
+      intent: decision.intent,
+    };
   }
 
   return {
     type: 'execute_read',
     intent: decision.intent,
-    params: decision.action.params,
+    params: decision.action.type === 'call_internal_handler' ? decision.action.params : {},
   };
 }
 
-function resolveLocalRisk(decision: LlmCommandDecision): 'read_only' | 'write' | 'admin' | 'unknown' {
-  if (decision.safety.requiresAdmin || decision.safety.risk === 'admin') {
+function resolveLocalRisk(
+  decision: LlmCommandDecision,
+  capabilityRisk: 'read_only' | 'write' | 'admin' | 'unknown',
+): 'read_only' | 'write' | 'admin' | 'unknown' {
+  if (capabilityRisk === 'admin' || decision.safety.risk === 'admin') {
     return 'admin';
+  }
+  if (capabilityRisk === 'read_only') {
+    return 'read_only';
+  }
+  if (capabilityRisk === 'write') {
+    return 'write';
   }
   if (
     decision.safety.risk === 'write' ||

@@ -54,7 +54,9 @@ Codex debe implementar una primera versión funcional, testeada y desplegable de
 asistente LLM. El alcance de implementación inicial incluye:
 
 - Configuración runtime y feature flags.
-- Servicio de invocación LLM usando `GAMECLUB_OPENCODE_BIN`.
+- Servicio de invocación LLM usando proveedor configurable: `codex` por defecto
+  mediante `GAMECLUB_CODEX_BIN`, y `opencode` como alternativa mediante
+  `GAMECLUB_OPENCODE_BIN`.
 - Prompt y contrato JSON tipado.
 - Validación local de JSON, allowlist, permisos, contexto y confianza.
 - Entrada por `/ask`.
@@ -83,7 +85,7 @@ Codex no debe intentar resolver en el primer goal:
 - Persistencia de conversaciones completas, prompts completos o texto literal de
   usuario.
 - Sustitución de los menús existentes.
-- Cambio de proveedor de IA distinto al wrapper OpenCode ya usado por el repo.
+- Acceso directo a proveedores IA sin wrapper de usuario operador.
 
 ### Orden de trabajo recomendado
 
@@ -137,7 +139,8 @@ abstracciones paralelas.
 ### Checklist de implementación
 
 - [ ] Feature flags cargadas desde entorno/config runtime.
-- [ ] `GAMECLUB_OPENCODE_BIN` usado en vez de hardcodear `opencode`.
+- [ ] `GAMECLUB_CODEX_BIN`/`GAMECLUB_OPENCODE_BIN` usados en vez de hardcodear
+  `codex` u `opencode`.
 - [ ] Prompt generado desde catálogo tipado de capacidades.
 - [ ] JSON validado con allowlist de intents y actions.
 - [ ] Rechazo robusto de JSON inválido, texto no JSON y acciones desconocidas.
@@ -228,23 +231,26 @@ El goal se considera terminado cuando:
 
 ## Integración de IA
 
-El servicio no debe invocar `opencode` directamente. Debe usar siempre el
-binario configurado por entorno:
+El servicio no debe invocar `codex` ni `opencode` directamente. Debe usar
+siempre el binario configurado por entorno:
 
 ```bash
+GAMECLUB_CODEX_BIN
 GAMECLUB_OPENCODE_BIN
 ```
 
-En despliegue este valor apunta a:
+En despliegue estos valores apuntan a:
 
 ```bash
+./scripts/codex-cawa.sh
 ./scripts/opencode-cawa.sh
 ```
 
-Modelo recomendado para la primera versión:
+Proveedor y modelo recomendados:
 
 ```bash
-openai/gpt-5.4-mini
+GAMECLUB_LLM_COMMANDS_PROVIDER=codex
+GAMECLUB_LLM_COMMANDS_MODEL=gpt-5.4-mini
 ```
 
 Configuración propuesta:
@@ -252,9 +258,12 @@ Configuración propuesta:
 ```bash
 GAMECLUB_LLM_COMMANDS_ENABLED=false
 GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED=true
-GAMECLUB_LLM_COMMANDS_MODEL=openai/gpt-5.4-mini
+GAMECLUB_LLM_COMMANDS_PROVIDER=codex
+GAMECLUB_CODEX_BIN=./scripts/codex-cawa.sh
+GAMECLUB_OPENCODE_BIN=./scripts/opencode-cawa.sh
+GAMECLUB_LLM_COMMANDS_MODEL=gpt-5.4-mini
 GAMECLUB_LLM_COMMANDS_REASONING_EFFORT=low
-GAMECLUB_LLM_COMMANDS_TIMEOUT_MS=20000
+GAMECLUB_LLM_COMMANDS_TIMEOUT_MS=60000
 GAMECLUB_LLM_COMMANDS_MAX_HISTORY=8
 GAMECLUB_LLM_COMMANDS_SESSION_TTL_MINUTES=15
 GAMECLUB_LLM_COMMANDS_MAX_PROMPT_CHARS=12000
@@ -1006,7 +1015,8 @@ los repositorios internos.
 ### Fase 1: lectura privada y lectura en grupos con mención
 
 - Configuración de entorno.
-- Servicio OpenCode con timeout y parseo JSON.
+- Servicio LLM con proveedor Codex por defecto, timeout, schema de salida y
+  parseo JSON.
 - Prompt de capacidades inicial.
 - Esquema JSON y validación.
 - `/ask` en privado.
@@ -1087,7 +1097,7 @@ Pruebas mínimas:
 - Pregunta de aclaración cuando una escritura queda por debajo de `0.90`.
 - Confirmación para cualquier acción de escritura en privado.
 - Mapeo de los tres ejemplos originales.
-- Timeout de OpenCode.
+- Timeout del proveedor LLM.
 - Fallback cuando la LLM falla.
 - No mezclar `replyKeyboard` e `inlineKeyboard` en el mismo mensaje cuando haya
   acciones inline.

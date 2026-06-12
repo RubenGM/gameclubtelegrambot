@@ -70,8 +70,11 @@ export function createMiddlewarePipeline({
   const llmCommands = resolveLlmCommandConfig(config);
   const llmCommandService = createLlmCommandService({
     config: {
+      provider: llmCommands.provider,
       opencodeBin: llmCommands.opencodeBin,
+      codexBin: llmCommands.codexBin,
       model: llmCommands.model,
+      reasoningEffort: llmCommands.reasoningEffort,
       timeoutMs: llmCommands.timeoutMs,
     },
   });

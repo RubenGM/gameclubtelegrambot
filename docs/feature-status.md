@@ -113,21 +113,26 @@ Estado: `parcial`.
 Implementado:
 
 - Configuración runtime `llmCommands` con variables `GAMECLUB_LLM_COMMANDS_*`, apagada por defecto mediante `GAMECLUB_LLM_COMMANDS_ENABLED=false`.
-- Servicio de invocación LLM que usa `GAMECLUB_OPENCODE_BIN` y llama al wrapper por stdin con timeout y errores clasificados.
-- Contrato JSON versionado, parser estricto, allowlist de intents/actions, umbrales locales de confianza (`0.75` lectura, `0.90` escritura) y rechazo de acciones administrativas con el copy obligatorio.
+- Servicio de invocación LLM con proveedor configurable (`codex` por defecto, `opencode` alternativo), modelo `gpt-5.4-mini` con razonamiento `low`, timeout y errores clasificados; Codex se invoca mediante `GAMECLUB_CODEX_BIN`, `codex exec --ephemeral --sandbox read-only` y schemas de salida.
+- Contrato JSON versionado, parser estricto, schemas JSON para Codex, allowlist de intents/actions, umbrales locales de confianza (`0.75` lectura, `0.90` escritura) y rechazo de acciones administrativas con el copy obligatorio.
 - Prompt generado desde un catálogo tipado de capacidades permitidas por rol/contexto, sin dar autoridad a la LLM para ejecutar lógica de negocio.
 - Comando privado `/ask` para socios aprobados.
 - Botón privado `Preguntar al bot` visible sólo cuando la feature está habilitada.
 - Fallback privado configurable con `GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED`, ejecutado al final de la cadena de handlers para no capturar comandos, botones ni sesiones existentes.
 - Lecturas en grupos/topics cuando el usuario menciona explícitamente al bot o responde a un mensaje suyo; las respuestas conservan `message_thread_id` y ofrecen abrir el privado.
 - Sesión LLM conversacional con expiración funcional de 15 minutos dentro del flujo `llm-command`.
-- Lecturas MVP desde repositorios internos para ayuda, agenda, catálogo, préstamos, Storage, avisos, compras conjuntas, LFG y estado básico de `/news`; los resultados se limitan a 5 elementos y derivan a privado si hay más.
+- Recibo/progreso editable inmediato para peticiones LLM: el bot confirma recepción antes de invocar el proveedor LLM, edita el mismo mensaje con estados intermedios mientras espera a la IA y lo completa con lectura, aclaración, rechazo o confirmación.
+- Lecturas MVP desde repositorios internos para ayuda, agenda, catálogo, préstamos, Storage, avisos, compras conjuntas, LFG y estado básico de `/news`; los resultados se limitan a 5 elementos, enlazan a los detalles del bot cuando existe deep link estable y añaden enlaces de continuación para abrir el listado completo cuando hay más resultados.
+- El prompt distingue catálogo físico/prestable frente a Storage como repositorio de archivos, incluyendo STL y material de rol como libros, manuales, aventuras, fichas y mapas, para clasificar mejor consultas ambiguas.
+- Las búsquedas LLM de Storage refinan los candidatos con una segunda pasada semántica sobre descripción, categoría, tags y archivos para separar, por ejemplo, material de rol/PDF de modelos STL con la misma franquicia.
+- Timeout LLM por defecto ampliado a 60s para reducir cortes en grupos y búsquedas con refinado semántico; los timeouts se comunican con mensaje específico al usuario.
+- Las lecturas usan el riesgo local de la allowlist por encima del `safety.risk` devuelto por la LLM, de modo que consultas como agenda semanal no caen en confirmación/prellenado aunque la LLM clasifique mal la salida.
 - Métricas saneadas persistidas en `audit_log` con intención, confianza, origen, tipo de chat, resultado, duración y motivo; no guardan texto literal del usuario, prompt completo ni respuesta completa de la LLM.
 - Confirmación LLM previa para escrituras y preparación/delegación a flujos normales para `notice.create`, `notice.archive`, `lfg.create`, `schedule.join`, `schedule.leave`, `group_purchase.join`, `catalog.loan.create` y `storage.upload.start`; la persistencia final sigue dependiendo de los handlers estándar y sus confirmaciones cuando existan.
 
 Riesgos o pendientes:
 
-- La feature sigue apagada por defecto hasta validación operativa real con OpenCode en despliegue.
+- OpenCode queda disponible como proveedor alternativo, pero el despliegue operativo usa Codex por defecto tras pruebas reales de clasificación con schema.
 - Falta conectar prellenado equivalente para el resto de escrituras (`schedule.create`, creación/edición de catálogo, creación/edición de compras y edición de Storage) sin duplicar reglas de negocio.
 - Las lecturas MVP son resúmenes básicos; falta UX de detalle largo por privado y selección guiada entre múltiples resultados.
 

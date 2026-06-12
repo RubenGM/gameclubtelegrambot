@@ -61,6 +61,63 @@ test('routeLlmCommandDecision rejects reads below the local confidence threshold
   assert.equal(outcome.threshold, 0.75);
 });
 
+test('routeLlmCommandDecision executes local read intents even when the LLM marks them as writes', () => {
+  const outcome = routeLlmCommandDecision({
+    ...readDecision(),
+    intent: 'schedule.search',
+    reply: {
+      text: 'Consultando las actividades de esta semana.',
+      sendNow: false,
+    },
+    requiresConfirmation: true,
+    confirmation: {
+      text: 'Consultando las actividades de esta semana.',
+      params: {},
+    },
+    action: {
+      type: 'call_internal_handler',
+      name: 'schedule.search',
+      params: { query: 'esta semana' },
+    },
+    safety: {
+      requiresApprovedMember: true,
+      requiresAdmin: false,
+      risk: 'write',
+      publicSideEffect: false,
+      destructive: false,
+      requiresPrivateChat: true,
+    },
+  }, baseContext);
+
+  assert.deepEqual(outcome, {
+    type: 'execute_read',
+    intent: 'schedule.search',
+    params: { query: 'esta semana' },
+  });
+});
+
+test('routeLlmCommandDecision executes data read intents even when the LLM selects answer_directly', () => {
+  const outcome = routeLlmCommandDecision({
+    ...readDecision(),
+    intent: 'schedule.upcoming',
+    reply: {
+      text: 'Consultaré las actividades de esta semana.',
+      sendNow: true,
+    },
+    action: {
+      type: 'answer_directly',
+      name: 'schedule.upcoming',
+      params: {},
+    },
+  }, baseContext);
+
+  assert.deepEqual(outcome, {
+    type: 'execute_read',
+    intent: 'schedule.upcoming',
+    params: {},
+  });
+});
+
 test('routeLlmCommandDecision requires approved access for member capabilities', () => {
   const outcome = routeLlmCommandDecision(readDecision(), {
     ...baseContext,
