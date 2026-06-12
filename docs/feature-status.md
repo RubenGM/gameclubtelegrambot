@@ -123,11 +123,12 @@ Implementado:
 - Sesión LLM conversacional con expiración funcional de 15 minutos dentro del flujo `llm-command`.
 - Lecturas MVP desde repositorios internos para ayuda, agenda, catálogo, préstamos, Storage, avisos, compras conjuntas, LFG y estado básico de `/news`; los resultados se limitan a 5 elementos y derivan a privado si hay más.
 - Métricas saneadas persistidas en `audit_log` con intención, confianza, origen, tipo de chat, resultado, duración y motivo; no guardan texto literal del usuario, prompt completo ni respuesta completa de la LLM.
+- Confirmación LLM previa para escrituras y preparación de flujos normales prellenados para `notice.create` y `lfg.create`; la persistencia final sigue dependiendo del botón de confirmación del flujo estándar.
 
 Riesgos o pendientes:
 
 - La feature sigue apagada por defecto hasta validación operativa real con OpenCode en despliegue.
-- Las escrituras interpretadas se derivan o piden confirmación, pero falta conectar el prellenado y ejecución final con los handlers normales.
+- Falta conectar prellenado equivalente para el resto de escrituras (`schedule.*`, compras, préstamos, Storage y archivo/edición) sin duplicar reglas de negocio.
 - Las lecturas MVP son resúmenes básicos; falta UX de detalle largo por privado y selección guiada entre múltiples resultados.
 
 ## Mesas

@@ -87,8 +87,10 @@ import {
 } from './lfg-flow.js';
 import {
   handleTelegramLlmAskCommand,
+  handleTelegramLlmCallback,
   handleTelegramLlmFallbackText,
   handleTelegramLlmMenuText,
+  llmCommandCallbackPrefixes,
 } from './llm-command-flow.js';
 import {
   handleTelegramNewsGroupCallback,
@@ -209,6 +211,7 @@ export function registerHandlers({
   registerScheduleCallbacks({ bot });
   registerGroupPurchaseCallbacks({ bot });
   registerLfgCallbacks({ bot });
+  registerLlmCommandCallbacks({ bot });
   registerNoticeCallbacks({ bot });
   registerNewsGroupCallbacks({ bot });
   registerTableReadCallbacks({ bot });
@@ -1296,6 +1299,18 @@ function registerNewsGroupCallbacks({
   for (const prefix of Object.values(newsGroupCallbackPrefixes)) {
     bot.onCallback(prefix, async (context) => {
       await handleTelegramNewsGroupCallback(context);
+    });
+  }
+}
+
+function registerLlmCommandCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(llmCommandCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramLlmCallback(context);
     });
   }
 }

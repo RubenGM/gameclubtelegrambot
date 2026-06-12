@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   handleTelegramLlmAskCommand,
+  handleTelegramLlmCallback,
   handleTelegramLlmFallbackText,
   handleTelegramLlmMenuText,
+  llmCommandCallbackPrefixes,
   llmCommandFlowKey,
   type TelegramLlmCommandContext,
 } from './llm-command-flow.js';
@@ -139,6 +141,47 @@ test('handleTelegramLlmAskCommand continues when metric persistence fails', asyn
   await handleTelegramLlmAskCommand(context);
 
   assert.equal(context.replies.at(-1), 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.');
+});
+
+test('handleTelegramLlmCallback prepares the normal notice flow after write confirmation', async () => {
+  const context = createContext({
+    messageText: '/ask crea un aviso diciendo que abrimos tarde',
+    decision: noticeCreateDecision(),
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.session.current?.flowKey, llmCommandFlowKey);
+  assert.equal(context.session.current?.stepKey, 'confirm-write');
+  assert.match(context.replies.at(-1) ?? '', /¿Quieres que prepare el flujo normal/);
+  assert.deepEqual(context.replyOptions.at(-1), {
+    inlineKeyboard: [[
+      { text: 'Preparar', callbackData: llmCommandCallbackPrefixes.confirmWrite, semanticRole: 'success' },
+      { text: 'Cancelar', callbackData: llmCommandCallbackPrefixes.cancelWrite, semanticRole: 'danger' },
+    ]],
+  });
+
+  context.callbackData = llmCommandCallbackPrefixes.confirmWrite;
+  assert.equal(await handleTelegramLlmCallback(context), true);
+
+  assert.equal(context.session.current?.flowKey, 'notices');
+  assert.equal(context.session.current?.stepKey, 'confirm');
+  assert.equal(context.session.current?.data.text, 'Mañana abrimos media hora más tarde.');
+  assert.equal(context.replies.at(-1), 'Revisa el aviso antes de publicarlo.');
+});
+
+test('handleTelegramLlmCallback cancels a pending write confirmation', async () => {
+  const context = createContext({
+    messageText: '/ask crea un aviso diciendo que abrimos tarde',
+    decision: noticeCreateDecision(),
+  });
+
+  await handleTelegramLlmAskCommand(context);
+  context.callbackData = llmCommandCallbackPrefixes.cancelWrite;
+
+  assert.equal(await handleTelegramLlmCallback(context), true);
+  assert.equal(context.session.current, null);
+  assert.equal(context.replies.at(-1), 'Operación cancelada.');
 });
 
 function createContext({
@@ -306,6 +349,41 @@ function helpDecision(): LlmCommandDecision {
       publicSideEffect: false,
       destructive: false,
       requiresPrivateChat: false,
+    },
+  };
+}
+
+function noticeCreateDecision(): LlmCommandDecision {
+  return {
+    version: 1,
+    language: 'es',
+    intent: 'notice.create',
+    confidence: 0.95,
+    reply: {
+      text: 'Preparo un aviso.',
+      sendNow: false,
+    },
+    needsClarification: false,
+    clarification: null,
+    requiresConfirmation: true,
+    confirmation: {
+      text: 'Voy a preparar un aviso con el texto "Mañana abrimos media hora más tarde.".',
+      params: {},
+    },
+    action: {
+      type: 'call_internal_handler',
+      name: 'notice.create',
+      params: {
+        text: 'Mañana abrimos media hora más tarde.',
+      },
+    },
+    safety: {
+      requiresApprovedMember: true,
+      requiresAdmin: false,
+      risk: 'write',
+      publicSideEffect: true,
+      destructive: false,
+      requiresPrivateChat: true,
     },
   };
 }

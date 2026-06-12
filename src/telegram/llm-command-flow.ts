@@ -5,9 +5,15 @@ import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
 import type { LlmCommandMetricAction, LlmCommandMetricResult, LlmCommandMetrics } from './llm-command-metrics.js';
 import { LlmCommandServiceError } from './llm-command-service.js';
 import type { BotLanguage } from './i18n.js';
+import { handleTelegramLfgText } from './lfg-flow.js';
+import { noticeFlowKey, handleTelegramNoticeText } from './notice-flow.js';
 import { executeTelegramLlmReadAction } from './llm-command-read-actions.js';
 
 export const llmCommandFlowKey = 'llm-command';
+export const llmCommandCallbackPrefixes = {
+  confirmWrite: 'llm_cmd:confirm',
+  cancelWrite: 'llm_cmd:cancel',
+} as const;
 
 export type TelegramLlmCommandContext = TelegramCommandHandlerContext & {
   runtime: TelegramCommandHandlerContext['runtime'] & {
@@ -105,6 +111,45 @@ export async function handleTelegramLlmFallbackText(context: TelegramLlmCommandC
   return true;
 }
 
+export async function handleTelegramLlmCallback(context: TelegramLlmCommandContext): Promise<boolean> {
+  const callbackData = context.callbackData;
+  if (!callbackData || context.runtime.chat.kind !== 'private') {
+    return false;
+  }
+
+  if (callbackData === llmCommandCallbackPrefixes.cancelWrite) {
+    if (context.runtime.session.current?.flowKey === llmCommandFlowKey) {
+      await context.runtime.session.cancel();
+    }
+    await context.reply('Operación cancelada.');
+    return true;
+  }
+
+  if (callbackData !== llmCommandCallbackPrefixes.confirmWrite) {
+    return false;
+  }
+
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== llmCommandFlowKey || session.stepKey !== 'confirm-write') {
+    await context.reply('Esta confirmación ya no está activa. Vuelve a pedir la acción si quieres continuar.');
+    return true;
+  }
+
+  const pending = readPendingWrite(session.data);
+  if (!pending) {
+    await context.runtime.session.cancel();
+    await context.reply('No he podido recuperar la acción pendiente. Usa el menú normal para continuar.');
+    return true;
+  }
+
+  const prepared = await prepareConfirmedWrite(context, pending);
+  if (!prepared) {
+    await context.runtime.session.cancel();
+    await context.reply('Esta acción todavía no se puede prellenar desde Preguntar al bot. Usa el menú normal para continuar.');
+  }
+  return true;
+}
+
 async function handleTelegramLlmCommandText(
   context: TelegramLlmCommandContext,
   input: {
@@ -189,6 +234,10 @@ async function replyWithOutcome(
     await context.reply(await executeTelegramLlmReadAction(context, outcome), options);
     return;
   }
+  if (outcome.type === 'request_confirmation') {
+    await startLlmWriteConfirmation(context, outcome);
+    return;
+  }
 
   await context.reply(resolveOutcomeReply(outcome), options);
 }
@@ -198,6 +247,115 @@ function resolveOutcomeReply(outcome: LlmCommandRouteOutcome): string {
     return outcome.message;
   }
   return 'He entendido la petición.';
+}
+
+async function startLlmWriteConfirmation(
+  context: TelegramLlmCommandContext,
+  outcome: Extract<LlmCommandRouteOutcome, { type: 'request_confirmation' }>,
+): Promise<void> {
+  await context.runtime.session.start({
+    flowKey: llmCommandFlowKey,
+    stepKey: 'confirm-write',
+    data: {
+      intent: outcome.intent,
+      params: outcome.params,
+      message: outcome.message,
+      llmExpiresAt: new Date(Date.now() + (getLlmCommandConfig(context)?.sessionTtlMinutes ?? 15) * 60_000).toISOString(),
+    },
+  });
+  await context.reply(`${outcome.message}\n\n¿Quieres que prepare el flujo normal con estos datos?`, {
+    inlineKeyboard: [[
+      { text: 'Preparar', callbackData: llmCommandCallbackPrefixes.confirmWrite, semanticRole: 'success' },
+      { text: 'Cancelar', callbackData: llmCommandCallbackPrefixes.cancelWrite, semanticRole: 'danger' },
+    ]],
+  });
+}
+
+async function prepareConfirmedWrite(
+  context: TelegramLlmCommandContext,
+  pending: { intent: string; params: Record<string, unknown> },
+): Promise<boolean> {
+  if (pending.intent === 'notice.create') {
+    const text = pickStringParam(pending.params, ['text', 'message', 'body', 'content']);
+    if (!text) {
+      return false;
+    }
+    await context.runtime.session.start({
+      flowKey: noticeFlowKey,
+      stepKey: 'confirm',
+      data: {
+        text,
+        textHtml: null,
+        attachments: [],
+        expiresAt: pickStringParam(pending.params, ['expiresAt']) ?? null,
+      },
+    });
+    await handleTelegramNoticeText({ ...context, messageText: '__llm_prefill__' });
+    return true;
+  }
+
+  if (pending.intent === 'lfg.create') {
+    const title = pickStringParam(pending.params, ['title', 'groupTitle']);
+    const description = pickStringParam(pending.params, ['description', 'text', 'message']);
+    if (!description) {
+      return false;
+    }
+    if (title) {
+      await context.runtime.session.start({
+        flowKey: 'lfg-group-ad',
+        stepKey: 'confirm',
+        data: {
+          title,
+          description,
+          seatsAvailable: pickNumberParam(pending.params, ['seatsAvailable', 'seats']) ?? null,
+        },
+      });
+    } else {
+      await context.runtime.session.start({
+        flowKey: 'lfg-player-ad',
+        stepKey: 'confirm',
+        data: { description },
+      });
+    }
+    await handleTelegramLfgText({ ...context, messageText: '__llm_prefill__' });
+    return true;
+  }
+
+  return false;
+}
+
+function readPendingWrite(data: Record<string, unknown>): { intent: string; params: Record<string, unknown> } | null {
+  if (typeof data.intent !== 'string' || !isRecord(data.params)) {
+    return null;
+  }
+  return {
+    intent: data.intent,
+    params: data.params,
+  };
+}
+
+function pickStringParam(params: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = params[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function pickNumberParam(params: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = params[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 async function recordLlmCommandMetric(
