@@ -62,29 +62,10 @@ test('handleTelegramLlmFallbackText ignores ordinary text unless fallback is ena
   assert.equal(await handleTelegramLlmFallbackText(disabled), false);
   assert.equal(disabled.servicePrompts.length, 0);
 
-  const enabled = createContext({
-    messageText: 'busca dragon ball',
-    decision: {
-      ...helpDecision(),
-      intent: 'storage.search',
-      action: {
-        type: 'call_internal_handler',
-        name: 'storage.search',
-        params: { query: 'dragon ball' },
-      },
-      safety: {
-        requiresApprovedMember: true,
-        requiresAdmin: false,
-        risk: 'read_only',
-        publicSideEffect: false,
-        destructive: false,
-        requiresPrivateChat: false,
-      },
-    },
-  });
+  const enabled = createContext({ messageText: 'que puedes hacer' });
 
   assert.equal(await handleTelegramLlmFallbackText(enabled), true);
-  assert.equal(enabled.replies.at(-1), 'He entendido la consulta, pero esa lectura todavía se está conectando al handler interno. Prueba de momento desde el menú normal.');
+  assert.equal(enabled.replies.at(-1), 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.');
 });
 
 function createContext({

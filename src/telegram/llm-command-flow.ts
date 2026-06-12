@@ -3,6 +3,7 @@ import { buildLlmCommandPrompt } from './llm-command-prompt.js';
 import { routeLlmCommandDecision, type LlmCommandRouteOutcome } from './llm-command-router.js';
 import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
 import type { BotLanguage } from './i18n.js';
+import { executeTelegramLlmReadAction } from './llm-command-read-actions.js';
 
 export const llmCommandFlowKey = 'llm-command';
 
@@ -142,7 +143,7 @@ async function replyWithOutcome(
   outcome: LlmCommandRouteOutcome,
 ): Promise<void> {
   if (outcome.type === 'execute_read') {
-    await context.reply('He entendido la consulta, pero esa lectura todavía se está conectando al handler interno. Prueba de momento desde el menú normal.');
+    await context.reply(await executeTelegramLlmReadAction(context, outcome));
     return;
   }
 
