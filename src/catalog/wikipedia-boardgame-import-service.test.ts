@@ -83,6 +83,35 @@ test('createBoardGameGeekCollectionImportService imports owned board games and e
               <minage value="10" />
               <link type="boardgamepublisher" value="Leder Games" />
               <link type="boardgamedesigner" value="Cole Wehrle" />
+              <poll name="suggested_numplayers" title="User Suggested Number of Players" totalvotes="20">
+                <results numplayers="1">
+                  <result value="Best" numvotes="0" />
+                  <result value="Recommended" numvotes="2" />
+                  <result value="Not Recommended" numvotes="10" />
+                </results>
+                <results numplayers="2">
+                  <result value="Best" numvotes="8" />
+                  <result value="Recommended" numvotes="10" />
+                  <result value="Not Recommended" numvotes="1" />
+                </results>
+                <results numplayers="3">
+                  <result value="Best" numvotes="11" />
+                  <result value="Recommended" numvotes="7" />
+                  <result value="Not Recommended" numvotes="1" />
+                </results>
+              </poll>
+              <statistics page="1">
+                <ratings>
+                  <usersrated value="58721" />
+                  <average value="8.07115" />
+                  <bayesaverage value="7.84537" />
+                  <ranks>
+                    <rank type="subtype" id="1" name="boardgame" friendlyname="Board Game Rank" value="32" bayesaverage="7.84537" />
+                  </ranks>
+                  <numweights value="3650" />
+                  <averageweight value="3.7924" />
+                </ratings>
+              </statistics>
             </item>
             <item type="boardgameexpansion" id="202">
               <thumbnail>https://example.com/riverfolk-thumb.jpg</thumbnail>
@@ -118,6 +147,14 @@ test('createBoardGameGeekCollectionImportService imports owned board games and e
   assert.equal(result.items.length, 2);
   assert.equal(result.items[0]?.displayName, 'Root');
   assert.equal(result.items[0]?.itemType, 'board-game');
+  assert.equal(result.items[0]?.metadata?.averageWeight, 3.7924);
+  assert.equal(result.items[0]?.metadata?.averageRating, 8.07115);
+  assert.equal(result.items[0]?.metadata?.bayesAverage, 7.84537);
+  assert.equal(result.items[0]?.metadata?.usersRated, 58721);
+  assert.equal(result.items[0]?.metadata?.numWeights, 3650);
+  assert.equal(result.items[0]?.metadata?.rank, 32);
+  assert.deepEqual(result.items[0]?.metadata?.bestPlayerCounts, ['3']);
+  assert.deepEqual(result.items[0]?.metadata?.recommendedPlayerCounts, ['2', '3']);
   assert.equal(result.items[1]?.displayName, 'Riverfolk Expansion');
   assert.equal(result.items[1]?.itemType, 'expansion');
   assert.deepEqual(requests, [

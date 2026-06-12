@@ -2265,6 +2265,9 @@ function registerCatalogAdminCallbacks({
   bot.onCallback(catalogAdminCallbackPrefixes.autocorrect, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
+  bot.onCallback(catalogAdminCallbackPrefixes.quickBggMetadata, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
   bot.onCallback(catalogAdminCallbackPrefixes.autocorrectBggCandidate, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });

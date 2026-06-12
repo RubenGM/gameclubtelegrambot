@@ -18,6 +18,7 @@ export function formatCatalogAdminItemDetails({
   loanAvailabilityLines,
   ownerLine,
   itemTypeSupportsPlayers,
+  footerLines = [],
 }: {
   breadcrumbLine?: string | null;
   botLanguage?: string;
@@ -28,6 +29,7 @@ export function formatCatalogAdminItemDetails({
   loanAvailabilityLines: string[];
   ownerLine?: string | null;
   itemTypeSupportsPlayers: (itemType: CatalogItemType) => boolean;
+  footerLines?: string[];
 }): string {
   const language = normalizeBotLanguage(botLanguage, 'ca');
   const texts = createTelegramI18n(language).catalogAdmin;
@@ -63,6 +65,7 @@ export function formatCatalogAdminItemDetails({
     ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.playTimeMinutes, String(item.playTimeMinutes))] : []),
     ...mediaLines,
     formatHtmlField(texts.status, item.lifecycleStatus),
+    ...footerLines,
   ].join('\n');
 }
 

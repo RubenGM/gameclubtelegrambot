@@ -437,7 +437,25 @@ function formatCatalogRecommendationCandidate(candidate: CatalogRecommendationCa
     playTimeMinutes: item.playTimeMinutes,
     available: candidate.available,
     matchNote: candidate.matchNote,
+    bgg: extractCatalogRecommendationBggMetadata(item.metadata),
     metadata: item.metadata,
+  };
+}
+
+function extractCatalogRecommendationBggMetadata(metadata: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== 'object') {
+    return null;
+  }
+  return {
+    averageWeight: metadata.averageWeight ?? null,
+    averageRating: metadata.averageRating ?? null,
+    bayesAverage: metadata.bayesAverage ?? null,
+    usersRated: metadata.usersRated ?? null,
+    rank: metadata.rank ?? null,
+    bestPlayerCounts: metadata.bestPlayerCounts ?? [],
+    recommendedPlayerCounts: metadata.recommendedPlayerCounts ?? [],
+    categories: metadata.categories ?? [],
+    mechanics: metadata.mechanics ?? [],
   };
 }
 

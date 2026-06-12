@@ -193,6 +193,7 @@ const browseFlowKey = 'catalog-admin-browse';
 const bggCollectionImportFlowKey = 'catalog-admin-bgg-collection-import';
 const catalogAdminStartPayloadPrefix = 'catalog_admin_item_';
 const catalogAdminFullItemStartPayloadPrefix = 'catalog_admin_item_full_';
+const catalogAdminQuickBggMetadataStartPayloadPrefix = 'catalog_admin_bgg_meta_';
 const bulkCreateRateLimitMs = 700;
 const bulkCreateItemLimit = 100;
 const catalogOwnerSelectorPageSize = 8;
@@ -224,6 +225,7 @@ export const catalogAdminCallbackPrefixes = {
   edit: 'catalog_admin:edit:',
   createActivity: 'catalog_admin:create_activity:',
   autocorrect: 'catalog_admin:autocorrect:',
+  quickBggMetadata: 'catalog_admin:bgg_meta:',
   autocorrectBggCandidate: 'catalog_admin:autocorrect_bgg:',
   translateDescription: 'catalog_admin:translate_description:',
   setOwnerSelf: 'catalog_admin:owner_self:',
@@ -494,6 +496,17 @@ export async function handleTelegramCatalogAdminStartText(context: TelegramCatal
   }
 
   const fullPayload = parseCatalogAdminStartPayloadValue(context.messageText, catalogAdminFullItemStartPayloadPrefix);
+  const quickBggMetadataPayload = parseCatalogAdminStartPayloadValue(context.messageText, catalogAdminQuickBggMetadataStartPayloadPrefix);
+  if (quickBggMetadataPayload !== null && context.runtime.chat.kind === 'private' && canAccessCatalog(context)) {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    const item = await loadItemOrThrow(context, quickBggMetadataPayload);
+    await handleCatalogAdminQuickBggMetadataImport(context, item);
+    return true;
+  }
+
   const payload = fullPayload ?? parseCatalogAdminStartPayload(context.messageText);
   if (payload === null || context.runtime.chat.kind !== 'private' || !canAccessCatalog(context)) {
     return false;
@@ -601,6 +614,15 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     }
     const item = await loadItemOrThrow(context, route.itemId);
     await handleCatalogAdminAutocorrectItem(context, item);
+    return true;
+  }
+  if (route.kind === 'quick-bgg-metadata') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    const item = await loadItemOrThrow(context, route.itemId);
+    await handleCatalogAdminQuickBggMetadataImport(context, item);
     return true;
   }
   if (route.kind === 'autocorrect-bgg-candidate') {
@@ -801,6 +823,72 @@ async function handleCatalogAdminAutocorrectItem(
   await replyWithCatalogAdminItemDetail(context, updated, language);
   finishAutocorrectProgressStep(progressState);
   await progress.complete(`${texts.autocorrectItemUpdated}\n${formatAutocorrectCoverResult(coverResult, texts)}\n\n${formatAutocorrectDurations(texts, progressState)}`);
+}
+
+async function handleCatalogAdminQuickBggMetadataImport(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const progress = await startTelegramEditableProgress(context, texts.quickBggMetadataImporting, {
+    editFailedEvent: 'catalog.quick-bgg-metadata.progress-edit.failed',
+  });
+
+  const importResult = await importCatalogAutocorrectDraft(context, item, {
+    ...(readBoardGameGeekIdFromItem(item) ? { boardGameGeekId: readBoardGameGeekIdFromItem(item)! } : {}),
+  });
+  if (!importResult.ok) {
+    await progress.complete(texts.quickBggMetadataFailed.replace('{reason}', importResult.reason));
+    return;
+  }
+
+  const importedMetadata = cleanCatalogAutocorrectMetadata(importResult.draft.metadata, importResult.draft.externalRefs);
+  if (!importedMetadata || !hasModernBoardGameGeekMetadata(importedMetadata)) {
+    await progress.complete(texts.quickBggMetadataFailed.replace('{reason}', texts.quickBggMetadataMissing));
+    return;
+  }
+
+  const mergedMetadata = {
+    ...(asNullableObject(item.metadata) ?? {}),
+    ...importedMetadata,
+  };
+  const updated = await updateCatalogItem({
+    repository: resolveCatalogRepository(context),
+    itemId: item.id,
+    familyId: item.familyId,
+    groupId: item.groupId,
+    itemType: item.itemType,
+    displayName: item.displayName,
+    originalName: item.originalName,
+    description: item.description,
+    language: item.language,
+    publisher: item.publisher,
+    publicationYear: item.publicationYear,
+    playerCountMin: item.playerCountMin,
+    playerCountMax: item.playerCountMax,
+    recommendedAge: item.recommendedAge,
+    playTimeMinutes: item.playTimeMinutes,
+    externalRefs: item.externalRefs,
+    metadata: mergedMetadata,
+  });
+
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'catalog.item.bgg_metadata_refreshed',
+    targetType: 'catalog-item',
+    targetId: updated.id,
+    summary: `Metadades BGG actualitzades: ${updated.displayName}`,
+    details: {
+      source: importedMetadata.source ?? importResult.source,
+      query: importResult.query,
+      boardGameGeekId: importedMetadata.boardGameGeekId ?? readBoardGameGeekId(importResult.draft.externalRefs),
+    },
+  });
+
+  await progress.complete(texts.quickBggMetadataImported);
+  await replyWithCatalogAdminItemDetail(context, updated, language);
 }
 
 async function replyWithCatalogAdminItemDetail(
@@ -2605,6 +2693,7 @@ async function buildCatalogItemDetailButtons(
       editPrefix: catalogAdminCallbackPrefixes.edit,
       createActivityPrefix: catalogAdminCallbackPrefixes.createActivity,
       autocorrectPrefix: catalogAdminCallbackPrefixes.autocorrect,
+      quickBggMetadataPrefix: catalogAdminCallbackPrefixes.quickBggMetadata,
       translateDescriptionPrefix: catalogAdminCallbackPrefixes.translateDescription,
       setOwnerSelfPrefix: catalogAdminCallbackPrefixes.setOwnerSelf,
       selectOwnerPrefix: catalogAdminCallbackPrefixes.ownerPage,
@@ -2648,7 +2737,7 @@ function successButton(text: string): TelegramReplyButton {
 async function formatCatalogItemSummary(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
-  return formatCatalogItemSummaryDetails({
+  const summary = formatCatalogItemSummaryDetails({
     breadcrumbLine: buildCatalogAdminItemBreadcrumb(item, language),
     item,
     availabilityLine: formatCatalogAdminAvailabilityLine(loan, language),
@@ -2657,6 +2746,8 @@ async function formatCatalogItemSummary(context: TelegramCatalogAdminContext, it
     detailsUrl: buildTelegramStartUrl(`${catalogAdminFullItemStartPayloadPrefix}${item.id}`),
     language,
   });
+  const bggReimportNoticeLine = formatBoardGameGeekReimportNoticeLine(context, item, language);
+  return bggReimportNoticeLine ? `${summary}\n${bggReimportNoticeLine}` : summary;
 }
 
 function formatCatalogAdminAvailabilityLine(loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): string {
@@ -2673,13 +2764,15 @@ async function formatCatalogAdminBorrowerLine(context: TelegramCatalogAdminConte
 }
 
 async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const familyName = await loadFamilyName(context, item.familyId);
   const groupName = await loadGroupName(context, item.groupId);
   const media = await resolveCatalogRepository(context).listMedia({ itemId: item.id });
   const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
+  const bggReimportNoticeLine = formatBoardGameGeekReimportNoticeLine(context, item, language);
   return formatCatalogAdminItemDetails({
-    botLanguage: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
-    breadcrumbLine: buildCatalogAdminItemBreadcrumb(item, normalizeBotLanguage(context.runtime.bot.language, 'ca')),
+    botLanguage: language,
+    breadcrumbLine: buildCatalogAdminItemBreadcrumb(item, language),
     item,
     familyName,
     groupName,
@@ -2687,7 +2780,72 @@ async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, it
     loanAvailabilityLines: await formatLoanAvailabilityLines(context, loan),
     ownerLine: await formatCatalogOwnerLine(context, item),
     itemTypeSupportsPlayers,
+    footerLines: bggReimportNoticeLine ? [bggReimportNoticeLine] : [],
   });
+}
+
+function formatBoardGameGeekReimportNoticeLine(
+  context: TelegramCatalogAdminContext,
+  item: CatalogItemRecord,
+  language: 'ca' | 'es' | 'en',
+): string | null {
+  if (!canAdministerCatalog(context) || !isBoardGameGeekReimportRecommended(item)) {
+    return null;
+  }
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const quickImportUrl = buildTelegramStartUrl(`${catalogAdminQuickBggMetadataStartPayloadPrefix}${item.id}`);
+  const value = [
+    escapeHtml(texts.bggReimportRecommendedHint),
+    `<a href="${escapeHtml(quickImportUrl)}">${escapeHtml(texts.quickBggMetadataImport)}</a>`,
+  ].join(' ');
+  return formatHtmlField(texts.bggReimportRecommended, value);
+}
+
+function isBoardGameGeekReimportRecommended(item: CatalogItemRecord): boolean {
+  if (item.itemType !== 'board-game' && item.itemType !== 'expansion') {
+    return false;
+  }
+
+  const metadata = asNullableObject(item.metadata);
+  if (!isBoardGameGeekBackedItem(item, metadata)) {
+    return false;
+  }
+
+  return !hasModernBoardGameGeekMetadata(metadata);
+}
+
+function isBoardGameGeekBackedItem(item: CatalogItemRecord, metadata: Record<string, unknown> | null): boolean {
+  return metadata?.source === 'boardgamegeek'
+    || readBoardGameGeekId(item.externalRefs) !== null
+    || readBoardGameGeekId(metadata) !== null
+    || hasBoardGameGeekUrl(item.externalRefs)
+    || hasBoardGameGeekUrl(metadata);
+}
+
+function hasModernBoardGameGeekMetadata(metadata: Record<string, unknown> | null): boolean {
+  if (!metadata) {
+    return false;
+  }
+  return hasFiniteNumber(metadata.averageWeight)
+    || hasFiniteNumber(metadata.averageRating)
+    || hasFiniteNumber(metadata.bayesAverage)
+    || hasFiniteNumber(metadata.usersRated)
+    || hasFiniteNumber(metadata.numWeights)
+    || hasNonEmptyStringArray(metadata.bestPlayerCounts)
+    || hasNonEmptyStringArray(metadata.recommendedPlayerCounts);
+}
+
+function hasFiniteNumber(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function hasNonEmptyStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.some((entry) => typeof entry === 'string' && entry.trim().length > 0);
+}
+
+function hasBoardGameGeekUrl(value: Record<string, unknown> | null): boolean {
+  const url = asNullableString(value?.boardGameGeekUrl);
+  return Boolean(url && url.includes('boardgamegeek.com'));
 }
 
 async function formatCatalogOwnerLine(
@@ -3994,7 +4152,7 @@ async function reconcileBoardGameGeekCollectionImport(
 }
 
 function readBoardGameGeekId(externalRefs: Record<string, unknown> | null): string | null {
-  const value = externalRefs?.boardGameGeekId;
+  const value = externalRefs?.boardGameGeekId ?? externalRefs?.bggId;
   if (typeof value === 'string' && value.trim().length > 0) {
     return value.trim();
   }
@@ -4015,23 +4173,77 @@ function cleanCatalogAutocorrectMetadata(
 ): Record<string, unknown> | null {
   const source = asNullableString(metadata?.source);
   const bggId = readBoardGameGeekId(externalRefs) ?? readBoardGameGeekId(asNullableObject(metadata));
+  const bggUrl = asNullableString(externalRefs?.boardGameGeekUrl) ?? asNullableString(metadata?.boardGameGeekUrl);
   const openLibraryKey = asNullableString(externalRefs?.openLibraryKey) ?? asNullableString(metadata?.openLibraryKey);
 
   const cleaned: Record<string, unknown> = {};
-  if (source) {
-    cleaned.source = source;
+  if (source || bggId) {
+    cleaned.source = source ?? 'boardgamegeek';
   }
   if (bggId) {
     cleaned.boardGameGeekId = bggId;
   }
+  if (bggUrl) {
+    cleaned.boardGameGeekUrl = bggUrl;
+  }
   if (openLibraryKey) {
     cleaned.openLibraryKey = openLibraryKey;
   }
+  copyMetadataNumberFields(cleaned, metadata, [
+    'rank',
+    'averageRating',
+    'bayesAverage',
+    'usersRated',
+    'averageWeight',
+    'numWeights',
+  ]);
+  copyMetadataStringArrayFields(cleaned, metadata, [
+    'bestPlayerCounts',
+    'recommendedPlayerCounts',
+    'designers',
+    'artists',
+    'publishers',
+    'categories',
+    'mechanics',
+    'families',
+  ]);
 
   if (Object.keys(cleaned).length === 0) {
     return null;
   }
   return cleaned;
+}
+
+function copyMetadataNumberFields(
+  target: Record<string, unknown>,
+  source: Record<string, unknown> | null,
+  fields: string[],
+): void {
+  if (!source) {
+    return;
+  }
+  for (const field of fields) {
+    const value = source[field];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      target[field] = value;
+    }
+  }
+}
+
+function copyMetadataStringArrayFields(
+  target: Record<string, unknown>,
+  source: Record<string, unknown> | null,
+  fields: string[],
+): void {
+  if (!source) {
+    return;
+  }
+  for (const field of fields) {
+    const values = asStringArray(source[field]).filter((value) => value.trim().length > 0);
+    if (values.length > 0) {
+      target[field] = values;
+    }
+  }
 }
 
 function normalizeCatalogMatchText(value: string): string {

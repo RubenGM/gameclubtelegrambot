@@ -2265,6 +2265,182 @@ test('handleTelegramCatalogAdminCallback shows item details without add media ac
   assert.ok(!buttons.some((button) => buttonText(button) === 'Afegir media'));
 });
 
+test('handleTelegramCatalogAdminCallback appends BGG reimport notice for stale admin item details', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Old BGG Game',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: { bggId: '13' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '13' },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 4,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Fresh BGG Game',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: { boardGameGeekId: '42' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '42', averageWeight: 2.31 },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies } = createContext({ repository, language: 'es' });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  const staleMessage = replies.at(-1)?.message ?? '';
+  assert.match(staleMessage, /<b>Reimportación BGG recomendada:<\/b>/);
+  assert.match(staleMessage.split('\n').at(-1) ?? '', /catalog_admin_bgg_meta_3/);
+  assert.match(staleMessage.split('\n').at(-1) ?? '', /Importación BGG rápida/);
+  const staleButtons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];
+  assert.ok(staleButtons.some((button) => buttonText(button) === 'Importación BGG rápida'));
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}4`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Reimportación BGG recomendada/);
+});
+
+test('handleTelegramCatalogAdminStartText refreshes only BGG metadata from the quick import link', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 3,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Old BGG Game',
+        originalName: 'Old BGG Game',
+        description: 'Descripción manual',
+        language: 'ES',
+        publisher: 'Manual Publisher',
+        publicationYear: 2000,
+        playerCountMin: 2,
+        playerCountMax: 4,
+        recommendedAge: 10,
+        playTimeMinutes: 90,
+        externalRefs: { bggId: '13' },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '13', customFlag: true },
+        lifecycleStatus: 'active',
+        createdAt: '2026-04-04T10:00:00.000Z',
+        updatedAt: '2026-04-04T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const importCalls: string[] = [];
+  const translationCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: 'CATAN',
+          originalName: 'CATAN',
+          description: 'Fresh BGG description',
+          language: null,
+          publisher: 'Kosmos',
+          publicationYear: 1995,
+          playerCountMin: 3,
+          playerCountMax: 4,
+          recommendedAge: 10,
+          playTimeMinutes: 120,
+          externalRefs: {
+            boardGameGeekId: '13',
+            boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/13',
+          },
+          metadata: {
+            source: 'boardgamegeek',
+            boardGameGeekId: '13',
+            boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/13',
+            averageRating: 7.126,
+            bayesAverage: 6.991,
+            usersRated: 130000,
+            averageWeight: 2.3,
+            numWeights: 5000,
+            bestPlayerCounts: ['4'],
+            recommendedPlayerCounts: ['3', '4'],
+            categories: ['Negotiation'],
+            mechanics: ['Trading'],
+          },
+        },
+      };
+    },
+  };
+  const { context, replies } = createContext({
+    repository,
+    wikipediaBoardGameImportService,
+    language: 'es',
+    descriptionTranslator: async (input) => {
+      translationCalls.push(input.description);
+      return 'No debería usarse';
+    },
+  });
+
+  context.messageText = '/start catalog_admin_bgg_meta_3';
+  assert.equal(await handleTelegramCatalogAdminStartText(context), true);
+
+  assert.deepEqual(importCalls, ['Old BGG Game [API #13]']);
+  assert.deepEqual(translationCalls, []);
+  const updated = await repository.findItemById(3);
+  assert.equal(updated?.displayName, 'Old BGG Game');
+  assert.equal(updated?.description, 'Descripción manual');
+  assert.equal(updated?.publisher, 'Manual Publisher');
+  assert.equal(updated?.publicationYear, 2000);
+  assert.equal(updated?.playerCountMin, 2);
+  assert.equal(updated?.playTimeMinutes, 90);
+  assert.deepEqual(updated?.metadata, {
+    source: 'boardgamegeek',
+    boardGameGeekId: '13',
+    customFlag: true,
+    boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/13',
+    averageRating: 7.126,
+    bayesAverage: 6.991,
+    usersRated: 130000,
+    averageWeight: 2.3,
+    numWeights: 5000,
+    bestPlayerCounts: ['4'],
+    recommendedPlayerCounts: ['3', '4'],
+    categories: ['Negotiation'],
+    mechanics: ['Trading'],
+  });
+  assert.match(replies[0]?.message ?? '', /Metadatos BGG actualizados/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Reimportación BGG recomendada/);
+});
+
 test('handleTelegramCatalogAdminCallback shows the storage cover before item details', async () => {
   const repository = createRepository({
     items: [
@@ -2417,6 +2593,15 @@ test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and 
           metadata: {
             boardGameGeekId: '276025',
             boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/276025',
+            averageRating: 8.07115,
+            bayesAverage: 7.84537,
+            usersRated: 58721,
+            averageWeight: 3.7924,
+            numWeights: 3650,
+            bestPlayerCounts: ['3'],
+            recommendedPlayerCounts: ['2', '3'],
+            categories: ['Economic'],
+            mechanics: ['Worker Placement'],
             imageUrl: 'https://cf.geekdo-images.com/maracaibo.jpg',
             thumbnailUrl: 'https://cf.geekdo-images.com/maracaibo-small.jpg',
           },
@@ -2467,7 +2652,18 @@ test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and 
   assert.equal(updated?.playTimeMinutes, 120);
   assert.equal(updated?.externalRefs, null);
   assert.deepEqual(updated?.metadata, {
+    source: 'boardgamegeek',
     boardGameGeekId: '276025',
+    boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/276025',
+    averageRating: 8.07115,
+    bayesAverage: 7.84537,
+    usersRated: 58721,
+    averageWeight: 3.7924,
+    numWeights: 3650,
+    bestPlayerCounts: ['3'],
+    recommendedPlayerCounts: ['2', '3'],
+    categories: ['Economic'],
+    mechanics: ['Worker Placement'],
   });
   assert.deepEqual(await repository.listMedia({ itemId: 236 }), [
     {
@@ -2495,6 +2691,7 @@ test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and 
   assert.match(replies.at(-2)?.message ?? '', /Portada: importada como imagen principal \(#1\)/i);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Referencias externas/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Metadata/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Reimportación BGG recomendada/);
   assert.ok(auditRepository.__events.some((event) => event.actionKey === 'catalog.item.autocorrected' && event.targetId === '236'));
 });
 
@@ -2632,7 +2829,11 @@ test('handleTelegramCatalogAdminCallback continues autocorrect with selected BGG
   const updated = await repository.findItemById(13);
   assert.equal(updated?.displayName, 'CATAN');
   assert.equal(updated?.publisher, 'Kosmos');
-  assert.deepEqual(updated?.metadata, { boardGameGeekId: '13', source: 'boardgamegeek' });
+  assert.deepEqual(updated?.metadata, {
+    boardGameGeekId: '13',
+    boardGameGeekUrl: 'https://boardgamegeek.com/boardgame/13',
+    source: 'boardgamegeek',
+  });
   assert.match(replies.at(-2)?.message ?? '', /Dades autocorregides correctament/);
   assert.match(replies.at(-2)?.message ?? '', /Durades:/);
 });
