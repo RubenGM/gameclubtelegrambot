@@ -240,6 +240,23 @@ contenido narrativo, el bot debe entregar a la LLM datos suficientes para
 distinguir el tipo de contenido: descripción, categoría, tags, nombres de
 archivos, tipo de adjunto y metadatos disponibles.
 
+La categoría principal de STL representa el ámbito completo de contenido de
+impresión 3D. Todo lo que cuelga de esa raíz debe interpretarse como STL,
+modelos 3D, figuras, estatuas, miniaturas, dioramas o términos equivalentes,
+aunque la entrada o el archivo concreto no repita esas palabras.
+
+Cuando la búsqueda textual coincide con una categoría de Storage, el bot añade
+también los archivos de esa categoría y de sus descendientes. Esto permite
+resolver consultas por franquicia o carpeta, por ejemplo `Attack on Titan`, aun
+cuando los archivos reales estén en una subcategoría como `Mikasa & Levi
+Diorama` y no repitan el nombre de la franquicia en el archivo. La segunda
+pasada LLM recibe la ruta completa de categoría para cada candidato.
+
+En consultas de impresión 3D, `STL` se trata como tipo de contenido, no como
+extensión literal obligatoria. Muchos modelos se suben comprimidos como `.zip` o
+`.rar`, así que el bot ignora `stl` en `fileExtensions` y deja que la categoría,
+descripción, tags, nombres de archivo y refinado semántico determinen si encaja.
+
 La LLM puede ayudar a filtrar semánticamente, pero no debe inventar contenido ni
 ocultar que los datos reales son ambiguos.
 

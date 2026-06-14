@@ -36,6 +36,7 @@ test('buildLlmCommandPrompt includes allowed read capabilities and user context'
   assert.match(prompt, /material de juegos de rol como libros, manuales, aventuras, fichas, mapas/);
   assert.match(prompt, /Si el usuario pide libros de rol/);
   assert.match(prompt, /usa storage\.search/);
+  assert.match(prompt, /no pongas fileExtensions=\["stl"\]/);
   assert.doesNotMatch(prompt, /notice\.create/);
 });
 

@@ -2,10 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { CatalogItemRecord } from '../catalog/catalog-model.js';
+import type { StorageCategoryRecord } from '../storage/storage-catalog.js';
 import {
+  buildStorageCategoryPath,
   inferCatalogQueryFromReplyContext,
   llmCommandDirectReadResultLimit,
   llmCommandGroupedReadResultLimit,
+  normalizeStorageFileExtensionsForSearch,
+  resolveStorageCategoryMatchIds,
   selectCatalogRecommendationCandidateSet,
 } from './llm-command-read-actions.js';
 
@@ -33,6 +37,36 @@ test('inferCatalogQueryFromReplyContext ignores catalog result lists', () => {
     '',
     '1. 1960: The Making of the President - board-game',
   ].join('\n')), null);
+});
+
+test('resolveStorageCategoryMatchIds expands matching storage categories to descendants', () => {
+  const categories = [
+    storageCategory({ id: 15, displayName: 'Archivos STL', slug: 'stl', parentCategoryId: null }),
+    storageCategory({ id: 92, displayName: 'Anime', slug: 'anime', parentCategoryId: 15 }),
+    storageCategory({ id: 93, displayName: 'Attack on Titan', slug: 'attack-on-titan', parentCategoryId: 92 }),
+    storageCategory({ id: 94, displayName: 'Mikasa & Levi Diorama', slug: 'mikasa-levi-diorama', parentCategoryId: 93 }),
+    storageCategory({ id: 109, displayName: 'Dragon Ball', slug: 'dragon-ball', parentCategoryId: 92 }),
+  ];
+
+  assert.deepEqual(
+    resolveStorageCategoryMatchIds(categories, 'qué archivos STL tenemos de Attack on Titan?').sort((a, b) => a - b),
+    [93, 94],
+  );
+});
+
+test('buildStorageCategoryPath includes storage category ancestors for semantic filtering', () => {
+  const categories = [
+    storageCategory({ id: 15, displayName: 'Archivos STL', slug: 'stl', parentCategoryId: null }),
+    storageCategory({ id: 92, displayName: 'Anime', slug: 'anime', parentCategoryId: 15 }),
+    storageCategory({ id: 93, displayName: 'Attack on Titan', slug: 'attack-on-titan', parentCategoryId: 92 }),
+    storageCategory({ id: 94, displayName: 'Mikasa & Levi Diorama', slug: 'mikasa-levi-diorama', parentCategoryId: 93 }),
+  ];
+
+  assert.deepEqual(buildStorageCategoryPath(94, categories), ['Archivos STL', 'Anime', 'Attack on Titan', 'Mikasa & Levi Diorama']);
+});
+
+test('normalizeStorageFileExtensionsForSearch treats STL as content type instead of literal file extension', () => {
+  assert.deepEqual(normalizeStorageFileExtensionsForSearch(['.stl', 'PDF', ' zip ', 'rar', 'pdf']), ['pdf', 'zip', 'rar']);
 });
 
 test('selectCatalogRecommendationCandidateSet returns exact available matches first', () => {
@@ -196,5 +230,28 @@ function catalogItem(input: {
     createdAt: now,
     updatedAt: now,
     deactivatedAt: null,
+  };
+}
+
+function storageCategory(input: {
+  id: number;
+  displayName: string;
+  slug: string;
+  parentCategoryId: number | null;
+}): StorageCategoryRecord {
+  const now = new Date().toISOString();
+  return {
+    id: input.id,
+    displayName: input.displayName,
+    slug: input.slug,
+    parentCategoryId: input.parentCategoryId,
+    description: null,
+    storageChatId: -100,
+    storageThreadId: input.id,
+    categoryPurpose: 'user_uploads',
+    lifecycleStatus: 'active',
+    createdAt: now,
+    updatedAt: now,
+    archivedAt: null,
   };
 }

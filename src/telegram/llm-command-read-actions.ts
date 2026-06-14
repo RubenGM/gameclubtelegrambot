@@ -7,7 +7,7 @@ import { createDatabaseNoticeRepository } from '../notices/notice-catalog-store.
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import { createDatabaseStorageRepository } from '../storage/storage-catalog-store.js';
 import type { CatalogItemRecord, CatalogItemType } from '../catalog/catalog-model.js';
-import type { StorageEntryDetailRecord } from '../storage/storage-catalog.js';
+import type { StorageCategoryRecord, StorageEntryDetailRecord } from '../storage/storage-catalog.js';
 import type { TelegramLlmCommandContext } from './llm-command-flow.js';
 import type { LlmCommandIntent } from './llm-command-actions.js';
 import type { LlmCommandGenerateJsonOptions } from './llm-command-service.js';
@@ -241,9 +241,12 @@ async function searchStorage(
   const categories = await listStorageCategories(context);
   const query = textParam(params, 'query') ?? textParam(params, 'tag') ?? '';
   const raw = query
-    ? await repository.searchEntryDetails({ categoryIds: categories.map((category) => category.id), query })
+    ? mergeStorageEntryDetails([
+      await repository.searchEntryDetails({ categoryIds: categories.map((category) => category.id), query }),
+      ...(await Promise.all(resolveStorageCategoryMatchIds(categories, query).map((categoryId) => repository.listEntryDetailsByCategory(categoryId)))),
+    ].flat())
     : (await Promise.all(categories.map((category) => repository.listEntryDetailsByCategory(category.id)))).flat();
-  const fileExtensions = arrayParam(params, 'fileExtensions').map((extension) => extension.replace(/^\./, '').toLowerCase());
+  const fileExtensions = normalizeStorageFileExtensionsForSearch(arrayParam(params, 'fileExtensions'));
   const details = raw
     .filter((detail) => detail.entry.lifecycleStatus === 'active')
     .filter((detail) => fileExtensions.length === 0 || detail.messages.some((message) => {
@@ -255,9 +258,76 @@ async function searchStorage(
     query,
     params,
     details,
+    categories,
     ...(progress ? { progress } : {}),
     ...(modelOptions ? { modelOptions } : {}),
   });
+}
+
+export function normalizeStorageFileExtensionsForSearch(fileExtensions: string[]): string[] {
+  return Array.from(new Set(fileExtensions
+    .map((extension) => extension.replace(/^\./, '').trim().toLowerCase())
+    .filter((extension) => extension.length > 0 && extension !== 'stl')));
+}
+
+function mergeStorageEntryDetails(details: StorageEntryDetailRecord[]): StorageEntryDetailRecord[] {
+  const byId = new Map<number, StorageEntryDetailRecord>();
+  for (const detail of details) {
+    if (!byId.has(detail.entry.id)) {
+      byId.set(detail.entry.id, detail);
+    }
+  }
+  return [...byId.values()];
+}
+
+export function resolveStorageCategoryMatchIds(categories: StorageCategoryRecord[], query: string): number[] {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const matchedCategories = categories.filter((category) => storageCategoryMatchesQuery(category, normalizedQuery));
+  const specificMatches = matchedCategories.filter((category) => !matchedCategories.some((candidate) => (
+    candidate.id !== category.id && collectStorageCategoryDescendantIds(category.id, categories).includes(candidate.id)
+  )));
+  const ids = new Set<number>();
+  for (const category of specificMatches) {
+    ids.add(category.id);
+    for (const descendantId of collectStorageCategoryDescendantIds(category.id, categories)) {
+      ids.add(descendantId);
+    }
+  }
+  return [...ids];
+}
+
+function storageCategoryMatchesQuery(category: StorageCategoryRecord, normalizedQuery: string): boolean {
+  return [category.displayName, category.slug, category.description]
+    .map((value) => normalizeSearchText(value ?? ''))
+    .filter((value) => value.length >= 3)
+    .some((value) => value.includes(normalizedQuery) || normalizedQuery.includes(value));
+}
+
+function collectStorageCategoryDescendantIds(categoryId: number, categories: StorageCategoryRecord[]): number[] {
+  const childrenByParent = new Map<number | null, StorageCategoryRecord[]>();
+  for (const category of categories) {
+    const siblings = childrenByParent.get(category.parentCategoryId) ?? [];
+    siblings.push(category);
+    childrenByParent.set(category.parentCategoryId, siblings);
+  }
+
+  const ids = new Set<number>();
+  const stack = [...(childrenByParent.get(categoryId) ?? []).map((category) => category.id)];
+  while (stack.length > 0) {
+    const currentId = stack.pop();
+    if (currentId === undefined || ids.has(currentId)) {
+      continue;
+    }
+    ids.add(currentId);
+    for (const child of childrenByParent.get(currentId) ?? []) {
+      stack.push(child.id);
+    }
+  }
+  return [...ids];
 }
 
 async function listActiveNotices(context: TelegramLlmCommandContext) {
@@ -1243,6 +1313,7 @@ async function refineStorageSearchWithLlm(
     query: string;
     params: Record<string, unknown>;
     details: StorageEntryDetailRecord[];
+    categories: StorageCategoryRecord[];
     progress?: { update(message: string): Promise<boolean> };
     modelOptions?: LlmCommandGenerateJsonOptions;
   },
@@ -1259,6 +1330,7 @@ async function refineStorageSearchWithLlm(
     userQuery: input.query,
     params: input.params,
     candidates,
+    categories: input.categories,
   });
   try {
     const parsed = await runStorageRefinementWithProgress(
@@ -1313,13 +1385,14 @@ function buildStorageRefinementPrompt(input: {
   userQuery: string;
   params: Record<string, unknown>;
   candidates: StorageEntryDetailRecord[];
+  categories: StorageCategoryRecord[];
 }): string {
   return [
     'Eres un filtro semantico para resultados de Storage de un club.',
     'Tu unica tarea es elegir que candidatos coinciden realmente con lo que pide el usuario.',
     'Storage mezcla STL para impresion 3D, libros, manuales, aventuras, fichas, mapas, imagenes y otros archivos.',
     'Si el usuario pide libros/manuales/material de rol/PDF/documentos, no selecciones miniaturas, estatuas, dioramas o modelos STL salvo que tambien sean claramente el material pedido.',
-    'Si el usuario pide STL/modelos/miniaturas/impresion 3D, selecciona modelos STL relevantes.',
+    'Si el usuario pide STL/modelos 3D/figuras/estatuas/miniaturas/dioramas/impresion 3D, selecciona modelos STL relevantes.',
     'Devuelve solo JSON valido con esta forma: {"selectedIds":[1,2,3],"reason":"breve"}.',
     'Usa selectedIds=[] si ningun candidato encaja.',
     '',
@@ -1327,15 +1400,16 @@ function buildStorageRefinementPrompt(input: {
     `Busqueda textual usada para obtener candidatos: ${input.userQuery}`,
     `Parametros interpretados: ${JSON.stringify(input.params)}`,
     'Candidatos:',
-    JSON.stringify(input.candidates.map(formatStorageRefinementCandidate)),
+    JSON.stringify(input.candidates.map((candidate) => formatStorageRefinementCandidate(candidate, input.categories))),
   ].join('\n');
 }
 
-function formatStorageRefinementCandidate(detail: StorageEntryDetailRecord): Record<string, unknown> {
+function formatStorageRefinementCandidate(detail: StorageEntryDetailRecord, categories: StorageCategoryRecord[]): Record<string, unknown> {
   return {
     id: detail.entry.id,
     description: detail.entry.description,
     category: detail.category.displayName,
+    categoryPath: buildStorageCategoryPath(detail.category.id, categories),
     categoryDescription: detail.category.description,
     sourceKind: detail.entry.sourceKind,
     tags: detail.entry.tags,
@@ -1346,6 +1420,19 @@ function formatStorageRefinementCandidate(detail: StorageEntryDetailRecord): Rec
       mimeType: message.mimeType,
     })),
   };
+}
+
+export function buildStorageCategoryPath(categoryId: number, categories: StorageCategoryRecord[]): string[] {
+  const byId = new Map(categories.map((category) => [category.id, category]));
+  const path: string[] = [];
+  const seenIds = new Set<number>();
+  let current = byId.get(categoryId) ?? null;
+  while (current && !seenIds.has(current.id)) {
+    path.unshift(current.displayName);
+    seenIds.add(current.id);
+    current = current.parentCategoryId === null ? null : byId.get(current.parentCategoryId) ?? null;
+  }
+  return path;
 }
 
 function parseStorageRefinementIds(parsed: unknown, allowedIds: Set<number>): Set<number> | null {
