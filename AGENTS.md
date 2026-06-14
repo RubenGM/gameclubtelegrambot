@@ -66,6 +66,14 @@ forzar salida estructurada, usa:
 printf 'prompt\n' | ./scripts/codex-cawa.sh exec --ephemeral --sandbox read-only --model gpt-5.4-mini -c 'model_reasoning_effort="low"' --output-schema src/telegram/llm-command-decision.schema.json -o /tmp/output.json -
 ```
 
+La documentación operativa actual de la interacción LLM de lenguaje natural vive
+en `docs/llm-natural-language.md`. Antes de cambiar `/ask`, el fallback privado,
+las menciones/replies en grupos, los prompts, los schemas JSON, el feedback loop
+de lectura, los intents, las reglas de permisos, los mensajes de progreso o la
+invocación Codex/OpenCode, lee ese documento y mantenlo actualizado en el mismo
+cambio. Si el cambio modifica comportamiento visible o capacidad operativa,
+actualiza también `docs/feature-status.md`.
+
 ## Local validation workflow
 
 After every code change in this bot, run `./startup.sh` before handing the work
@@ -170,6 +178,9 @@ indicators, reply-keyboard navigation, inline callback navigation and tests.
 
 Before adding or changing editable progress/receipt messages, read
 `docs/telegram-editable-progress.md`.
+
+Before adding or changing natural-language LLM/chat behavior, read
+`docs/llm-natural-language.md`.
 
 For public/admin web visual changes, read `docs/brand-guidelines.md`.
 
