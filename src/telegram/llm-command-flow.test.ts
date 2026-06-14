@@ -8,6 +8,7 @@ import {
   handleTelegramLlmMenuText,
   llmCommandCallbackPrefixes,
   llmCommandFlowKey,
+  resolveNextStepModelOptions,
   type TelegramLlmCommandContext,
 } from './llm-command-flow.js';
 import { defaultLlmCommandConfig } from './llm-command-config.js';
@@ -389,6 +390,43 @@ test('handleTelegramLlmCallback starts a normal Storage upload when category id 
   assert.match(context.replies.at(-1) ?? '', /envía|envia|send/i);
 });
 
+test('resolveNextStepModelOptions escalates only allowlisted semantic read intents', () => {
+  const decision = {
+    ...helpDecision(),
+    intent: 'catalog.detail' as const,
+    nextStep: {
+      useStrongerModel: true,
+      reason: 'pregunta contextual sobre dificultad',
+    },
+  };
+
+  assert.deepEqual(resolveNextStepModelOptions(decision, {
+    type: 'execute_read',
+    intent: 'catalog.detail',
+    params: {},
+  }), {
+    model: 'gpt-5.5',
+    reasoningEffort: 'medium',
+  });
+
+  assert.equal(resolveNextStepModelOptions(decision, {
+    type: 'execute_read',
+    intent: 'schedule.search',
+    params: {},
+  }), undefined);
+  assert.equal(resolveNextStepModelOptions({
+    ...decision,
+    nextStep: {
+      useStrongerModel: false,
+      reason: null,
+    },
+  }, {
+    type: 'execute_read',
+    intent: 'catalog.detail',
+    params: {},
+  }), undefined);
+});
+
 function createContext({
   messageText = 'texto',
   decision = helpDecision(),
@@ -562,6 +600,7 @@ function helpDecision(): LlmCommandDecision {
 	      sendNow: true,
 	    },
 	    progress: { messages: [] },
+	    nextStep: { useStrongerModel: false, reason: null },
 	    needsClarification: false,
     clarification: null,
     requiresConfirmation: false,
@@ -603,6 +642,7 @@ function writeDecision(
 	      sendNow: false,
 	    },
 	    progress: { messages: [] },
+	    nextStep: { useStrongerModel: false, reason: null },
 	    needsClarification: false,
     clarification: null,
     requiresConfirmation: true,

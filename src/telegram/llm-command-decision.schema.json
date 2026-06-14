@@ -8,6 +8,7 @@
     "confidence",
     "reply",
     "progress",
+    "nextStep",
     "needsClarification",
     "clarification",
     "requiresConfirmation",
@@ -76,6 +77,15 @@
           "maxItems": 4,
           "items": { "type": "string", "minLength": 1, "maxLength": 180 }
         }
+      }
+    },
+    "nextStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["useStrongerModel", "reason"],
+      "properties": {
+        "useStrongerModel": { "type": "boolean" },
+        "reason": { "type": ["string", "null"], "minLength": 1, "maxLength": 120 }
       }
     },
     "needsClarification": { "type": "boolean" },

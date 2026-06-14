@@ -31,6 +31,13 @@ export const llmCommandDecisionSchema = z
 	      })
 	      .strict()
 	      .default({ messages: [] }),
+	    nextStep: z
+	      .object({
+	        useStrongerModel: z.boolean(),
+	        reason: z.string().trim().min(1).max(120).nullable(),
+	      })
+	      .strict()
+	      .default({ useStrongerModel: false, reason: null }),
 	    needsClarification: z.boolean(),
     clarification: z
       .object({

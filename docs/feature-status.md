@@ -117,6 +117,7 @@ Implementado:
 - Servicio de invocación LLM con proveedor configurable (`codex` por defecto, `opencode` alternativo), modelo `gpt-5.4-mini` con razonamiento `low`, timeout y errores clasificados; Codex se invoca mediante `GAMECLUB_CODEX_BIN`, `codex exec --ephemeral --sandbox read-only` y schemas de salida.
 - Contrato JSON versionado, parser estricto, schemas JSON para Codex, allowlist de intents/actions, umbrales locales de confianza (`0.75` lectura, `0.90` escritura) y rechazo de acciones administrativas con el copy obligatorio.
 - Prompt generado desde un catálogo tipado de capacidades permitidas por rol/contexto, sin dar autoridad a la LLM para ejecutar lógica de negocio.
+- La primera pasada puede pedir `nextStep.useStrongerModel`; el bot valida localmente esa señal y sólo escala la siguiente llamada de lectura semántica a `gpt-5.5` con reasoning `medium` para `bot.search`, `catalog.detail`, `catalog.recommend` y `storage.search`.
 - Comando privado `/ask` para socios aprobados.
 - Botón privado `Preguntar al bot` visible sólo cuando la feature está habilitada.
 - Fallback privado configurable con `GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED`, ejecutado al final de la cadena de handlers para no capturar comandos ni botones. Las sesiones pasivas de lectura de catálogo no bloquean el fallback LLM cuando el texto libre no coincide con acciones del detalle.

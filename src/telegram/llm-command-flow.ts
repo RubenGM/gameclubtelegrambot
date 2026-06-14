@@ -4,7 +4,7 @@ import { routeLlmCommandDecision, type LlmCommandRouteOutcome } from './llm-comm
 import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
 import type { LlmCommandMetricAction, LlmCommandMetricResult, LlmCommandMetrics } from './llm-command-metrics.js';
 import type { LlmCommandDecision } from './llm-command-schema.js';
-import { LlmCommandServiceError } from './llm-command-service.js';
+import { LlmCommandServiceError, type LlmCommandGenerateJsonOptions } from './llm-command-service.js';
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import { catalogLoanCallbackPrefixes, handleTelegramCatalogLoanCallback } from './catalog-loan-flow.js';
 import { groupPurchaseCallbackPrefixes, handleTelegramGroupPurchaseCallback } from './group-purchase-flow.js';
@@ -27,7 +27,7 @@ export type TelegramLlmCommandContext = TelegramCommandHandlerContext & {
 	    llmCommands?: ResolvedLlmCommandConfig;
 	    llmCommandService?: {
 	      interpret(prompt: string): Promise<import('./llm-command-schema.js').LlmCommandDecision>;
-	      generateJson?(prompt: string, schemaPath?: string): Promise<unknown>;
+	      generateJson?(prompt: string, schemaPath?: string, options?: LlmCommandGenerateJsonOptions): Promise<unknown>;
 	    };
     llmCommandMetrics?: LlmCommandMetrics;
   };
@@ -273,7 +273,7 @@ async function handleTelegramLlmCommandText(
     result: metricResultForOutcome(outcome),
     reason: metricReasonForOutcome(outcome),
   });
-	  await replyWithOutcome(context, outcome, progress, input.text, readDecisionProgressMessages(decision));
+	  await replyWithOutcome(context, outcome, progress, input.text, readDecisionProgressMessages(decision), resolveNextStepModelOptions(decision, outcome));
 	}
 
 async function replyWithOutcome(
@@ -282,6 +282,7 @@ async function replyWithOutcome(
   progress?: TelegramEditableProgress,
   userText?: string,
   progressMessages: string[] = [],
+  nextStepModelOptions?: LlmCommandGenerateJsonOptions,
 ): Promise<void> {
   const options = buildLlmReplyOptions(context);
   if (outcome.type === 'execute_read') {
@@ -295,6 +296,7 @@ async function replyWithOutcome(
     const message = await executeTelegramLlmReadAction(context, {
       ...readInput,
       ...(progress ? { progress: createLlmReadProgress(progress, userText, progressMessages.slice(1)) } : {}),
+      ...(nextStepModelOptions ? { modelOptions: nextStepModelOptions } : {}),
     });
     const readOptions: TelegramReplyOptions = { ...options, parseMode: 'HTML' };
     if (progress) {
@@ -320,7 +322,32 @@ async function replyWithOutcome(
   } else {
     await context.reply(resolveOutcomeReply(outcome), options);
 	  }
-	}
+}
+
+const llmCommandStrongerNextStepModel = 'gpt-5.5';
+const llmCommandStrongerNextStepReasoningEffort = 'medium';
+const llmCommandStrongerNextStepIntents = new Set([
+  'bot.search',
+  'catalog.detail',
+  'catalog.recommend',
+  'storage.search',
+]);
+
+export function resolveNextStepModelOptions(
+  decision: LlmCommandDecision,
+  outcome: LlmCommandRouteOutcome,
+): LlmCommandGenerateJsonOptions | undefined {
+  if (outcome.type !== 'execute_read' || !decision.nextStep.useStrongerModel) {
+    return undefined;
+  }
+  if (!llmCommandStrongerNextStepIntents.has(outcome.intent)) {
+    return undefined;
+  }
+  return {
+    model: llmCommandStrongerNextStepModel,
+    reasoningEffort: llmCommandStrongerNextStepReasoningEffort,
+  };
+}
 
 function createLlmReadProgress(
   progress: TelegramEditableProgress,

@@ -18,6 +18,8 @@ test('buildLlmCommandPrompt includes allowed read capabilities and user context'
   assert.match(prompt, /bot\.search/);
   assert.match(prompt, /progress\.messages/);
   assert.match(prompt, /mientras consulta datos o prepara la respuesta/);
+  assert.match(prompt, /nextStep\.useStrongerModel/);
+  assert.match(prompt, /razonamiento semantico sobre datos reales/);
   assert.match(prompt, /preguntas generales o conversacionales/);
   assert.match(prompt, /pregunta de forma transversal/);
   assert.match(prompt, /storage\.search/);

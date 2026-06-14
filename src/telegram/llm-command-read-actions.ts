@@ -10,6 +10,7 @@ import type { CatalogItemRecord, CatalogItemType } from '../catalog/catalog-mode
 import type { StorageEntryDetailRecord } from '../storage/storage-catalog.js';
 import type { TelegramLlmCommandContext } from './llm-command-flow.js';
 import type { LlmCommandIntent } from './llm-command-actions.js';
+import type { LlmCommandGenerateJsonOptions } from './llm-command-service.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { escapeHtml } from './schedule-presentation.js';
 
@@ -23,6 +24,7 @@ export async function executeTelegramLlmReadAction(
     params: Record<string, unknown>;
     userText?: string;
     progress?: { update(message: string): Promise<boolean> };
+    modelOptions?: LlmCommandGenerateJsonOptions;
   },
 ): Promise<string> {
   const intent = input.intent as LlmCommandIntent;
@@ -32,7 +34,7 @@ export async function executeTelegramLlmReadAction(
     case 'general.answer':
       return 'Puedo responder preguntas generales, pero no he recibido una respuesta directa de la IA. Prueba a formularlo de nuevo.';
     case 'bot.search':
-      return searchAcrossBotSources(context, input.params, input.userText, input.progress);
+      return searchAcrossBotSources(context, input.params, input.userText, input.progress, input.modelOptions);
     case 'schedule.today':
       return renderScheduleEvents(await listScheduleToday(context), 'Actividades de hoy');
     case 'schedule.upcoming':
@@ -46,17 +48,18 @@ export async function executeTelegramLlmReadAction(
         await searchCatalog(context, resolveCatalogDetailParams(context, input.params)),
         input.userText,
         input.progress,
+        input.modelOptions,
       );
     case 'catalog.recommend':
-      return recommendCatalogItems(context, input.params, input.userText, input.progress);
+      return recommendCatalogItems(context, input.params, input.userText, input.progress, input.modelOptions);
     case 'catalog.loan.list':
       return renderCatalogLoans(await listCatalogLoans(context), 'Tus préstamos activos');
     case 'storage.search':
-      return renderStorageEntries(await searchStorage(context, input.params, input.userText, input.progress), 'Resultados de Storage');
+      return renderStorageEntries(await searchStorage(context, input.params, input.userText, input.progress, input.modelOptions), 'Resultados de Storage');
     case 'storage.category.list':
       return renderStorageCategories(await listStorageCategories(context), 'Categorías de Storage');
     case 'storage.entry.detail':
-      return renderStorageEntries(await searchStorage(context, input.params, input.userText, input.progress), 'Detalle de Storage');
+      return renderStorageEntries(await searchStorage(context, input.params, input.userText, input.progress, input.modelOptions), 'Detalle de Storage');
     case 'notice.list':
       return renderNotices(await listActiveNotices(context), 'Avisos activos');
     case 'group_purchase.list':
@@ -173,6 +176,7 @@ async function recommendCatalogItems(
   params: Record<string, unknown>,
   userText?: string,
   progress?: { update(message: string): Promise<boolean> },
+  modelOptions?: LlmCommandGenerateJsonOptions,
 ): Promise<string> {
   const repository = createDatabaseCatalogRepository({ database: context.runtime.services.database.db });
   const activeLoanItemIds = await listActiveCatalogLoanItemIds(context);
@@ -211,6 +215,7 @@ async function recommendCatalogItems(
           candidateSet,
         }),
         'src/telegram/llm-catalog-recommendation.schema.json',
+        modelOptions,
       ),
       progress,
     );
@@ -230,6 +235,7 @@ async function searchStorage(
   params: Record<string, unknown>,
   userText?: string,
   progress?: { update(message: string): Promise<boolean> },
+  modelOptions?: LlmCommandGenerateJsonOptions,
 ) {
   const repository = createDatabaseStorageRepository({ database: context.runtime.services.database.db });
   const categories = await listStorageCategories(context);
@@ -250,6 +256,7 @@ async function searchStorage(
     params,
     details,
     ...(progress ? { progress } : {}),
+    ...(modelOptions ? { modelOptions } : {}),
   });
 }
 
@@ -308,6 +315,7 @@ async function searchAcrossBotSources(
   params: Record<string, unknown>,
   userText?: string,
   progress?: { update(message: string): Promise<boolean> },
+  modelOptions?: LlmCommandGenerateJsonOptions,
 ): Promise<string> {
   const query = textParam(params, 'query') ?? textParam(params, 'tag') ?? userText?.trim() ?? '';
   if (!query) {
@@ -319,7 +327,7 @@ async function searchAcrossBotSources(
   const [schedule, catalog, storage, groupPurchases, notices, lfg] = await Promise.all([
     sources.includes('schedule') ? listScheduleUpcoming(context, { query }) : Promise.resolve([]),
     sources.includes('catalog') ? searchCatalog(context, { ...params, query }) : Promise.resolve([]),
-    sources.includes('storage') ? searchStorage(context, { ...params, query }, userText ?? query, progress) : Promise.resolve([]),
+    sources.includes('storage') ? searchStorage(context, { ...params, query }, userText ?? query, progress, modelOptions) : Promise.resolve([]),
     sources.includes('group_purchases') ? listOpenGroupPurchases(context, query) : Promise.resolve([]),
     sources.includes('notices')
       ? listActiveNotices(context).then((notices) => filterByQuery(notices, query, (notice) => [notice.text, notice.creatorDisplayName]))
@@ -344,6 +352,7 @@ async function searchAcrossBotSources(
     fallback: renderBotSearchResults(results),
     links: botSearchAnswerLinks(results),
     ...(progress ? { progress } : {}),
+    ...(modelOptions ? { modelOptions } : {}),
   });
 }
 
@@ -545,6 +554,7 @@ async function renderCatalogDetailItems(
   items: CatalogItemRecord[],
   userText?: string,
   progress?: { update(message: string): Promise<boolean> },
+  modelOptions?: LlmCommandGenerateJsonOptions,
 ): Promise<string> {
   if (items.length === 0) {
     return 'Detalle del catálogo: no hay resultados.';
@@ -566,6 +576,7 @@ async function renderCatalogDetailItems(
     fallback,
     links: [linkToStart(`catalog_read_item_${item.id}`, item.displayName)],
     ...(progress ? { progress } : {}),
+    ...(modelOptions ? { modelOptions } : {}),
   });
 }
 
@@ -714,6 +725,7 @@ async function answerReadWithLlm(
     fallback: string;
     links?: string[];
     progress?: { update(message: string): Promise<boolean> };
+    modelOptions?: LlmCommandGenerateJsonOptions;
   },
 ): Promise<string> {
   const service = context.runtime.llmCommandService;
@@ -727,6 +739,7 @@ async function answerReadWithLlm(
       () => service.generateJson(
         buildReadAnswerPrompt(context, input),
         'src/telegram/llm-read-answer.schema.json',
+        input.modelOptions,
       ),
       input.progress,
     );
@@ -1231,6 +1244,7 @@ async function refineStorageSearchWithLlm(
     params: Record<string, unknown>;
     details: StorageEntryDetailRecord[];
     progress?: { update(message: string): Promise<boolean> };
+    modelOptions?: LlmCommandGenerateJsonOptions;
   },
 ): Promise<StorageEntryDetailRecord[]> {
   const service = context.runtime.llmCommandService;
@@ -1248,7 +1262,7 @@ async function refineStorageSearchWithLlm(
   });
   try {
     const parsed = await runStorageRefinementWithProgress(
-      () => service.generateJson(prompt),
+      () => service.generateJson(prompt, undefined, input.modelOptions),
       input.progress,
     );
     const selectedIds = parseStorageRefinementIds(parsed, new Set(candidates.map((detail) => detail.entry.id)));

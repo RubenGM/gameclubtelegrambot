@@ -120,6 +120,12 @@ separados por líneas en blanco. No debe mostrar la petición completa del usuar
 Si la LLM falla o caduca, el mismo mensaje debe editarse con el error final
 siempre que Telegram lo permita.
 
+La primera pasada usa el modelo configurado, normalmente `gpt-5.4-mini` con
+`low`. Cuando esa pasada detecta que la siguiente fase necesitará interpretación
+semántica sobre datos reales, puede pedir escalado con `nextStep`. El bot valida
+esa petición localmente y, sólo para intents de lectura permitidos, ejecuta la
+siguiente llamada `generateJson` con `gpt-5.5` y reasoning `medium`.
+
 ## Contrato JSON de interpretación
 
 La primera pasada LLM debe devolver un objeto `LlmCommandDecision`:
@@ -130,6 +136,9 @@ La primera pasada LLM debe devolver un objeto `LlmCommandDecision`:
 - `confidence`: confianza entre 0 y 1.
 - `reply`: texto que el bot puede usar si procede.
 - `progress.messages`: hasta 4 mensajes cortos para personalizar el progreso.
+- `nextStep.useStrongerModel`: petición no autoritativa para que la siguiente
+  pasada use un modelo más fuerte.
+- `nextStep.reason`: motivo breve cuando se pide escalado, o `null`.
 - `needsClarification` y `clarification`: pregunta y campos esperados.
 - `requiresConfirmation` y `confirmation`: texto y parámetros para escritura.
 - `action`: tipo, nombre y parámetros.
@@ -137,6 +146,16 @@ La primera pasada LLM debe devolver un objeto `LlmCommandDecision`:
 
 El bot no confía ciegamente en `safety`. El riesgo real se deriva de la
 capacidad local declarada en `llm-command-actions.ts`.
+
+El bot tampoco confía ciegamente en `nextStep`. Aunque la LLM pida modelo fuerte,
+el escalado sólo se aplica a lecturas semánticas allowlisted:
+
+- `bot.search`
+- `catalog.detail`
+- `catalog.recommend`
+- `storage.search`
+
+No se usa para permisos, admin, escrituras ni para abrir capacidades nuevas.
 
 ## Capacidades
 
@@ -182,6 +201,10 @@ hace una segunda pasada LLM:
 
 La segunda pasada usa `src/telegram/llm-read-answer.schema.json`. Si falla, el
 bot debe usar un fallback determinista con enlaces.
+
+Si la primera pasada pidió escalado y el intent está permitido, esta segunda
+pasada usa `gpt-5.5 medium`; si no, usa el modelo base configurado para la
+feature.
 
 Ejemplos donde se usa o se puede usar esta segunda pasada:
 
@@ -315,6 +338,7 @@ documento en el mismo cambio. En particular, actualízalo si cambian:
 - Capacidades, intents o riesgos.
 - Reglas de permisos, grupo/privado o acciones admin.
 - Contratos JSON o schemas.
+- Política de escalado `nextStep` y modelos/reasoning usados en segunda pasada.
 - Prompts relevantes.
 - Feedback loop o datos enviados a la LLM.
 - Enlaces generados en respuestas.

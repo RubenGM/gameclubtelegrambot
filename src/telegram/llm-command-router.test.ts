@@ -236,6 +236,7 @@ function readDecision(): LlmCommandDecision {
 	      sendNow: false,
 	    },
 	    progress: { messages: [] },
+	    nextStep: { useStrongerModel: false, reason: null },
 	    needsClarification: false,
     clarification: null,
     requiresConfirmation: false,

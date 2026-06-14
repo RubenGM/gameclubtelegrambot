@@ -15,9 +15,14 @@ export interface LlmCommandServiceConfig {
   timeoutMs: number;
 }
 
+export interface LlmCommandGenerateJsonOptions {
+  model?: string | undefined;
+  reasoningEffort?: string | undefined;
+}
+
 export interface LlmCommandService {
   interpret(prompt: string): Promise<LlmCommandDecision>;
-  generateJson(prompt: string, schemaPath?: string): Promise<unknown>;
+  generateJson(prompt: string, schemaPath?: string, options?: LlmCommandGenerateJsonOptions): Promise<unknown>;
 }
 
 export type LlmCommandSpawn = (
@@ -45,11 +50,12 @@ export function createLlmCommandService({
 }): LlmCommandService {
   return {
     interpret: (prompt) => runOpencodeJsonPrompt({ prompt, config, spawnImpl }),
-    generateJson: (prompt, schemaPath) => runOpencodeRawJsonPrompt({
+    generateJson: (prompt, schemaPath, options) => runOpencodeRawJsonPrompt({
       prompt,
       config,
       spawnImpl,
       ...(schemaPath ? { schemaPath } : {}),
+      ...(options ? { options } : {}),
     }),
   };
 }
@@ -108,16 +114,19 @@ async function runOpencodeRawJsonPrompt({
   config,
   spawnImpl,
   schemaPath = 'src/telegram/llm-storage-refinement.schema.json',
+  options,
 }: {
   prompt: string;
   config: LlmCommandServiceConfig;
   spawnImpl: LlmCommandSpawn;
   schemaPath?: string;
+  options?: LlmCommandGenerateJsonOptions;
 }): Promise<unknown> {
+  const effectiveConfig = applyLlmCommandJsonOptions(config, options);
   if ((config.provider ?? 'opencode') === 'codex') {
     const stdout = await runCodexJsonPrompt({
       prompt,
-      config,
+      config: effectiveConfig,
       spawnImpl,
       schemaPath,
     });
@@ -138,9 +147,9 @@ async function runOpencodeRawJsonPrompt({
 
   const stdout = await runPromptProcess({
     command: opencodeBin,
-    args: ['run', '--stdin', '--model', config.model],
+    args: ['run', '--stdin', '--model', effectiveConfig.model],
     prompt,
-    timeoutMs: config.timeoutMs,
+    timeoutMs: effectiveConfig.timeoutMs,
     spawnImpl,
   });
 
@@ -152,6 +161,17 @@ async function runOpencodeRawJsonPrompt({
       error instanceof Error ? error.message : 'LLM command output is invalid',
     );
   }
+}
+
+function applyLlmCommandJsonOptions(
+  config: LlmCommandServiceConfig,
+  options: LlmCommandGenerateJsonOptions | undefined,
+): LlmCommandServiceConfig {
+  return {
+    ...config,
+    model: options?.model?.trim() || config.model,
+    reasoningEffort: options?.reasoningEffort?.trim() || config.reasoningEffort,
+  };
 }
 
 async function runCodexJsonPrompt({

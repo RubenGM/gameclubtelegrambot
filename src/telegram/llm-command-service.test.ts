@@ -133,6 +133,40 @@ test('createLlmCommandService can pass a custom Codex JSON schema', async () => 
   assert.equal(calls[0]?.args.at(calls[0].args.indexOf('--output-schema') + 1), 'src/telegram/llm-catalog-recommendation.schema.json');
 });
 
+test('createLlmCommandService can override Codex model and reasoning for generic JSON', async () => {
+  const calls: Array<{ command: string; args: string[]; prompt: string }> = [];
+  const service = createLlmCommandService({
+    config: {
+      provider: 'codex',
+      codexBin: './scripts/codex-cawa.sh',
+      model: 'gpt-5.4-mini',
+      reasoningEffort: 'low',
+      timeoutMs: 1000,
+    },
+    spawnImpl: createSpawnDouble({
+      stdout: 'Codex progress output that is not JSON',
+      onPrompt: (call) => {
+        calls.push(call);
+        const outputPath = call.args[call.args.indexOf('-o') + 1];
+        if (!outputPath) {
+          throw new Error('missing Codex output path');
+        }
+        writeFileSync(outputPath, JSON.stringify({ answer: 'respuesta' }));
+      },
+    }),
+  });
+
+  const parsed = await service.generateJson(
+    'answer prompt',
+    'src/telegram/llm-read-answer.schema.json',
+    { model: 'gpt-5.5', reasoningEffort: 'medium' },
+  );
+
+  assert.deepEqual(parsed, { answer: 'respuesta' });
+  assert.equal(calls[0]?.args.at(calls[0].args.indexOf('--model') + 1), 'gpt-5.5');
+  assert.equal(calls[0]?.args.at(calls[0].args.indexOf('-c') + 1), 'model_reasoning_effort="medium"');
+});
+
 test('createLlmCommandService classifies missing Codex output files', async () => {
   const service = createLlmCommandService({
     config: {

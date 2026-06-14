@@ -73,6 +73,19 @@ test('parseLlmCommandDecisionJson accepts optional progress messages', () => {
   ]);
 });
 
+test('parseLlmCommandDecisionJson accepts a stronger next-step model request', () => {
+  const decision = parseLlmCommandDecisionJson(JSON.stringify({
+    ...validDecision(),
+    nextStep: {
+      useStrongerModel: true,
+      reason: 'recomendacion semantica con muchos candidatos',
+    },
+  }));
+
+  assert.equal(decision.nextStep.useStrongerModel, true);
+  assert.equal(decision.nextStep.reason, 'recomendacion semantica con muchos candidatos');
+});
+
 test('parseLlmCommandDecisionJson rejects non JSON text', () => {
   assert.throws(
     () => parseLlmCommandDecisionJson('Claro, aqui tienes {"version":1}'),
