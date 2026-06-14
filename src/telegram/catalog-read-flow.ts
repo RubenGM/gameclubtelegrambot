@@ -460,6 +460,7 @@ function buildCatalogReadItemReplyOptions(
   rows.push(...loanRows
     .map((row) => row.filter((button) => !prioritizedTexts.has(button.text)).map((button) => button.text))
     .filter((row) => row.length > 0));
+  rows.push([texts.actionMenu.start, texts.actionMenu.help]);
   return { replyKeyboard: rows, resizeKeyboard: true, persistentKeyboard: true };
 }
 

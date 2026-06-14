@@ -13,7 +13,8 @@ import type { LlmCommandIntent } from './llm-command-actions.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { escapeHtml } from './schedule-presentation.js';
 
-const maxPublicResults = 5;
+export const llmCommandDirectReadResultLimit = 12;
+export const llmCommandGroupedReadResultLimit = 5;
 
 export async function executeTelegramLlmReadAction(
   context: TelegramLlmCommandContext,
@@ -28,6 +29,10 @@ export async function executeTelegramLlmReadAction(
   switch (intent) {
     case 'help.capabilities':
       return 'Puedes preguntarme por actividades, catálogo, Storage, compras conjuntas, avisos, préstamos, LFG y estado básico de noticias.';
+    case 'general.answer':
+      return 'Puedo responder preguntas generales, pero no he recibido una respuesta directa de la IA. Prueba a formularlo de nuevo.';
+    case 'bot.search':
+      return searchAcrossBotSources(context, input.params, input.userText, input.progress);
     case 'schedule.today':
       return renderScheduleEvents(await listScheduleToday(context), 'Actividades de hoy');
     case 'schedule.upcoming':
@@ -36,7 +41,12 @@ export async function executeTelegramLlmReadAction(
     case 'catalog.search':
       return renderCatalogItems(await searchCatalog(context, input.params), 'Resultados del catálogo');
     case 'catalog.detail':
-      return renderCatalogItems(await searchCatalog(context, input.params), 'Detalle del catálogo');
+      return renderCatalogDetailItems(
+        context,
+        await searchCatalog(context, resolveCatalogDetailParams(context, input.params)),
+        input.userText,
+        input.progress,
+      );
     case 'catalog.recommend':
       return recommendCatalogItems(context, input.params, input.userText, input.progress);
     case 'catalog.loan.list':
@@ -105,6 +115,43 @@ async function searchCatalog(context: TelegramLlmCommandContext, params: Record<
     .filter((item) => itemType === null || item.itemType === itemType)
     .filter((item) => playerCount === null || catalogItemSupportsPlayerCount(item, playerCount))
     .filter((item) => !availableOnly || !activeLoanItemIds.has(item.id));
+}
+
+function resolveCatalogDetailParams(
+  context: TelegramLlmCommandContext,
+  params: Record<string, unknown>,
+): Record<string, unknown> {
+  if (textParam(params, 'query')) {
+    return params;
+  }
+  const inferredQuery = inferCatalogQueryFromReplyContext(context.replyToBotMessageContext?.text ?? null);
+  return inferredQuery ? { ...params, query: inferredQuery } : params;
+}
+
+export function inferCatalogQueryFromReplyContext(replyText: string | null | undefined): string | null {
+  if (!replyText) {
+    return null;
+  }
+  const lines = replyText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const catalogHeaderIndex = lines.findIndex((line) => /^cat[aá]logo(?:\s*\/|\s*$)/i.test(line));
+  if (catalogHeaderIndex === -1) {
+    return null;
+  }
+  for (const line of lines.slice(catalogHeaderIndex + 1)) {
+    if (isCatalogReplyMetadataLine(line)) {
+      continue;
+    }
+    return line.replace(/^<[^>]+>|<\/[^>]+>$/g, '').trim() || null;
+  }
+  return null;
+}
+
+function isCatalogReplyMetadataLine(line: string): boolean {
+  return /^(disponibilidad|jugadores|duraci[oó]n|ver detalles|detalle del cat[aá]logo)\b/i.test(line)
+    || /^\d+\./.test(line);
 }
 
 async function listCatalogLoans(context: TelegramLlmCommandContext) {
@@ -235,11 +282,240 @@ async function listNewsStatus(context: TelegramLlmCommandContext) {
     const groups = await createDatabaseNewsGroupRepository({ database: context.runtime.services.database.db }).listGroups();
     return { enabledGroups: groups.filter((group) => group.isEnabled).length };
   }
+
   const subscriptions = await createDatabaseNewsGroupRepository({ database: context.runtime.services.database.db }).listSubscriptionsByChatId(
     context.runtime.chat.chatId,
     { messageThreadId: context.messageThreadId ?? null },
   );
   return { subscriptions: subscriptions.map((subscription) => subscription.categoryKey) };
+}
+
+type BotSearchSource = 'schedule' | 'catalog' | 'storage' | 'group_purchases' | 'notices' | 'lfg';
+
+interface BotSearchResultSet {
+  query: string;
+  sources: BotSearchSource[];
+  schedule: Awaited<ReturnType<typeof listScheduleUpcoming>>;
+  catalog: Awaited<ReturnType<typeof searchCatalog>>;
+  storage: Awaited<ReturnType<typeof searchStorage>>;
+  groupPurchases: Awaited<ReturnType<typeof listOpenGroupPurchases>>;
+  notices: Awaited<ReturnType<typeof listActiveNotices>>;
+  lfg: Awaited<ReturnType<typeof listLfg>>;
+}
+
+async function searchAcrossBotSources(
+  context: TelegramLlmCommandContext,
+  params: Record<string, unknown>,
+  userText?: string,
+  progress?: { update(message: string): Promise<boolean> },
+): Promise<string> {
+  const query = textParam(params, 'query') ?? textParam(params, 'tag') ?? userText?.trim() ?? '';
+  if (!query) {
+    return 'Dime qué quieres buscar y miraré en agenda, catálogo, Storage, compras, avisos y LFG.';
+  }
+
+  const sources = botSearchSourcesParam(params);
+  await progress?.update('Petición entendida. Consultando agenda, catálogo, Storage y el resto de fuentes...');
+  const [schedule, catalog, storage, groupPurchases, notices, lfg] = await Promise.all([
+    sources.includes('schedule') ? listScheduleUpcoming(context, { query }) : Promise.resolve([]),
+    sources.includes('catalog') ? searchCatalog(context, { ...params, query }) : Promise.resolve([]),
+    sources.includes('storage') ? searchStorage(context, { ...params, query }, userText ?? query, progress) : Promise.resolve([]),
+    sources.includes('group_purchases') ? listOpenGroupPurchases(context, query) : Promise.resolve([]),
+    sources.includes('notices')
+      ? listActiveNotices(context).then((notices) => filterByQuery(notices, query, (notice) => [notice.text, notice.creatorDisplayName]))
+      : Promise.resolve([]),
+    sources.includes('lfg') ? listLfg(context).then((lfg) => filterLfgByQuery(lfg, query)) : Promise.resolve({ players: [], groups: [] }),
+  ]);
+  const results: BotSearchResultSet = {
+    query,
+    sources,
+    schedule,
+    catalog,
+    storage,
+    groupPurchases,
+    notices,
+    lfg,
+  };
+
+  return answerReadWithLlm(context, {
+    source: 'bot.search',
+    userText: userText ?? query,
+    records: formatBotSearchReadAnswerData(results),
+    fallback: renderBotSearchResults(results),
+    links: botSearchAnswerLinks(results),
+    ...(progress ? { progress } : {}),
+  });
+}
+
+function renderBotSearchResults(results: BotSearchResultSet): string {
+  const sections = [
+    renderBotSearchSection(
+      'Agenda',
+      results.schedule,
+      (event) => `${linkToStart(`schedule_event_${event.id}`, event.title)} - ${escapeHtml(formatDateTime(event.startsAt))} (${event.capacity} plazas) · ${linkToStart(`schedule_details_${event.id}`, 'detalle')}`,
+    ),
+    renderBotSearchSection(
+      'Catálogo',
+      results.catalog,
+      (item) => {
+        const players = renderPlayerRange(item.playerCountMin ?? null, item.playerCountMax ?? null);
+        return `${linkToStart(`catalog_read_item_${item.id}`, item.displayName)}${item.originalName ? ` (${escapeHtml(item.originalName)})` : ''} - ${escapeHtml(item.itemType)}${players ? ` - ${players}` : ''}`;
+      },
+      linkToStart('catalog_read', 'Abrir catálogo'),
+    ),
+    renderBotSearchSection(
+      'Storage',
+      results.storage,
+      (detail) => {
+        const fileName = detail.messages.find((message) => message.originalFileName)?.originalFileName;
+        const kind = detail.messages[0]?.attachmentKind ?? 'entrada';
+        return `${linkToStart(`storage_entry_${detail.entry.id}`, detail.entry.description ?? fileName ?? kind)} - ${escapeHtml(detail.category.displayName)}`;
+      },
+      resolveStorageMoreLink(results.storage),
+    ),
+    renderBotSearchSection(
+      'Compras conjuntas',
+      results.groupPurchases,
+      (purchase) => `${linkToStart(`group_purchase_${purchase.id}`, purchase.title)}${purchase.joinDeadlineAt ? ` - apuntarse hasta ${escapeHtml(formatDate(purchase.joinDeadlineAt))}` : ''}`,
+    ),
+    renderBotSearchSection(
+      'Avisos',
+      results.notices,
+      (notice) => `#${notice.id} ${escapeHtml(notice.text.slice(0, 80))} - ${escapeHtml(notice.creatorDisplayName)}${notice.expiresAt ? ` (vence ${escapeHtml(formatDate(notice.expiresAt))})` : ''}`,
+    ),
+    renderBotSearchSection(
+      'LFG',
+      [
+        ...results.lfg.players.map((player) => ({ kind: 'Jugador', title: player.displayName, text: player.description })),
+        ...results.lfg.groups.map((group) => ({ kind: 'Grupo', title: group.title, text: group.seatsAvailable !== null ? `${group.seatsAvailable} plazas` : '' })),
+      ],
+      (entry) => `${escapeHtml(entry.kind)}: ${escapeHtml(entry.title)}${entry.text ? ` - ${escapeHtml(entry.text.slice(0, 80))}` : ''}`,
+    ),
+  ].filter((section): section is string => Boolean(section));
+
+  if (sections.length === 0) {
+    return `No he encontrado resultados para ${escapeHtml(results.query)} en ${formatBotSearchSourceList(results.sources)}.`;
+  }
+
+  const actionLinks = renderBotSearchActionLinks(results);
+  return [
+    `He encontrado resultados para ${escapeHtml(results.query)} en ${sections.length} fuente${sections.length === 1 ? '' : 's'}:`,
+    '',
+    sections.join('\n\n'),
+    ...(actionLinks ? ['', actionLinks] : []),
+  ].join('\n');
+}
+
+function renderBotSearchSection<T>(
+  title: string,
+  rows: T[],
+  format: (row: T) => string,
+  moreLink: string | null = null,
+): string | null {
+  if (rows.length === 0) {
+    return null;
+  }
+  const shown = rows.slice(0, llmCommandGroupedReadResultLimit);
+  const more = rows.length > shown.length
+    ? `\nHay ${rows.length - shown.length} resultados más.${moreLink ? ` ${moreLink}.` : ''}`
+    : '';
+  return `<b>${escapeHtml(title)}</b>:\n${shown.map((row, index) => `${index + 1}. ${format(row)}`).join('\n')}${more}`;
+}
+
+function renderBotSearchActionLinks(results: BotSearchResultSet): string | null {
+  const links = [
+    results.sources.includes('catalog') ? linkToStart('catalog_read', 'Abrir catálogo') : null,
+    results.sources.includes('storage') ? linkToStart('storage_root', 'Abrir Storage') : null,
+    results.sources.includes('storage') ? linkToStart('storage_tags', 'Ver tags de Storage') : null,
+  ].filter((link): link is string => Boolean(link));
+  if (links.length === 0) {
+    return null;
+  }
+  return `Acciones: ${links.join(' · ')}`;
+}
+
+function botSearchAnswerLinks(results: BotSearchResultSet): string[] {
+  return [
+    ...results.schedule.slice(0, 2).map((event) => linkToStart(`schedule_details_${event.id}`, event.title)),
+    ...results.catalog.slice(0, 2).map((item) => linkToStart(`catalog_read_item_${item.id}`, item.displayName)),
+    ...results.storage.slice(0, 2).map((detail) => {
+      const fileName = detail.messages.find((message) => message.originalFileName)?.originalFileName;
+      const kind = detail.messages[0]?.attachmentKind ?? 'entrada';
+      return linkToStart(`storage_entry_${detail.entry.id}`, detail.entry.description ?? fileName ?? kind);
+    }),
+    ...results.groupPurchases.slice(0, 2).map((purchase) => linkToStart(`group_purchase_${purchase.id}`, purchase.title)),
+    results.sources.includes('catalog') ? linkToStart('catalog_read', 'Abrir catálogo') : null,
+    results.sources.includes('storage') ? linkToStart('storage_root', 'Abrir Storage') : null,
+  ].filter((link): link is string => Boolean(link));
+}
+
+function formatBotSearchReadAnswerData(results: BotSearchResultSet): Record<string, unknown> {
+  return {
+    query: results.query,
+    sources: results.sources,
+    schedule: results.schedule.slice(0, 10).map((event) => ({
+      id: event.id,
+      title: event.title,
+      startsAt: event.startsAt,
+      capacity: event.capacity,
+      url: buildTelegramStartUrl(`schedule_details_${event.id}`),
+    })),
+    catalog: results.catalog.slice(0, 10).map(formatCatalogReadAnswerItem),
+    storage: results.storage.slice(0, 10).map((detail) => ({
+      id: detail.entry.id,
+      name: detail.entry.description,
+      category: detail.category.displayName,
+      tags: detail.entry.tags,
+      files: detail.messages.slice(0, 5).map((message) => ({
+        attachmentKind: message.attachmentKind,
+        fileName: message.originalFileName,
+      })),
+      url: buildTelegramStartUrl(`storage_entry_${detail.entry.id}`),
+    })),
+    groupPurchases: results.groupPurchases.slice(0, 10).map((purchase) => ({
+      id: purchase.id,
+      title: purchase.title,
+      joinDeadlineAt: purchase.joinDeadlineAt,
+      url: buildTelegramStartUrl(`group_purchase_${purchase.id}`),
+    })),
+    notices: results.notices.slice(0, 10).map((notice) => ({
+      text: notice.text,
+      creatorDisplayName: notice.creatorDisplayName,
+      expiresAt: notice.expiresAt,
+    })),
+    lfg: {
+      players: results.lfg.players.slice(0, 10).map((player) => ({
+        displayName: player.displayName,
+        description: player.description,
+      })),
+      groups: results.lfg.groups.slice(0, 10).map((group) => ({
+        title: group.title,
+        description: group.description,
+        seatsAvailable: group.seatsAvailable,
+      })),
+    },
+  };
+}
+
+function formatBotSearchSourceList(sources: BotSearchSource[]): string {
+  return sources.map((source) => ({
+    schedule: 'agenda',
+    catalog: 'catálogo',
+    storage: 'Storage',
+    group_purchases: 'compras conjuntas',
+    notices: 'avisos',
+    lfg: 'LFG',
+  })[source]).join(', ');
+}
+
+function filterLfgByQuery(
+  lfg: Awaited<ReturnType<typeof listLfg>>,
+  query: string,
+): Awaited<ReturnType<typeof listLfg>> {
+  return {
+    players: filterByQuery(lfg.players, query, (player) => [player.displayName, player.description]),
+    groups: filterByQuery(lfg.groups, query, (group) => [group.title, group.description]),
+  };
 }
 
 function renderScheduleEvents(events: Array<{ id: number; title: string; startsAt: string; capacity: number }>, title: string): string {
@@ -262,6 +538,99 @@ function renderCatalogItems(items: Array<{ id: number; displayName: string; orig
     },
     linkToStart('catalog_read', 'Abrir catálogo completo'),
   );
+}
+
+async function renderCatalogDetailItems(
+  context: TelegramLlmCommandContext,
+  items: CatalogItemRecord[],
+  userText?: string,
+  progress?: { update(message: string): Promise<boolean> },
+): Promise<string> {
+  if (items.length === 0) {
+    return 'Detalle del catálogo: no hay resultados.';
+  }
+  if (items.length !== 1) {
+    return renderCatalogItems(items, 'Detalle del catálogo');
+  }
+
+  const item = items[0];
+  if (!item) {
+    return 'Detalle del catálogo: no hay resultados.';
+  }
+
+  const fallback = renderCatalogDetailFallback(item);
+  return answerReadWithLlm(context, {
+    source: 'catalog.detail',
+    userText: userText ?? '',
+    records: [formatCatalogReadAnswerItem(item)],
+    fallback,
+    links: [linkToStart(`catalog_read_item_${item.id}`, item.displayName)],
+    ...(progress ? { progress } : {}),
+  });
+}
+
+function renderCatalogDetailFallback(item: CatalogItemRecord): string {
+  const details = [
+    escapeHtml(item.itemType),
+    renderPlayerRange(item.playerCountMin, item.playerCountMax),
+    item.playTimeMinutes !== null ? `${item.playTimeMinutes} min` : null,
+    renderCatalogWeightValue(item),
+  ].filter(Boolean).join(' - ');
+  return `Detalle del catálogo:\n\n1. ${linkToStart(`catalog_read_item_${item.id}`, item.displayName)}${item.originalName ? ` (${escapeHtml(item.originalName)})` : ''}${details ? ` - ${details}` : ''}`;
+}
+
+function renderCatalogWeightValue(item: CatalogItemRecord): string | null {
+  const weight = catalogAverageWeight(item);
+  return weight === null ? null : `peso ${formatWeight(weight)}/5`;
+}
+
+function formatCatalogReadAnswerItem(item: CatalogItemRecord): Record<string, unknown> {
+  return {
+    id: item.id,
+    displayName: item.displayName,
+    originalName: item.originalName,
+    itemType: item.itemType,
+    description: item.description,
+    language: item.language,
+    publisher: item.publisher,
+    publicationYear: item.publicationYear,
+    players: {
+      min: item.playerCountMin,
+      max: item.playerCountMax,
+    },
+    recommendedAge: item.recommendedAge,
+    playTimeMinutes: item.playTimeMinutes,
+    bgg: extractCatalogBggMetadata(item.metadata),
+    metadata: item.metadata,
+    url: buildTelegramStartUrl(`catalog_read_item_${item.id}`),
+  };
+}
+
+function extractCatalogBggMetadata(metadata: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== 'object') {
+    return null;
+  }
+  return {
+    averageWeight: metadata.averageWeight ?? null,
+    averageRating: metadata.averageRating ?? null,
+    bayesAverage: metadata.bayesAverage ?? null,
+    usersRated: metadata.usersRated ?? null,
+    rank: metadata.rank ?? null,
+    bestPlayerCounts: metadata.bestPlayerCounts ?? [],
+    recommendedPlayerCounts: metadata.recommendedPlayerCounts ?? [],
+    categories: metadata.categories ?? [],
+    mechanics: metadata.mechanics ?? [],
+  };
+}
+
+function catalogAverageWeight(item: CatalogItemRecord): number | null {
+  const value = item.metadata?.averageWeight;
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function formatWeight(value: number): string {
+  return value.toFixed(1).replace(/\.0$/, '');
 }
 
 function renderCatalogLoans(loans: Array<{ itemDisplayName?: string; itemId: number; dueAt: string | null }>, title: string): string {
@@ -329,11 +698,121 @@ function renderNewsStatus(status: { enabledGroups?: number; subscriptions?: stri
 }
 
 function renderList<T>(title: string, rows: T[], format: (row: T) => string, moreLink: string | null = null): string {
-  const shown = rows.slice(0, maxPublicResults);
+  const shown = rows.slice(0, llmCommandDirectReadResultLimit);
   const suffix = rows.length > shown.length
     ? `\n\nHay ${rows.length - shown.length} resultados más.${moreLink ? ` ${moreLink}.` : ''}`
     : '';
   return `${escapeHtml(title)}:\n\n${shown.map((row, index) => `${index + 1}. ${format(row)}`).join('\n')}${suffix}`;
+}
+
+async function answerReadWithLlm(
+  context: TelegramLlmCommandContext,
+  input: {
+    source: string;
+    userText: string;
+    records: unknown;
+    fallback: string;
+    links?: string[];
+    progress?: { update(message: string): Promise<boolean> };
+  },
+): Promise<string> {
+  const service = context.runtime.llmCommandService;
+  if (!service?.generateJson) {
+    return input.fallback;
+  }
+
+  await input.progress?.update('He recuperado datos del bot. Estoy redactando la respuesta...');
+  try {
+    const parsed = await runReadAnswerWithProgress(
+      () => service.generateJson(
+        buildReadAnswerPrompt(context, input),
+        'src/telegram/llm-read-answer.schema.json',
+      ),
+      input.progress,
+    );
+    const answer = parseReadAnswer(parsed);
+    if (!answer) {
+      return input.fallback;
+    }
+    return appendGeneratedLinks(escapeHtml(answer), input.links ?? []);
+  } catch {
+    return input.fallback;
+  }
+}
+
+async function runReadAnswerWithProgress<T>(
+  task: () => Promise<T>,
+  progress?: { update(message: string): Promise<boolean> },
+): Promise<T> {
+  if (!progress) {
+    return task();
+  }
+  let index = 0;
+  let editInFlight = false;
+  const messages = [
+    'Sigo preparando una respuesta con los datos recuperados...',
+    'Estoy revisando el contexto y los resultados reales del bot...',
+    'La redacción con IA está tardando más de lo normal...',
+  ];
+  const interval = setInterval(() => {
+    const message = messages[Math.min(index, messages.length - 1)];
+    index += 1;
+    if (!message || editInFlight) {
+      return;
+    }
+    editInFlight = true;
+    void progress.update(message).finally(() => {
+      editInFlight = false;
+    });
+  }, 8000);
+  try {
+    return await task();
+  } finally {
+    clearInterval(interval);
+  }
+}
+
+function buildReadAnswerPrompt(
+  context: TelegramLlmCommandContext,
+  input: {
+    source: string;
+    userText: string;
+    records: unknown;
+  },
+): string {
+  return [
+    'Eres el asistente conversacional de un bot de club.',
+    'El bot ya ha elegido una capacidad, ha consultado sus datos reales y te entrega esos datos en JSON.',
+    'Responde a la petición del usuario usando solo los datos proporcionados y el contexto del mensaje respondido si existe.',
+    'Si los datos no bastan para responder con seguridad, dilo de forma clara y menciona que dato falta.',
+    'No inventes IDs, enlaces, fechas, disponibilidad, reglas, dificultad, resultados ni contenido que no aparezca en los datos.',
+    'No uses HTML ni Markdown. El bot añadira enlaces utiles despues de tu respuesta.',
+    'Se breve y responde en el idioma natural del usuario cuando sea evidente.',
+    '',
+    `Fuente consultada: ${input.source}`,
+    `Mensaje del usuario: ${input.userText}`,
+    context.replyToBotMessageContext?.text ? `Mensaje del bot respondido: ${context.replyToBotMessageContext.text}` : 'Mensaje del bot respondido: (ninguno)',
+    'Datos recuperados:',
+    JSON.stringify(input.records),
+    '',
+    'Devuelve solo JSON valido con esta forma: {"answer":"respuesta breve en texto plano"}.',
+  ].join('\n');
+}
+
+function parseReadAnswer(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== 'object') {
+    return null;
+  }
+  const answer = (parsed as { answer?: unknown }).answer;
+  return typeof answer === 'string' && answer.trim() ? answer.trim() : null;
+}
+
+function appendGeneratedLinks(answer: string, links: string[]): string {
+  const uniqueLinks = Array.from(new Set(links)).slice(0, 5);
+  if (uniqueLinks.length === 0) {
+    return answer;
+  }
+  return `${answer}\n\nEnlaces: ${uniqueLinks.join(' · ')}`;
 }
 
 function linkToStart(payload: string, label: string): string {
@@ -508,13 +987,10 @@ export function selectCatalogRecommendationCandidateSet(input: {
   itemType: CatalogItemType;
   availableOnly: boolean;
 }): CatalogRecommendationCandidateSet {
-  const baseItems = filterByQuery(input.items, input.query, (item) => [
-    item.displayName,
-    item.originalName,
-    item.description,
-    item.publisher,
-    item.itemType,
-  ]).filter((item) => item.itemType === input.itemType);
+  const baseItems = rankCatalogRecommendationItems(
+    input.items.filter((item) => item.itemType === input.itemType),
+    input.query,
+  );
   const availableFilter = (item: CatalogItemRecord) => !input.availableOnly || !input.activeLoanItemIds.has(item.id);
   const toCandidate = (item: CatalogItemRecord, matchNote: string | null = null): CatalogRecommendationCandidate => ({
     item,
@@ -603,6 +1079,101 @@ function describeEmptyCatalogRecommendation(input: {
   const players = input.playerCount === null ? '' : ` para ${input.playerCount} personas`;
   const availability = input.availableOnly ? ' disponibles' : '';
   return `No he encontrado ${type}${availability}${players} con los metadatos actuales.`;
+}
+
+function rankCatalogRecommendationItems(items: CatalogItemRecord[], query: string | null): CatalogItemRecord[] {
+  const normalizedQuery = normalizeSearchText(query ?? '');
+  if (!normalizedQuery) {
+    return items;
+  }
+
+  const tokens = expandCatalogRecommendationQueryTokens(tokenizeSearchText(normalizedQuery));
+  const referenceItems = items.filter((item) => normalizeSearchText(catalogRecommendationTextCorpus(item)).includes(normalizedQuery));
+  const referenceIds = new Set(referenceItems.map((item) => item.id));
+  const referenceTerms = new Set(referenceItems.flatMap(catalogRecommendationMetadataTerms));
+  const candidates = referenceIds.size > 0 && referenceIds.size < items.length
+    ? items.filter((item) => !referenceIds.has(item.id))
+    : items;
+
+  return candidates
+    .map((item, index) => ({
+      item,
+      index,
+      score: scoreCatalogRecommendationItem(item, normalizedQuery, tokens, referenceTerms),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.item);
+}
+
+function scoreCatalogRecommendationItem(
+  item: CatalogItemRecord,
+  normalizedQuery: string,
+  tokens: string[],
+  referenceTerms: Set<string>,
+): number {
+  const textCorpus = normalizeSearchText(catalogRecommendationTextCorpus(item));
+  const fullCorpus = normalizeSearchText([
+    catalogRecommendationTextCorpus(item),
+    JSON.stringify(item.metadata ?? {}),
+  ].join(' '));
+  let score = fullCorpus.includes(normalizedQuery) ? 20 : 0;
+  for (const token of tokens) {
+    if (fullCorpus.includes(token)) {
+      score += 3;
+    }
+  }
+  for (const term of catalogRecommendationMetadataTerms(item)) {
+    if (referenceTerms.has(term)) {
+      score += 2;
+    }
+  }
+  if (textCorpus.includes(normalizedQuery)) {
+    score += 4;
+  }
+  return score;
+}
+
+function catalogRecommendationTextCorpus(item: CatalogItemRecord): string {
+  return [
+    item.displayName,
+    item.originalName,
+    item.description,
+    item.publisher,
+    item.itemType,
+  ].filter(Boolean).join(' ');
+}
+
+function catalogRecommendationMetadataTerms(item: CatalogItemRecord): string[] {
+  const metadata = item.metadata;
+  if (!metadata || typeof metadata !== 'object') {
+    return [];
+  }
+  return [
+    ...unknownStringArray((metadata as { mechanics?: unknown }).mechanics),
+    ...unknownStringArray((metadata as { categories?: unknown }).categories),
+  ].map(normalizeSearchText).filter(Boolean);
+}
+
+function unknownStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
+}
+
+function tokenizeSearchText(value: string): string[] {
+  const ignored = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'para', 'por', 'con', 'y', 'o', 'style', 'estilo']);
+  return value
+    .split(/[^a-z0-9]+/i)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !ignored.has(token));
+}
+
+function expandCatalogRecommendationQueryTokens(tokens: string[]): string[] {
+  const expanded = new Set(tokens);
+  const hasDeck = tokens.includes('deck');
+  const hasBuild = tokens.some((token) => token.startsWith('build') || token.startsWith('constru'));
+  if (hasDeck && hasBuild) {
+    ['deck', 'bag', 'pool', 'building', 'construction'].forEach((token) => expanded.add(token));
+  }
+  return Array.from(expanded);
 }
 
 function parseSelectedRecommendationIds(
@@ -812,6 +1383,13 @@ function endOfCurrentWeek(from: Date): Date {
 function arrayParam(params: Record<string, unknown>, key: string): string[] {
   const value = params[key];
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
+}
+
+function botSearchSourcesParam(params: Record<string, unknown>): BotSearchSource[] {
+  const allowed: BotSearchSource[] = ['schedule', 'catalog', 'storage', 'group_purchases', 'notices', 'lfg'];
+  const requested = new Set(arrayParam(params, 'sources'));
+  const selected = allowed.filter((source) => requested.has(source));
+  return selected.length > 0 ? selected : allowed;
 }
 
 function numberParam(params: Record<string, unknown>, key: string): number | null {

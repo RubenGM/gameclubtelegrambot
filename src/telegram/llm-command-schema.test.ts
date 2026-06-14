@@ -11,6 +11,68 @@ test('parseLlmCommandDecisionJson accepts a valid allowlisted decision', () => {
   assert.deepEqual(decision.action.params, { query: 'Dragon Ball', fileExtensions: ['stl'] });
 });
 
+test('parseLlmCommandDecisionJson accepts the multi-source search intent', () => {
+  const decision = parseLlmCommandDecisionJson(JSON.stringify({
+    ...validDecision(),
+    intent: 'bot.search',
+    action: {
+      type: 'call_internal_handler',
+      name: 'bot.search',
+      params: {
+        query: 'Star Wars',
+        sources: ['catalog', 'storage'],
+      },
+    },
+  }));
+
+  assert.equal(decision.intent, 'bot.search');
+  assert.deepEqual(decision.action.params.sources, ['catalog', 'storage']);
+});
+
+test('parseLlmCommandDecisionJson accepts general direct answers', () => {
+  const decision = parseLlmCommandDecisionJson(JSON.stringify({
+    ...validDecision(),
+    intent: 'general.answer',
+    reply: {
+      text: 'Sí, puedo explicarlo de forma general.',
+      sendNow: true,
+    },
+    action: {
+      type: 'answer_directly',
+      name: 'general.answer',
+      params: {},
+    },
+    safety: {
+      requiresApprovedMember: false,
+      requiresAdmin: false,
+      risk: 'read_only',
+      publicSideEffect: false,
+      destructive: false,
+      requiresPrivateChat: false,
+    },
+  }));
+
+  assert.equal(decision.intent, 'general.answer');
+  assert.equal(decision.action.type, 'answer_directly');
+});
+
+test('parseLlmCommandDecisionJson accepts optional progress messages', () => {
+  const decision = parseLlmCommandDecisionJson(JSON.stringify({
+    ...validDecision(),
+    progress: {
+      messages: [
+        'Voy a revisar Storage y quedarme solo con archivos STL.',
+        'Después prepararé una respuesta con enlaces útiles.',
+      ],
+    },
+  }));
+
+  assert.deepEqual(decision.progress.messages, [
+    'Voy a revisar Storage y quedarme solo con archivos STL.',
+    'Después prepararé una respuesta con enlaces útiles.',
+  ]);
+});
+
 test('parseLlmCommandDecisionJson rejects non JSON text', () => {
   assert.throws(
     () => parseLlmCommandDecisionJson('Claro, aqui tienes {"version":1}'),

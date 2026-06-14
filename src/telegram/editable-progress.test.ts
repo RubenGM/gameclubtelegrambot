@@ -138,7 +138,7 @@ test('startTelegramEditableProgress disables editing after the first edit failur
         bot: {
           async editMessageText() {
             editAttempts += 1;
-            throw new Error('message is not modified');
+            throw new Error('message can not be edited');
           },
         },
       },
@@ -158,7 +158,56 @@ test('startTelegramEditableProgress disables editing after the first edit failur
     ]);
     assert.equal(warnings.length, 1);
     assert.match(warnings[0] ?? '', /test\.progress-edit\.failed/);
-    assert.match(warnings[0] ?? '', /message is not modified/);
+    assert.match(warnings[0] ?? '', /message can not be edited/);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('startTelegramEditableProgress treats identical edit content as a successful no-op', async () => {
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  const replies: Array<{ message: string; options: TelegramReplyOptions | undefined }> = [];
+  const edits: Array<{ chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }> = [];
+  let editAttempts = 0;
+  console.warn = (message?: unknown) => {
+    warnings.push(String(message));
+  };
+  try {
+    const context = {
+      async reply(message: string, options?: TelegramReplyOptions) {
+        replies.push({ message, options });
+        return { message_id: 55 };
+      },
+      runtime: {
+        chat: { chatId: 100 },
+        bot: {
+          async editMessageText(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }) {
+            editAttempts += 1;
+            if (editAttempts === 1) {
+              throw new Error("Call to 'editMessageText' failed! (400: Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message)");
+            }
+            edits.push(input);
+          },
+        },
+      },
+    };
+
+    const progress = await startTelegramEditableProgress(context, 'Paso 1', {
+      editFailedEvent: 'test.progress-edit.failed',
+    });
+    const updated = await progress.update('Paso 1');
+    await progress.complete('Final');
+
+    assert.equal(updated, true);
+    assert.equal(editAttempts, 2);
+    assert.deepEqual(replies, [
+      { message: 'Paso 1', options: undefined },
+    ]);
+    assert.deepEqual(edits, [
+      { chatId: 100, messageId: 55, text: 'Final' },
+    ]);
+    assert.deepEqual(warnings, []);
   } finally {
     console.warn = originalWarn;
   }

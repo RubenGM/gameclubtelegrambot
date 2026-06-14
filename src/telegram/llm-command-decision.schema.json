@@ -7,6 +7,7 @@
     "intent",
     "confidence",
     "reply",
+    "progress",
     "needsClarification",
     "clarification",
     "requiresConfirmation",
@@ -21,6 +22,8 @@
       "type": "string",
       "enum": [
         "help.capabilities",
+        "general.answer",
+        "bot.search",
         "schedule.today",
         "schedule.upcoming",
         "schedule.search",
@@ -61,6 +64,18 @@
       "properties": {
         "text": { "type": "string", "minLength": 1 },
         "sendNow": { "type": "boolean" }
+      }
+    },
+    "progress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["messages"],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "maxItems": 4,
+          "items": { "type": "string", "minLength": 1, "maxLength": 180 }
+        }
       }
     },
     "needsClarification": { "type": "boolean" },
@@ -162,7 +177,8 @@
         "itemType",
         "expiresAt",
         "startsAt",
-        "groupTitle"
+        "groupTitle",
+        "sources"
       ],
       "properties": {
         "query": { "type": ["string", "null"] },
@@ -187,7 +203,14 @@
         "itemType": { "type": ["string", "null"], "enum": ["board-game", "expansion", "book", "rpg-book", "accessory", null] },
         "expiresAt": { "type": ["string", "null"] },
         "startsAt": { "type": ["string", "null"] },
-        "groupTitle": { "type": ["string", "null"] }
+        "groupTitle": { "type": ["string", "null"] },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["schedule", "catalog", "storage", "group_purchases", "notices", "lfg"]
+          }
+        }
       }
     }
   }

@@ -19,13 +19,19 @@ export const llmCommandDecisionSchema = z
     language: z.enum(['ca', 'es', 'en']).catch('es'),
     intent: z.enum(llmCommandIntentValues),
     confidence: z.number().min(0).max(1),
-    reply: z
-      .object({
-        text: z.string().trim().min(1),
-        sendNow: z.boolean(),
-      })
-      .strict(),
-    needsClarification: z.boolean(),
+	    reply: z
+	      .object({
+	        text: z.string().trim().min(1),
+	        sendNow: z.boolean(),
+	      })
+	      .strict(),
+	    progress: z
+	      .object({
+	        messages: z.array(z.string().trim().min(1).max(180)).max(4).default([]),
+	      })
+	      .strict()
+	      .default({ messages: [] }),
+	    needsClarification: z.boolean(),
     clarification: z
       .object({
         question: z.string().trim().min(1),

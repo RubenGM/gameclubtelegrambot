@@ -118,6 +118,36 @@ test('routeLlmCommandDecision executes data read intents even when the LLM selec
   });
 });
 
+test('routeLlmCommandDecision allows general direct answers', () => {
+  const outcome = routeLlmCommandDecision({
+    ...readDecision(),
+    intent: 'general.answer',
+    reply: {
+      text: 'Una ludoteca es una colección organizada de juegos.',
+      sendNow: true,
+    },
+    action: {
+      type: 'answer_directly',
+      name: 'general.answer',
+      params: {},
+    },
+    safety: {
+      requiresApprovedMember: false,
+      requiresAdmin: false,
+      risk: 'read_only',
+      publicSideEffect: false,
+      destructive: false,
+      requiresPrivateChat: false,
+    },
+  }, baseContext);
+
+  assert.deepEqual(outcome, {
+    type: 'answer_directly',
+    message: 'Una ludoteca es una colección organizada de juegos.',
+    intent: 'general.answer',
+  });
+});
+
 test('routeLlmCommandDecision executes catalog recommendations as read-only actions', () => {
   const outcome = routeLlmCommandDecision({
     ...readDecision(),
@@ -201,11 +231,12 @@ function readDecision(): LlmCommandDecision {
     language: 'es',
     intent: 'storage.search',
     confidence: 0.93,
-    reply: {
-      text: 'Busco archivos STL de Dragon Ball en Storage.',
-      sendNow: false,
-    },
-    needsClarification: false,
+	    reply: {
+	      text: 'Busco archivos STL de Dragon Ball en Storage.',
+	      sendNow: false,
+	    },
+	    progress: { messages: [] },
+	    needsClarification: false,
     clarification: null,
     requiresConfirmation: false,
     confirmation: null,

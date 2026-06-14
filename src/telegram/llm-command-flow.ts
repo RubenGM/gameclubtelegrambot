@@ -3,6 +3,7 @@ import { buildLlmCommandPrompt } from './llm-command-prompt.js';
 import { routeLlmCommandDecision, type LlmCommandRouteOutcome } from './llm-command-router.js';
 import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
 import type { LlmCommandMetricAction, LlmCommandMetricResult, LlmCommandMetrics } from './llm-command-metrics.js';
+import type { LlmCommandDecision } from './llm-command-schema.js';
 import { LlmCommandServiceError } from './llm-command-service.js';
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import { catalogLoanCallbackPrefixes, handleTelegramCatalogLoanCallback } from './catalog-loan-flow.js';
@@ -23,11 +24,11 @@ export const llmCommandCallbackPrefixes = {
 
 export type TelegramLlmCommandContext = TelegramCommandHandlerContext & {
   runtime: TelegramCommandHandlerContext['runtime'] & {
-    llmCommands?: ResolvedLlmCommandConfig;
-    llmCommandService?: {
-      interpret(prompt: string): Promise<import('./llm-command-schema.js').LlmCommandDecision>;
-      generateJson?(prompt: string): Promise<unknown>;
-    };
+	    llmCommands?: ResolvedLlmCommandConfig;
+	    llmCommandService?: {
+	      interpret(prompt: string): Promise<import('./llm-command-schema.js').LlmCommandDecision>;
+	      generateJson?(prompt: string, schemaPath?: string): Promise<unknown>;
+	    };
     llmCommandMetrics?: LlmCommandMetrics;
   };
 };
@@ -105,7 +106,7 @@ export async function handleTelegramLlmFallbackText(context: TelegramLlmCommandC
     context.runtime.chat.kind !== 'private' ||
     !context.runtime.actor.isApproved ||
     context.runtime.actor.isBlocked ||
-    context.runtime.session.current !== null
+    isBlockingLlmFallbackSession(context.runtime.session.current)
   ) {
     return false;
   }
@@ -177,14 +178,20 @@ async function handleTelegramLlmCommandText(
     return;
   }
 
-  const language = (context.runtime.bot.language ?? 'ca') as BotLanguage;
-  const startedAt = Date.now();
-  const progress = await startTelegramEditableProgress(
-    context,
-    'Petición recibida. Estoy analizando lo que pides...',
-    { editFailedEvent: 'llm-command.progress-edit.failed' },
-    context.messageThreadId ? { messageThreadId: context.messageThreadId } : undefined,
-  );
+	  const language = (context.runtime.bot.language ?? 'ca') as BotLanguage;
+	  const startedAt = Date.now();
+	  const progressOptions = context.messageThreadId ? { messageThreadId: context.messageThreadId } : undefined;
+	  const progress = await startTelegramEditableProgress(
+	    context,
+	    buildLlmProgressMessage({
+	      percent: 10,
+	      phase: 'Petición recibida',
+	      detail: 'Estoy preparando el contexto y enviando tu mensaje a la IA.',
+	      userText: input.text,
+	    }),
+	    { editFailedEvent: 'llm-command.progress-edit.failed' },
+	    progressOptions,
+	  );
   const prompt = buildLlmCommandPrompt({
     userText: input.text,
     language,
@@ -192,6 +199,7 @@ async function handleTelegramLlmCommandText(
     isAdmin: context.runtime.actor.isAdmin,
     chatKind: context.runtime.chat.kind,
     hasTopic: Boolean(context.messageThreadId),
+    ...(context.replyToBotMessageContext ? { replyContext: context.replyToBotMessageContext } : {}),
     history: readLlmCommandSessionHistory(context, config.maxHistory),
     maxPromptChars: config.maxPromptChars,
   });
@@ -199,16 +207,36 @@ async function handleTelegramLlmCommandText(
   let decision: Awaited<ReturnType<typeof service.interpret>>;
   try {
     decision = await runWithProgressHeartbeat(
-      () => service.interpret(prompt),
-      progress,
-      [
-        'Petición recibida. Estoy analizando lo que pides...',
-        'Sigo esperando la respuesta de la IA...',
-        'La IA está tardando más de lo normal. Mantengo la petición abierta...',
-        'Ya casi está: estoy esperando el JSON de la IA...',
-      ],
-      context.messageThreadId ? { messageThreadId: context.messageThreadId } : undefined,
-    );
+	      () => service.interpret(prompt),
+	      progress,
+	      [
+	        buildLlmProgressMessage({
+	          percent: 25,
+	          phase: 'Analizando intención',
+	          detail: 'La IA está comparando tu mensaje con las capacidades del bot.',
+	          userText: input.text,
+	        }),
+	        buildLlmProgressMessage({
+	          percent: 40,
+	          phase: 'Esperando respuesta',
+	          detail: 'Sigo esperando una decisión estructurada de la IA.',
+	          userText: input.text,
+	        }),
+	        buildLlmProgressMessage({
+	          percent: 55,
+	          phase: 'Validando decisión',
+	          detail: 'La petición sigue abierta; en cuanto llegue el JSON lo comprobaré.',
+	          userText: input.text,
+	        }),
+	        buildLlmProgressMessage({
+	          percent: 60,
+	          phase: 'Casi listo',
+	          detail: 'Estoy esperando la salida final para decidir el siguiente paso.',
+	          userText: input.text,
+	        }),
+	      ],
+	      progressOptions,
+	    );
   } catch (error) {
     await recordLlmCommandMetric(context, {
       source: input.source,
@@ -245,22 +273,28 @@ async function handleTelegramLlmCommandText(
     result: metricResultForOutcome(outcome),
     reason: metricReasonForOutcome(outcome),
   });
-  await replyWithOutcome(context, outcome, progress, input.text);
-}
+	  await replyWithOutcome(context, outcome, progress, input.text, readDecisionProgressMessages(decision));
+	}
 
 async function replyWithOutcome(
   context: TelegramLlmCommandContext,
   outcome: LlmCommandRouteOutcome,
   progress?: TelegramEditableProgress,
   userText?: string,
+  progressMessages: string[] = [],
 ): Promise<void> {
   const options = buildLlmReplyOptions(context);
   if (outcome.type === 'execute_read') {
-    await progress?.update('Petición entendida. Consultando los datos...');
+    await progress?.update(buildLlmProgressMessage({
+      percent: 65,
+      phase: 'Petición entendida',
+      detail: progressMessages[0] ?? 'Consultando los datos internos del bot.',
+      ...(userText ? { userText } : {}),
+    }));
     const readInput = userText ? { ...outcome, userText } : outcome;
     const message = await executeTelegramLlmReadAction(context, {
       ...readInput,
-      ...(progress ? { progress } : {}),
+      ...(progress ? { progress: createLlmReadProgress(progress, userText, progressMessages.slice(1)) } : {}),
     });
     const readOptions: TelegramReplyOptions = { ...options, parseMode: 'HTML' };
     if (progress) {
@@ -271,7 +305,12 @@ async function replyWithOutcome(
     return;
   }
   if (outcome.type === 'request_confirmation') {
-    await progress?.update('Petición entendida. Preparando confirmación...');
+    await progress?.update(buildLlmProgressMessage({
+      percent: 75,
+      phase: 'Petición entendida',
+      detail: progressMessages[0] ?? 'Preparando una confirmación antes de iniciar el flujo normal.',
+      ...(userText ? { userText } : {}),
+    }));
     await startLlmWriteConfirmation(context, outcome, progress);
     return;
   }
@@ -280,7 +319,68 @@ async function replyWithOutcome(
     await progress.complete(resolveOutcomeReply(outcome), options);
   } else {
     await context.reply(resolveOutcomeReply(outcome), options);
+	  }
+	}
+
+function createLlmReadProgress(
+  progress: TelegramEditableProgress,
+  userText: string | undefined,
+  customMessages: string[],
+): { update(message: string): Promise<boolean> } {
+  let index = 0;
+  const phases = [
+    { percent: 75, phase: 'Buscando información' },
+    { percent: 85, phase: 'Filtrando resultados' },
+    { percent: 92, phase: 'Preparando respuesta' },
+  ];
+  return {
+    update(message: string) {
+      const phase = phases[Math.min(index, phases.length - 1)] ?? { percent: 92, phase: 'Preparando respuesta' };
+      const detail = customMessages[index] ?? message;
+      index += 1;
+      return progress.update(buildLlmProgressMessage({
+        percent: phase.percent,
+        phase: phase.phase,
+        detail,
+        ...(userText ? { userText } : {}),
+      }));
+    },
+  };
+}
+
+function buildLlmProgressMessage(input: {
+  percent: number;
+  phase: string;
+  detail: string;
+  userText?: string;
+}): string {
+  const percent = Math.max(0, Math.min(99, Math.round(input.percent)));
+  return [
+    renderProgressBar(percent),
+    sanitizeProgressText(input.phase, 120),
+    sanitizeProgressText(input.detail, 220),
+  ].filter(Boolean).join('\n\n');
+}
+
+function renderProgressBar(percent: number): string {
+  const total = 10;
+  const filled = Math.max(0, Math.min(total, Math.round((percent / 100) * total)));
+  return `[${'#'.repeat(filled)}${'-'.repeat(total - filled)}]`;
+}
+
+function readDecisionProgressMessages(decision: LlmCommandDecision): string[] {
+  return decision.progress.messages
+    .map((message) => sanitizeProgressText(message, 180))
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function sanitizeProgressText(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
   }
+  return normalized.length > maxLength ? `${normalized.slice(0, Math.max(0, maxLength - 3))}...` : normalized;
 }
 
 async function runWithProgressHeartbeat<T>(
@@ -704,6 +804,13 @@ function getLlmCommandConfig(context: TelegramLlmCommandContext): ResolvedLlmCom
 
 function isLlmCommandsEnabled(context: TelegramLlmCommandContext): boolean {
   return Boolean(getLlmCommandConfig(context)?.enabled);
+}
+
+function isBlockingLlmFallbackSession(session: TelegramLlmCommandContext['runtime']['session']['current']): boolean {
+  if (!session) {
+    return false;
+  }
+  return session.flowKey !== 'catalog-read';
 }
 
 function isExplicitGroupLlmRequest(context: TelegramLlmCommandContext, text: string): boolean {

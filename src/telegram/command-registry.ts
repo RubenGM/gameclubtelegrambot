@@ -85,6 +85,10 @@ export interface TelegramCommandHandlerContext {
   callbackData?: string;
   messageThreadId?: number;
   replyToBotMessage?: boolean;
+  replyToBotMessageContext?: {
+    messageId?: number;
+    text?: string;
+  };
   messageMedia?: {
     attachmentKind: string;
     fileId?: string | null;

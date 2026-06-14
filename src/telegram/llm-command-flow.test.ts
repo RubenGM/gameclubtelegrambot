@@ -68,18 +68,43 @@ test('handleTelegramLlmAskCommand sends an immediate editable receipt before int
 
   await handleTelegramLlmAskCommand(context);
 
-  assert.equal(context.replies[0], 'Petición recibida. Estoy analizando lo que pides...');
+  assert.equal(context.replies[0], [
+    '[#---------]',
+    'Petición recibida',
+    'Estoy preparando el contexto y enviando tu mensaje a la IA.',
+  ].join('\n\n'));
   assert.equal(context.replies.length, 1);
-  assert.deepEqual(context.edits.map((edit) => edit.text), [
-    'Petición entendida. Preparando confirmación...',
+  assert.match(context.edits[0]?.text ?? '', /\[########--\]\n\nPetición entendida/);
+  assert.match(context.edits[0]?.text ?? '', /Preparando una confirmación/);
+  assert.doesNotMatch(context.edits[0]?.text ?? '', /Progreso:|Fase:|Detalle:|Petición:/);
+  assert.equal(
+    context.edits[1]?.text,
     'Voy a preparar un aviso con el texto "Mañana abrimos media hora más tarde.".\n\n¿Quieres que prepare el flujo normal con estos datos?',
-  ]);
+  );
   assert.deepEqual(context.edits.at(-1)?.options, {
     inlineKeyboard: [[
       { text: 'Preparar', callbackData: llmCommandCallbackPrefixes.confirmWrite, semanticRole: 'success' },
       { text: 'Cancelar', callbackData: llmCommandCallbackPrefixes.cancelWrite, semanticRole: 'danger' },
     ]],
   });
+});
+
+test('handleTelegramLlmAskCommand shows LLM-provided progress messages while preparing the next step', async () => {
+  const context = createContext({
+    messageText: '/ask crea un aviso diciendo que abrimos tarde',
+    decision: {
+      ...noticeCreateDecision(),
+      progress: {
+        messages: ['He entendido que quieres publicar un aviso; voy a preparar una confirmación privada.'],
+      },
+    },
+    editableProgress: true,
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.match(context.edits[0]?.text ?? '', /He entendido que quieres publicar un aviso/);
+  assert.match(context.edits[0]?.text ?? '', /\[########--\]/);
 });
 
 test('handleTelegramLlmMenuText is gated by feature flag and starts a session when enabled', async () => {
@@ -109,6 +134,21 @@ test('handleTelegramLlmFallbackText ignores ordinary text unless fallback is ena
   assert.equal(enabled.replies.at(-1), 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.');
 });
 
+test('handleTelegramLlmFallbackText handles private free text while catalog read detail is active', async () => {
+  const context = createContext({
+    messageText: 'qué juegos de dos personas hay disponibles?',
+  });
+  await context.session.start({
+    flowKey: 'catalog-read',
+    stepKey: 'browse',
+    data: { view: 'item', page: 1, itemId: 7 },
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(context), true);
+  assert.equal(context.servicePrompts.length, 1);
+  assert.match(context.servicePrompts[0] ?? '', /qué juegos de dos personas/);
+});
+
 test('handleTelegramLlmFallbackText only handles group text when it mentions or replies to the bot', async () => {
   const ignored = createContext({
     chatKind: 'group',
@@ -131,6 +171,20 @@ test('handleTelegramLlmFallbackText only handles group text when it mentions or 
     messageThreadId: 42,
     inlineKeyboard: [[{ text: 'Abrir privado', url: 'https://t.me/gameclubbot?start=llm_ask' }]],
   });
+
+  const replied = createContext({
+    chatKind: 'group',
+    messageText: '¿y alguno disponible?',
+    replyToBotMessage: true,
+    replyToBotMessageContext: {
+      messageId: 77,
+      text: 'Resultados del catálogo:\n\n1. Dune - board-game',
+    },
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(replied), true);
+  assert.match(replied.servicePrompts[0] ?? '', /Mensaje del bot al que responde el usuario/);
+  assert.match(replied.servicePrompts[0] ?? '', /Resultados del catálogo/);
 });
 
 test('handleTelegramLlmAskCommand records sanitized failure metrics without leaking prompts', async () => {
@@ -167,6 +221,24 @@ test('handleTelegramLlmAskCommand tells the user when interpretation times out',
   await handleTelegramLlmAskCommand(context);
 
   assert.equal(context.replies.at(-1), 'La IA ha tardado demasiado en interpretar la petición. Prueba de nuevo en unos momentos o usa el menú normal.');
+  assert.equal(context.metrics.at(-1)?.result, 'timeout');
+});
+
+test('handleTelegramLlmAskCommand edits the receipt when interpretation times out', async () => {
+  const context = createContext({
+    messageText: '/ask qué STL tenemos para Mutant Chronicles?',
+    serviceError: new LlmCommandServiceError('timeout', 'Codex timed out after 60000 ms'),
+    editableProgress: true,
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies.length, 1);
+  assert.match(context.replies[0] ?? '', /Petición recibida/);
+  assert.equal(
+    context.edits.at(-1)?.text,
+    'La IA ha tardado demasiado en interpretar la petición. Prueba de nuevo en unos momentos o usa el menú normal.',
+  );
   assert.equal(context.metrics.at(-1)?.result, 'timeout');
 });
 
@@ -325,6 +397,7 @@ function createContext({
   chatKind = 'private',
   messageThreadId,
   replyToBotMessage = false,
+  replyToBotMessageContext,
   serviceError,
   metricsError,
   editableProgress = false,
@@ -337,6 +410,7 @@ function createContext({
   chatKind?: 'private' | 'group' | 'group-news';
   messageThreadId?: number;
   replyToBotMessage?: boolean;
+  replyToBotMessageContext?: { messageId?: number; text?: string };
   serviceError?: Error;
   metricsError?: Error;
   editableProgress?: boolean;
@@ -359,6 +433,7 @@ function createContext({
     messageText,
     ...(messageThreadId !== undefined ? { messageThreadId } : {}),
     replyToBotMessage,
+    ...(replyToBotMessageContext ? { replyToBotMessageContext } : {}),
     from: {
       id: 123,
       first_name: 'Ada',
@@ -482,11 +557,12 @@ function helpDecision(): LlmCommandDecision {
     language: 'es',
     intent: 'help.capabilities',
     confidence: 0.95,
-    reply: {
-      text: 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.',
-      sendNow: true,
-    },
-    needsClarification: false,
+	    reply: {
+	      text: 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.',
+	      sendNow: true,
+	    },
+	    progress: { messages: [] },
+	    needsClarification: false,
     clarification: null,
     requiresConfirmation: false,
     confirmation: null,
@@ -522,11 +598,12 @@ function writeDecision(
     language: 'es',
     intent,
     confidence: 0.95,
-    reply: {
-      text: 'Preparo el flujo normal.',
-      sendNow: false,
-    },
-    needsClarification: false,
+	    reply: {
+	      text: 'Preparo el flujo normal.',
+	      sendNow: false,
+	    },
+	    progress: { messages: [] },
+	    needsClarification: false,
     clarification: null,
     requiresConfirmation: true,
     confirmation: {

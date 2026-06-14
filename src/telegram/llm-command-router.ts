@@ -78,7 +78,7 @@ export function routeLlmCommandDecision(
     };
   }
 
-  if (decision.action.type === 'answer_directly' && decision.intent === 'help.capabilities') {
+  if (decision.action.type === 'answer_directly' && (decision.intent === 'help.capabilities' || decision.intent === 'general.answer')) {
     return {
       type: 'answer_directly',
       message: decision.reply.text,

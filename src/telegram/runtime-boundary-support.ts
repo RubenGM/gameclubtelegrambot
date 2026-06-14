@@ -83,6 +83,10 @@ export interface TelegramContextLike {
   callbackData?: string | undefined;
   messageThreadId?: number | undefined;
   replyToBotMessage?: boolean | undefined;
+  replyToBotMessageContext?: {
+    messageId?: number;
+    text?: string;
+  } | undefined;
   messageMedia?: {
     attachmentKind: string;
     fileId?: string | null;
@@ -419,6 +423,8 @@ function createGrammyTelegramBot({
         context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
         context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
         context.messageThreadId = resolveMessageThreadId(context.msg ?? context.message);
+        context.replyToBotMessageContext = resolveReplyToBotMessageContext(context.msg ?? context.message, botUsername) ?? undefined;
+        context.replyToBotMessage = Boolean(context.replyToBotMessageContext);
 
         await handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth));
       };
@@ -468,7 +474,8 @@ function createGrammyTelegramBot({
         context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
         context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
         context.messageThreadId = resolveMessageThreadId(context.msg ?? context.message);
-        context.replyToBotMessage = resolveReplyToBotMessage(context.msg ?? context.message, botUsername);
+        context.replyToBotMessageContext = resolveReplyToBotMessageContext(context.msg ?? context.message, botUsername) ?? undefined;
+        context.replyToBotMessage = Boolean(context.replyToBotMessageContext);
         if (!context.messageText || (context.messageText.startsWith('/') && !isTelegramInternalTextCommand(context.messageText))) {
           return;
         }
@@ -487,7 +494,8 @@ function createGrammyTelegramBot({
         context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
         context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
         context.messageThreadId = resolveMessageThreadId(context.msg ?? context.message);
-        context.replyToBotMessage = resolveReplyToBotMessage(context.msg ?? context.message, botUsername);
+        context.replyToBotMessageContext = resolveReplyToBotMessageContext(context.msg ?? context.message, botUsername) ?? undefined;
+        context.replyToBotMessage = Boolean(context.replyToBotMessageContext);
         context.messageMedia = extractTelegramMessageMedia(context.msg ?? context.message);
         context.sharedChat = extractTelegramSharedChat(context.msg ?? context.message);
         context.newChatMembers = extractTelegramNewChatMembers(context.msg ?? context.message);
@@ -757,24 +765,50 @@ function resolveMessageThreadId(message: unknown): number | undefined {
   return typeof candidate === 'number' ? candidate : undefined;
 }
 
-function resolveReplyToBotMessage(message: unknown, botUsername: string | undefined): boolean {
+function resolveReplyToBotMessageContext(
+  message: unknown,
+  botUsername: string | undefined,
+): { messageId?: number; text?: string } | null {
   if (!message || typeof message !== 'object' || !botUsername) {
-    return false;
+    return null;
   }
 
   const maybeMessage = message as Record<string, unknown>;
   const replyToMessage = maybeMessage.reply_to_message ?? maybeMessage.replyToMessage;
   if (!replyToMessage || typeof replyToMessage !== 'object') {
-    return false;
+    return null;
   }
 
-  const from = (replyToMessage as Record<string, unknown>).from;
+  const replyRecord = replyToMessage as Record<string, unknown>;
+  const from = replyRecord.from;
   if (!from || typeof from !== 'object') {
-    return false;
+    return null;
   }
 
   const username = (from as Record<string, unknown>).username;
-  return typeof username === 'string' && username.toLowerCase() === botUsername.toLowerCase();
+  if (typeof username !== 'string' || username.toLowerCase() !== botUsername.toLowerCase()) {
+    return null;
+  }
+
+  const text = firstNonEmptyString(replyRecord.text, replyRecord.caption);
+  const messageId = resolveTelegramMessageId(replyToMessage);
+  return {
+    ...(messageId !== undefined ? { messageId } : {}),
+    ...(text ? { text: truncateReplyContextText(text) } : {}),
+  };
+}
+
+function firstNonEmptyString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function truncateReplyContextText(value: string): string {
+  return value.length > 1200 ? `${value.slice(0, 1197)}...` : value;
 }
 
 function resolveTelegramMessageId(message: unknown): number | undefined {

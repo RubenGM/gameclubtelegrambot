@@ -2,6 +2,8 @@ import type { TelegramChatContextKind } from './chat-context.js';
 
 export const llmCommandIntentValues = [
   'help.capabilities',
+  'general.answer',
+  'bot.search',
   'schedule.today',
   'schedule.upcoming',
   'schedule.search',
@@ -49,6 +51,8 @@ export interface LlmCommandCapability {
 
 export const llmCommandCapabilities: LlmCommandCapability[] = [
   capability('help.capabilities', 'explicar que puede hacer el bot', 'read_only', false),
+  capability('general.answer', 'responder preguntas generales o conversacionales que no requieren datos internos del bot', 'read_only', false),
+  capability('bot.search', 'buscar una misma consulta en varias fuentes del bot y devolver una respuesta agrupada con enlaces', 'read_only', true),
   capability('schedule.today', 'consultar actividades de hoy', 'read_only', true),
   capability('schedule.upcoming', 'consultar proximas actividades', 'read_only', true),
   capability('schedule.search', 'buscar actividades por fecha, mesa, juego, organizador o plazas', 'read_only', true),

@@ -68,6 +68,9 @@ function createTelegramEditableProgressForMessage(
       });
       return true;
     } catch (error) {
+      if (isTelegramMessageNotModifiedError(error)) {
+        return true;
+      }
       canEdit = false;
       console.warn(JSON.stringify({
         event: options.editFailedEvent,
@@ -86,6 +89,11 @@ function createTelegramEditableProgressForMessage(
       }
     },
   };
+}
+
+function isTelegramMessageNotModifiedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /message is not modified/i.test(message);
 }
 
 export function extractTelegramReplyMessageId(value: unknown): number | null {
