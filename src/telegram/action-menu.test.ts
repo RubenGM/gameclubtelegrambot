@@ -139,17 +139,18 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
     replyKeyboard: [
       [{ text: 'Revisar sol·licituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
       [{ text: 'Taules', semanticRole: 'primary' }, { text: 'Benvingudes', semanticRole: 'secondary' }],
-      [{ text: 'Actualitzar BGG', semanticRole: 'secondary' }],
+      [{ text: 'Actualitzar BGG', semanticRole: 'secondary' }, { text: 'Models IA', semanticRole: 'secondary' }],
       [{ text: 'Menú soci', semanticRole: 'secondary' }],
       [{ text: 'Inici', semanticRole: 'navigation' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg'], ['member_debug'], ['start', 'help']],
+    actionRows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['member_debug'], ['start', 'help']],
     actions: [
       { id: 'review_access', label: 'Revisar sol·licituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
       { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
       { id: 'tables', label: 'Taules', telemetryActionKey: 'menu.tables_admin', uxSection: 'admin' },
       { id: 'welcome_templates', label: 'Benvingudes', telemetryActionKey: 'menu.welcome_templates', uxSection: 'admin' },
       { id: 'update_bgg', label: 'Actualitzar BGG', telemetryActionKey: 'menu.update_bgg', uxSection: 'admin' },
+      { id: 'llm_models', label: 'Models IA', telemetryActionKey: 'menu.llm_models', uxSection: 'admin' },
       { id: 'member_debug', label: 'Menú soci', telemetryActionKey: 'menu.member_debug', uxSection: 'utility' },
       { id: 'start', label: 'Inici', telemetryActionKey: 'menu.start', uxSection: 'utility' },
       { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
@@ -170,6 +171,13 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
     actionId: 'update_bgg',
     label: 'Actualitzar BGG',
     telemetryActionKey: 'menu.update_bgg',
+    uxSection: 'admin',
+  });
+  assert.deepEqual(resolveTelegramAdminMenuSelection({ context, text: 'Modelos IA' }), {
+    menuId: 'private-admin-tools',
+    actionId: 'llm_models',
+    label: 'Models IA',
+    telemetryActionKey: 'menu.llm_models',
     uxSection: 'admin',
   });
 });

@@ -21,7 +21,7 @@ export interface LlmCommandGenerateJsonOptions {
 }
 
 export interface LlmCommandService {
-  interpret(prompt: string): Promise<LlmCommandDecision>;
+  interpret(prompt: string, options?: LlmCommandGenerateJsonOptions): Promise<LlmCommandDecision>;
   generateJson(prompt: string, schemaPath?: string, options?: LlmCommandGenerateJsonOptions): Promise<unknown>;
 }
 
@@ -49,7 +49,12 @@ export function createLlmCommandService({
   spawnImpl?: LlmCommandSpawn;
 }): LlmCommandService {
   return {
-    interpret: (prompt) => runOpencodeJsonPrompt({ prompt, config, spawnImpl }),
+    interpret: (prompt, options) => runOpencodeJsonPrompt({
+      prompt,
+      config,
+      spawnImpl,
+      ...(options ? { options } : {}),
+    }),
     generateJson: (prompt, schemaPath, options) => runOpencodeRawJsonPrompt({
       prompt,
       config,
@@ -64,15 +69,18 @@ async function runOpencodeJsonPrompt({
   prompt,
   config,
   spawnImpl,
+  options,
 }: {
   prompt: string;
   config: LlmCommandServiceConfig;
   spawnImpl: LlmCommandSpawn;
+  options?: LlmCommandGenerateJsonOptions;
 }): Promise<LlmCommandDecision> {
+  const effectiveConfig = applyLlmCommandJsonOptions(config, options);
   if ((config.provider ?? 'opencode') === 'codex') {
     const stdout = await runCodexJsonPrompt({
       prompt,
-      config,
+      config: effectiveConfig,
       spawnImpl,
       schemaPath: 'src/telegram/llm-command-decision.schema.json',
     });
@@ -93,9 +101,9 @@ async function runOpencodeJsonPrompt({
 
   const stdout = await runPromptProcess({
     command: opencodeBin,
-    args: ['run', '--stdin', '--model', config.model],
+    args: ['run', '--stdin', '--model', effectiveConfig.model],
     prompt,
-    timeoutMs: config.timeoutMs,
+    timeoutMs: effectiveConfig.timeoutMs,
     spawnImpl,
   });
 

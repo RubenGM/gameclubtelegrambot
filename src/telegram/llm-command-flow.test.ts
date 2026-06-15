@@ -404,8 +404,12 @@ test('resolveNextStepModelOptions escalates only allowlisted semantic read inten
     type: 'execute_read',
     intent: 'catalog.detail',
     params: {},
+  }, {
+    normal: { model: 'gpt-5.4-mini', reasoningEffort: 'low' },
+    stronger: { model: 'gpt-5.4', reasoningEffort: 'medium' },
+    updatedAt: null,
   }), {
-    model: 'gpt-5.5',
+    model: 'gpt-5.4',
     reasoningEffort: 'medium',
   });
 

@@ -126,6 +126,31 @@ semántica sobre datos reales, puede pedir escalado con `nextStep`. El bot valid
 esa petición localmente y, sólo para intents de lectura permitidos, ejecuta la
 siguiente llamada `generateJson` con `gpt-5.5` y reasoning `medium`.
 
+Los admins pueden cambiar estos dos perfiles desde Telegram, en el submenú
+`Admin` -> `Modelos IA`:
+
+- Perfil normal: usado para la primera interpretación de la petición.
+- Perfil de más pensamiento: usado cuando `nextStep.useStrongerModel=true` y el
+  intent está en la allowlist de escalado.
+
+La selección se guarda en `app_metadata` con clave `llm.model_settings`, tiene
+efecto inmediato y no requiere reiniciar el servicio. Si no hay selección
+guardada o no se puede cargar, el fallback sigue siendo `gpt-5.4-mini` con
+`low` para normal y `gpt-5.5` con `medium` para más pensamiento.
+
+Modelos seleccionables:
+
+- `GPT-5.3-Codex-Spark`: `none`, `low`, `medium`, `high`, `xhigh`.
+- `GPT-5.4-Mini`: `none`, `low`, `medium`.
+- `GPT-5.4`: `none`, `low`, `medium`.
+- `GPT-5.5`: `none`, `low`, `medium`.
+
+El mismo menú permite lanzar un test pequeño para una combinación de
+modelo/reasoning. El test comprueba una interpretación estructurada de Storage,
+mide duración y guarda el resultado en `data/llm-model-tests/<modelo>_<reasoning>.json`,
+sobrescribiendo el resultado anterior de esa misma combinación. Tokens y coste
+se guardan como `null` cuando Codex no los expone de forma fiable.
+
 ## Contrato JSON de interpretación
 
 La primera pasada LLM debe devolver un objeto `LlmCommandDecision`:
@@ -203,8 +228,8 @@ La segunda pasada usa `src/telegram/llm-read-answer.schema.json`. Si falla, el
 bot debe usar un fallback determinista con enlaces.
 
 Si la primera pasada pidió escalado y el intent está permitido, esta segunda
-pasada usa `gpt-5.5 medium`; si no, usa el modelo base configurado para la
-feature.
+pasada usa el perfil de más pensamiento configurado por admin; si no, usa el
+modelo base configurado para la feature.
 
 Ejemplos donde se usa o se puede usar esta segunda pasada:
 

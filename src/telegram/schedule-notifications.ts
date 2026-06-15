@@ -61,6 +61,7 @@ export async function publishCalendarSnapshotToNewsGroups({
   change,
   sendGroupMessage,
   deleteMessage,
+  editMessageText,
   snapshotStorage,
   newsGroupRepository,
   database,
@@ -73,6 +74,7 @@ export async function publishCalendarSnapshotToNewsGroups({
   change: ScheduleCalendarChange;
   sendGroupMessage?: (chatId: number, message: string, options?: { parseMode?: 'HTML'; messageThreadId?: number }) => Promise<TelegramSentMessage | void>;
   deleteMessage?: (input: { chatId: number; messageId: number }) => Promise<void>;
+  editMessageText?: (input: { chatId: number; messageId: number; text: string; options?: { parseMode?: 'HTML' } }) => Promise<void>;
   snapshotStorage?: AppMetadataSessionStorage;
   newsGroupRepository: NewsGroupRepository;
   database: unknown;
@@ -108,8 +110,9 @@ export async function publishCalendarSnapshotToNewsGroups({
 
   await Promise.all(
     groups.map(async (group) => {
+      const text = `${message}\n\n${footer}`;
       try {
-        const sent = await sendGroupMessage(group.chatId, `${message}\n\n${footer}`, {
+        const sent = await sendGroupMessage(group.chatId, text, {
           parseMode: 'HTML',
           ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
         });
@@ -118,6 +121,7 @@ export async function publishCalendarSnapshotToNewsGroups({
           messageThreadId: group.messageThreadId,
           sent,
           ...(deleteMessage ? { deleteMessage } : {}),
+          ...(editMessageText ? { editMessageText } : {}),
           ...(snapshotStorage ? { snapshotStorage } : {}),
         });
       } catch (error) {
@@ -138,12 +142,14 @@ async function rememberAndDeletePreviousCalendarSnapshot({
   messageThreadId,
   sent,
   deleteMessage,
+  editMessageText,
   snapshotStorage,
 }: {
   chatId: number;
   messageThreadId: number | null;
   sent: TelegramSentMessage | void;
   deleteMessage?: (input: { chatId: number; messageId: number }) => Promise<void>;
+  editMessageText?: (input: { chatId: number; messageId: number; text: string; options?: { parseMode?: 'HTML' } }) => Promise<void>;
   snapshotStorage?: AppMetadataSessionStorage;
 }): Promise<void> {
   if (!snapshotStorage || !sent?.messageId) {
@@ -166,14 +172,41 @@ async function rememberAndDeletePreviousCalendarSnapshot({
   try {
     await deleteMessage({ chatId: previous.chatId, messageId: previous.messageId });
   } catch (error) {
+    const deleteError = error instanceof Error ? error.message : String(error);
     console.warn(JSON.stringify({
       event: 'schedule.calendar-broadcast.previous-delete.failed',
       chatId: previous.chatId,
       messageThreadId: previous.messageThreadId,
       messageId: previous.messageId,
-      error: error instanceof Error ? error.message : String(error),
+      error: deleteError,
     }));
+
+    if (!editMessageText) {
+      return;
+    }
+
+    try {
+      await editMessageText({
+        chatId: previous.chatId,
+        messageId: previous.messageId,
+        text: formatReplacedCalendarSnapshotMessage(),
+        options: { parseMode: 'HTML' },
+      });
+    } catch (editError) {
+      console.warn(JSON.stringify({
+        event: 'schedule.calendar-broadcast.previous-replace.failed',
+        chatId: previous.chatId,
+        messageThreadId: previous.messageThreadId,
+        messageId: previous.messageId,
+        error: editError instanceof Error ? editError.message : String(editError),
+        deleteError,
+      }));
+    }
   }
+}
+
+function formatReplacedCalendarSnapshotMessage(): string {
+  return '<i>Calendari substituït per una actualització més recent. Telegram no ha permès esborrar aquest missatge anterior.</i>';
 }
 
 function buildCalendarSnapshotMessageKey(chatId: number, messageThreadId: number | null): string {

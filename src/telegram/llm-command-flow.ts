@@ -15,6 +15,13 @@ import { storageCallbackPrefixes, handleTelegramStorageCallback, handleTelegramS
 import { executeTelegramLlmReadAction } from './llm-command-read-actions.js';
 import { startTelegramEditableProgress, type TelegramEditableProgress } from './editable-progress.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
+import {
+  createAppMetadataLlmModelSettingsStore,
+  defaultLlmModelSettings,
+  selectionToGenerateJsonOptions,
+  type LlmModelSettings,
+} from './llm-model-settings.js';
 
 export const llmCommandFlowKey = 'llm-command';
 export const llmCommandCallbackPrefixes = {
@@ -26,7 +33,7 @@ export type TelegramLlmCommandContext = TelegramCommandHandlerContext & {
   runtime: TelegramCommandHandlerContext['runtime'] & {
 	    llmCommands?: ResolvedLlmCommandConfig;
 	    llmCommandService?: {
-	      interpret(prompt: string): Promise<import('./llm-command-schema.js').LlmCommandDecision>;
+	      interpret(prompt: string, options?: LlmCommandGenerateJsonOptions): Promise<import('./llm-command-schema.js').LlmCommandDecision>;
 	      generateJson?(prompt: string, schemaPath?: string, options?: LlmCommandGenerateJsonOptions): Promise<unknown>;
 	    };
     llmCommandMetrics?: LlmCommandMetrics;
@@ -204,10 +211,11 @@ async function handleTelegramLlmCommandText(
     maxPromptChars: config.maxPromptChars,
   });
 
+  const modelSettings = await loadLlmModelSettings(context);
   let decision: Awaited<ReturnType<typeof service.interpret>>;
   try {
     decision = await runWithProgressHeartbeat(
-	      () => service.interpret(prompt),
+	      () => service.interpret(prompt, selectionToGenerateJsonOptions(modelSettings.normal)),
 	      progress,
 	      [
 	        buildLlmProgressMessage({
@@ -273,7 +281,7 @@ async function handleTelegramLlmCommandText(
     result: metricResultForOutcome(outcome),
     reason: metricReasonForOutcome(outcome),
   });
-	  await replyWithOutcome(context, outcome, progress, input.text, readDecisionProgressMessages(decision), resolveNextStepModelOptions(decision, outcome));
+	  await replyWithOutcome(context, outcome, progress, input.text, readDecisionProgressMessages(decision), resolveNextStepModelOptions(decision, outcome, modelSettings));
 	}
 
 async function replyWithOutcome(
@@ -324,8 +332,6 @@ async function replyWithOutcome(
 	  }
 }
 
-const llmCommandStrongerNextStepModel = 'gpt-5.5';
-const llmCommandStrongerNextStepReasoningEffort = 'medium';
 const llmCommandStrongerNextStepIntents = new Set([
   'bot.search',
   'catalog.detail',
@@ -336,6 +342,7 @@ const llmCommandStrongerNextStepIntents = new Set([
 export function resolveNextStepModelOptions(
   decision: LlmCommandDecision,
   outcome: LlmCommandRouteOutcome,
+  modelSettings: LlmModelSettings = defaultLlmModelSettings,
 ): LlmCommandGenerateJsonOptions | undefined {
   if (outcome.type !== 'execute_read' || !decision.nextStep.useStrongerModel) {
     return undefined;
@@ -343,10 +350,17 @@ export function resolveNextStepModelOptions(
   if (!llmCommandStrongerNextStepIntents.has(outcome.intent)) {
     return undefined;
   }
-  return {
-    model: llmCommandStrongerNextStepModel,
-    reasoningEffort: llmCommandStrongerNextStepReasoningEffort,
-  };
+  return selectionToGenerateJsonOptions(modelSettings.stronger);
+}
+
+async function loadLlmModelSettings(context: TelegramLlmCommandContext): Promise<LlmModelSettings> {
+  try {
+    return await createAppMetadataLlmModelSettingsStore({
+      storage: createDatabaseAppMetadataSessionStorage({ database: context.runtime.services.database.db }),
+    }).getSettings();
+  } catch {
+    return defaultLlmModelSettings;
+  }
 }
 
 function createLlmReadProgress(

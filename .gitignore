@@ -10,5 +10,6 @@ config/.env
 config/runtime.local.json
 config/runtime.json
 backups/
+data/llm-model-tests/
 *.backup
 gameclub-backup-*.zip

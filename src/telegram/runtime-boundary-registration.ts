@@ -93,6 +93,11 @@ import {
   llmCommandCallbackPrefixes,
 } from './llm-command-flow.js';
 import {
+  handleTelegramLlmModelAdminCallback,
+  handleTelegramLlmModelAdminText,
+  llmModelAdminCallbackPrefixes,
+} from './llm-model-admin-flow.js';
+import {
   handleTelegramNewsGroupCallback,
   handleTelegramNewsGroupText,
   newsGroupCallbackPrefixes,
@@ -212,6 +217,7 @@ export function registerHandlers({
   registerGroupPurchaseCallbacks({ bot });
   registerLfgCallbacks({ bot });
   registerLlmCommandCallbacks({ bot });
+  registerLlmModelAdminCallbacks({ bot });
   registerNoticeCallbacks({ bot });
   registerNewsGroupCallbacks({ bot });
   registerTableReadCallbacks({ bot });
@@ -1311,6 +1317,18 @@ function registerLlmCommandCallbacks({
   for (const prefix of Object.values(llmCommandCallbackPrefixes)) {
     bot.onCallback(prefix, async (context) => {
       await handleTelegramLlmCallback(context);
+    });
+  }
+}
+
+function registerLlmModelAdminCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(llmModelAdminCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramLlmModelAdminCallback(context);
     });
   }
 }
@@ -2644,6 +2662,10 @@ async function handleTelegramActionMenuText(
         setActiveHelpSection(context, 'catalog');
       }
       return handled;
+    }
+
+    if (selection.actionId === 'llm_models') {
+      return handleTelegramLlmModelAdminText({ ...context, messageText: selection.label });
     }
 
     const localizedContext = { ...context, messageText: selection.label };
