@@ -173,7 +173,7 @@ Implementado:
 - Avisos de conflicto y capacidad al crear/editar.
 - Integracion con eventos del local para mostrar impacto.
 - Listado y snapshots de grupo con enlace `Ver detalles` solo cuando la actividad tiene mensaje extra guardado; en ese caso no imprimen la descripcion larga en linea y el deep link reenvia el mensaje original al usuario.
-- Publicación de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic. El bot recuerda el último snapshot por grupo/topic y borra el anterior tras publicar uno nuevo; si Telegram rechaza el borrado por antigüedad o permisos, edita el mensaje anterior a una nota compacta de sustitución para que no queden dos calendarios largos visibles.
+- Publicación de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic. El bot recuerda el último snapshot por grupo/topic y borra el anterior tras publicar uno nuevo; si Telegram rechaza el borrado por antigüedad o permisos, edita el mensaje anterior a puntos suspensivos para que no queden dos calendarios largos visibles.
 
 Riesgos o pendientes:
 

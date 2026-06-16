@@ -1695,6 +1695,7 @@ async function runAfterScheduleSaveSideEffects(
         scheduleRepository: resolveScheduleRepository(context),
         loadEvent: async (eventId) => loadEventOrThrow(context, eventId),
         sendPrivateMessage: async (telegramUserId, message) => context.runtime.bot.sendPrivateMessage(telegramUserId, message),
+        botLanguage: resolveBotLanguage(context),
       });
     });
   }

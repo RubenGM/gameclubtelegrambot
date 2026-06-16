@@ -17,12 +17,8 @@ import {
   type LlmModelTestResult,
 } from './llm-model-settings.js';
 import { buildLlmCommandPrompt } from './llm-command-prompt.js';
-import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
 import { escapeHtml } from './schedule-presentation.js';
-
-export const llmModelAdminLabels = {
-  openMenu: 'Modelos IA',
-} as const;
 
 export const llmModelAdminCallbackPrefixes = {
   open: 'llm_model:open',
@@ -40,11 +36,12 @@ type TelegramLlmModelAdminContext = TelegramCommandHandlerContext & {
 
 export async function handleTelegramLlmModelAdminText(context: TelegramLlmModelAdminContext): Promise<boolean> {
   const text = context.messageText?.trim();
-  if (text !== llmModelAdminLabels.openMenu) {
+  const language = resolveLlmModelAdminLanguage(context);
+  if (text !== createTelegramI18n(language).actionMenu.llmModels) {
     return false;
   }
   if (!canManageLlmModels(context)) {
-    await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).common.accessDeniedAdmin);
+    await context.reply(createTelegramI18n(language).common.accessDeniedAdmin);
     return true;
   }
   await sendLlmModelAdminMenu(context);
@@ -67,8 +64,9 @@ export async function handleTelegramLlmModelAdminCallback(context: TelegramLlmMo
     if (!slot) {
       return false;
     }
-    await context.reply(`Selecciona modelo para ${slotLabel(slot)}.`, {
-      inlineKeyboard: buildModelSelectionKeyboard(slot),
+    const texts = createTelegramI18n(resolveLlmModelAdminLanguage(context)).llmModelAdmin;
+    await context.reply(formatLlmModelAdminText(texts.selectModelPrompt, { slot: slotLabel(slot, texts) }), {
+      inlineKeyboard: buildModelSelectionKeyboard(slot, texts),
     });
     return true;
   }
@@ -82,8 +80,12 @@ export async function handleTelegramLlmModelAdminCallback(context: TelegramLlmMo
     if (!definition) {
       return false;
     }
-    await context.reply(`Selecciona reasoning para ${definition.label} en ${slotLabel(parsed.slot)}.`, {
-      inlineKeyboard: buildReasoningSelectionKeyboard(parsed.slot, parsed.model),
+    const texts = createTelegramI18n(resolveLlmModelAdminLanguage(context)).llmModelAdmin;
+    await context.reply(formatLlmModelAdminText(texts.selectReasoningPrompt, {
+      model: definition.label,
+      slot: slotLabel(parsed.slot, texts),
+    }), {
+      inlineKeyboard: buildReasoningSelectionKeyboard(parsed.slot, parsed.model, texts),
     });
     return true;
   }
@@ -97,12 +99,13 @@ export async function handleTelegramLlmModelAdminCallback(context: TelegramLlmMo
       model: parsed.model,
       reasoningEffort: parsed.reasoningEffort,
     });
+    const texts = createTelegramI18n(resolveLlmModelAdminLanguage(context)).llmModelAdmin;
     await context.reply([
-      'Configuración guardada.',
+      texts.settingsSaved,
       '',
-      `Normal: ${formatLlmModelSelection(settings.normal)}`,
-      `Más pensamiento: ${formatLlmModelSelection(settings.stronger)}`,
-    ].join('\n'), { inlineKeyboard: [[{ text: 'Volver a modelos IA', callbackData: llmModelAdminCallbackPrefixes.open }]] });
+      `${texts.normalLabel}: ${formatLlmModelSelection(settings.normal)}`,
+      `${texts.strongerLabel}: ${formatLlmModelSelection(settings.stronger)}`,
+    ].join('\n'), { inlineKeyboard: [[{ text: texts.backToModelsButton, callbackData: llmModelAdminCallbackPrefixes.open }]] });
     return true;
   }
 
@@ -121,15 +124,17 @@ export async function handleTelegramLlmModelAdminCallback(context: TelegramLlmMo
 export async function sendLlmModelAdminMenu(context: TelegramLlmModelAdminContext): Promise<void> {
   const settings = await getSettingsStore(context).getSettings();
   const results = await loadAllLlmModelTestResults();
-  await context.reply(renderLlmModelAdminMenu(settings, results), {
+  const language = resolveLlmModelAdminLanguage(context);
+  const texts = createTelegramI18n(language).llmModelAdmin;
+  await context.reply(renderLlmModelAdminMenu(settings, results, language), {
     parseMode: 'HTML',
     inlineKeyboard: [
       [
-        { text: 'Cambiar normal', callbackData: `${llmModelAdminCallbackPrefixes.selectSlot}normal` },
-        { text: 'Cambiar más pensamiento', callbackData: `${llmModelAdminCallbackPrefixes.selectSlot}stronger` },
+        { text: texts.changeNormalButton, callbackData: `${llmModelAdminCallbackPrefixes.selectSlot}normal` },
+        { text: texts.changeStrongerButton, callbackData: `${llmModelAdminCallbackPrefixes.selectSlot}stronger` },
       ],
-      [{ text: 'Lanzar test de la selección normal', callbackData: `${llmModelAdminCallbackPrefixes.runTest}${settings.normal.model}:${settings.normal.reasoningEffort}` }],
-      [{ text: 'Lanzar test de más pensamiento', callbackData: `${llmModelAdminCallbackPrefixes.runTest}${settings.stronger.model}:${settings.stronger.reasoningEffort}` }],
+      [{ text: texts.runNormalTestButton, callbackData: `${llmModelAdminCallbackPrefixes.runTest}${settings.normal.model}:${settings.normal.reasoningEffort}` }],
+      [{ text: texts.runStrongerTestButton, callbackData: `${llmModelAdminCallbackPrefixes.runTest}${settings.stronger.model}:${settings.stronger.reasoningEffort}` }],
     ],
   });
 }
@@ -137,27 +142,29 @@ export async function sendLlmModelAdminMenu(context: TelegramLlmModelAdminContex
 export function renderLlmModelAdminMenu(
   settings = defaultLlmModelSettings,
   results: LlmModelTestResult[] = [],
+  language: BotLanguage = 'es',
 ): string {
+  const texts = createTelegramI18n(language).llmModelAdmin;
   const resultByKey = new Map(results.map((result) => [`${result.model}:${result.reasoningEffort}`, result]));
   const lines = [
-    '<b>Modelos IA</b>',
+    `<b>${escapeHtml(texts.menuTitle)}</b>`,
     '',
-    `Normal: ${escapeHtml(formatLlmModelSelection(settings.normal))}`,
-    `Más pensamiento: ${escapeHtml(formatLlmModelSelection(settings.stronger))}`,
+    `${escapeHtml(texts.normalLabel)}: ${escapeHtml(formatLlmModelSelection(settings.normal))}`,
+    `${escapeHtml(texts.strongerLabel)}: ${escapeHtml(formatLlmModelSelection(settings.stronger))}`,
     '',
-    '<b>Comparativa guardada</b>',
-    '<pre>Modelo                  Reason   Último test',
+    `<b>${escapeHtml(texts.savedComparisonTitle)}</b>`,
+    `<pre>${escapeHtml(texts.comparisonHeader)}`,
   ];
   for (const definition of llmModelDefinitions) {
     for (const reasoningEffort of definition.reasoningEfforts) {
       const result = resultByKey.get(`${definition.id}:${reasoningEffort}`);
       const label = `${definition.label}`.slice(0, 22).padEnd(22, ' ');
-      lines.push(`${label} ${reasoningEffort.padEnd(7, ' ')} ${formatStoredResult(result)}`);
+      lines.push(`${label} ${reasoningEffort.padEnd(7, ' ')} ${formatStoredResult(result, texts)}`);
     }
   }
   lines.push('</pre>');
   lines.push('');
-  lines.push('Los tokens y coste quedan como n/d si Codex no los expone de forma fiable.');
+  lines.push(escapeHtml(texts.tokensCostUnavailableNote));
   return lines.join('\n');
 }
 
@@ -166,8 +173,10 @@ async function runLlmModelTestFromTelegram(
   selection: LlmModelSelection,
 ): Promise<void> {
   const service = context.runtime.llmCommandService;
+  const language = resolveLlmModelAdminLanguage(context);
+  const texts = createTelegramI18n(language).llmModelAdmin;
   if (!service) {
-    await context.reply('El servicio LLM no está configurado.');
+    await context.reply(texts.serviceMissing);
     return;
   }
 
@@ -176,7 +185,7 @@ async function runLlmModelTestFromTelegram(
     [
       '[#---------]',
       '',
-      'Preparando test de modelo',
+      texts.progressPreparing,
       '',
       `${formatLlmModelSelection(selection)}`,
     ].join('\n'),
@@ -188,13 +197,13 @@ async function runLlmModelTestFromTelegram(
     await progress.update([
       '[####------]',
       '',
-      'Ejecutando interpretación estructurada',
+      texts.progressRunning,
       '',
       `${formatLlmModelSelection(selection)}`,
     ].join('\n'));
     const prompt = buildLlmCommandPrompt({
-      userText: 'qué archivos STL tenemos de Attack on Titan?',
-      language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+      userText: texts.testPrompt,
+      language,
       isApproved: true,
       isAdmin: false,
       chatKind: 'private',
@@ -210,7 +219,10 @@ async function runLlmModelTestFromTelegram(
       selection,
       startedAt,
       success,
-      error: success ? null : `Respuesta inesperada: ${decision.intent}/${decision.action.name}`,
+      error: success ? null : formatLlmModelAdminText(texts.unexpectedResponse, {
+        intent: decision.intent,
+        action: decision.action.name,
+      }),
     });
   } catch (error) {
     result = buildLlmModelTestResult({
@@ -222,7 +234,7 @@ async function runLlmModelTestFromTelegram(
   }
 
   await saveLlmModelTestResult(result);
-  await progress.complete(renderLlmModelTestResult(result), { parseMode: 'HTML' });
+  await progress.complete(renderLlmModelTestResult(result, texts), { parseMode: 'HTML' });
 }
 
 function buildLlmModelTestResult({
@@ -250,49 +262,66 @@ function buildLlmModelTestResult({
   };
 }
 
-function renderLlmModelTestResult(result: LlmModelTestResult): string {
+function renderLlmModelTestResult(
+  result: LlmModelTestResult,
+  texts: ReturnType<typeof createTelegramI18n>['llmModelAdmin'],
+): string {
   return [
-    result.success ? 'Test completado correctamente.' : 'Test fallido.',
+    result.success ? texts.testSuccess : texts.testFailure,
     '',
-    `Modelo: ${escapeHtml(formatLlmModelSelection(result))}`,
-    `Éxitos/fracasos: ${result.successes}/${result.failures}`,
-    `Tiempo dedicado: ${formatDuration(result.durationMs)}`,
-    `Tokens: ${formatNullableNumber(result.tokens.total)}`,
-    `Coste: ${result.costUsd === null ? 'n/d' : `$${result.costUsd.toFixed(6)}`}`,
-    ...(result.error ? ['', `Error: ${escapeHtml(result.error)}`] : []),
+    `${texts.modelLabel}: ${escapeHtml(formatLlmModelSelection(result))}`,
+    `${texts.successFailureLabel}: ${result.successes}/${result.failures}`,
+    `${texts.durationLabel}: ${formatDuration(result.durationMs)}`,
+    `${texts.tokensLabel}: ${formatNullableNumber(result.tokens.total, texts)}`,
+    `${texts.costLabel}: ${formatNullableCost(result.costUsd, texts)}`,
+    ...(result.error ? ['', `${texts.errorLabel}: ${escapeHtml(result.error)}`] : []),
   ].join('\n');
 }
 
-function buildModelSelectionKeyboard(slot: LlmModelSlot) {
+function buildModelSelectionKeyboard(
+  slot: LlmModelSlot,
+  texts: ReturnType<typeof createTelegramI18n>['llmModelAdmin'],
+) {
   return [
     ...llmModelDefinitions.map((definition) => [{
       text: definition.label,
       callbackData: `${llmModelAdminCallbackPrefixes.selectModel}${slot}:${definition.id}`,
     }]),
-    [{ text: 'Volver', callbackData: llmModelAdminCallbackPrefixes.open }],
+    [{ text: texts.backButton, callbackData: llmModelAdminCallbackPrefixes.open }],
   ];
 }
 
-function buildReasoningSelectionKeyboard(slot: LlmModelSlot, model: string) {
+function buildReasoningSelectionKeyboard(
+  slot: LlmModelSlot,
+  model: string,
+  texts: ReturnType<typeof createTelegramI18n>['llmModelAdmin'],
+) {
   const definition = findLlmModelDefinition(model);
   if (!definition) {
-    return [[{ text: 'Volver', callbackData: llmModelAdminCallbackPrefixes.open }]];
+    return [[{ text: texts.backButton, callbackData: llmModelAdminCallbackPrefixes.open }]];
   }
   return [
     ...definition.reasoningEfforts.map((reasoningEffort) => [{
       text: reasoningEffort,
       callbackData: `${llmModelAdminCallbackPrefixes.selectReasoning}${slot}:${model}:${reasoningEffort}`,
     }]),
-    [{ text: 'Volver', callbackData: llmModelAdminCallbackPrefixes.open }],
+    [{ text: texts.backButton, callbackData: llmModelAdminCallbackPrefixes.open }],
   ];
 }
 
-function formatStoredResult(result: LlmModelTestResult | undefined): string {
+function formatStoredResult(
+  result: LlmModelTestResult | undefined,
+  texts: ReturnType<typeof createTelegramI18n>['llmModelAdmin'],
+): string {
   if (!result) {
-    return 'sin prueba guardada';
+    return texts.noSavedTest;
   }
-  const status = result.success ? 'OK' : 'FAIL';
-  return `${status} ${formatDuration(result.durationMs)} tokens=${formatNullableNumber(result.tokens.total)} coste=${result.costUsd === null ? 'n/d' : `$${result.costUsd.toFixed(6)}`}`;
+  return formatLlmModelAdminText(texts.storedResultTemplate, {
+    status: result.success ? texts.statusOk : texts.statusFail,
+    duration: formatDuration(result.durationMs),
+    tokens: formatNullableNumber(result.tokens.total, texts),
+    cost: formatNullableCost(result.costUsd, texts),
+  });
 }
 
 function getSettingsStore(context: TelegramLlmModelAdminContext) {
@@ -326,14 +355,35 @@ function parseModelReasoning(value: string): LlmModelSelection | null {
   return model && reasoningEffort ? { model, reasoningEffort: reasoningEffort as LlmModelSelection['reasoningEffort'] } : null;
 }
 
-function slotLabel(slot: LlmModelSlot): string {
-  return slot === 'normal' ? 'modo normal' : 'modo más pensamiento';
+function slotLabel(slot: LlmModelSlot, texts: ReturnType<typeof createTelegramI18n>['llmModelAdmin']): string {
+  return slot === 'normal' ? texts.normalSlot : texts.strongerSlot;
 }
 
 function formatDuration(durationMs: number): string {
   return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
-function formatNullableNumber(value: number | null): string {
-  return value === null ? 'n/d' : String(value);
+function formatNullableNumber(
+  value: number | null,
+  texts: ReturnType<typeof createTelegramI18n>['llmModelAdmin'],
+): string {
+  return value === null ? texts.unavailable : String(value);
+}
+
+function formatNullableCost(
+  value: number | null,
+  texts: ReturnType<typeof createTelegramI18n>['llmModelAdmin'],
+): string {
+  return value === null ? texts.unavailable : `$${value.toFixed(6)}`;
+}
+
+function resolveLlmModelAdminLanguage(context: TelegramLlmModelAdminContext): BotLanguage {
+  return normalizeBotLanguage(context.runtime.bot.language, 'ca');
+}
+
+function formatLlmModelAdminText(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce(
+    (message, [key, value]) => message.replaceAll(`{${key}}`, value),
+    template,
+  );
 }

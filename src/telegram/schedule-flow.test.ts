@@ -12,6 +12,7 @@ import type { ConversationSessionRecord } from './conversation-session.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import { normalizeDisplayName } from '../membership/display-name.js';
 import { publishCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
+import { createTelegramI18n } from './i18n.js';
 import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleMessage,
@@ -38,6 +39,22 @@ function formatCalendarTime(value: string): string {
 
 function formatCalendarRange(startsAt: string, endsAt: string): string {
   return `${formatCalendarTime(startsAt)}-${formatCalendarTime(endsAt)}`;
+}
+
+function interpolateTestText(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce(
+    (message, [key, value]) => message.replaceAll(`{${key}}`, value),
+    template,
+  );
+}
+
+function escapeTestHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
@@ -1358,7 +1375,15 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
     ),
   );
   assert.doesNotMatch(groupMessages[0]?.message ?? '', /Traed promo pack/);
-  assert.match(groupMessages[0]?.message ?? '', /ha creado la actividad Dune Imperium del Diumenge 5 abril/i);
+  const texts = createTelegramI18n('ca').schedule;
+  assert.ok((groupMessages[0]?.message ?? '').includes(
+    escapeTestHtml(interpolateTestText(texts.calendarBroadcastFooter, {
+      actor: 'Ada (@ada)',
+      action: texts.calendarBroadcastActionCreated,
+      title: 'Dune Imperium',
+      day: 'Diumenge 5 abril',
+    })),
+  ));
 });
 
 test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapshot message per destination', async () => {
@@ -1492,7 +1517,7 @@ test('publishCalendarSnapshotToNewsGroups retires the previous snapshot when Tel
   assert.deepEqual(editedMessages[0], {
     chatId: -200,
     messageId: 901,
-    text: '<i>Calendari substituït per una actualització més recent. Telegram no ha permès esborrar aquest missatge anterior.</i>',
+    text: createTelegramI18n('ca').schedule.calendarBroadcastReplaced,
     options: { parseMode: 'HTML' },
   });
   assert.equal(
