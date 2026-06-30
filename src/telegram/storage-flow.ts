@@ -3542,12 +3542,10 @@ async function completeStorageUpload(
   finishStorageUploadProgressStep(progressState);
   await progress.update(formatStorageUploadProgress(texts, progressState));
   await progress.complete(
-    texts.saved
-      .replace('{category}', saved.category.displayName)
-      .replace('{count}', String(saved.messages.length)),
-    buildSingleCancelOptions(),
+    formatStorageUploadSavedMessage(texts.saved, saved),
+    { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' },
   );
-  return sendStorageCategoryEntryList(context, saved.category.id, language);
+  return true;
 }
 
 async function handlePrivateUploadMedia(context: StorageFlowContext): Promise<boolean> {
@@ -5692,6 +5690,20 @@ function resolveStorageCategoryDepth(category: StorageCategoryRecord, allCategor
 
 function buildStorageCategoryDeepLink(categoryId: number): string {
   return buildTelegramStartUrl(`${storageCategoryStartPayloadPrefix}${categoryId}`);
+}
+
+function buildStorageEntryDeepLink(entryId: number): string {
+  return buildTelegramStartUrl(`${storageEntryStartPayloadPrefix}${entryId}`);
+}
+
+function formatStorageUploadSavedMessage(template: string, detail: StorageEntryDetailRecord): string {
+  const entryLabel = detail.entry.description ?? detail.messages.find((message) => message.originalFileName)?.originalFileName ?? `#${detail.entry.id}`;
+  const entryLink = `<a href="${escapeHtml(buildStorageEntryDeepLink(detail.entry.id))}">${escapeHtml(entryLabel)}</a>`;
+  const categoryLink = `<a href="${escapeHtml(buildStorageCategoryDeepLink(detail.category.id))}">${escapeHtml(detail.category.displayName)}</a>`;
+  return template
+    .replace('{entry}', entryLink)
+    .replace('{category}', categoryLink)
+    .replace('{count}', String(detail.messages.length));
 }
 
 function buildStorageTagDeepLink(tag: string): string {

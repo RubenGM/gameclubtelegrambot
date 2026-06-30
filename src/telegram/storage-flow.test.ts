@@ -3439,8 +3439,8 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   assert.equal(repository.__entries.length, 1);
   assert.equal(repository.__entries[0]?.entry.description, 'Manual de campana');
   assert.deepEqual(repository.__entries[0]?.entry.tags, ['rol', 'pdf']);
-  assert.match(replies.at(-2)?.message ?? '', /Subida en curso/);
-  assert.match(replies.at(-2)?.message ?? '', /Copiando adjuntos al topic de Storage/);
+  assert.match(replies.at(-1)?.message ?? '', /Subida en curso/);
+  assert.match(replies.at(-1)?.message ?? '', /Copiando adjuntos al topic de Storage/);
   assert.equal(editedMessages.length, 7);
   assert.equal(editedMessages[0]?.text, 'Adjunto añadido al lote actual. Total: 2.');
   const uploadProgressEdits = editedMessages.slice(1);
@@ -3450,10 +3450,18 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   assert.match(uploadProgressEdits[2]?.text ?? '', /Registrando la entrada en el índice/);
   assert.match(uploadProgressEdits[3]?.text ?? '', /Avisando suscripciones/);
   assert.match(uploadProgressEdits[4]?.text ?? '', /✅ Avisando suscripciones/);
-  assert.equal(uploadProgressEdits[5]?.text, 'Archivo guardado en Manuales con 2 adjunto(s).');
-  assert.deepEqual(uploadProgressEdits[5]?.options?.replyKeyboard, [[{ text: '/cancel', semanticRole: 'danger' }]]);
-  assert.match(replies.at(-1)?.message ?? '', /Manual de campana/);
-  assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
+  assert.equal(
+    uploadProgressEdits[5]?.text,
+    '<a href="https://t.me/cawatest_bot?start=storage_entry_1">Manual de campana</a> guardado en <a href="https://t.me/cawatest_bot?start=storage_category_7">Manuales</a> con 2 adjunto(s).',
+  );
+  assert.deepEqual(uploadProgressEdits[5]?.options?.replyKeyboard?.[0], [{ text: 'Listar categorías', semanticRole: 'primary' }]);
+  assert.deepEqual(uploadProgressEdits[5]?.options?.replyKeyboard?.[4], [
+    { text: 'Subir archivos', semanticRole: 'success' },
+    { text: 'Añadir imágenes', semanticRole: 'success' },
+  ]);
+  assert.equal(uploadProgressEdits[5]?.options?.parseMode, 'HTML');
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Manual de campana/);
+  assert.equal(getCurrentSession(), null);
 });
 
 test('handleTelegramStorageText keeps large upload previews below Telegram message limits after tags', async () => {
@@ -3700,7 +3708,7 @@ test('handleTelegramStorageText uses the normalized file name as the default upl
 
   assert.equal(repository.__entries[0]?.entry.description, 'Manual de Campana final');
   assert.deepEqual(repository.__entries[0]?.entry.tags, []);
-  assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
+  assert.equal(getCurrentSession(), null);
 });
 
 test('handleTelegramStorageText adds images to the upload draft from the preview', async () => {
@@ -3769,7 +3777,7 @@ test('handleTelegramStorageText adds images to the upload draft from the preview
   assert.equal(repository.__entries[0]?.messages[1]?.attachmentKind, 'photo');
   assert.equal(repository.__entries[0]?.messages[1]?.caption, 'Portada');
   assert.deepEqual(copiedMessages.map((message) => message.messageId), [77, 78]);
-  assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
+  assert.equal(getCurrentSession(), null);
 });
 
 test('handleTelegramStorageText asks whether multiple DM uploads should be stored together or separately', async () => {
