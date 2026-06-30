@@ -40,6 +40,7 @@ import {
   createAppMetadataMembershipAutojoinStore,
   toggleMembershipAutojoin,
 } from '../membership/autojoin-store.js';
+import { createAppMetadataPrintingSettingsStore } from '../printing/print-settings.js';
 import {
   resolveTelegramActionMenu,
   resolveTelegramAdminActionMenu,
@@ -110,6 +111,11 @@ import {
   handleTelegramNoticeText,
   noticeCallbackPrefixes,
 } from './notice-flow.js';
+import {
+  handleTelegramPrintMessage,
+  handleTelegramPrintText,
+} from './print-flow.js';
+import { handleTelegramPrinterAdminText } from './printer-admin-flow.js';
 import { buildTodayAtClubSummary } from './today-at-club-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { renderTelegramMessageTextAsHtml } from './telegram-entity-html.js';
@@ -126,6 +132,7 @@ import {
   handleTelegramStorageMessage,
   handleTelegramStorageStartText,
   handleTelegramStorageText,
+  sendStorageEntryDetail,
   storageCallbackPrefixes,
 } from './storage-flow.js';
 import {
@@ -255,6 +262,10 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramPrintText(withPrintCompletionNavigation(context))) {
+      return;
+    }
+
     if (await handleTelegramMemberMenuDebugText(context)) {
       return;
     }
@@ -305,6 +316,10 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramVenueEventAdminText(context)) {
+      return;
+    }
+
+    if (await handleTelegramPrinterAdminText(context)) {
       return;
     }
 
@@ -364,6 +379,10 @@ function registerMessageHandlers({
     }
 
     if (await handleTelegramNoticeMessage(context)) {
+      return;
+    }
+
+    if (await handleTelegramPrintMessage(withPrintCompletionNavigation(context))) {
       return;
     }
 
@@ -1546,6 +1565,15 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'print',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Prepara un document per imprimir',
+      handle: async (context) => {
+        await handleTelegramPrintText(withPrintCompletionNavigation({ ...context, messageText: '/print' }));
+      },
+    },
+    {
       command: 'news',
       contexts: ['group', 'group-news'],
       access: 'admin',
@@ -2580,6 +2608,7 @@ async function handleTelegramActionMenuText(
     session: context.runtime.session.current,
     language,
     llmCommandsEnabled: Boolean(context.runtime.llmCommands?.enabled),
+    printingEnabled: await resolvePrintingEnabled(context),
   };
   const selection = resolveTelegramMenuSelection({
     context: actionMenuContext,
@@ -2656,6 +2685,10 @@ async function handleTelegramActionMenuText(
       return handleTelegramLlmMenuText(context);
     }
 
+    if (selection.actionId === 'print') {
+      return handleTelegramPrintText(withPrintCompletionNavigation({ ...context, messageText: selection.label }));
+    }
+
     if (selection.actionId === 'update_bgg') {
       const handled = await handleTelegramCatalogAdminText({ ...context, messageText: '/update_bgg' });
       if (handled) {
@@ -2666,6 +2699,10 @@ async function handleTelegramActionMenuText(
 
     if (selection.actionId === 'llm_models') {
       return handleTelegramLlmModelAdminText({ ...context, messageText: selection.label });
+    }
+
+    if (selection.actionId === 'printer_admin') {
+      return handleTelegramPrinterAdminText({ ...context, messageText: selection.label });
     }
 
     const localizedContext = { ...context, messageText: selection.label };
@@ -3215,7 +3252,7 @@ function activeHelpSectionKey(context: TelegramCommandHandlerContext): string | 
 async function buildReplyOptionsForCurrentActionMenu(
   context: TelegramCommandHandlerContext,
 ): Promise<TelegramReplyOptions | undefined> {
-  const menu = resolveCurrentActionMenu(context);
+  const menu = await resolveCurrentActionMenuWithRuntimeSettings(context);
   if (!menu) {
     return undefined;
   }
@@ -3236,6 +3273,58 @@ function resolveCurrentActionMenu(context: TelegramCommandHandlerContext): Teleg
   });
 }
 
+async function resolveCurrentActionMenuWithRuntimeSettings(context: TelegramCommandHandlerContext): Promise<TelegramResolvedActionMenu | undefined> {
+  return resolveTelegramActionMenu({
+    context: {
+      actor: context.runtime.actor,
+      authorization: context.runtime.authorization,
+      chat: context.runtime.chat,
+      session: context.runtime.session.current,
+      language: context.runtime.bot.language ?? 'ca',
+      printingEnabled: await resolvePrintingEnabled(context),
+    },
+  });
+}
+
+async function resolvePrintingEnabled(context: TelegramCommandHandlerContext): Promise<boolean> {
+  try {
+    const store = createAppMetadataPrintingSettingsStore({
+      storage: createDatabaseAppMetadataSessionStorage({
+        database: context.runtime.services.database.db,
+      }),
+      defaultQueue: 'HP-LaserJet-P2015-Series',
+    });
+    return (await store.getSettings()).mode !== 'disabled';
+  } catch {
+    return false;
+  }
+}
+
+function withPrintCompletionNavigation(context: TelegramCommandHandlerContext): TelegramCommandHandlerContext & {
+  restorePrintedStorageEntry: (restoreContext: TelegramCommandHandlerContext, entryId: number) => Promise<void>;
+  restorePrintHome: (restoreContext: TelegramCommandHandlerContext) => Promise<void>;
+} {
+  return {
+    ...context,
+    restorePrintedStorageEntry: async (restoreContext, entryId) => {
+      const language = normalizeBotLanguage(restoreContext.runtime.bot.language, 'ca');
+      await restoreContext.reply(
+        createTelegramI18n(language).actionMenu.start,
+        await buildReplyOptionsForCurrentActionMenu(restoreContext),
+      );
+      await sendStorageEntryDetail(restoreContext, entryId, language);
+      setActiveHelpSection(restoreContext, 'storage');
+    },
+    restorePrintHome: async (restoreContext) => {
+      const language = normalizeBotLanguage(restoreContext.runtime.bot.language, 'ca');
+      await restoreContext.reply(
+        createTelegramI18n(language).actionMenu.start,
+        await buildReplyOptionsForCurrentActionMenu(restoreContext),
+      );
+    },
+  };
+}
+
 async function recordCurrentMenuActionSelection(
   context: TelegramCommandHandlerContext,
 ): Promise<void> {
@@ -3250,6 +3339,7 @@ async function recordCurrentMenuActionSelection(
     chat: context.runtime.chat,
     session: context.runtime.session.current,
     language: context.runtime.bot.language ?? 'ca',
+    printingEnabled: await resolvePrintingEnabled(context),
   };
   const selection = resolveTelegramMenuSelection({
     context: actionMenuContext,

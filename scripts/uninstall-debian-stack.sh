@@ -2,8 +2,10 @@
 set -euo pipefail
 
 SERVICE_NAME="gameclubtelegrambot.service"
+LOCAL_BOT_API_SERVICE_NAME="gameclubtelegrambot-local-bot-api.service"
 BACKUP_SERVICE_NAME="gameclubtelegrambot-backup.service"
 BACKUP_TIMER_NAME="gameclubtelegrambot-backup.timer"
+LOCAL_BOT_API_ENV_PATH="/etc/default/gameclubtelegrambot-local-bot-api"
 POLKIT_RULE_PATH="/etc/polkit-1/rules.d/50-gameclubtelegrambot.rules"
 SUDOERS_OPENCODE_PATH="/etc/sudoers.d/gameclubtelegrambot-opencode"
 SUDOERS_CODEX_PATH="/etc/sudoers.d/gameclubtelegrambot-codex"
@@ -25,7 +27,7 @@ Options:
 
 What it does:
   - Stops and disables the systemd service when present.
-  - Removes the installed systemd unit file.
+  - Removes the installed systemd unit files, including the optional local Bot API sibling service.
   - Removes the installed polkit rule for service control.
   - Removes the installed sudoers rules for OpenCode/Codex wrapper execution.
   - Removes the Game Club tray autostart entry for the operator user.
@@ -77,6 +79,10 @@ backup_timer_unit_path() {
   printf '/etc/systemd/system/%s\n' "$BACKUP_TIMER_NAME"
 }
 
+local_bot_api_unit_path() {
+  printf '/etc/systemd/system/%s\n' "$LOCAL_BOT_API_SERVICE_NAME"
+}
+
 service_known_to_systemd() {
   local unit_listing
   unit_listing="$(systemctl list-unit-files --no-legend "$SERVICE_NAME" 2>/dev/null || true)"
@@ -108,6 +114,21 @@ remove_systemd_unit() {
   fi
 
   log "Systemd unit file is already absent: $unit_path"
+}
+
+remove_local_bot_api_unit() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    run_root_cmd systemctl disable --now "$LOCAL_BOT_API_SERVICE_NAME"
+    run_root_cmd rm -f "$(local_bot_api_unit_path)" "$LOCAL_BOT_API_ENV_PATH"
+    return 0
+  fi
+
+  if systemctl list-unit-files --no-legend "$LOCAL_BOT_API_SERVICE_NAME" 2>/dev/null | grep -q .; then
+    log "Stopping and disabling $LOCAL_BOT_API_SERVICE_NAME"
+    run_root_cmd systemctl disable --now "$LOCAL_BOT_API_SERVICE_NAME"
+  fi
+
+  run_root_cmd rm -f "$(local_bot_api_unit_path)" "$LOCAL_BOT_API_ENV_PATH"
 }
 
 remove_backup_units() {
@@ -241,6 +262,7 @@ fi
 
 disable_and_stop_service
 remove_systemd_unit
+remove_local_bot_api_unit
 remove_backup_units
 remove_polkit_rule
 remove_opencode_sudoers_rule
@@ -250,6 +272,7 @@ reload_systemd
 
 log 'Uninstall completed.'
 log "Removed service unit: $(systemd_unit_path)"
+log "Removed local Bot API unit: $(local_bot_api_unit_path)"
 log "Removed backup units: $(backup_service_unit_path), $(backup_timer_unit_path)"
 log "Removed polkit rule: $POLKIT_RULE_PATH"
 log "Removed OpenCode sudoers rule: $SUDOERS_OPENCODE_PATH"

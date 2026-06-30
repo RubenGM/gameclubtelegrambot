@@ -16,10 +16,12 @@ function createContext({
   actor,
   chat,
   session = null,
+  printingEnabled = false,
 }: {
   actor: TelegramActor;
   chat: TelegramChatContext;
   session?: ConversationSessionRecord | null;
+  printingEnabled?: boolean;
 }) {
   const authorization: AuthorizationService = {
     authorize: (permissionKey) => ({
@@ -36,6 +38,7 @@ function createContext({
     chat,
     session,
     language: 'ca' as const,
+    printingEnabled,
   };
 }
 
@@ -140,10 +143,11 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
       [{ text: 'Revisar sol·licituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
       [{ text: 'Taules', semanticRole: 'primary' }, { text: 'Benvingudes', semanticRole: 'secondary' }],
       [{ text: 'Actualitzar BGG', semanticRole: 'secondary' }, { text: 'Models IA', semanticRole: 'secondary' }],
+      [{ text: 'Impressora', semanticRole: 'secondary' }],
       [{ text: 'Menú soci', semanticRole: 'secondary' }],
       [{ text: 'Inici', semanticRole: 'navigation' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['member_debug'], ['start', 'help']],
+    actionRows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['printer_admin'], ['member_debug'], ['start', 'help']],
     actions: [
       { id: 'review_access', label: 'Revisar sol·licituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
       { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
@@ -151,6 +155,7 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
       { id: 'welcome_templates', label: 'Benvingudes', telemetryActionKey: 'menu.welcome_templates', uxSection: 'admin' },
       { id: 'update_bgg', label: 'Actualitzar BGG', telemetryActionKey: 'menu.update_bgg', uxSection: 'admin' },
       { id: 'llm_models', label: 'Models IA', telemetryActionKey: 'menu.llm_models', uxSection: 'admin' },
+      { id: 'printer_admin', label: 'Impressora', telemetryActionKey: 'menu.printer_admin', uxSection: 'admin' },
       { id: 'member_debug', label: 'Menú soci', telemetryActionKey: 'menu.member_debug', uxSection: 'utility' },
       { id: 'start', label: 'Inici', telemetryActionKey: 'menu.start', uxSection: 'utility' },
       { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
@@ -178,6 +183,13 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
     actionId: 'llm_models',
     label: 'Models IA',
     telemetryActionKey: 'menu.llm_models',
+    uxSection: 'admin',
+  });
+  assert.deepEqual(resolveTelegramAdminMenuSelection({ context, text: 'Impresora' }), {
+    menuId: 'private-admin-tools',
+    actionId: 'printer_admin',
+    label: 'Impressora',
+    telemetryActionKey: 'menu.printer_admin',
     uxSection: 'admin',
   });
 });
@@ -224,6 +236,43 @@ test('resolveTelegramActionMenu shows a compact member menu for approved non-adm
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
+  });
+});
+
+test('resolveTelegramActionMenu shows printing only when the feature is enabled', async () => {
+  const base = {
+    actor: {
+      telegramUserId: 77,
+      status: 'approved' as const,
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    },
+    chat: {
+      kind: 'private' as const,
+      chatId: 1,
+    },
+  };
+
+  const disabledMenu = resolveTelegramActionMenu({
+    context: createContext({ ...base, printingEnabled: false }),
+  });
+  assert.equal(disabledMenu?.actions.some((action) => action.id === 'print'), false);
+
+  const enabledMenu = resolveTelegramActionMenu({
+    context: createContext({ ...base, printingEnabled: true }),
+  });
+  assert.equal(enabledMenu?.actions.some((action) => action.id === 'print'), true);
+  assert.deepEqual(resolveTelegramMenuSelection({
+    context: createContext({ ...base, printingEnabled: true }),
+    text: 'Imprimir',
+  }), {
+    menuId: 'private-approved-default',
+    actionId: 'print',
+    label: 'Imprimir',
+    telemetryActionKey: 'menu.print',
+    uxSection: 'primary',
   });
 });
 

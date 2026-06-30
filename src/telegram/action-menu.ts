@@ -12,6 +12,7 @@ export interface TelegramActionMenuContext {
   session: ConversationSessionRecord | null;
   language: BotLanguage;
   llmCommandsEnabled?: boolean;
+  printingEnabled?: boolean;
 }
 
 export interface TelegramResolvedActionMenu {
@@ -148,6 +149,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
   {
+    id: 'print',
+    label: (language) => createTelegramI18n(language).actionMenu.print,
+    telemetryActionKey: 'menu.print',
+    uxSection: 'primary',
+    buttonRole: 'primary',
+    contexts: ['private'],
+    isVisible: (context) => Boolean(context.printingEnabled) && context.actor.isApproved && !context.actor.isBlocked,
+  },
+  {
     id: 'ask_bot',
     label: (language) => createTelegramI18n(language).actionMenu.askBot,
     telemetryActionKey: 'menu.ask_bot',
@@ -238,6 +248,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isAdmin,
   },
   {
+    id: 'printer_admin',
+    label: (language) => createTelegramI18n(language).actionMenu.printerAdmin,
+    telemetryActionKey: 'menu.printer_admin',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'language',
     label: (language) => createTelegramI18n(language).actionMenu.language,
     telemetryActionKey: 'menu.language',
@@ -293,12 +312,12 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'notices'], ['change_display_name', 'admin'], ['ask_bot'], ['language', 'help']],
+    rows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'notices'], ['change_display_name', 'admin'], ['print'], ['ask_bot'], ['language', 'help']],
   },
   {
     id: 'private-admin-tools',
     matches: () => false,
-    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['member_debug'], ['start', 'help']],
+    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['printer_admin'], ['member_debug'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',
@@ -307,7 +326,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'change_display_name'], ['ask_bot'], ['language', 'help']],
+    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'change_display_name'], ['print'], ['ask_bot'], ['language', 'help']],
   },
   {
     id: 'private-pending-default',

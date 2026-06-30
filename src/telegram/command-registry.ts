@@ -51,6 +51,8 @@ export interface TelegramCommandRuntime {
     sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
     sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
+    downloadFile?(input: { fileId: string; destinationPath: string; allowLocalBotApi?: boolean }): Promise<void>;
+    supportsLargeFileDownload?: boolean;
     editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };

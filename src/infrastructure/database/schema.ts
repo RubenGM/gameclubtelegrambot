@@ -761,3 +761,38 @@ export const storageCategorySubscriptions = pgTable(
     userLookup: index('storage_category_subscriptions_telegram_user_id_idx').on(table.telegramUserId),
   }),
 );
+
+export const printJobs = pgTable(
+  'print_jobs',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    requestedByTelegramUserId: bigint('requested_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    requestedByDisplayName: varchar('requested_by_display_name', { length: 255 }).notNull(),
+    origin: varchar('origin', { length: 32 }).notNull(),
+    storageEntryId: bigint('storage_entry_id', { mode: 'number' }).references(() => storageEntries.id),
+    storageMessageId: bigint('storage_message_id', { mode: 'number' }).references(() => storageEntryMessages.id),
+    originalFileName: text('original_file_name').notNull(),
+    mimeType: text('mime_type'),
+    detectedType: varchar('detected_type', { length: 32 }).notNull(),
+    normalizedPageCount: integer('normalized_page_count').notNull(),
+    selectedPagesLabel: varchar('selected_pages_label', { length: 255 }).notNull(),
+    selectedPageCount: integer('selected_page_count').notNull(),
+    copies: integer('copies').notNull(),
+    estimatedPhysicalPages: integer('estimated_physical_pages').notNull(),
+    sides: varchar('sides', { length: 32 }).notNull(),
+    cupsQueue: varchar('cups_queue', { length: 255 }).notNull(),
+    status: varchar('status', { length: 16 }).notNull().default('prepared'),
+    cupsJobId: varchar('cups_job_id', { length: 128 }),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => ({
+    createdAtLookup: index('print_jobs_created_at_idx').on(table.createdAt),
+    requesterLookup: index('print_jobs_requested_by_telegram_user_id_idx').on(table.requestedByTelegramUserId),
+    statusLookup: index('print_jobs_status_idx').on(table.status),
+  }),
+);

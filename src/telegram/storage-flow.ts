@@ -24,6 +24,13 @@ import {
 } from '../storage/storage-category-subscription-store.js';
 import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
+import {
+  createAppMetadataPrintingSettingsStore,
+  type PrintingSettingsStore,
+} from '../printing/print-settings.js';
+import {
+  startTelegramPrintFromStorageMessage,
+} from './print-flow.js';
 import { TelegramInteractionError, type TelegramCommandHandlerContext } from './command-registry.js';
 import {
   createDatabaseAppMetadataSessionStorage,
@@ -55,6 +62,7 @@ export const storageCallbackPrefixes = {
   editCategory: 'storage:edit_category:',
   uploadCategory: 'storage:upload_category:',
   editEntry: 'storage:edit_entry:',
+  printEntry: 'storage:print_entry:',
   deleteEntry: 'storage:delete_entry:',
   addEntryTags: 'storage:add_entry_tags:',
   removeEntryTags: 'storage:remove_entry_tags:',
@@ -154,6 +162,7 @@ type StorageFlowContext = TelegramCommandHandlerContext & {
   storageCategoryAccessRepository?: StorageCategoryAccessRepository | undefined;
   storageCategorySubscriptionRepository?: StorageCategorySubscriptionRepository | undefined;
   storageDefaultChatStore?: AppMetadataSessionStorage | undefined;
+  printSettingsStore?: PrintingSettingsStore | undefined;
   messageMedia?: TelegramCommandHandlerContext['messageMedia'];
   sharedChat?: TelegramCommandHandlerContext['sharedChat'];
   messageThreadId?: number | undefined;
@@ -582,6 +591,15 @@ export async function handleTelegramStorageCallback(context: StorageFlowContext)
       return true;
     }
     return startStorageEntryMetadataEdit(context, entryId, language);
+  }
+
+  if (callbackData.startsWith(storageCallbackPrefixes.printEntry)) {
+    const entryId = parseCallbackEntityId(callbackData, storageCallbackPrefixes.printEntry);
+    if (entryId === null) {
+      await context.reply(createTelegramI18n(language).storage.invalidEntryId, buildStorageMenuOptions(language, context));
+      return true;
+    }
+    return startStorageEntryPrint(context, entryId, language);
   }
 
   if (callbackData.startsWith(storageCallbackPrefixes.deleteEntry)) {
@@ -2014,6 +2032,35 @@ async function deleteStorageEntryFromDetailAction(
   return true;
 }
 
+async function startStorageEntryPrint(
+  context: StorageFlowContext,
+  entryId: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).storage;
+  const detail = await resolveRepository(context).getEntryDetail(entryId);
+  if (!detail || detail.entry.lifecycleStatus !== 'active') {
+    await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  const printable = detail.messages.find((message) => isPrintableStorageMessage(message));
+  if (!printable?.telegramFileId) {
+    await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
+    return true;
+  }
+
+  return startTelegramPrintFromStorageMessage(context, {
+    storageEntryId: detail.entry.id,
+    storageMessageId: printable.id,
+    fileId: printable.telegramFileId,
+    originalFileName: printable.originalFileName,
+    mimeType: printable.mimeType,
+    fileSizeBytes: printable.fileSizeBytes,
+  });
+}
+
+
 async function deleteStorageEntry(context: StorageFlowContext, entryId: number): Promise<void> {
   await resolveRepository(context).updateEntryLifecycleStatus({
     entryId,
@@ -2406,7 +2453,7 @@ function normalizeStorageSearchQuery(query: string): string {
   return query.trim().replace(/^#(?=[A-Za-z0-9_-]+$)/, '');
 }
 
-async function sendStorageEntryDetail(
+export async function sendStorageEntryDetail(
   context: StorageFlowContext,
   entryId: number,
   language: 'ca' | 'es' | 'en',
@@ -2421,7 +2468,7 @@ async function sendStorageEntryDetail(
 
   const allCategories = await resolveRepository(context).listCategories();
   const tagCounts = await buildReadableStorageTagCounts(context);
-  await context.reply(formatStorageEntryDetail(detail, language, allCategories, tagCounts), buildStorageEntryDetailOptions(context, detail, language));
+  await context.reply(formatStorageEntryDetail(detail, language, allCategories, tagCounts), await buildStorageEntryDetailOptions(context, detail, language));
 
   try {
     await copyStorageEntryToCurrentChat(context, detail);
@@ -4754,13 +4801,17 @@ function buildStorageSubscriptionScopeOptions(language: 'ca' | 'es' | 'en'): Tel
   };
 }
 
-function buildStorageEntryDetailOptions(
+async function buildStorageEntryDetailOptions(
   context: StorageFlowContext,
   detail: StorageEntryDetailRecord,
   language: 'ca' | 'es' | 'en',
-): TelegramReplyOptions {
+): Promise<TelegramReplyOptions> {
   const texts = createTelegramI18n(language).storage;
-  if (!canEditStorageEntry(context, detail) && !canManageStorageEntryTags(context, detail)) {
+  const printRow: TelegramInlineButton[] = await shouldShowStoragePrintButton(context, detail)
+    ? [{ text: texts.printButton, callbackData: `${storageCallbackPrefixes.printEntry}${detail.entry.id}`, semanticRole: 'success' }]
+    : [];
+
+  if (!canEditStorageEntry(context, detail) && !canManageStorageEntryTags(context, detail) && printRow.length === 0) {
     return { ...buildStorageMenuOptions(language, context), parseMode: 'HTML' };
   }
 
@@ -4780,8 +4831,47 @@ function buildStorageEntryDetailOptions(
     : [];
   return {
     parseMode: 'HTML',
-    inlineKeyboard: [firstRow, tagRow].filter((row) => row.length > 0),
+    inlineKeyboard: [printRow, firstRow, tagRow].filter((row) => row.length > 0),
   };
+}
+
+async function shouldShowStoragePrintButton(
+  context: StorageFlowContext,
+  detail: StorageEntryDetailRecord,
+): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
+    return false;
+  }
+  if (!detail.messages.some(isPrintableStorageMessage)) {
+    return false;
+  }
+  return resolveStoragePrintingEnabled(context);
+}
+
+async function resolveStoragePrintingEnabled(context: StorageFlowContext): Promise<boolean> {
+  try {
+    const store = context.printSettingsStore ?? createAppMetadataPrintingSettingsStore({
+      storage: createDatabaseAppMetadataSessionStorage({ database: context.runtime.services.database.db }),
+      defaultQueue: 'HP-LaserJet-P2015-Series',
+    });
+    return (await store.getSettings()).mode !== 'disabled';
+  } catch {
+    return false;
+  }
+}
+
+function isPrintableStorageMessage(message: StorageEntryMessageRecord): boolean {
+  if (message.attachmentKind !== 'document' || !message.telegramFileId) {
+    return false;
+  }
+  const mimeType = message.mimeType?.toLowerCase() ?? '';
+  const fileName = message.originalFileName?.toLowerCase() ?? '';
+  return mimeType === 'application/pdf'
+    || fileName.endsWith('.pdf')
+    || mimeType.includes('officedocument')
+    || mimeType.includes('opendocument')
+    || ['.doc', '.docx', '.odt', '.xls', '.xlsx', '.ods', '.ppt', '.pptx', '.odp']
+      .some((extension) => fileName.endsWith(extension));
 }
 
 function buildEditEntryActionOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {

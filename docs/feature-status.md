@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-06-12.
+Última revisión: 2026-06-30.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -28,6 +28,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
+| Impresión                                    | 🟢 Operativo         | Botón privado con estados admin Activar/Desactivar/Modo prueba, PDFs/Office desde adjunto o Storage, páginas/copias/caras e historial. |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
 | Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
@@ -357,6 +358,38 @@ Documentacion relacionada:
 
 - `improvements/storage_tui_management_plan.md` describe el alcance usado para el gestor TUI de Storage.
 - `docs/superpowers/specs/2026-04-21-telegram-storage-design.md` contiene el diseño original.
+
+## Impresión
+
+Estado: `operativo`.
+
+Implementado:
+
+- Botón privado `Imprimir`, visible para socios aprobados y admins cuando un admin pone la feature en `Activar` o `Modo prueba` desde `Admin` -> `Impresora`.
+- Comando privado `/print` para iniciar el mismo flujo sin depender del teclado.
+- El estado operativo se persiste en `app_metadata` con efecto inmediato: `Activar`, `Desactivar` o `Modo prueba`. Al desactivar se bloquean nuevas sesiones y se oculta el botón, pero las sesiones ya iniciadas pueden terminar.
+- Entrada desde adjuntos Telegram `document`: PDFs directos y documentos Office/OpenDocument convertibles a PDF mediante LibreOffice headless.
+- Entrada desde Storage: el detalle de entradas imprimibles muestra `Imprimir` cuando la feature está activa y el archivo tiene `telegramFileId`; el flujo reutiliza el permiso de lectura de Storage y no duplica reglas de acceso.
+- El flujo rechaza de forma explicativa archivos que superan el límite de descarga del Bot API de Telegram en la nube (20 MB) antes de llamar a `getFile` cuando conoce el tamaño, salvo que el runtime tenga activado `telegram.localBotApi` para descargas grandes de impresión.
+- Integración opcional con Bot API local sólo para impresión: `downloadFile` acepta `allowLocalBotApi`, el resto del bot sigue usando la ruta cloud por defecto, y si el intento local falla se registra el error y se usa el fallback cloud.
+- El despliegue instala `gameclubtelegrambot-local-bot-api.service` como servicio systemd hermano del bot principal: `startup.sh` lo habilita/reinicia antes del bot cuando `telegram.localBotApi.enabled=true`, y lo detiene/deshabilita cuando está apagado.
+- Para archivos dentro del límite de descarga, el flujo descarga el archivo temporalmente, normaliza a PDF si hace falta, inspecciona páginas con `pdfinfo`, pide páginas, copias y modo `Una cara`/`Doble cara`.
+- Las preguntas del flujo muestran botones rápidos: `Todas` y `Cancelar` en páginas, `1` y `Cancelar` en copias, y `Cancelar` se mantiene visible en el resto de pasos.
+- Confirmación extra si se seleccionan más de 10 páginas distintas y confirmación extra si se piden más de 10 copias.
+- Confirmación final con archivo, páginas, copias, modo de caras, total estimado y cola CUPS antes de llamar a `lp`.
+- En `Modo prueba`, el usuario recorre el flujo completo y el trabajo queda registrado con ID `test-mode`, pero el bot no llama a `lp` ni envía nada a CUPS.
+- Al completar una impresión iniciada desde Storage, el bot restaura el teclado normal y vuelve a mostrar el detalle del mismo archivo para que el usuario pueda seguir usando sus acciones.
+- Doble cara sólo automática: cuando el usuario elige doble cara, el trabajo se envía con `sides=two-sided-long-edge`; no hay modo manual de girar papel.
+- Historial persistente en `print_jobs` con usuario, origen, archivo, páginas, copias, total estimado, modo, cola, estado, ID CUPS y error seguro.
+- Menú admin `Impresora` con estado de cola, activación/desactivación, refresco e historial reciente.
+- Las pruebas automatizadas usan runners falsos y no envían trabajos reales a la impresora física `HP-LaserJet-P2015-Series`.
+
+Riesgos o pendientes:
+
+- No se aceptan enlaces externos en la primera versión.
+- Los documentos de Telegram superiores a 20 MB requieren activar y operar el servidor Bot API local en el PC del club; si no está activo, el bot los seguirá rechazando con explicación. Si falta el binario `telegram-bot-api`, el despliegue lo compila desde la fuente oficial de TDLib cuando la feature local está activada.
+- No hay cancelación de trabajos ya enviados a CUPS desde el bot.
+- La prueba real de papel/tóner queda para validación presencial en el club.
 
 ## Backups, consola operativa y panel web
 

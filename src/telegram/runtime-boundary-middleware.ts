@@ -283,6 +283,7 @@ function createRuntimeContextMiddleware({
         ...(bot.sendAnimation ? { sendAnimation: bot.sendAnimation.bind(bot) } : {}),
         ...(bot.sendDocument ? { sendDocument: bot.sendDocument.bind(bot) } : {}),
         ...(bot.downloadFile ? { downloadFile: bot.downloadFile.bind(bot) } : {}),
+        ...(bot.supportsLargeFileDownload ? { supportsLargeFileDownload: bot.supportsLargeFileDownload } : {}),
         ...(bot.editMessageText ? { editMessageText: bot.editMessageText.bind(bot) } : {}),
         ...(bot.deleteMessage ? { deleteMessage: bot.deleteMessage.bind(bot) } : {}),
       },

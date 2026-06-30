@@ -37,6 +37,7 @@ import { createDatabaseMembershipAccessRepository } from '../membership/access-f
 import { createTelegramApiHealthMonitor, type TelegramApiHealthMonitor } from './telegram-api-health.js';
 import { withTelegramApiRetry } from './telegram-api-retry.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
+import { downloadTelegramFileViaLocalBotApi } from './telegram-local-file-download.js';
 
 export { formatStartMessage, toGrammyReplyOptions } from './runtime-boundary-registration.js';
 
@@ -191,7 +192,8 @@ export interface TelegramRuntime {
     sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
     sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
-    downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
+    downloadFile?(input: { fileId: string; destinationPath: string; allowLocalBotApi?: boolean }): Promise<void>;
+    supportsLargeFileDownload?: boolean;
     editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
@@ -231,7 +233,8 @@ export interface TelegramBotLike {
   sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
   sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
   sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
-  downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
+  downloadFile?(input: { fileId: string; destinationPath: string; allowLocalBotApi?: boolean }): Promise<void>;
+  supportsLargeFileDownload?: boolean;
   editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
   deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   startPolling(): Promise<void>;
@@ -268,6 +271,7 @@ export interface CreateTelegramBotOptions {
   logger: TelegramLogger;
   publicName: string;
   buttonAppearance?: TelegramButtonAppearanceConfig;
+  localBotApi?: RuntimeConfig['telegram']['localBotApi'];
   onFatalRuntimeError?: TelegramFatalRuntimeErrorHandler;
 }
 
@@ -323,6 +327,7 @@ export async function createTelegramBoundary({
       logger,
       publicName: config.bot.publicName,
       buttonAppearance: config.telegram.buttonAppearance,
+      localBotApi: config.telegram.localBotApi,
       onFatalRuntimeError: reportFatalRuntimeError,
     });
 
@@ -387,6 +392,7 @@ function createGrammyTelegramBot({
   token,
   logger,
   buttonAppearance,
+  localBotApi,
   onFatalRuntimeError,
 }: CreateTelegramBotOptions): TelegramBotLike {
   const bot = new Bot<Context & TelegramContextLike>(token);
@@ -408,6 +414,9 @@ function createGrammyTelegramBot({
   return {
     get username() {
       return botUsername;
+    },
+    get supportsLargeFileDownload() {
+      return localBotApi?.enabled === true;
     },
     use(middleware) {
       bot.use(async (context, next) => middleware(context, next));
@@ -618,7 +627,27 @@ function createGrammyTelegramBot({
         bot.api.sendDocument(chatId, new InputFile(filePath), caption ? { caption } : undefined),
       );
     },
-    async downloadFile({ fileId, destinationPath }) {
+    async downloadFile({ fileId, destinationPath, allowLocalBotApi }) {
+      if (allowLocalBotApi === true && localBotApi?.enabled === true) {
+        try {
+          await downloadTelegramFileViaLocalBotApi({
+            token,
+            baseUrl: localBotApi.baseUrl,
+            fileId,
+            destinationPath,
+          });
+          return;
+        } catch (error) {
+          logger.error(
+            {
+              fileId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            'Local Telegram Bot API file download failed; falling back to default Telegram download',
+          );
+        }
+      }
+
       const file = await withTelegramApiRetry(retryOptions('getFile'), () =>
         bot.api.raw.getFile({ file_id: fileId }),
       ) as { file_path?: string };
