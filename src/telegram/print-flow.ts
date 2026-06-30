@@ -100,7 +100,7 @@ export async function handleTelegramPrintMessage(context: PrintFlowContext): Pro
   }
 
   if (isTooLargeForTelegramDownload(media.fileSizeBytes) && context.runtime.bot.supportsLargeFileDownload !== true) {
-    await context.reply(formatTelegramDownloadTooLargeMessage(texts, media.fileSizeBytes), cancelKeyboard(language));
+    await replyDownloadTooLargeAndRestoreNavigation(context, media.fileSizeBytes);
     return true;
   }
 
@@ -113,7 +113,7 @@ export async function handleTelegramPrintMessage(context: PrintFlowContext): Pro
     await context.runtime.bot.downloadFile({ fileId: media.fileId, destinationPath: filePath, allowLocalBotApi: true });
   } catch (error) {
     if (isTelegramFileTooLargeError(error)) {
-      await context.reply(formatTelegramDownloadTooLargeMessage(texts, media.fileSizeBytes), cancelKeyboard(language));
+      await replyDownloadTooLargeAndRestoreNavigation(context, media.fileSizeBytes);
       return true;
     }
     throw error;
@@ -171,7 +171,10 @@ export async function startTelegramPrintFromStorageMessage(
   }
 
   if (isTooLargeForTelegramDownload(input.fileSizeBytes) && context.runtime.bot.supportsLargeFileDownload !== true) {
-    await context.reply(formatTelegramDownloadTooLargeMessage(texts, input.fileSizeBytes), cancelKeyboard(language));
+    await replyDownloadTooLargeAndRestoreNavigation(context, input.fileSizeBytes, {
+      origin: 'storage_entry',
+      storageEntryId: input.storageEntryId,
+    });
     return true;
   }
 
@@ -184,7 +187,10 @@ export async function startTelegramPrintFromStorageMessage(
     await context.runtime.bot.downloadFile({ fileId: input.fileId, destinationPath: filePath, allowLocalBotApi: true });
   } catch (error) {
     if (isTelegramFileTooLargeError(error)) {
-      await context.reply(formatTelegramDownloadTooLargeMessage(texts, input.fileSizeBytes), cancelKeyboard(language));
+      await replyDownloadTooLargeAndRestoreNavigation(context, input.fileSizeBytes, {
+        origin: 'storage_entry',
+        storageEntryId: input.storageEntryId,
+      });
       return true;
     }
     throw error;
@@ -411,6 +417,28 @@ async function cancelPrintSession(context: PrintFlowContext, data: Partial<Print
     await context.restorePrintedStorageEntry(context, data.storageEntryId);
     return;
   }
+  await context.restorePrintHome?.(context);
+}
+
+async function replyDownloadTooLargeAndRestoreNavigation(
+  context: PrintFlowContext,
+  fileSizeBytes: number | null | undefined,
+  data?: Partial<PrintSessionData>,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).printing;
+
+  if (context.runtime.session.current?.flowKey === printFlowKey) {
+    await context.runtime.session.cancel();
+  }
+
+  await context.reply(formatTelegramDownloadTooLargeMessage(texts, fileSizeBytes));
+
+  if (data?.origin === 'storage_entry' && data.storageEntryId && context.restorePrintedStorageEntry) {
+    await context.restorePrintedStorageEntry(context, data.storageEntryId);
+    return;
+  }
+
   await context.restorePrintHome?.(context);
 }
 

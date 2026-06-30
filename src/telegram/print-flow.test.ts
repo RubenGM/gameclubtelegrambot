@@ -39,7 +39,8 @@ test('handleTelegramPrintMessage prepares a PDF attachment and asks for pages', 
 });
 
 test('handleTelegramPrintMessage rejects files over Telegram download limit before getFile', async () => {
-  const { context, replies, downloads, getCurrentSession } = createContext({ printingMode: 'enabled' });
+  const restoredHome: string[] = [];
+  const { context, replies, downloads, getCurrentSession } = createContext({ printingMode: 'enabled', restoredHome });
 
   await handleTelegramPrintText({ ...context, messageText: '/print' });
   assert.equal(await handleTelegramPrintMessage({
@@ -56,10 +57,11 @@ test('handleTelegramPrintMessage rejects files over Telegram download limit befo
   }), true);
 
   assert.deepEqual(downloads, []);
-  assert.equal(getCurrentSession()?.stepKey, 'file');
+  assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /72 MB/);
   assert.match(replies.at(-1)?.message ?? '', /20 MB/);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Cancelar']]);
+  assert.equal(replies.at(-1)?.options, undefined);
+  assert.deepEqual(restoredHome, ['home']);
 });
 
 test('handleTelegramPrintMessage allows large files when local Bot API downloads are available', async () => {
@@ -92,9 +94,11 @@ test('handleTelegramPrintMessage allows large files when local Bot API downloads
 });
 
 test('handleTelegramPrintMessage explains Telegram getFile size failures', async () => {
+  const restoredHome: string[] = [];
   const { context, replies, getCurrentSession } = createContext({
     printingMode: 'enabled',
     downloadError: new Error("Call to 'getFile' failed! (400: Bad Request: file is too big)"),
+    restoredHome,
   });
 
   await handleTelegramPrintText({ ...context, messageText: '/print' });
@@ -111,10 +115,11 @@ test('handleTelegramPrintMessage explains Telegram getFile size failures', async
     },
   }), true);
 
-  assert.equal(getCurrentSession()?.stepKey, 'file');
+  assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /Bot API local/i);
   assert.match(replies.at(-1)?.message ?? '', /20 MB/);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Cancelar']]);
+  assert.equal(replies.at(-1)?.options, undefined);
+  assert.deepEqual(restoredHome, ['home']);
 });
 
 test('handleTelegramPrintText submits after extra confirmations for many copies', async () => {
@@ -278,7 +283,11 @@ test('startTelegramPrintFromStorageMessage prepares storage files and records st
 });
 
 test('startTelegramPrintFromStorageMessage rejects files over Telegram download limit before getFile', async () => {
-  const { context, replies, downloads, getCurrentSession } = createContext({ printingMode: 'enabled' });
+  const restoredStorageEntries: number[] = [];
+  const { context, replies, downloads, getCurrentSession } = createContext({
+    printingMode: 'enabled',
+    restoredStorageEntries,
+  });
 
   assert.equal(await startTelegramPrintFromStorageMessage(context, {
     storageEntryId: 123,
@@ -293,7 +302,8 @@ test('startTelegramPrintFromStorageMessage rejects files over Telegram download 
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /72 MB/);
   assert.match(replies.at(-1)?.message ?? '', /20 MB/);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Cancelar']]);
+  assert.equal(replies.at(-1)?.options, undefined);
+  assert.deepEqual(restoredStorageEntries, [123]);
 });
 
 test('startTelegramPrintFromStorageMessage allows large files when local Bot API downloads are available', async () => {

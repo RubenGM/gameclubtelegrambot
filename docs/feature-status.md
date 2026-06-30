@@ -373,6 +373,7 @@ Implementado:
 - El flujo rechaza de forma explicativa archivos que superan el límite de descarga del Bot API de Telegram en la nube (20 MB) antes de llamar a `getFile` cuando conoce el tamaño, salvo que el runtime tenga activado `telegram.localBotApi` para descargas grandes de impresión.
 - Integración opcional con Bot API local sólo para impresión: `downloadFile` acepta `allowLocalBotApi`, el resto del bot sigue usando la ruta cloud por defecto, y si el intento local falla se registra el error y se usa el fallback cloud.
 - El despliegue instala `gameclubtelegrambot-local-bot-api.service` como servicio systemd hermano del bot principal: `startup.sh` lo habilita/reinicia antes del bot cuando `telegram.localBotApi.enabled=true`, y lo detiene/deshabilita cuando está apagado.
+- Cuando un archivo no puede descargarse por tamaño, el flujo cierra la sesión de impresión y restaura la navegación normal o el detalle de Storage, sin dejar un teclado de `Cancelar` huérfano.
 - Para archivos dentro del límite de descarga, el flujo descarga el archivo temporalmente, normaliza a PDF si hace falta, inspecciona páginas con `pdfinfo`, pide páginas, copias y modo `Una cara`/`Doble cara`.
 - Las preguntas del flujo muestran botones rápidos: `Todas` y `Cancelar` en páginas, `1` y `Cancelar` en copias, y `Cancelar` se mantiene visible en el resto de pasos.
 - Confirmación extra si se seleccionan más de 10 páginas distintas y confirmación extra si se piden más de 10 copias.
