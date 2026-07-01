@@ -85,6 +85,9 @@ amb ID `test-mode`, però no envia cap comanda `lp` a CUPS. Si encara no hi ha
 configuració persistida, el bot considera la impressió desactivada i fa servir
 com a fallback la cua CUPS `HP-LaserJet-P2015-Series`. Els registres antics amb
 `enabled: true/false` es llegeixen com `enabled` o `disabled`.
+Els permisos d'usuari no viuen al JSON runtime: els admins poden imprimir
+sempre, i els socis no-admin necessiten una assignació global `printing.use` a
+`user_permission_assignments`, gestionada des de `Admin` -> `Impresora`.
 
 Els camps secrets es poden aportar des de `.env` o des de variables d'entorn reals. Quan existeixen tots dos, la variable d'entorn real preval.
 

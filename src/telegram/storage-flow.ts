@@ -28,6 +28,7 @@ import {
   createAppMetadataPrintingSettingsStore,
   type PrintingSettingsStore,
 } from '../printing/print-settings.js';
+import { printPermissionKey } from '../printing/print-permissions.js';
 import {
   startTelegramPrintFromStorageMessage,
 } from './print-flow.js';
@@ -4842,10 +4843,17 @@ async function shouldShowStoragePrintButton(
   if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
     return false;
   }
+  if (!canActorUseStoragePrinting(context)) {
+    return false;
+  }
   if (!detail.messages.some(isPrintableStorageMessage)) {
     return false;
   }
   return resolveStoragePrintingEnabled(context);
+}
+
+function canActorUseStoragePrinting(context: StorageFlowContext): boolean {
+  return context.runtime.actor.isAdmin || context.runtime.authorization.can(printPermissionKey);
 }
 
 async function resolveStoragePrintingEnabled(context: StorageFlowContext): Promise<boolean> {

@@ -25,11 +25,11 @@ function createContext({
 }) {
   const authorization: AuthorizationService = {
     authorize: (permissionKey) => ({
-      allowed: permissionKey === 'test.allow',
+      allowed: permissionKey === 'test.allow' || actor.permissions.some((permission) => permission.permissionKey === permissionKey && permission.effect === 'allow'),
       permissionKey,
-      reason: permissionKey === 'test.allow' ? 'global-allow' : 'no-match',
+      reason: permissionKey === 'test.allow' || actor.permissions.some((permission) => permission.permissionKey === permissionKey && permission.effect === 'allow') ? 'global-allow' : 'no-match',
     }),
-    can: (permissionKey) => permissionKey === 'test.allow',
+    can: (permissionKey) => permissionKey === 'test.allow' || actor.isAdmin || actor.permissions.some((permission) => permission.permissionKey === permissionKey && permission.effect === 'allow'),
   };
 
   return {
@@ -239,7 +239,7 @@ test('resolveTelegramActionMenu shows a compact member menu for approved non-adm
   });
 });
 
-test('resolveTelegramActionMenu shows printing only when the feature is enabled', async () => {
+test('resolveTelegramActionMenu shows printing only when the feature is enabled and the user can print', async () => {
   const base = {
     actor: {
       telegramUserId: 77,
@@ -263,9 +263,24 @@ test('resolveTelegramActionMenu shows printing only when the feature is enabled'
   const enabledMenu = resolveTelegramActionMenu({
     context: createContext({ ...base, printingEnabled: true }),
   });
-  assert.equal(enabledMenu?.actions.some((action) => action.id === 'print'), true);
+  assert.equal(enabledMenu?.actions.some((action) => action.id === 'print'), false);
+
+  const allowedActor = {
+    ...base.actor,
+    permissions: [{
+      permissionKey: 'printing.use',
+      scopeType: 'global' as const,
+      resourceType: null,
+      resourceId: null,
+      effect: 'allow' as const,
+    }],
+  };
+  const allowedMenu = resolveTelegramActionMenu({
+    context: createContext({ ...base, actor: allowedActor, printingEnabled: true }),
+  });
+  assert.equal(allowedMenu?.actions.some((action) => action.id === 'print'), true);
   assert.deepEqual(resolveTelegramMenuSelection({
-    context: createContext({ ...base, printingEnabled: true }),
+    context: createContext({ ...base, actor: allowedActor, printingEnabled: true }),
     text: 'Imprimir',
   }), {
     menuId: 'private-approved-default',
@@ -274,6 +289,15 @@ test('resolveTelegramActionMenu shows printing only when the feature is enabled'
     telemetryActionKey: 'menu.print',
     uxSection: 'primary',
   });
+
+  const adminMenu = resolveTelegramActionMenu({
+    context: createContext({
+      ...base,
+      actor: { ...base.actor, isAdmin: true, permissions: [] },
+      printingEnabled: true,
+    }),
+  });
+  assert.equal(adminMenu?.actions.some((action) => action.id === 'print'), true);
 });
 
 test('resolveTelegramActionMenu shows Preguntar al bot only when LLM commands are enabled', async () => {

@@ -115,7 +115,7 @@ import {
   handleTelegramPrintMessage,
   handleTelegramPrintText,
 } from './print-flow.js';
-import { handleTelegramPrinterAdminText } from './printer-admin-flow.js';
+import { handleTelegramPrinterAdminStartText, handleTelegramPrinterAdminText } from './printer-admin-flow.js';
 import { buildTodayAtClubSummary } from './today-at-club-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { renderTelegramMessageTextAsHtml } from './telegram-entity-html.js';
@@ -1765,6 +1765,9 @@ function createDefaultCommands({
           return;
         }
         if (await handleTelegramStorageStartText({ ...context })) {
+          return;
+        }
+        if (await handleTelegramPrinterAdminStartText({ ...context })) {
           return;
         }
         if (await handleTelegramVenueEventAdminStartText({ ...context })) {

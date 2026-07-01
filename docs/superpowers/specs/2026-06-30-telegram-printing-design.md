@@ -2,8 +2,9 @@
 
 ## Objetivo
 
-Añadir una feature privada `Imprimir` para que socios aprobados puedan imprimir
-documentos PDF u Office desde el bot cuando un admin haya activado la función.
+Añadir una feature privada `Imprimir` para que socios con permiso explícito y
+admins puedan imprimir documentos PDF u Office desde el bot cuando un admin haya
+activado la función.
 La feature debe servir para casos reales del club, como fichas de rol de pocas
 páginas con varias copias, sin abrir una vía fácil de abuso de papel, tóner o
 recursos del PC.
@@ -16,8 +17,9 @@ cuando un responsable esté en persona en el club.
 
 ## Alcance de la primera versión
 
-- Entrada desde el botón privado `Imprimir`, visible para socios aprobados y
-  admins cuando la feature esté activada o en modo prueba.
+- Entrada desde el botón privado `Imprimir`, visible para admins y socios
+  aprobados con permiso global `printing.use` cuando la feature esté activada o
+  en modo prueba.
 - Entrada desde Storage: los detalles de archivos imprimibles mostrarán una
   acción `Imprimir` cuando la feature esté activada y el usuario tenga permiso
   de lectura sobre la entrada.
@@ -59,6 +61,9 @@ Quedan fuera de la primera versión:
 La impresión estará apagada por defecto. Cualquier usuario con rol admin puede
 abrir `Admin` -> `Impresora` y elegir `Activar`, `Desactivar` o `Modo prueba` en
 caliente. El estado se persistirá en la base de datos para sobrevivir reinicios.
+Los admins pueden conceder o revocar el permiso global `printing.use` desde ese
+mismo menú. Por defecto ningún socio no-admin tiene permiso para imprimir; los
+admins siempre pueden imprimir aunque no tengan asignación explícita.
 
 Cuando está desactivada:
 
@@ -70,8 +75,9 @@ Cuando está desactivada:
 
 Cuando está en modo prueba:
 
-- El botón `Imprimir` aparece igual que en modo activo.
-- Socios aprobados y admins pueden recorrer el flujo completo.
+- El botón `Imprimir` aparece igual que en modo activo para admins y socios con
+  `printing.use`.
+- Socios aprobados con `printing.use` y admins pueden recorrer el flujo completo.
 - El bot descarga, convierte, inspecciona, pide páginas/copias/caras y registra
   historial.
 - Al confirmar, el bot no invoca `lp` ni envía nada a CUPS; marca el historial
@@ -80,11 +86,12 @@ Cuando está en modo prueba:
 
 Cuando está activada:
 
-- Socios aprobados y admins pueden iniciar impresión desde privado.
+- Socios aprobados con `printing.use` y admins pueden iniciar impresión desde
+  privado.
 - Usuarios pendientes, bloqueados o no aprobados no pueden imprimir.
-- Storage sigue siendo la autoridad de permisos para archivos guardados: si el
-  usuario puede leer la entrada de Storage, puede iniciar el flujo de impresión
-  para ese archivo.
+- Storage sigue siendo la autoridad de permisos para leer archivos guardados,
+  pero no basta por sí solo: para iniciar impresión desde Storage el usuario
+  debe poder leer la entrada y además ser admin o tener `printing.use`.
 
 ## Flujo de impresión desde adjunto
 
@@ -127,6 +134,7 @@ Storage ofrece la acción `Imprimir` en el detalle de entradas imprimibles cuand
 
 - La feature de impresión está activada.
 - El usuario está aprobado.
+- El usuario es admin o tiene el permiso global `printing.use`.
 - La entrada contiene al menos un mensaje con adjunto imprimible.
 - El usuario tiene permiso de lectura sobre la categoría/entrada.
 
@@ -241,6 +249,10 @@ El submenú `Admin` añadirá una acción `Impresora`. Desde ahí:
 - Mostrar estado actual: activada/desactivada, cola CUPS, estado de impresora,
   soporte dúplex y últimos trabajos.
 - Activar/desactivar.
+- Conceder/revocar el permiso global `printing.use` a socios aprobados no-admin
+  mediante listas paginadas con enlaces profundos en el mensaje.
+- Consultar una lista paginada de accesos de impresión concedidos, mostrando por
+  usuario cuántos trabajos enviados y páginas estimadas constan en el historial.
 - Refrescar estado.
 - Abrir historial paginado.
 
@@ -250,7 +262,7 @@ Las acciones admin quedan fuera de LLM y fuera de grupos.
 
 El detalle de Storage añadirá una acción `Imprimir` para entradas imprimibles.
 La acción no debe saltarse permisos: debe reutilizar las comprobaciones de
-lectura existentes antes de iniciar el flujo.
+lectura existentes y exigir `printing.use` o rol admin antes de iniciar el flujo.
 
 ### Configuración operativa
 
@@ -270,7 +282,9 @@ validación aceptable será:
 - Tests del servicio con runner de procesos falso para `pdfinfo`, `soffice`,
   `pdfseparate`/herramienta elegida y `lp`.
 - Tests de flujo Telegram para:
-  - Botón visible solo cuando la feature está activada.
+  - Botón visible solo cuando la feature está activada y el usuario es admin o
+    tiene `printing.use`.
+  - Denegación explicativa para socios aprobados sin permiso de impresión.
   - Bloqueo de inicio cuando está desactivada.
   - Sesiones ya iniciadas siguen si se desactiva después.
   - Adjuntos no soportados se rechazan.

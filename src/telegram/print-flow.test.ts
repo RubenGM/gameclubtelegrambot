@@ -9,14 +9,36 @@ import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
 test('handleTelegramPrintText blocks new sessions when printing is disabled', async () => {
-  const { context, replies } = createContext({ printingMode: 'disabled' });
+  const { context, replies } = createContext({ printingMode: 'disabled', canPrint: true });
 
   assert.equal(await handleTelegramPrintText({ ...context, messageText: '/print' }), true);
   assert.match(replies.at(-1)?.message ?? '', /desactivada/i);
 });
 
+test('handleTelegramPrintText denies approved users without explicit print permission', async () => {
+  const { context, replies, getCurrentSession } = createContext({ printingMode: 'enabled', canPrint: false });
+
+  assert.equal(await handleTelegramPrintText({ ...context, messageText: '/print' }), true);
+
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /permiso/i);
+});
+
+test('handleTelegramPrintText lets admins print without explicit print permission', async () => {
+  const { context, replies, getCurrentSession } = createContext({
+    printingMode: 'enabled',
+    canPrint: false,
+    isAdmin: true,
+  });
+
+  assert.equal(await handleTelegramPrintText({ ...context, messageText: '/print' }), true);
+
+  assert.equal(getCurrentSession()?.stepKey, 'file');
+  assert.match(replies.at(-1)?.message ?? '', /documento Office/i);
+});
+
 test('handleTelegramPrintMessage prepares a PDF attachment and asks for pages', async () => {
-  const { context, replies, downloads, getCurrentSession } = createContext({ printingMode: 'enabled' });
+  const { context, replies, downloads, getCurrentSession } = createContext({ printingMode: 'enabled', canPrint: true });
 
   assert.equal(await handleTelegramPrintText({ ...context, messageText: '/print' }), true);
   assert.equal(await handleTelegramPrintMessage({
@@ -40,7 +62,7 @@ test('handleTelegramPrintMessage prepares a PDF attachment and asks for pages', 
 
 test('handleTelegramPrintMessage rejects files over Telegram download limit before getFile', async () => {
   const restoredHome: string[] = [];
-  const { context, replies, downloads, getCurrentSession } = createContext({ printingMode: 'enabled', restoredHome });
+  const { context, replies, downloads, getCurrentSession } = createContext({ printingMode: 'enabled', restoredHome, canPrint: true });
 
   await handleTelegramPrintText({ ...context, messageText: '/print' });
   assert.equal(await handleTelegramPrintMessage({
@@ -68,6 +90,7 @@ test('handleTelegramPrintMessage allows large files when local Bot API downloads
   const { context, replies, downloads, getCurrentSession } = createContext({
     printingMode: 'enabled',
     supportsLargeFileDownload: true,
+    canPrint: true,
   });
 
   await handleTelegramPrintText({ ...context, messageText: '/print' });
@@ -99,6 +122,7 @@ test('handleTelegramPrintMessage explains Telegram getFile size failures', async
     printingMode: 'enabled',
     downloadError: new Error("Call to 'getFile' failed! (400: Bad Request: file is too big)"),
     restoredHome,
+    canPrint: true,
   });
 
   await handleTelegramPrintText({ ...context, messageText: '/print' });
@@ -125,7 +149,7 @@ test('handleTelegramPrintMessage explains Telegram getFile size failures', async
 test('handleTelegramPrintText submits after extra confirmations for many copies', async () => {
   const history = createMemoryPrintJobHistoryRepository();
   const restoredHome: string[] = [];
-  const { context, replies, submissions } = createContext({ printingMode: 'enabled', history, restoredHome });
+  const { context, replies, submissions } = createContext({ printingMode: 'enabled', history, restoredHome, canPrint: true });
 
   await handleTelegramPrintText({ ...context, messageText: '/print' });
   await handleTelegramPrintMessage({
@@ -169,7 +193,7 @@ test('handleTelegramPrintText submits after extra confirmations for many copies'
 });
 
 test('handleTelegramPrintText keeps cancel available after validation errors and many-page confirmation', async () => {
-  const { context, replies } = createContext({ printingMode: 'enabled' });
+  const { context, replies } = createContext({ printingMode: 'enabled', canPrint: true });
 
   await handleTelegramPrintText({ ...context, messageText: '/print' });
   await handleTelegramPrintMessage({
@@ -206,7 +230,7 @@ test('handleTelegramPrintText keeps cancel available after validation errors and
 test('handleTelegramPrintText completes test mode without submitting to CUPS', async () => {
   const history = createMemoryPrintJobHistoryRepository();
   const restoredHome: string[] = [];
-  const { context, replies, submissions } = createContext({ printingMode: 'test', history, restoredHome });
+  const { context, replies, submissions } = createContext({ printingMode: 'test', history, restoredHome, canPrint: true });
 
   await handleTelegramPrintText({ ...context, messageText: '/print' });
   await handleTelegramPrintMessage({
@@ -235,7 +259,7 @@ test('handleTelegramPrintText completes test mode without submitting to CUPS', a
 });
 
 test('handleTelegramPrintText cancels with the visible cancel button', async () => {
-  const { context, replies, cleanups, getCurrentSession } = createContext({ printingMode: 'enabled' });
+  const { context, replies, cleanups, getCurrentSession } = createContext({ printingMode: 'enabled', canPrint: true });
 
   await handleTelegramPrintText({ ...context, messageText: '/print' });
   await handleTelegramPrintMessage({
@@ -259,7 +283,7 @@ test('handleTelegramPrintText cancels with the visible cancel button', async () 
 test('startTelegramPrintFromStorageMessage prepares storage files and records storage origin', async () => {
   const history = createMemoryPrintJobHistoryRepository();
   const restoredStorageEntries: number[] = [];
-  const { context, downloads } = createContext({ printingMode: 'enabled', history, restoredStorageEntries });
+  const { context, downloads } = createContext({ printingMode: 'enabled', history, restoredStorageEntries, canPrint: true });
 
   assert.equal(await startTelegramPrintFromStorageMessage(context, {
     storageEntryId: 123,
@@ -287,6 +311,7 @@ test('startTelegramPrintFromStorageMessage rejects files over Telegram download 
   const { context, replies, downloads, getCurrentSession } = createContext({
     printingMode: 'enabled',
     restoredStorageEntries,
+    canPrint: true,
   });
 
   assert.equal(await startTelegramPrintFromStorageMessage(context, {
@@ -310,6 +335,7 @@ test('startTelegramPrintFromStorageMessage allows large files when local Bot API
   const { context, replies, downloads, getCurrentSession } = createContext({
     printingMode: 'enabled',
     supportsLargeFileDownload: true,
+    canPrint: true,
   });
 
   assert.equal(await startTelegramPrintFromStorageMessage(context, {
@@ -338,6 +364,8 @@ function createContext({
   restoredHome,
   downloadError,
   supportsLargeFileDownload = false,
+  canPrint = false,
+  isAdmin = false,
 }: {
   printingMode: 'disabled' | 'test' | 'enabled';
   history?: ReturnType<typeof createMemoryPrintJobHistoryRepository>;
@@ -345,6 +373,8 @@ function createContext({
   restoredHome?: string[];
   downloadError?: Error;
   supportsLargeFileDownload?: boolean;
+  canPrint?: boolean;
+  isAdmin?: boolean;
 }) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const downloads: Array<{ fileId: string; destinationPath: string; allowLocalBotApi?: boolean }> = [];
@@ -401,12 +431,16 @@ function createContext({
         status: 'approved',
         isApproved: true,
         isBlocked: false,
-        isAdmin: false,
+        isAdmin,
         permissions: [],
       },
       authorization: {
-        authorize: () => ({ allowed: false, permissionKey: 'test', reason: 'no-match' as const }),
-        can: () => false,
+        authorize: (permissionKey: string) => ({
+          allowed: permissionKey === 'printing.use' && canPrint,
+          permissionKey,
+          reason: permissionKey === 'printing.use' && canPrint ? 'global-allow' as const : 'no-match' as const,
+        }),
+        can: (permissionKey: string) => permissionKey === 'printing.use' && canPrint,
       },
       session: {
         get current() {

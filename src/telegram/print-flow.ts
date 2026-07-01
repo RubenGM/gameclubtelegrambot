@@ -6,6 +6,7 @@ import {
   type PrintingMode,
   type PrintingSettingsStore,
 } from '../printing/print-settings.js';
+import { printPermissionKey } from '../printing/print-permissions.js';
 import {
   createDatabasePrintJobHistoryRepository,
   type PrintJobHistoryRepository,
@@ -68,6 +69,11 @@ export async function handleTelegramPrintText(context: PrintFlowContext): Promis
 
   if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
     return false;
+  }
+
+  if (!canActorUsePrinting(context)) {
+    await context.reply(texts.noPermission);
+    return true;
   }
 
   const settings = await resolvePrintSettingsStore(context).getSettings();
@@ -164,6 +170,11 @@ export async function startTelegramPrintFromStorageMessage(
 
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).printing;
+  if (!canActorUsePrinting(context)) {
+    await context.reply(texts.noPermission);
+    return true;
+  }
+
   const settings = await resolvePrintSettingsStore(context).getSettings();
   if (settings.mode === 'disabled') {
     await context.reply(texts.disabled);
@@ -479,6 +490,10 @@ function resolvePrintJobHistory(context: PrintFlowContext): PrintJobHistoryRepos
   return context.printJobHistory ?? createDatabasePrintJobHistoryRepository({
     database: context.runtime.services.database.db,
   });
+}
+
+function canActorUsePrinting(context: PrintFlowContext): boolean {
+  return context.runtime.actor.isAdmin || context.runtime.authorization.can(printPermissionKey);
 }
 
 function isPrintStartText(text: string, language: 'ca' | 'es' | 'en'): boolean {

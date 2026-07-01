@@ -1,4 +1,5 @@
 import type { AuthorizationService } from '../authorization/service.js';
+import { printPermissionKey } from '../printing/print-permissions.js';
 import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
@@ -155,7 +156,11 @@ const actionDefinitions: TelegramActionDefinition[] = [
     uxSection: 'primary',
     buttonRole: 'primary',
     contexts: ['private'],
-    isVisible: (context) => Boolean(context.printingEnabled) && context.actor.isApproved && !context.actor.isBlocked,
+    isVisible: (context) =>
+      Boolean(context.printingEnabled) &&
+      context.actor.isApproved &&
+      !context.actor.isBlocked &&
+      (context.actor.isAdmin || context.authorization.can(printPermissionKey)),
   },
   {
     id: 'ask_bot',

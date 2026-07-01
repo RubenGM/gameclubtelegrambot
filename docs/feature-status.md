@@ -88,7 +88,7 @@ Implementado:
 
 Riesgos o pendientes:
 
-- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos especificos para rol admin, revocacion de acceso y storage category access.
+- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos especificos para rol admin, revocacion de acceso, storage category access y permiso global de impresión.
 
 ## Idioma, menus y ayuda
 
@@ -365,11 +365,12 @@ Estado: `operativo`.
 
 Implementado:
 
-- Botón privado `Imprimir`, visible para socios aprobados y admins cuando un admin pone la feature en `Activar` o `Modo prueba` desde `Admin` -> `Impresora`.
-- Comando privado `/print` para iniciar el mismo flujo sin depender del teclado.
+- Botón privado `Imprimir`, visible cuando un admin pone la feature en `Activar` o `Modo prueba` desde `Admin` -> `Impresora` y el usuario es admin o tiene el permiso global `printing.use`.
+- Comando privado `/print` para iniciar el mismo flujo sin depender del teclado; socios aprobados sin `printing.use` reciben una denegación explicativa y no abren sesión de impresión.
 - El estado operativo se persiste en `app_metadata` con efecto inmediato: `Activar`, `Desactivar` o `Modo prueba`. Al desactivar se bloquean nuevas sesiones y se oculta el botón, pero las sesiones ya iniciadas pueden terminar.
+- Los admins gestionan el permiso desde `Admin` -> `Impresora` con `Conceder impresión`, `Revocar impresión` y `Accesos impresión`; las listas usan mensajes HTML con enlaces profundos, paginación por teclado y estadísticas por usuario de impresiones enviadas y páginas estimadas. Los admins siempre pueden imprimir aunque no tengan una asignación explícita.
 - Entrada desde adjuntos Telegram `document`: PDFs directos y documentos Office/OpenDocument convertibles a PDF mediante LibreOffice headless.
-- Entrada desde Storage: el detalle de entradas imprimibles muestra `Imprimir` cuando la feature está activa y el archivo tiene `telegramFileId`; el flujo reutiliza el permiso de lectura de Storage y no duplica reglas de acceso.
+- Entrada desde Storage: el detalle de entradas imprimibles muestra `Imprimir` cuando la feature está activa, el archivo tiene `telegramFileId`, el usuario puede leer la entrada de Storage y además es admin o tiene `printing.use`.
 - El flujo rechaza de forma explicativa archivos que superan el límite de descarga del Bot API de Telegram en la nube (20 MB) antes de llamar a `getFile` cuando conoce el tamaño, salvo que el runtime tenga activado `telegram.localBotApi` para descargas grandes de impresión.
 - Integración opcional con Bot API local sólo para impresión: `downloadFile` acepta `allowLocalBotApi`, el resto del bot sigue usando la ruta cloud por defecto, y si el intento local falla se registra el error y se usa el fallback cloud.
 - El despliegue instala `gameclubtelegrambot-local-bot-api.service` como servicio systemd hermano del bot principal: `startup.sh` lo habilita/reinicia antes del bot cuando `telegram.localBotApi.enabled=true`, y lo detiene/deshabilita cuando está apagado.
@@ -382,7 +383,7 @@ Implementado:
 - Al completar una impresión iniciada desde Storage, el bot restaura el teclado normal y vuelve a mostrar el detalle del mismo archivo para que el usuario pueda seguir usando sus acciones.
 - Doble cara sólo automática: cuando el usuario elige doble cara, el trabajo se envía con `sides=two-sided-long-edge`; no hay modo manual de girar papel.
 - Historial persistente en `print_jobs` con usuario, origen, archivo, páginas, copias, total estimado, modo, cola, estado, ID CUPS y error seguro.
-- Menú admin `Impresora` con estado de cola, activación/desactivación, refresco e historial reciente.
+- Menú admin `Impresora` con estado de cola, activación/desactivación, concesión/revocación de permisos de impresión, refresco e historial reciente.
 - Las pruebas automatizadas usan runners falsos y no envían trabajos reales a la impresora física `HP-LaserJet-P2015-Series`.
 
 Riesgos o pendientes:

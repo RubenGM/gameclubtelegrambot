@@ -358,6 +358,8 @@ function createContext(
     createdTopic = { chatId: -100555, name: 'Manuales', messageThreadId: 77 },
     failCreateForumTopic = false,
     supportsEditMessageText = false,
+    printingMode = 'disabled',
+    canPrint = false,
   }: {
     isAdmin?: boolean;
     canReadCategoryIds?: number[];
@@ -377,6 +379,8 @@ function createContext(
     createdTopic?: { chatId: number; name: string; messageThreadId: number };
     failCreateForumTopic?: boolean;
     supportsEditMessageText?: boolean;
+    printingMode?: 'disabled' | 'enabled' | 'test';
+    canPrint?: boolean;
   } = {},
 ): {
   context: TelegramCommandHandlerContext & Record<string, unknown>;
@@ -425,7 +429,7 @@ function createContext(
             ? permissionKey === 'storage.entry.read'
               ? canReadCategoryIds.includes(Number(resource.id))
               : canUploadCategoryIds.includes(Number(resource.id))
-            : false,
+            : permissionKey === 'printing.use' && canPrint,
           permissionKey,
           reason: 'test',
         }),
@@ -434,7 +438,7 @@ function createContext(
             ? permissionKey === 'storage.entry.read'
               ? canReadCategoryIds.includes(Number(resource.id))
               : canUploadCategoryIds.includes(Number(resource.id))
-            : false,
+            : permissionKey === 'printing.use' && canPrint,
       },
       session: {
         get current() {
@@ -529,6 +533,12 @@ function createContext(
       },
     },
     storageRepository: repository,
+    printSettingsStore: {
+      async getSettings() {
+        return { mode: printingMode, cupsQueue: 'Virtual-PDF' };
+      },
+      async saveSettings() {},
+    },
     ...(storageCategoryAccessRepository ? { storageCategoryAccessRepository } : {}),
     storageCategorySubscriptionRepository: resolvedStorageCategorySubscriptionRepository,
     storageDefaultChatStore,
@@ -3186,6 +3196,51 @@ test('sendStorageEntryDetail shows edit action to the original uploader', async 
       { text: 'Añadir tags', callbackData: `${storageCallbackPrefixes.addEntryTags}1`, semanticRole: 'success' },
     ],
   ]);
+});
+
+test('sendStorageEntryDetail shows print action only to users with print permission', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 99,
+    sourceKind: 'dm_copy',
+    description: 'Manual imprimible',
+    tags: [],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 501,
+      storageThreadId: 10,
+      telegramFileId: 'file-1',
+      telegramFileUniqueId: 'unique-1',
+      attachmentKind: 'document',
+      caption: null,
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+
+  const denied = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [],
+    printingMode: 'enabled',
+    canPrint: false,
+  });
+  denied.context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageStartText(denied.context as never);
+  assert.equal(Boolean(denied.replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Imprimir')), false);
+
+  const allowed = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  allowed.context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageStartText(allowed.context as never);
+  assert.equal(allowed.replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Imprimir'), true);
 });
 
 test('handleTelegramStorageCallback opens edit flow only for allowed users', async () => {
