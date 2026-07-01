@@ -16,6 +16,7 @@ export type PrintingProcessRunner = (command: string, args: string[]) => Promise
 export interface PrintService {
   inspectPdf(pdfPath: string): Promise<{ pageCount: number }>;
   convertOfficeToPdf(inputPath: string, outputDir: string): Promise<string>;
+  convertImageToPdf(inputPath: string, outputDir: string): Promise<string>;
   getPrinterStatus(queue: string): Promise<{ queue: string; duplexSupported: boolean }>;
   submitPdfJob(input: {
     pdfPath: string;
@@ -53,6 +54,23 @@ export function createPrintService({
         inputPath,
       ]);
       return join(outputDir, `${basename(inputPath, extname(inputPath))}.pdf`);
+    },
+    async convertImageToPdf(inputPath, outputDir) {
+      const outputPath = join(outputDir, `${basename(inputPath, extname(inputPath))}.pdf`);
+      await runChecked(runner, 'magick', [
+        inputPath,
+        '-auto-orient',
+        '-resize',
+        '595x842>',
+        '-gravity',
+        'center',
+        '-background',
+        'white',
+        '-extent',
+        '595x842',
+        outputPath,
+      ]);
+      return outputPath;
     },
     async getPrinterStatus(queue) {
       const result = await runChecked(runner, 'lpoptions', ['-p', queue, '-l']);
@@ -137,4 +155,3 @@ function parseCupsJobId(stdout: string): string | null {
 async function removePath(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true });
 }
-

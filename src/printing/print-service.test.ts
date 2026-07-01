@@ -32,6 +32,34 @@ test('print service converts office files to PDF with LibreOffice headless', asy
   }]);
 });
 
+test('print service converts image files to a one-page PDF with ImageMagick', async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const service = createPrintService({
+    runner: async (command, args) => {
+      calls.push({ command, args });
+      return { stdout: '', stderr: '', exitCode: 0 };
+    },
+  });
+
+  assert.equal(await service.convertImageToPdf('/tmp/foto.jpg', '/tmp/out'), '/tmp/out/foto.pdf');
+  assert.deepEqual(calls, [{
+    command: 'magick',
+    args: [
+      '/tmp/foto.jpg',
+      '-auto-orient',
+      '-resize',
+      '595x842>',
+      '-gravity',
+      'center',
+      '-background',
+      'white',
+      '-extent',
+      '595x842',
+      '/tmp/out/foto.pdf',
+    ],
+  }]);
+});
+
 test('print service detects duplex support from lpoptions', async () => {
   const service = createPrintService({
     runner: async () => ({

@@ -3243,6 +3243,42 @@ test('sendStorageEntryDetail shows print action only to users with print permiss
   assert.equal(allowed.replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Imprimir'), true);
 });
 
+test('sendStorageEntryDetail shows print action for stored photos with print permission', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 99,
+    sourceKind: 'dm_copy',
+    description: 'Mapa imprimible',
+    tags: [],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 501,
+      storageThreadId: 10,
+      telegramFileId: 'photo-file-1',
+      telegramFileUniqueId: 'photo-unique-1',
+      attachmentKind: 'photo',
+      caption: null,
+      originalFileName: null,
+      mimeType: null,
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+
+  const allowed = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  allowed.context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageStartText(allowed.context as never);
+
+  assert.equal(allowed.replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Imprimir'), true);
+});
+
 test('handleTelegramStorageCallback opens edit flow only for allowed users', async () => {
   const repository = createRepository([createCategory()]);
   await repository.createEntry({

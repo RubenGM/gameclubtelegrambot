@@ -3,8 +3,8 @@
 ## Objetivo
 
 Añadir una feature privada `Imprimir` para que socios con permiso explícito y
-admins puedan imprimir documentos PDF u Office desde el bot cuando un admin haya
-activado la función.
+admins puedan imprimir documentos PDF, Office o imágenes desde el bot cuando un
+admin haya activado la función.
 La feature debe servir para casos reales del club, como fichas de rol de pocas
 páginas con varias copias, sin abrir una vía fácil de abuso de papel, tóner o
 recursos del PC.
@@ -24,8 +24,8 @@ cuando un responsable esté en persona en el club.
   acción `Imprimir` cuando la feature esté activada y el usuario tenga permiso
   de lectura sobre la entrada.
 - Gestión admin desde `Admin` -> `Impresora`.
-- Adjuntos Telegram PDF y documentos Office convertibles a PDF mediante
-  LibreOffice headless.
+- Adjuntos Telegram PDF, documentos Office convertibles a PDF mediante
+  LibreOffice headless y fotos/imágenes normalizadas a PDF mediante ImageMagick.
 - Archivos imprimibles guardados en Storage, reutilizando sus permisos actuales.
 - Selección de páginas antes de imprimir: todas, rango o lista.
 - Selección de copias.
@@ -96,7 +96,8 @@ Cuando está activada:
 ## Flujo de impresión desde adjunto
 
 1. El usuario pulsa `Imprimir`.
-2. El bot crea una sesión privada `print-job` y pide un adjunto PDF u Office.
+2. El bot crea una sesión privada `print-job` y pide un adjunto PDF, Office o
+   imagen.
 3. El usuario envía un documento.
 4. El bot comprueba el tamaño declarado por Telegram. Si supera 20 MB y no está
    activo el soporte local de descargas grandes, lo rechaza con explicación.
@@ -104,19 +105,25 @@ Cuando está activada:
 6. El bot valida extensión/MIME y tipo detectado con `file`.
 7. Si es PDF, lo conserva como fuente normalizada.
 8. Si es Office, lo convierte a PDF con `soffice --headless --convert-to pdf`.
-9. El bot inspecciona el PDF resultante con `pdfinfo` y obtiene el número de
+9. Si es imagen o foto Telegram, la normaliza a un PDF A4 de una página con
+   `magick`, autoorientada, ajustada y centrada sobre fondo blanco.
+10. El bot inspecciona el PDF resultante con `pdfinfo` y obtiene el número de
    páginas.
-10. El bot pregunta qué páginas imprimir:
+11. Si el PDF normalizado tiene una sola página, el bot salta la selección de
+    páginas y pasa directamente a copias. Si tiene más de una, pregunta qué
+    páginas imprimir:
    - `Todas`.
    - Rango como `1-4`.
    - Lista como `1,3,5-7`.
-11. El bot valida que las páginas existan y elimina duplicados.
-12. El bot pregunta cuántas copias imprimir.
-13. El bot pregunta `Una cara` o `Doble cara`.
-14. Si la selección contiene más de 10 páginas distintas, pide confirmación
+12. El bot valida que las páginas existan y elimina duplicados.
+13. El bot pregunta cuántas copias imprimir.
+14. Si la selección final es una sola página y una sola copia, el bot salta la
+    pregunta `Una cara`/`Doble cara` y usa `one-sided`. En cualquier otro caso,
+    pregunta `Una cara` o `Doble cara`.
+15. Si la selección contiene más de 10 páginas distintas, pide confirmación
     extra.
-15. Si el número de copias supera 10, pide confirmación extra.
-16. El bot muestra resumen final:
+16. Si el número de copias supera 10, pide confirmación extra.
+17. El bot muestra resumen final:
     - Archivo.
     - Origen: adjunto Telegram.
     - Páginas distintas.
@@ -124,9 +131,9 @@ Cuando está activada:
     - Total físico estimado.
     - Modo: una cara o doble cara.
     - Impresora/cola CUPS.
-17. Al confirmar, el bot envía el trabajo con `lp`.
-18. El bot registra el resultado en el historial.
-19. El bot borra temporales y completa la sesión.
+18. Al confirmar, el bot envía el trabajo con `lp`.
+19. El bot registra el resultado en el historial.
+20. El bot borra temporales y completa la sesión.
 
 ## Flujo de impresión desde Storage
 
@@ -135,7 +142,8 @@ Storage ofrece la acción `Imprimir` en el detalle de entradas imprimibles cuand
 - La feature de impresión está activada.
 - El usuario está aprobado.
 - El usuario es admin o tiene el permiso global `printing.use`.
-- La entrada contiene al menos un mensaje con adjunto imprimible.
+- La entrada contiene al menos un mensaje con adjunto imprimible: PDF, Office,
+  documento de imagen o foto Telegram con `telegramFileId`.
 - El usuario tiene permiso de lectura sobre la categoría/entrada.
 
 Si una entrada tiene varios adjuntos imprimibles, la v1 toma el primer adjunto
@@ -220,7 +228,7 @@ Nuevo módulo de dominio, por ejemplo `src/printing/`, responsable de:
 
 - Leer/escribir configuración de activación.
 - Inspeccionar capacidades de CUPS.
-- Validar y normalizar documentos a PDF.
+- Validar y normalizar documentos e imágenes a PDF.
 - Parsear rangos de páginas.
 - Pasar rangos de páginas a CUPS con `lp -o page-ranges=...`.
 - Invocar `lp`.
@@ -273,6 +281,27 @@ existe configuración, el bot considera la feature desactivada y usa como
 fallback la cola actual `HP-LaserJet-P2015-Series`. Los valores antiguos
 `enabled: true/false` se interpretan como `enabled` o `disabled`.
 
+## Mejoras futuras para imágenes
+
+La primera iteración imprime cada imagen como una página A4, autoorientada,
+ajustada dentro de la página y centrada sobre fondo blanco. Es deliberadamente
+simple para no abrir nuevas decisiones de UX antes de tener uso real.
+
+Mejoras preparadas para iteraciones posteriores:
+
+- Elegir orientación automática o manual (`vertical`/`horizontal`) antes de
+  convertir a PDF.
+- Elegir ajuste: encajar completa, rellenar con recorte o tamaño real cuando la
+  resolución lo permita.
+- Márgenes configurables o presets rápidos para mapas, handouts y fichas.
+- Álbumes Telegram: imprimir varias fotos de un mismo `media_group_id` como un
+  único trabajo, una página por imagen.
+- Varias imágenes por página, útil para tokens, cartas o recortes pequeños.
+- Selección explícita de adjunto cuando una entrada de Storage contenga varios
+  archivos imprimibles.
+- Soporte de formatos adicionales si ImageMagick los valida de forma fiable en
+  el PC del club, evitando activar formatos animados o ambiguos por defecto.
+
 ## Pruebas y validación
 
 No se harán pruebas reales contra la impresora física desde el agente. La
@@ -280,7 +309,7 @@ validación aceptable será:
 
 - Tests unitarios para parseo de páginas.
 - Tests del servicio con runner de procesos falso para `pdfinfo`, `soffice`,
-  `pdfseparate`/herramienta elegida y `lp`.
+  `magick`, `pdfseparate`/herramienta elegida y `lp`.
 - Tests de flujo Telegram para:
   - Botón visible solo cuando la feature está activada y el usuario es admin o
     tiene `printing.use`.
@@ -288,10 +317,14 @@ validación aceptable será:
   - Bloqueo de inicio cuando está desactivada.
   - Sesiones ya iniciadas siguen si se desactiva después.
   - Adjuntos no soportados se rechazan.
+  - Fotos Telegram y documentos de imagen se normalizan a PDF antes de
+    seleccionar páginas.
   - Confirmación extra por más de 10 páginas distintas.
   - Confirmación extra por más de 10 copias.
   - Selección de una/doble cara.
   - Inicio desde Storage respetando permisos.
+  - Acción `Imprimir` visible en detalles de Storage para fotos guardadas con
+    `telegramFileId`.
   - Registro de historial.
 - Tests admin para activar/desactivar y listar historial.
 - `npm run typecheck`.

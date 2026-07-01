@@ -4,7 +4,7 @@ import type { DatabaseConnection } from '../infrastructure/database/connection.j
 import { printJobs } from '../infrastructure/database/schema.js';
 
 export type PrintJobOrigin = 'telegram_attachment' | 'storage_entry';
-export type PrintJobDetectedType = 'pdf' | 'office';
+export type PrintJobDetectedType = 'pdf' | 'office' | 'image';
 export type PrintJobSides = 'one-sided' | 'two-sided-long-edge';
 export type PrintJobStatus = 'prepared' | 'submitted' | 'failed' | 'cancelled';
 
@@ -206,4 +206,3 @@ function mapPrintJobRow(row: typeof printJobs.$inferSelect): PrintJobHistoryReco
     completedAt: row.completedAt?.toISOString() ?? null,
   };
 }
-

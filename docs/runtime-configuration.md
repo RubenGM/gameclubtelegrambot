@@ -169,6 +169,7 @@ La feature d'impressió depèn de capacitats del sistema local:
 - CUPS amb la cua configurada i accessible per l'usuari del servei.
 - `lp`, `lpoptions` i `pdfinfo` disponibles al `PATH`.
 - `soffice`/LibreOffice headless per convertir documents Office/OpenDocument a PDF.
+- `magick`/ImageMagick per normalitzar fotos i documents d'imatge a PDF A4 abans d'enviar-los a CUPS.
 
 El bot envia treballs a CUPS només després de confirmació explícita de l'usuari.
 Les proves automatitzades i les validacions de desenvolupament han d'utilitzar

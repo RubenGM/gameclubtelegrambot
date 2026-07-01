@@ -2055,6 +2055,7 @@ async function startStorageEntryPrint(
     storageEntryId: detail.entry.id,
     storageMessageId: printable.id,
     fileId: printable.telegramFileId,
+    attachmentKind: printable.attachmentKind,
     originalFileName: printable.originalFileName,
     mimeType: printable.mimeType,
     fileSizeBytes: printable.fileSizeBytes,
@@ -4869,7 +4870,13 @@ async function resolveStoragePrintingEnabled(context: StorageFlowContext): Promi
 }
 
 function isPrintableStorageMessage(message: StorageEntryMessageRecord): boolean {
-  if (message.attachmentKind !== 'document' || !message.telegramFileId) {
+  if (!message.telegramFileId) {
+    return false;
+  }
+  if (message.attachmentKind === 'photo') {
+    return true;
+  }
+  if (message.attachmentKind !== 'document') {
     return false;
   }
   const mimeType = message.mimeType?.toLowerCase() ?? '';
@@ -4878,7 +4885,10 @@ function isPrintableStorageMessage(message: StorageEntryMessageRecord): boolean 
     || fileName.endsWith('.pdf')
     || mimeType.includes('officedocument')
     || mimeType.includes('opendocument')
+    || ['image/jpeg', 'image/png', 'image/webp', 'image/tiff', 'image/bmp'].includes(mimeType)
     || ['.doc', '.docx', '.odt', '.xls', '.xlsx', '.ods', '.ppt', '.pptx', '.odp']
+      .some((extension) => fileName.endsWith(extension))
+    || ['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff', '.bmp']
       .some((extension) => fileName.endsWith(extension));
 }
 

@@ -10,6 +10,7 @@ import { printPermissionKey } from '../printing/print-permissions.js';
 import {
   createDatabasePrintJobHistoryRepository,
   type PrintJobHistoryRepository,
+  type PrintJobDetectedType,
   type PrintJobSides,
 } from '../printing/print-job-history.js';
 import { createPrintService, type PrintService } from '../printing/print-service.js';
@@ -41,7 +42,7 @@ type PrintSessionData = {
   pdfPath: string;
   originalFileName: string;
   mimeType: string | null;
-  detectedType: 'pdf' | 'office';
+  detectedType: PrintJobDetectedType;
   pageCount: number;
   cupsQueue: string;
   printMode: Exclude<PrintingMode, 'disabled'>;
@@ -100,7 +101,12 @@ export async function handleTelegramPrintMessage(context: PrintFlowContext): Pro
   const media = context.messageMedia;
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).printing;
-  if (!media || media.attachmentKind !== 'document' || !media.fileId || !isSupportedPrintableMime(media.mimeType, media.originalFileName)) {
+  const detectedType = media ? detectPrintableType({
+    attachmentKind: media.attachmentKind,
+    mimeType: media.mimeType,
+    fileName: media.originalFileName,
+  }) : null;
+  if (!media || !media.fileId || !detectedType) {
     await context.reply(texts.unsupportedAttachment, cancelKeyboard(language));
     return true;
   }
@@ -126,10 +132,7 @@ export async function handleTelegramPrintMessage(context: PrintFlowContext): Pro
   }
 
   const printService = resolvePrintService(context);
-  const detectedType = isPdf(media.mimeType, media.originalFileName) ? 'pdf' : 'office';
-  const pdfPath = detectedType === 'pdf'
-    ? filePath
-    : await printService.convertOfficeToPdf(filePath, defaultTempDir);
+  const pdfPath = await normalizePrintableToPdf(printService, detectedType, filePath);
   const inspection = await printService.inspectPdf(pdfPath);
 
   const data: PrintSessionData = {
@@ -137,7 +140,7 @@ export async function handleTelegramPrintMessage(context: PrintFlowContext): Pro
     fileId: media.fileId,
     filePath,
     pdfPath,
-    originalFileName: media.originalFileName ?? 'documento',
+    originalFileName: media.originalFileName ?? texts.defaultImageFileName,
     mimeType: media.mimeType ?? null,
     detectedType,
     pageCount: inspection.pageCount,
@@ -145,11 +148,7 @@ export async function handleTelegramPrintMessage(context: PrintFlowContext): Pro
     printMode: session.data.printMode === 'test' ? 'test' : 'enabled',
   };
 
-  await context.runtime.session.advance({ stepKey: 'pages', data });
-  await context.reply(formatText(texts.prepared, {
-    fileName: data.originalFileName,
-    pages: String(data.pageCount),
-  }), pagesKeyboard(language));
+  await continueAfterPrintablePrepared(context, data, 'advance');
   return true;
 }
 
@@ -159,6 +158,7 @@ export async function startTelegramPrintFromStorageMessage(
     storageEntryId: number;
     storageMessageId: number;
     fileId: string;
+    attachmentKind?: string | null;
     originalFileName: string | null;
     mimeType: string | null;
     fileSizeBytes: number | null;
@@ -172,6 +172,16 @@ export async function startTelegramPrintFromStorageMessage(
   const texts = createTelegramI18n(language).printing;
   if (!canActorUsePrinting(context)) {
     await context.reply(texts.noPermission);
+    return true;
+  }
+
+  const detectedType = detectPrintableType({
+    attachmentKind: input.attachmentKind ?? 'document',
+    mimeType: input.mimeType,
+    fileName: input.originalFileName,
+  });
+  if (!detectedType) {
+    await context.reply(texts.unsupportedAttachment);
     return true;
   }
 
@@ -208,10 +218,7 @@ export async function startTelegramPrintFromStorageMessage(
   }
 
   const printService = resolvePrintService(context);
-  const detectedType = isPdf(input.mimeType, input.originalFileName) ? 'pdf' : 'office';
-  const pdfPath = detectedType === 'pdf'
-    ? filePath
-    : await printService.convertOfficeToPdf(filePath, defaultTempDir);
+  const pdfPath = await normalizePrintableToPdf(printService, detectedType, filePath);
   const inspection = await printService.inspectPdf(pdfPath);
   const data: PrintSessionData = {
     origin: 'storage_entry',
@@ -220,7 +227,7 @@ export async function startTelegramPrintFromStorageMessage(
     fileId: input.fileId,
     filePath,
     pdfPath,
-    originalFileName: input.originalFileName ?? `storage-${input.storageEntryId}`,
+    originalFileName: input.originalFileName ?? (detectedType === 'image' ? texts.defaultImageFileName : `storage-${input.storageEntryId}`),
     mimeType: input.mimeType,
     detectedType,
     pageCount: inspection.pageCount,
@@ -228,11 +235,7 @@ export async function startTelegramPrintFromStorageMessage(
     printMode: settings.mode,
   };
 
-  await context.runtime.session.start({ flowKey: printFlowKey, stepKey: 'pages', data });
-  await context.reply(formatText(texts.prepared, {
-    fileName: data.originalFileName,
-    pages: String(data.pageCount),
-  }), pagesKeyboard(language));
+  await continueAfterPrintablePrepared(context, data, 'start');
   return true;
 }
 
@@ -273,7 +276,13 @@ async function continuePrintSession(context: PrintFlowContext, text: string): Pr
       return true;
     }
 
-    await context.runtime.session.advance({ stepKey: 'sides', data: { ...data, copies } });
+    const nextData = { ...data, copies };
+    if (shouldSkipSidesSelection(nextData)) {
+      await context.runtime.session.advance({ stepKey: 'confirm', data: { ...nextData, sides: 'one-sided' } });
+      return askNextConfirmation(context, { ...nextData, sides: 'one-sided' });
+    }
+
+    await context.runtime.session.advance({ stepKey: 'sides', data: nextData });
     await context.reply(texts.askSides, sidesKeyboard(language));
     return true;
   }
@@ -313,6 +322,38 @@ async function continuePrintSession(context: PrintFlowContext, text: string): Pr
   }
 
   return false;
+}
+
+async function continueAfterPrintablePrepared(
+  context: PrintFlowContext,
+  data: PrintSessionData,
+  sessionMode: 'advance' | 'start',
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).printing;
+
+  if (data.pageCount === 1) {
+    const nextData: PrintSessionData = { ...data, selectedPagesLabel: '1', selectedPageCount: 1 };
+    if (sessionMode === 'start') {
+      await context.runtime.session.start({ flowKey: printFlowKey, stepKey: 'copies', data: nextData });
+    } else {
+      await context.runtime.session.advance({ stepKey: 'copies', data: nextData });
+    }
+    await context.reply(formatText(texts.preparedSinglePage, {
+      fileName: data.originalFileName,
+    }), copiesKeyboard(language));
+    return;
+  }
+
+  if (sessionMode === 'start') {
+    await context.runtime.session.start({ flowKey: printFlowKey, stepKey: 'pages', data });
+  } else {
+    await context.runtime.session.advance({ stepKey: 'pages', data });
+  }
+  await context.reply(formatText(texts.prepared, {
+    fileName: data.originalFileName,
+    pages: String(data.pageCount),
+  }), pagesKeyboard(language));
 }
 
 async function askNextConfirmation(context: PrintFlowContext, data: PrintSessionData): Promise<boolean> {
@@ -461,6 +502,10 @@ function needsManyCopiesConfirmation(data: PrintSessionData): boolean {
   return (data.copies ?? 1) > 10 && data.confirmedManyCopies !== true;
 }
 
+function shouldSkipSidesSelection(data: PrintSessionData): boolean {
+  return data.selectedPageCount === 1 && data.copies === 1;
+}
+
 function resolveSides(text: string, texts: ReturnType<typeof createTelegramI18n>['printing']): PrintJobSides | null {
   if (text === texts.oneSided || /^una cara$/i.test(text) || /^one-sided$/i.test(text)) {
     return 'one-sided';
@@ -530,12 +575,8 @@ function formatPrintFileSize(fileSizeBytes: number | null | undefined, unknownLa
   return `${Number.isInteger(megabytes) ? megabytes.toFixed(0) : megabytes.toFixed(1)} MB`;
 }
 
-function isSupportedPrintableMime(mimeType: string | null | undefined, fileName: string | null | undefined): boolean {
-  return isPdf(mimeType, fileName) || isOffice(mimeType, fileName);
-}
-
 function isPdf(mimeType: string | null | undefined, fileName: string | null | undefined): boolean {
-  return mimeType === 'application/pdf' || Boolean(fileName?.toLowerCase().endsWith('.pdf'));
+  return mimeType?.toLowerCase() === 'application/pdf' || Boolean(fileName?.toLowerCase().endsWith('.pdf'));
 }
 
 function isOffice(mimeType: string | null | undefined, fileName: string | null | undefined): boolean {
@@ -545,6 +586,48 @@ function isOffice(mimeType: string | null | undefined, fileName: string | null |
     || normalizedMime.includes('opendocument')
     || ['.doc', '.docx', '.odt', '.xls', '.xlsx', '.ods', '.ppt', '.pptx', '.odp']
       .some((extension) => normalizedName.endsWith(extension));
+}
+
+function isImage(mimeType: string | null | undefined, fileName: string | null | undefined): boolean {
+  const normalizedMime = mimeType?.toLowerCase() ?? '';
+  const normalizedName = fileName?.toLowerCase() ?? '';
+  return ['image/jpeg', 'image/png', 'image/webp', 'image/tiff', 'image/bmp'].includes(normalizedMime)
+    || ['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff', '.bmp']
+      .some((extension) => normalizedName.endsWith(extension));
+}
+
+function detectPrintableType(input: {
+  attachmentKind: string | null | undefined;
+  mimeType: string | null | undefined;
+  fileName: string | null | undefined;
+}): PrintJobDetectedType | null {
+  if (input.attachmentKind === 'photo' || isImage(input.mimeType, input.fileName)) {
+    return 'image';
+  }
+  if (input.attachmentKind !== 'document') {
+    return null;
+  }
+  if (isPdf(input.mimeType, input.fileName)) {
+    return 'pdf';
+  }
+  if (isOffice(input.mimeType, input.fileName)) {
+    return 'office';
+  }
+  return null;
+}
+
+async function normalizePrintableToPdf(
+  printService: PrintService,
+  detectedType: PrintJobDetectedType,
+  filePath: string,
+): Promise<string> {
+  if (detectedType === 'pdf') {
+    return filePath;
+  }
+  if (detectedType === 'image') {
+    return printService.convertImageToPdf(filePath, defaultTempDir);
+  }
+  return printService.convertOfficeToPdf(filePath, defaultTempDir);
 }
 
 function sanitizePathSegment(value: string): string {

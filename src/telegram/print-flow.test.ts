@@ -34,7 +34,7 @@ test('handleTelegramPrintText lets admins print without explicit print permissio
   assert.equal(await handleTelegramPrintText({ ...context, messageText: '/print' }), true);
 
   assert.equal(getCurrentSession()?.stepKey, 'file');
-  assert.match(replies.at(-1)?.message ?? '', /documento Office/i);
+  assert.match(replies.at(-1)?.message ?? '', /documento Office o imagen/i);
 });
 
 test('handleTelegramPrintMessage prepares a PDF attachment and asks for pages', async () => {
@@ -58,6 +58,36 @@ test('handleTelegramPrintMessage prepares a PDF attachment and asks for pages', 
   assert.equal(getCurrentSession()?.stepKey, 'pages');
   assert.match(replies.at(-1)?.message ?? '', /12 páginas/i);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Todas'], ['Cancelar']]);
+});
+
+test('handleTelegramPrintMessage prepares a Telegram photo and asks directly for copies', async () => {
+  const { context, replies, downloads, imageConversions, getCurrentSession } = createContext({
+    printingMode: 'enabled',
+    canPrint: true,
+    pageCount: 1,
+  });
+
+  assert.equal(await handleTelegramPrintText({ ...context, messageText: '/print' }), true);
+  assert.equal(await handleTelegramPrintMessage({
+    ...context,
+    messageMedia: {
+      attachmentKind: 'photo',
+      fileId: 'telegram-photo',
+      fileUniqueId: 'unique-photo',
+      originalFileName: null,
+      mimeType: null,
+      fileSizeBytes: 1200,
+      messageId: 55,
+    },
+  }), true);
+
+  assert.deepEqual(downloads, [{ fileId: 'telegram-photo', destinationPath: '/tmp/gameclub-print/telegram-photo', allowLocalBotApi: true }]);
+  assert.deepEqual(imageConversions, [{ inputPath: '/tmp/gameclub-print/telegram-photo', outputDir: '/tmp/gameclub-print' }]);
+  assert.equal(getCurrentSession()?.stepKey, 'copies');
+  assert.match(replies.at(-1)?.message ?? '', /1 página/i);
+  assert.match(replies.at(-1)?.message ?? '', /copias/i);
+  assert.match(replies.at(-1)?.message ?? '', /foto/i);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
 });
 
 test('handleTelegramPrintMessage rejects files over Telegram download limit before getFile', async () => {
@@ -227,6 +257,45 @@ test('handleTelegramPrintText keeps cancel available after validation errors and
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Confirmar páginas'], ['Cancelar']]);
 });
 
+test('handleTelegramPrintText skips side selection for one selected page and one copy', async () => {
+  const history = createMemoryPrintJobHistoryRepository();
+  const { context, replies, submissions } = createContext({ printingMode: 'enabled', history, canPrint: true });
+
+  await handleTelegramPrintText({ ...context, messageText: '/print' });
+  await handleTelegramPrintMessage({
+    ...context,
+    messageMedia: {
+      attachmentKind: 'document',
+      fileId: 'telegram-file',
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1200,
+      messageId: 55,
+    },
+  });
+
+  await handleTelegramPrintText({ ...context, messageText: '3' });
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
+
+  await handleTelegramPrintText({ ...context, messageText: '1' });
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar']]);
+  assert.match(replies.at(-1)?.message ?? '', /Páginas: 3/);
+  assert.match(replies.at(-1)?.message ?? '', /Modo: Una cara/);
+
+  await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
+
+  assert.deepEqual(submissions, [{
+    pdfPath: '/tmp/gameclub-print/telegram-file',
+    queue: 'Virtual-PDF',
+    copies: 1,
+    pageRanges: '3',
+    sides: 'one-sided',
+  }]);
+  const jobs = await history.listRecent({ limit: 1 });
+  assert.equal(jobs[0]?.selectedPageCount, 1);
+  assert.equal(jobs[0]?.estimatedPhysicalPages, 1);
+});
+
 test('handleTelegramPrintText completes test mode without submitting to CUPS', async () => {
   const history = createMemoryPrintJobHistoryRepository();
   const restoredHome: string[] = [];
@@ -306,6 +375,30 @@ test('startTelegramPrintFromStorageMessage prepares storage files and records st
   assert.deepEqual(restoredStorageEntries, [123]);
 });
 
+test('startTelegramPrintFromStorageMessage prepares image documents and records image type', async () => {
+  const history = createMemoryPrintJobHistoryRepository();
+  const { context, downloads, imageConversions } = createContext({ printingMode: 'enabled', history, canPrint: true });
+
+  assert.equal(await startTelegramPrintFromStorageMessage(context, {
+    storageEntryId: 123,
+    storageMessageId: 456,
+    fileId: 'storage-image',
+    originalFileName: 'mapa.png',
+    mimeType: 'image/png',
+    fileSizeBytes: 1200,
+  }), true);
+  await handleTelegramPrintText({ ...context, messageText: 'Todas' });
+  await handleTelegramPrintText({ ...context, messageText: '1' });
+  await handleTelegramPrintText({ ...context, messageText: 'Una cara' });
+  await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
+
+  assert.deepEqual(downloads, [{ fileId: 'storage-image', destinationPath: '/tmp/gameclub-print/storage-image', allowLocalBotApi: true }]);
+  assert.deepEqual(imageConversions, [{ inputPath: '/tmp/gameclub-print/storage-image', outputDir: '/tmp/gameclub-print' }]);
+  const jobs = await history.listRecent({ limit: 1 });
+  assert.equal(jobs[0]?.detectedType, 'image');
+  assert.equal(jobs[0]?.originalFileName, 'mapa.png');
+});
+
 test('startTelegramPrintFromStorageMessage rejects files over Telegram download limit before getFile', async () => {
   const restoredStorageEntries: number[] = [];
   const { context, replies, downloads, getCurrentSession } = createContext({
@@ -366,6 +459,7 @@ function createContext({
   supportsLargeFileDownload = false,
   canPrint = false,
   isAdmin = false,
+  pageCount = 12,
 }: {
   printingMode: 'disabled' | 'test' | 'enabled';
   history?: ReturnType<typeof createMemoryPrintJobHistoryRepository>;
@@ -375,18 +469,24 @@ function createContext({
   supportsLargeFileDownload?: boolean;
   canPrint?: boolean;
   isAdmin?: boolean;
+  pageCount?: number;
 }) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const downloads: Array<{ fileId: string; destinationPath: string; allowLocalBotApi?: boolean }> = [];
   const submissions: Array<{ pdfPath: string; queue: string; copies: number; pageRanges: string; sides: 'one-sided' | 'two-sided-long-edge' }> = [];
+  const imageConversions: Array<{ inputPath: string; outputDir: string }> = [];
   const cleanups: string[][] = [];
   let currentSession: ConversationSessionRecord | null = null;
   const printService: PrintService = {
     async inspectPdf() {
-      return { pageCount: 12 };
+      return { pageCount };
     },
     async convertOfficeToPdf() {
       return '/tmp/gameclub-print/converted.pdf';
+    },
+    async convertImageToPdf(inputPath, outputDir) {
+      imageConversions.push({ inputPath, outputDir });
+      return '/tmp/gameclub-print/converted-image.pdf';
     },
     async getPrinterStatus(queue) {
       return { queue, duplexSupported: true };
@@ -489,5 +589,5 @@ function createContext({
     },
   } satisfies TelegramCommandHandlerContext & Record<string, unknown>;
 
-  return { context, replies, downloads, submissions, cleanups, getCurrentSession: () => currentSession };
+  return { context, replies, downloads, imageConversions, submissions, cleanups, getCurrentSession: () => currentSession };
 }
