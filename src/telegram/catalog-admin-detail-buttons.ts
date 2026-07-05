@@ -14,6 +14,7 @@ export function buildCatalogAdminItemDetailButtons({
   editPrefix,
   createActivityPrefix,
   autocorrectPrefix,
+  quickBggMetadataPrefix,
   translateDescriptionPrefix,
   setOwnerSelfPrefix,
   selectOwnerPrefix,
@@ -33,6 +34,7 @@ export function buildCatalogAdminItemDetailButtons({
   editPrefix: string;
   createActivityPrefix: string;
   autocorrectPrefix: string;
+  quickBggMetadataPrefix: string;
   translateDescriptionPrefix: string;
   setOwnerSelfPrefix: string;
   selectOwnerPrefix: string;
@@ -54,6 +56,9 @@ export function buildCatalogAdminItemDetailButtons({
   return [
     [{ text: texts.edit, callbackData: `${editPrefix}${itemId}` }],
     [{ text: texts.autocorrectItem, callbackData: `${autocorrectPrefix}${itemId}` }],
+    ...(itemType === 'board-game' || itemType === 'expansion'
+      ? [[{ text: texts.quickBggMetadataImport, callbackData: `${quickBggMetadataPrefix}${itemId}` }]]
+      : []),
     [{ text: texts.translateDescription, callbackData: `${translateDescriptionPrefix}${itemId}` }],
     [{ text: texts.assignOwnerSelf, callbackData: `${setOwnerSelfPrefix}${itemId}` }],
     [{ text: texts.assignOwnerOther, callbackData: `${selectOwnerPrefix}${itemId}:1` }],

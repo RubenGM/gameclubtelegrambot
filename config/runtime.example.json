@@ -5,7 +5,12 @@
     "clubName": "Game Club"
   },
   "telegram": {
-    "token": "replace-with-real-telegram-token"
+    "token": "replace-with-real-telegram-token",
+    "localBotApi": {
+      "enabled": false,
+      "baseUrl": "http://127.0.0.1:8081",
+      "dataDir": "/var/lib/gameclubtelegrambot/telegram-bot-api"
+    }
   },
   "bgg": {
     "apiKey": "replace-with-real-bgg-api-key"

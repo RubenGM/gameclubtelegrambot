@@ -1,0 +1,697 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  handleTelegramLlmAskCommand,
+  handleTelegramLlmCallback,
+  handleTelegramLlmFallbackText,
+  handleTelegramLlmMenuText,
+  llmCommandCallbackPrefixes,
+  llmCommandFlowKey,
+  resolveNextStepModelOptions,
+  type TelegramLlmCommandContext,
+} from './llm-command-flow.js';
+import { defaultLlmCommandConfig } from './llm-command-config.js';
+import type { LlmCommandMetricInput } from './llm-command-metrics.js';
+import type { LlmCommandDecision } from './llm-command-schema.js';
+import { LlmCommandServiceError } from './llm-command-service.js';
+import type { ConversationSessionRecord, ConversationSessionRuntime } from './conversation-session.js';
+
+test('handleTelegramLlmAskCommand starts a session when no prompt is provided', async () => {
+  const context = createContext({ messageText: '/ask' });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies.at(-1), 'Escribe qué quieres preguntarme. Puedo ayudarte con actividades, catálogo, Storage, compras, avisos y LFG.');
+  assert.equal(context.session.current?.flowKey, llmCommandFlowKey);
+  assert.equal(context.servicePrompts.length, 0);
+});
+
+test('handleTelegramLlmAskCommand interprets explicit text through the injected service', async () => {
+  const context = createContext({
+    messageText: '/ask que puedes hacer',
+    decision: {
+      ...helpDecision(),
+      reply: {
+        text: 'Puedes preguntarme por actividades, catálogo y Storage.',
+        sendNow: true,
+      },
+    },
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies.at(-1), 'Puedes preguntarme por actividades, catálogo y Storage.');
+  assert.equal(context.servicePrompts.length, 1);
+  assert.match(context.servicePrompts[0] ?? '', /que puedes hacer/);
+  assert.deepEqual(context.metrics.map((metric) => ({
+    entrySource: metric.entrySource,
+    intent: metric.intent,
+    confidence: metric.confidence,
+    action: metric.action,
+    result: metric.result,
+  })), [{
+    entrySource: 'ask_command',
+    intent: 'help.capabilities',
+    confidence: 0.95,
+    action: 'read',
+    result: 'success',
+  }]);
+  assert.doesNotMatch(JSON.stringify(context.metrics), /que puedes hacer/);
+});
+
+test('handleTelegramLlmAskCommand sends an immediate editable receipt before interpreting', async () => {
+  const context = createContext({
+    messageText: '/ask crea un aviso diciendo que abrimos tarde',
+    decision: noticeCreateDecision(),
+    editableProgress: true,
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies[0], [
+    '[#---------]',
+    'Petición recibida',
+    'Estoy preparando el contexto y enviando tu mensaje a la IA.',
+  ].join('\n\n'));
+  assert.equal(context.replies.length, 1);
+  assert.match(context.edits[0]?.text ?? '', /\[########--\]\n\nPetición entendida/);
+  assert.match(context.edits[0]?.text ?? '', /Preparando una confirmación/);
+  assert.doesNotMatch(context.edits[0]?.text ?? '', /Progreso:|Fase:|Detalle:|Petición:/);
+  assert.equal(
+    context.edits[1]?.text,
+    'Voy a preparar un aviso con el texto "Mañana abrimos media hora más tarde.".\n\n¿Quieres que prepare el flujo normal con estos datos?',
+  );
+  assert.deepEqual(context.edits.at(-1)?.options, {
+    inlineKeyboard: [[
+      { text: 'Preparar', callbackData: llmCommandCallbackPrefixes.confirmWrite, semanticRole: 'success' },
+      { text: 'Cancelar', callbackData: llmCommandCallbackPrefixes.cancelWrite, semanticRole: 'danger' },
+    ]],
+  });
+});
+
+test('handleTelegramLlmAskCommand shows LLM-provided progress messages while preparing the next step', async () => {
+  const context = createContext({
+    messageText: '/ask crea un aviso diciendo que abrimos tarde',
+    decision: {
+      ...noticeCreateDecision(),
+      progress: {
+        messages: ['He entendido que quieres publicar un aviso; voy a preparar una confirmación privada.'],
+      },
+    },
+    editableProgress: true,
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.match(context.edits[0]?.text ?? '', /He entendido que quieres publicar un aviso/);
+  assert.match(context.edits[0]?.text ?? '', /\[########--\]/);
+});
+
+test('handleTelegramLlmMenuText is gated by feature flag and starts a session when enabled', async () => {
+  const disabled = createContext({
+    llmEnabled: false,
+  });
+  assert.equal(await handleTelegramLlmMenuText(disabled), true);
+  assert.equal(disabled.replies.at(-1), 'Preguntar al bot todavía no está activado.');
+
+  const enabled = createContext({});
+  assert.equal(await handleTelegramLlmMenuText(enabled), true);
+  assert.equal(enabled.session.current?.flowKey, llmCommandFlowKey);
+});
+
+test('handleTelegramLlmFallbackText ignores ordinary text unless fallback is enabled and no flow handled it', async () => {
+  const disabled = createContext({
+    messageText: 'busca dragon ball',
+    privateFallbackEnabled: false,
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(disabled), false);
+  assert.equal(disabled.servicePrompts.length, 0);
+
+  const enabled = createContext({ messageText: 'que puedes hacer' });
+
+  assert.equal(await handleTelegramLlmFallbackText(enabled), true);
+  assert.equal(enabled.replies.at(-1), 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.');
+});
+
+test('handleTelegramLlmFallbackText handles private free text while catalog read detail is active', async () => {
+  const context = createContext({
+    messageText: 'qué juegos de dos personas hay disponibles?',
+  });
+  await context.session.start({
+    flowKey: 'catalog-read',
+    stepKey: 'browse',
+    data: { view: 'item', page: 1, itemId: 7 },
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(context), true);
+  assert.equal(context.servicePrompts.length, 1);
+  assert.match(context.servicePrompts[0] ?? '', /qué juegos de dos personas/);
+});
+
+test('handleTelegramLlmFallbackText only handles group text when it mentions or replies to the bot', async () => {
+  const ignored = createContext({
+    chatKind: 'group',
+    messageText: 'que actividades hay hoy',
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(ignored), false);
+  assert.equal(ignored.servicePrompts.length, 0);
+
+  const mentioned = createContext({
+    chatKind: 'group-news',
+    messageText: '@gameclubbot que puedes hacer',
+    messageThreadId: 42,
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(mentioned), true);
+  assert.match(mentioned.servicePrompts[0] ?? '', /que puedes hacer/);
+  assert.doesNotMatch(mentioned.servicePrompts[0] ?? '', /@gameclubbot/);
+  assert.deepEqual(mentioned.replyOptions.at(-1), {
+    messageThreadId: 42,
+    inlineKeyboard: [[{ text: 'Abrir privado', url: 'https://t.me/gameclubbot?start=llm_ask' }]],
+  });
+
+  const replied = createContext({
+    chatKind: 'group',
+    messageText: '¿y alguno disponible?',
+    replyToBotMessage: true,
+    replyToBotMessageContext: {
+      messageId: 77,
+      text: 'Resultados del catálogo:\n\n1. Dune - board-game',
+    },
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(replied), true);
+  assert.match(replied.servicePrompts[0] ?? '', /Mensaje del bot al que responde el usuario/);
+  assert.match(replied.servicePrompts[0] ?? '', /Resultados del catálogo/);
+});
+
+test('handleTelegramLlmAskCommand records sanitized failure metrics without leaking prompts', async () => {
+  const context = createContext({
+    messageText: '/ask texto privado sensible',
+    serviceError: new LlmCommandServiceError('invalid_json', 'raw response was not parseable'),
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies.at(-1), 'No he podido interpretar la petición ahora mismo. Prueba de nuevo en unos momentos o usa el menú normal.');
+  assert.deepEqual(context.metrics.map((metric) => ({
+    entrySource: metric.entrySource,
+    intent: metric.intent,
+    action: metric.action,
+    result: metric.result,
+    reason: metric.reason,
+  })), [{
+    entrySource: 'ask_command',
+    intent: null,
+    action: 'failure',
+    result: 'invalid_json',
+    reason: 'invalid_json',
+  }]);
+  assert.doesNotMatch(JSON.stringify(context.metrics), /texto privado sensible/);
+});
+
+test('handleTelegramLlmAskCommand tells the user when interpretation times out', async () => {
+  const context = createContext({
+    messageText: '/ask qué STL tenemos para Mutant Chronicles?',
+    serviceError: new LlmCommandServiceError('timeout', 'OpenCode timed out after 60000 ms'),
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies.at(-1), 'La IA ha tardado demasiado en interpretar la petición. Prueba de nuevo en unos momentos o usa el menú normal.');
+  assert.equal(context.metrics.at(-1)?.result, 'timeout');
+});
+
+test('handleTelegramLlmAskCommand edits the receipt when interpretation times out', async () => {
+  const context = createContext({
+    messageText: '/ask qué STL tenemos para Mutant Chronicles?',
+    serviceError: new LlmCommandServiceError('timeout', 'Codex timed out after 60000 ms'),
+    editableProgress: true,
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies.length, 1);
+  assert.match(context.replies[0] ?? '', /Petición recibida/);
+  assert.equal(
+    context.edits.at(-1)?.text,
+    'La IA ha tardado demasiado en interpretar la petición. Prueba de nuevo en unos momentos o usa el menú normal.',
+  );
+  assert.equal(context.metrics.at(-1)?.result, 'timeout');
+});
+
+test('handleTelegramLlmAskCommand continues when metric persistence fails', async () => {
+  const context = createContext({
+    messageText: '/ask que puedes hacer',
+    metricsError: new Error('database temporarily unavailable'),
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.replies.at(-1), 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.');
+});
+
+test('handleTelegramLlmCallback prepares the normal notice flow after write confirmation', async () => {
+  const context = createContext({
+    messageText: '/ask crea un aviso diciendo que abrimos tarde',
+    decision: noticeCreateDecision(),
+  });
+
+  await handleTelegramLlmAskCommand(context);
+
+  assert.equal(context.session.current?.flowKey, llmCommandFlowKey);
+  assert.equal(context.session.current?.stepKey, 'confirm-write');
+  assert.match(context.replies.at(-1) ?? '', /¿Quieres que prepare el flujo normal/);
+  assert.deepEqual(context.replyOptions.at(-1), {
+    inlineKeyboard: [[
+      { text: 'Preparar', callbackData: llmCommandCallbackPrefixes.confirmWrite, semanticRole: 'success' },
+      { text: 'Cancelar', callbackData: llmCommandCallbackPrefixes.cancelWrite, semanticRole: 'danger' },
+    ]],
+  });
+
+  context.callbackData = llmCommandCallbackPrefixes.confirmWrite;
+  assert.equal(await handleTelegramLlmCallback(context), true);
+
+  assert.equal(context.session.current?.flowKey, 'notices');
+  assert.equal(context.session.current?.stepKey, 'confirm');
+  assert.equal(context.session.current?.data.text, 'Mañana abrimos media hora más tarde.');
+  assert.equal(context.replies.at(-1), 'Revisa el aviso antes de publicarlo.');
+});
+
+test('handleTelegramLlmCallback cancels a pending write confirmation', async () => {
+  const context = createContext({
+    messageText: '/ask crea un aviso diciendo que abrimos tarde',
+    decision: noticeCreateDecision(),
+  });
+
+  await handleTelegramLlmAskCommand(context);
+  context.callbackData = llmCommandCallbackPrefixes.cancelWrite;
+
+  assert.equal(await handleTelegramLlmCallback(context), true);
+  assert.equal(context.session.current, null);
+  assert.equal(context.replies.at(-1), 'Operación cancelada.');
+});
+
+test('handleTelegramLlmCallback delegates schedule joins to the normal schedule flow', async () => {
+  const upserts: unknown[] = [];
+  const context = createContext({
+    messageText: '/ask apuntame a la actividad 7',
+    decision: writeDecision('schedule.join', { eventId: 7 }),
+    overrides: {
+      scheduleRepository: {
+        async findEventById(eventId: number) {
+          return eventId === 7 ? scheduleEvent() : null;
+        },
+        async listParticipants() {
+          return [];
+        },
+        async upsertParticipant(input: unknown) {
+          upserts.push(input);
+          return {
+            scheduleEventId: 7,
+            participantTelegramUserId: 123,
+            status: 'active',
+            addedByTelegramUserId: 123,
+            removedByTelegramUserId: null,
+            reminderLeadHours: null,
+            reminderPreferenceConfigured: false,
+            joinedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            leftAt: null,
+          };
+        },
+        async findParticipant() {
+          return null;
+        },
+      },
+      venueEventRepository: {
+        async listVenueEvents() {
+          return [];
+        },
+      },
+      membershipRepository: {
+        async findUserByTelegramUserId() {
+          return null;
+        },
+      },
+      tableRepository: {
+        async findTableById() {
+          return null;
+        },
+      },
+    },
+  });
+
+  await handleTelegramLlmAskCommand(context);
+  context.callbackData = llmCommandCallbackPrefixes.confirmWrite;
+
+  assert.equal(await handleTelegramLlmCallback(context), true);
+  assert.equal(upserts.length, 1);
+  assert.equal(context.session.current?.flowKey, 'schedule-join-reminder');
+  assert.equal(context.session.current?.data.eventId, 7);
+  assert.match(context.replies.at(-1) ?? '', /T'has apuntat correctament/);
+});
+
+test('handleTelegramLlmCallback starts a normal Storage upload when category id is provided', async () => {
+  const context = createContext({
+    messageText: '/ask sube esto a storage categoria 5',
+    decision: writeDecision('storage.upload.start', { categoryId: 5 }),
+    overrides: {
+      storageRepository: {
+        async findCategoryById(categoryId: number) {
+          return categoryId === 5
+            ? {
+              id: 5,
+              slug: 'manuales',
+              displayName: 'Manuales',
+              description: null,
+              parentCategoryId: null,
+              categoryPurpose: 'user_uploads',
+              lifecycleStatus: 'active',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+            : null;
+        },
+      },
+    },
+  });
+
+  await handleTelegramLlmAskCommand(context);
+  context.callbackData = llmCommandCallbackPrefixes.confirmWrite;
+
+  assert.equal(await handleTelegramLlmCallback(context), true);
+  assert.equal(context.session.current?.flowKey, 'storage-upload');
+  assert.equal(context.session.current?.stepKey, 'upload-media');
+  assert.equal(context.session.current?.data.categoryId, 5);
+  assert.match(context.replies.at(-1) ?? '', /envía|envia|send/i);
+});
+
+test('resolveNextStepModelOptions escalates only allowlisted semantic read intents', () => {
+  const decision = {
+    ...helpDecision(),
+    intent: 'catalog.detail' as const,
+    nextStep: {
+      useStrongerModel: true,
+      reason: 'pregunta contextual sobre dificultad',
+    },
+  };
+
+  assert.deepEqual(resolveNextStepModelOptions(decision, {
+    type: 'execute_read',
+    intent: 'catalog.detail',
+    params: {},
+  }, {
+    normal: { model: 'gpt-5.4-mini', reasoningEffort: 'low' },
+    stronger: { model: 'gpt-5.4', reasoningEffort: 'medium' },
+    updatedAt: null,
+  }), {
+    model: 'gpt-5.4',
+    reasoningEffort: 'medium',
+  });
+
+  assert.equal(resolveNextStepModelOptions(decision, {
+    type: 'execute_read',
+    intent: 'schedule.search',
+    params: {},
+  }), undefined);
+  assert.equal(resolveNextStepModelOptions({
+    ...decision,
+    nextStep: {
+      useStrongerModel: false,
+      reason: null,
+    },
+  }, {
+    type: 'execute_read',
+    intent: 'catalog.detail',
+    params: {},
+  }), undefined);
+});
+
+function createContext({
+  messageText = 'texto',
+  decision = helpDecision(),
+  llmEnabled = true,
+  privateFallbackEnabled = true,
+  chatKind = 'private',
+  messageThreadId,
+  replyToBotMessage = false,
+  replyToBotMessageContext,
+  serviceError,
+  metricsError,
+  editableProgress = false,
+  overrides,
+}: {
+  messageText?: string;
+  decision?: LlmCommandDecision;
+  llmEnabled?: boolean;
+  privateFallbackEnabled?: boolean;
+  chatKind?: 'private' | 'group' | 'group-news';
+  messageThreadId?: number;
+  replyToBotMessage?: boolean;
+  replyToBotMessageContext?: { messageId?: number; text?: string };
+  serviceError?: Error;
+  metricsError?: Error;
+  editableProgress?: boolean;
+  overrides?: Record<string, unknown>;
+}): TelegramLlmCommandContext & {
+  replies: string[];
+  replyOptions: unknown[];
+  edits: Array<{ chatId: number; messageId: number; text: string; options?: unknown }>;
+  servicePrompts: string[];
+  metrics: LlmCommandMetricInput[];
+  session: ConversationSessionRuntime;
+} {
+  const replies: string[] = [];
+  const replyOptions: unknown[] = [];
+  const edits: Array<{ chatId: number; messageId: number; text: string; options?: unknown }> = [];
+  const servicePrompts: string[] = [];
+  const metrics: LlmCommandMetricInput[] = [];
+  const session = createSessionRuntime();
+  return {
+    messageText,
+    ...(messageThreadId !== undefined ? { messageThreadId } : {}),
+    replyToBotMessage,
+    ...(replyToBotMessageContext ? { replyToBotMessageContext } : {}),
+    from: {
+      id: 123,
+      first_name: 'Ada',
+    },
+    async reply(message, options) {
+      replies.push(message);
+      replyOptions.push(options);
+      return { message_id: replies.length };
+    },
+    runtime: {
+      bot: {
+        publicName: 'Game Club Bot',
+        clubName: 'Game Club',
+        language: 'es',
+        username: 'gameclubbot',
+        async sendPrivateMessage() {},
+        ...(editableProgress
+          ? {
+              async editMessageText(input: { chatId: number; messageId: number; text: string; options?: unknown }) {
+                edits.push(input);
+              },
+            }
+          : {}),
+      },
+      services: {} as TelegramLlmCommandContext['runtime']['services'],
+      chat: {
+        kind: chatKind,
+        chatId: chatKind === 'private' ? 123 : -100123,
+      },
+      actor: {
+        telegramUserId: 123,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: false,
+        permissions: [],
+      },
+      authorization: {
+        authorize: (permissionKey) => ({ allowed: true, permissionKey, reason: 'global-allow' }),
+        can: () => true,
+      },
+      session,
+      llmCommands: {
+        ...defaultLlmCommandConfig,
+        enabled: llmEnabled,
+        privateFallbackEnabled,
+      },
+      llmCommandService: {
+        async interpret(prompt) {
+          servicePrompts.push(prompt);
+          if (serviceError) {
+            throw serviceError;
+          }
+          return decision;
+        },
+        async generateJson(prompt) {
+          servicePrompts.push(prompt);
+          return {};
+        },
+      },
+      llmCommandMetrics: {
+        async record(input) {
+          if (metricsError) {
+            throw metricsError;
+          }
+          metrics.push(input);
+        },
+      },
+    },
+    replies,
+    replyOptions,
+    edits,
+    servicePrompts,
+    metrics,
+    session,
+    ...overrides,
+  };
+}
+
+function createSessionRuntime(): ConversationSessionRuntime {
+  let current: ConversationSessionRecord | null = null;
+  return {
+    get current() {
+      return current;
+    },
+    async start(input) {
+      current = {
+        key: 'telegram.session:123:123',
+        flowKey: input.flowKey,
+        stepKey: input.stepKey,
+        data: input.data ?? {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      };
+      return current;
+    },
+    async advance(input) {
+      if (!current) {
+        throw new Error('missing session');
+      }
+      current = {
+        ...current,
+        stepKey: input.stepKey,
+        data: input.data,
+        updatedAt: new Date().toISOString(),
+      };
+      return current;
+    },
+    async cancel() {
+      const hadSession = current !== null;
+      current = null;
+      return hadSession;
+    },
+  };
+}
+
+function helpDecision(): LlmCommandDecision {
+  return {
+    version: 1,
+    language: 'es',
+    intent: 'help.capabilities',
+    confidence: 0.95,
+	    reply: {
+	      text: 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.',
+	      sendNow: true,
+	    },
+	    progress: { messages: [] },
+	    nextStep: { useStrongerModel: false, reason: null },
+	    needsClarification: false,
+    clarification: null,
+    requiresConfirmation: false,
+    confirmation: null,
+    action: {
+      type: 'answer_directly',
+      name: 'help.capabilities',
+      params: {},
+    },
+    safety: {
+      requiresApprovedMember: false,
+      requiresAdmin: false,
+      risk: 'read_only',
+      publicSideEffect: false,
+      destructive: false,
+      requiresPrivateChat: false,
+    },
+  };
+}
+
+function noticeCreateDecision(): LlmCommandDecision {
+  return writeDecision('notice.create', {
+    text: 'Mañana abrimos media hora más tarde.',
+  }, 'Voy a preparar un aviso con el texto "Mañana abrimos media hora más tarde.".');
+}
+
+function writeDecision(
+  intent: LlmCommandDecision['intent'],
+  params: Record<string, unknown>,
+  confirmationText = 'Voy a preparar el flujo normal.',
+): LlmCommandDecision {
+  return {
+    version: 1,
+    language: 'es',
+    intent,
+    confidence: 0.95,
+	    reply: {
+	      text: 'Preparo el flujo normal.',
+	      sendNow: false,
+	    },
+	    progress: { messages: [] },
+	    nextStep: { useStrongerModel: false, reason: null },
+	    needsClarification: false,
+    clarification: null,
+    requiresConfirmation: true,
+    confirmation: {
+      text: confirmationText,
+      params: {},
+    },
+    action: {
+      type: 'call_internal_handler',
+      name: intent,
+      params,
+    },
+    safety: {
+      requiresApprovedMember: true,
+      requiresAdmin: false,
+      risk: 'write',
+      publicSideEffect: true,
+      destructive: false,
+      requiresPrivateChat: true,
+    },
+  };
+}
+
+function scheduleEvent() {
+  const now = new Date();
+  return {
+    id: 7,
+    title: 'Partida de prueba',
+    description: null,
+    detailsMessageChatId: null,
+    detailsMessageId: null,
+    startsAt: new Date(now.getTime() + 86_400_000).toISOString(),
+    durationMinutes: 180,
+    organizerTelegramUserId: 456,
+    createdByTelegramUserId: 456,
+    tableId: null,
+    catalogItemId: null,
+    attendanceMode: 'open',
+    initialOccupiedSeats: 0,
+    capacity: 4,
+    lifecycleStatus: 'scheduled',
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    cancelledAt: null,
+    cancelledByTelegramUserId: null,
+    cancellationReason: null,
+  };
+}

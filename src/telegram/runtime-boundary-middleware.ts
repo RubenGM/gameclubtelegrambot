@@ -6,6 +6,9 @@ import { createDatabaseMembershipAccessRepository } from '../membership/access-f
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import { resolveLlmCommandConfig } from './llm-command-config.js';
+import { createAuditLogLlmCommandMetrics } from './llm-command-metrics.js';
+import { createLlmCommandService } from './llm-command-service.js';
 import {
   resolveTelegramChatContext,
 } from './chat-context.js';
@@ -64,11 +67,35 @@ export function createMiddlewarePipeline({
     ...optionalDeepLTimeout(process.env.GAMECLUB_DEEPL_TIMEOUT_MS),
     opencodeBin: process.env.GAMECLUB_OPENCODE_BIN?.trim() || 'opencode',
   });
+  const llmCommands = resolveLlmCommandConfig(config);
+  const llmCommandService = createLlmCommandService({
+    config: {
+      provider: llmCommands.provider,
+      opencodeBin: llmCommands.opencodeBin,
+      codexBin: llmCommands.codexBin,
+      model: llmCommands.model,
+      reasoningEffort: llmCommands.reasoningEffort,
+      timeoutMs: llmCommands.timeoutMs,
+    },
+  });
+  const llmCommandMetrics = createAuditLogLlmCommandMetrics({
+    database: services.database.db,
+  });
 
   return [
     createErrorHandlingMiddleware({ logger }),
     createLoggingMiddleware({ logger }),
-    createRuntimeContextMiddleware({ config, services, bot, wikipediaBoardGameImportService, boardGameGeekCollectionImportService, descriptionTranslator }),
+    createRuntimeContextMiddleware({
+      config,
+      services,
+      bot,
+      wikipediaBoardGameImportService,
+      boardGameGeekCollectionImportService,
+      descriptionTranslator,
+      llmCommands,
+      llmCommandService,
+      llmCommandMetrics,
+    }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
     createActorMiddleware({ services, loadActor }),
     createLanguageMiddleware({ config, languagePreferenceStore }),
@@ -222,6 +249,9 @@ function createRuntimeContextMiddleware({
   wikipediaBoardGameImportService,
   boardGameGeekCollectionImportService,
   descriptionTranslator,
+  llmCommands,
+  llmCommandService,
+  llmCommandMetrics,
 }: {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
@@ -229,6 +259,9 @@ function createRuntimeContextMiddleware({
   wikipediaBoardGameImportService: ReturnType<typeof createWikipediaBoardGameImportService>;
   boardGameGeekCollectionImportService: ReturnType<typeof createBoardGameGeekCollectionImportService>;
   descriptionTranslator: ReturnType<typeof createCatalogDescriptionTranslator>;
+  llmCommands: ReturnType<typeof resolveLlmCommandConfig>;
+  llmCommandService: ReturnType<typeof createLlmCommandService>;
+  llmCommandMetrics: ReturnType<typeof createAuditLogLlmCommandMetrics>;
 }): TelegramMiddleware {
   return async (context, next) => {
     configureTelegramDeepLinks({ botUsername: await resolveBotUsername(bot) });
@@ -250,6 +283,7 @@ function createRuntimeContextMiddleware({
         ...(bot.sendAnimation ? { sendAnimation: bot.sendAnimation.bind(bot) } : {}),
         ...(bot.sendDocument ? { sendDocument: bot.sendDocument.bind(bot) } : {}),
         ...(bot.downloadFile ? { downloadFile: bot.downloadFile.bind(bot) } : {}),
+        ...(bot.supportsLargeFileDownload ? { supportsLargeFileDownload: bot.supportsLargeFileDownload } : {}),
         ...(bot.editMessageText ? { editMessageText: bot.editMessageText.bind(bot) } : {}),
         ...(bot.deleteMessage ? { deleteMessage: bot.deleteMessage.bind(bot) } : {}),
       },
@@ -257,6 +291,9 @@ function createRuntimeContextMiddleware({
       wikipediaBoardGameImportService,
       boardGameGeekCollectionImportService,
       descriptionTranslator,
+      llmCommands,
+      llmCommandService,
+      llmCommandMetrics,
     };
 
     await next();

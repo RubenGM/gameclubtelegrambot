@@ -10,6 +10,8 @@ fi
 CONFIG_SOURCE="${GAMECLUB_CONFIG_SOURCE:-$DEFAULT_CONFIG_SOURCE}"
 OPERATOR_USER="${SUDO_USER:-$USER}"
 SERVICE_NAME="${GAMECLUB_SERVICE_NAME:-gameclubtelegrambot.service}"
+LOCAL_BOT_API_SERVICE_NAME="${GAMECLUB_LOCAL_BOT_API_SERVICE_NAME:-gameclubtelegrambot-local-bot-api.service}"
+LOCAL_BOT_API_ENV_TARGET="${GAMECLUB_LOCAL_BOT_API_ENV_TARGET:-/etc/default/gameclubtelegrambot-local-bot-api}"
 SKIP_APT=0
 DRY_RUN=0
 OPEN_TRAY=1
@@ -263,6 +265,39 @@ restart_or_start_service() {
   run_root_cmd systemctl enable --now "$SERVICE_NAME"
 }
 
+local_bot_api_enabled() {
+  if [ ! -f "$LOCAL_BOT_API_ENV_TARGET" ]; then
+    return 1
+  fi
+
+  # shellcheck disable=SC1090
+  . "$LOCAL_BOT_API_ENV_TARGET"
+  [ "${GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED:-false}" = 'true' ]
+}
+
+sync_local_bot_api_service() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "En mode dry-run se simula la sincronitzacio de $LOCAL_BOT_API_SERVICE_NAME."
+    run_root_cmd systemctl restart "$LOCAL_BOT_API_SERVICE_NAME"
+    return 0
+  fi
+
+  if ! run_root_cmd systemctl list-unit-files --no-legend "$LOCAL_BOT_API_SERVICE_NAME" | grep -q .; then
+    log "No s ha trobat la unitat $LOCAL_BOT_API_SERVICE_NAME; s omet la sincronitzacio del Bot API local."
+    return 0
+  fi
+
+  if local_bot_api_enabled; then
+    log "Arrencant i habilitant el servei germà $LOCAL_BOT_API_SERVICE_NAME."
+    run_root_cmd systemctl enable "$LOCAL_BOT_API_SERVICE_NAME"
+    run_root_cmd systemctl restart "$LOCAL_BOT_API_SERVICE_NAME"
+    return 0
+  fi
+
+  log "Bot API local desactivat en runtime; aturant $LOCAL_BOT_API_SERVICE_NAME si estava actiu."
+  run_root_cmd systemctl disable --now "$LOCAL_BOT_API_SERVICE_NAME" || true
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --app-root)
@@ -327,6 +362,7 @@ log 'Preparant prerequisits, desplegament, servei i safata.'
 run_cmd "${install_cmd[@]}"
 start_compose_postgres_if_needed
 launch_tray_if_requested
+sync_local_bot_api_service
 restart_or_start_service
 
 log 'Procés de startup completat.'

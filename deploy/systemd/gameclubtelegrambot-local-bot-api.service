@@ -1,0 +1,29 @@
+[Unit]
+Description=Game Club Telegram Bot Local Bot API
+After=network-online.target
+Wants=network-online.target
+PartOf=gameclubtelegrambot.service
+
+[Service]
+Type=simple
+User=gameclubbot
+Group=gameclubbot
+WorkingDirectory=/var/lib/gameclubtelegrambot/telegram-bot-api
+EnvironmentFile=/etc/default/gameclubtelegrambot-local-bot-api
+EnvironmentFile=-/etc/gameclubtelegrambot/.env
+ExecStartPre=/usr/bin/test "${GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED}" = "true"
+ExecStartPre=/usr/bin/test -n "${GAMECLUB_TELEGRAM_LOCAL_BOT_API_ID}"
+ExecStartPre=/usr/bin/test -n "${GAMECLUB_TELEGRAM_LOCAL_BOT_API_HASH}"
+ExecStart=/usr/bin/telegram-bot-api --api-id=${GAMECLUB_TELEGRAM_LOCAL_BOT_API_ID} --api-hash=${GAMECLUB_TELEGRAM_LOCAL_BOT_API_HASH} --local --http-ip-address=${GAMECLUB_TELEGRAM_LOCAL_BOT_API_HOST} --http-port=${GAMECLUB_TELEGRAM_LOCAL_BOT_API_PORT} --dir=${GAMECLUB_TELEGRAM_LOCAL_BOT_API_DATA_DIR} --temp-dir=${GAMECLUB_TELEGRAM_LOCAL_BOT_API_TEMP_DIR}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+ReadWritePaths=/var/lib/gameclubtelegrambot/telegram-bot-api
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

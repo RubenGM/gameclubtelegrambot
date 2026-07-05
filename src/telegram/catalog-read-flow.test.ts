@@ -609,6 +609,7 @@ test('handleTelegramCatalogReadStartText opens linked item details from /start',
   assert.match(replies[0]?.message ?? '', /catalog_read_letter_G/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Sense grup/);
+  assert.deepEqual(replies[0]?.options?.replyKeyboard?.at(-1), ['Inici', 'Ajuda']);
 });
 
 test('handleTelegramCatalogReadStartText sends the cover image before linked item details', async () => {

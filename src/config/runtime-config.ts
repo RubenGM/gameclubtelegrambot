@@ -22,6 +22,56 @@ const telegramButtonAppearanceByRoleSchema = z
   .strict()
   .optional();
 
+const booleanFromEnvSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) {
+    return false;
+  }
+
+  return value;
+}, z.boolean());
+
+const integerFromEnvSchema = z.coerce.number().int();
+const numberFromEnvSchema = z.coerce.number();
+
+const telegramLocalBotApiSchema = z
+  .object({
+    enabled: booleanFromEnvSchema.default(false),
+    baseUrl: z.string().trim().url().default('http://127.0.0.1:8081'),
+    apiId: integerFromEnvSchema.min(1).optional(),
+    apiHash: z.string().trim().min(1).optional(),
+    dataDir: z.string().trim().min(1).default('/var/lib/gameclubtelegrambot/telegram-bot-api'),
+  })
+  .superRefine((value, context) => {
+    if (!value.enabled) {
+      return;
+    }
+
+    if (value.apiId === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['apiId'],
+        message: 'Required when telegram.localBotApi.enabled is true',
+      });
+    }
+
+    if (!value.apiHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['apiHash'],
+        message: 'Required when telegram.localBotApi.enabled is true',
+      });
+    }
+  })
+  .optional();
+
 const defaultNotificationDefaults = {
   groupAnnouncementsEnabled: true,
   eventRemindersEnabled: true,
@@ -39,6 +89,7 @@ export const runtimeConfigSchema = z.object({
   telegram: z.object({
     token: z.string().trim().min(1),
     buttonAppearance: telegramButtonAppearanceByRoleSchema,
+    localBotApi: telegramLocalBotApiSchema,
   }),
   bgg: z
     .object({
@@ -89,6 +140,24 @@ export const runtimeConfigSchema = z.object({
         .default(defaultNotificationDefaults),
     })
     .default({ defaults: defaultNotificationDefaults }),
+  llmCommands: z
+    .object({
+      enabled: booleanFromEnvSchema.default(false),
+      privateFallbackEnabled: booleanFromEnvSchema.default(true),
+      provider: z.enum(['codex', 'opencode']).default('codex'),
+      opencodeBin: z.string().trim().min(1).optional(),
+      codexBin: z.string().trim().min(1).optional(),
+      model: z.string().trim().min(1).default('gpt-5.4-mini'),
+      reasoningEffort: z.string().trim().min(1).default('low'),
+      timeoutMs: integerFromEnvSchema.min(1000).max(120000).default(60000),
+      maxHistory: integerFromEnvSchema.min(0).max(50).default(8),
+      sessionTtlMinutes: integerFromEnvSchema.min(1).max(120).default(15),
+      maxPromptChars: integerFromEnvSchema.min(1000).max(100000).default(12000),
+      readConfidenceThreshold: numberFromEnvSchema.min(0).max(1).default(0.75),
+      writeConfidenceThreshold: numberFromEnvSchema.min(0).max(1).default(0.9),
+      dryRun: booleanFromEnvSchema.default(false),
+    })
+    .optional(),
   featureFlags: z.record(z.string(), z.boolean()).default({}),
 });
 

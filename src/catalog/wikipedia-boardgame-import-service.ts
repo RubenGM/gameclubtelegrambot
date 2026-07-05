@@ -856,6 +856,7 @@ function parseBoardGameGeekThing(xml: string, itemId: string): WikipediaBoardGam
   const categories = readXmlLinkValues(body, 'boardgamecategory');
   const mechanics = readXmlLinkValues(body, 'boardgamemechanic');
   const families = readXmlLinkValues(body, 'boardgamefamily');
+  const suggestedPlayerCounts = parseBoardGameGeekSuggestedPlayerCounts(body);
   const displayName = firstNonEmpty([
     decodeXmlEntities(readXmlAttributeFromTag(body, 'name', { type: 'primary' }, 'value') ?? '').trim(),
     decodeXmlEntities(readXmlAttributeFromTag(body, 'name', {}, 'value') ?? '').trim(),
@@ -889,6 +890,13 @@ function parseBoardGameGeekThing(xml: string, itemId: string): WikipediaBoardGam
       imageUrl: normalizeOptionalText(readXmlElementText(body, 'image')),
       thumbnailUrl: normalizeOptionalText(readXmlElementText(body, 'thumbnail')),
       rank: parseOptionalInteger(readXmlAttributeFromTag(body, 'rank', { name: 'boardgame' }, 'value')),
+      averageRating: parseOptionalFloat(readXmlAttributeFromTag(body, 'average', {}, 'value')),
+      bayesAverage: parseOptionalFloat(readXmlAttributeFromTag(body, 'bayesaverage', {}, 'value')),
+      usersRated: parseOptionalInteger(readXmlAttributeFromTag(body, 'usersrated', {}, 'value')),
+      averageWeight: parseOptionalFloat(readXmlAttributeFromTag(body, 'averageweight', {}, 'value')),
+      numWeights: parseOptionalInteger(readXmlAttributeFromTag(body, 'numweights', {}, 'value')),
+      bestPlayerCounts: suggestedPlayerCounts.best,
+      recommendedPlayerCounts: suggestedPlayerCounts.recommended,
       designers,
       artists,
       publishers,
@@ -897,6 +905,54 @@ function parseBoardGameGeekThing(xml: string, itemId: string): WikipediaBoardGam
       families,
     },
   };
+}
+
+function parseBoardGameGeekSuggestedPlayerCounts(xml: string): { best: string[]; recommended: string[] } {
+  const pollMatch = [...xml.matchAll(/<poll\b([^>]*)>([\s\S]*?)<\/poll>/gi)]
+    .find((match) => readXmlAttribute(match[1] ?? '', 'name') === 'suggested_numplayers');
+  const pollBody = pollMatch?.[2];
+  if (!pollBody) {
+    return { best: [], recommended: [] };
+  }
+
+  const best: string[] = [];
+  const recommended: string[] = [];
+  for (const resultGroup of pollBody.matchAll(/<results\b([^>]*)>([\s\S]*?)<\/results>/gi)) {
+    const playerCount = readXmlAttribute(resultGroup[1] ?? '', 'numplayers');
+    if (!playerCount) {
+      continue;
+    }
+    const votes = readBoardGameGeekSuggestedPlayerVotes(resultGroup[2] ?? '');
+    if (votes.best > votes.recommended && votes.best > votes.notRecommended) {
+      best.push(playerCount);
+    }
+    if ((votes.best + votes.recommended) > votes.notRecommended) {
+      recommended.push(playerCount);
+    }
+  }
+
+  return { best, recommended };
+}
+
+function readBoardGameGeekSuggestedPlayerVotes(xml: string): { best: number; recommended: number; notRecommended: number } {
+  const votes = {
+    best: 0,
+    recommended: 0,
+    notRecommended: 0,
+  };
+  for (const result of xml.matchAll(/<result\b([^>]*)\/?>(?:[^<]*)/gi)) {
+    const attributes = result[1] ?? '';
+    const value = readXmlAttribute(attributes, 'value');
+    const count = parseOptionalInteger(readXmlAttribute(attributes, 'numvotes')) ?? 0;
+    if (value === 'Best') {
+      votes.best = count;
+    } else if (value === 'Recommended') {
+      votes.recommended = count;
+    } else if (value === 'Not Recommended') {
+      votes.notRecommended = count;
+    }
+  }
+  return votes;
 }
 
 function readXmlAttribute(attributes: string, attributeName: string): string | null {
@@ -950,6 +1006,15 @@ function parseOptionalInteger(value: string | null): number | null {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) ? parsed : null;
+}
+
+function parseOptionalFloat(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeOptionalText(value: string | null): string | null {

@@ -10,5 +10,23 @@ config/.env
 config/runtime.local.json
 config/runtime.json
 backups/
+data/llm-model-tests/
 *.backup
 gameclub-backup-*.zip
+
+# Local Telegram Bot API setup artifacts and secrets.
+# Production uses /var/lib/gameclubtelegrambot/telegram-bot-api and
+# /etc/gameclubtelegrambot/.env; these patterns cover local experiments inside
+# the checkout.
+.telegram-bot-api/
+telegram-bot-api/
+telegram-bot-api-data/
+telegram-bot-api-tmp/
+gameclubtelegrambot-telegram-bot-api-src/
+gameclubtelegrambot-telegram-bot-api-build/
+config/telegram-local-bot-api.env
+config/telegram-local-bot-api.*.env
+*.tdbinlog
+*.tdlog
+*.pem
+*.key

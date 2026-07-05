@@ -30,10 +30,14 @@ import { registerHandlers, toGrammyReplyOptions } from './runtime-boundary-regis
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { createBoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
+import type { LlmCommandMetrics } from './llm-command-metrics.js';
+import type { LlmCommandService } from './llm-command-service.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { createTelegramApiHealthMonitor, type TelegramApiHealthMonitor } from './telegram-api-health.js';
 import { withTelegramApiRetry } from './telegram-api-retry.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
+import { downloadTelegramFileViaLocalBotApi } from './telegram-local-file-download.js';
 
 export { formatStartMessage, toGrammyReplyOptions } from './runtime-boundary-registration.js';
 
@@ -79,6 +83,11 @@ export interface TelegramContextLike {
   isForwardedMessage?: boolean | undefined;
   callbackData?: string | undefined;
   messageThreadId?: number | undefined;
+  replyToBotMessage?: boolean | undefined;
+  replyToBotMessageContext?: {
+    messageId?: number;
+    text?: string;
+  } | undefined;
   messageMedia?: {
     attachmentKind: string;
     fileId?: string | null;
@@ -183,7 +192,8 @@ export interface TelegramRuntime {
     sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
     sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
-    downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
+    downloadFile?(input: { fileId: string; destinationPath: string; allowLocalBotApi?: boolean }): Promise<void>;
+    supportsLargeFileDownload?: boolean;
     editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
@@ -191,6 +201,9 @@ export interface TelegramRuntime {
   wikipediaBoardGameImportService: ReturnType<typeof createWikipediaBoardGameImportService>;
   boardGameGeekCollectionImportService: ReturnType<typeof createBoardGameGeekCollectionImportService>;
   descriptionTranslator?: CatalogDescriptionTranslator;
+  llmCommands?: ResolvedLlmCommandConfig;
+  llmCommandService?: LlmCommandService;
+  llmCommandMetrics?: LlmCommandMetrics;
   chat?: TelegramChatContext;
   actor?: TelegramActor;
   authorization?: AuthorizationService;
@@ -220,7 +233,8 @@ export interface TelegramBotLike {
   sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
   sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
   sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
-  downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
+  downloadFile?(input: { fileId: string; destinationPath: string; allowLocalBotApi?: boolean }): Promise<void>;
+  supportsLargeFileDownload?: boolean;
   editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
   deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   startPolling(): Promise<void>;
@@ -257,6 +271,7 @@ export interface CreateTelegramBotOptions {
   logger: TelegramLogger;
   publicName: string;
   buttonAppearance?: TelegramButtonAppearanceConfig;
+  localBotApi?: RuntimeConfig['telegram']['localBotApi'];
   onFatalRuntimeError?: TelegramFatalRuntimeErrorHandler;
 }
 
@@ -312,6 +327,7 @@ export async function createTelegramBoundary({
       logger,
       publicName: config.bot.publicName,
       buttonAppearance: config.telegram.buttonAppearance,
+      localBotApi: config.telegram.localBotApi,
       onFatalRuntimeError: reportFatalRuntimeError,
     });
 
@@ -376,6 +392,7 @@ function createGrammyTelegramBot({
   token,
   logger,
   buttonAppearance,
+  localBotApi,
   onFatalRuntimeError,
 }: CreateTelegramBotOptions): TelegramBotLike {
   const bot = new Bot<Context & TelegramContextLike>(token);
@@ -398,6 +415,9 @@ function createGrammyTelegramBot({
     get username() {
       return botUsername;
     },
+    get supportsLargeFileDownload() {
+      return localBotApi?.enabled === true;
+    },
     use(middleware) {
       bot.use(async (context, next) => middleware(context, next));
     },
@@ -412,6 +432,8 @@ function createGrammyTelegramBot({
         context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
         context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
         context.messageThreadId = resolveMessageThreadId(context.msg ?? context.message);
+        context.replyToBotMessageContext = resolveReplyToBotMessageContext(context.msg ?? context.message, botUsername) ?? undefined;
+        context.replyToBotMessage = Boolean(context.replyToBotMessageContext);
 
         await handler(createTelegramCommandContext(context, buttonAppearance, logger, apiHealth));
       };
@@ -460,6 +482,9 @@ function createGrammyTelegramBot({
         context.messageEntities = extractTelegramMessageEntities(context.msg ?? context.message);
         context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
         context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
+        context.messageThreadId = resolveMessageThreadId(context.msg ?? context.message);
+        context.replyToBotMessageContext = resolveReplyToBotMessageContext(context.msg ?? context.message, botUsername) ?? undefined;
+        context.replyToBotMessage = Boolean(context.replyToBotMessageContext);
         if (!context.messageText || (context.messageText.startsWith('/') && !isTelegramInternalTextCommand(context.messageText))) {
           return;
         }
@@ -478,6 +503,8 @@ function createGrammyTelegramBot({
         context.messageId = resolveTelegramMessageId(context.msg ?? context.message);
         context.isForwardedMessage = resolveTelegramForwardedMessage(context.msg ?? context.message);
         context.messageThreadId = resolveMessageThreadId(context.msg ?? context.message);
+        context.replyToBotMessageContext = resolveReplyToBotMessageContext(context.msg ?? context.message, botUsername) ?? undefined;
+        context.replyToBotMessage = Boolean(context.replyToBotMessageContext);
         context.messageMedia = extractTelegramMessageMedia(context.msg ?? context.message);
         context.sharedChat = extractTelegramSharedChat(context.msg ?? context.message);
         context.newChatMembers = extractTelegramNewChatMembers(context.msg ?? context.message);
@@ -600,7 +627,27 @@ function createGrammyTelegramBot({
         bot.api.sendDocument(chatId, new InputFile(filePath), caption ? { caption } : undefined),
       );
     },
-    async downloadFile({ fileId, destinationPath }) {
+    async downloadFile({ fileId, destinationPath, allowLocalBotApi }) {
+      if (allowLocalBotApi === true && localBotApi?.enabled === true) {
+        try {
+          await downloadTelegramFileViaLocalBotApi({
+            token,
+            baseUrl: localBotApi.baseUrl,
+            fileId,
+            destinationPath,
+          });
+          return;
+        } catch (error) {
+          logger.error(
+            {
+              fileId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            'Local Telegram Bot API file download failed; falling back to default Telegram download',
+          );
+        }
+      }
+
       const file = await withTelegramApiRetry(retryOptions('getFile'), () =>
         bot.api.raw.getFile({ file_id: fileId }),
       ) as { file_path?: string };
@@ -730,7 +777,7 @@ export function isTelegramRawCommandMatch(
 }
 
 export function isTelegramInternalTextCommand(messageText: string): boolean {
-  return /^(?:\/catalog_admin_letters_[A-Za-z0-9_-]+|\/cat_[A-Za-z0-9_-]+)(?:@[A-Za-z0-9_]+)?$/.test(messageText.trim());
+  return /^(?:\/catalog_admin_letters_[A-Za-z0-9_-]+|\/cat_[A-Za-z0-9_-]+|\/update_bgg)(?:@[A-Za-z0-9_]+)?$/.test(messageText.trim());
 }
 
 function escapeRegExp(value: string): string {
@@ -745,6 +792,52 @@ function resolveMessageThreadId(message: unknown): number | undefined {
   const maybeMessage = message as Record<string, unknown>;
   const candidate = maybeMessage.message_thread_id ?? maybeMessage.messageThreadId;
   return typeof candidate === 'number' ? candidate : undefined;
+}
+
+function resolveReplyToBotMessageContext(
+  message: unknown,
+  botUsername: string | undefined,
+): { messageId?: number; text?: string } | null {
+  if (!message || typeof message !== 'object' || !botUsername) {
+    return null;
+  }
+
+  const maybeMessage = message as Record<string, unknown>;
+  const replyToMessage = maybeMessage.reply_to_message ?? maybeMessage.replyToMessage;
+  if (!replyToMessage || typeof replyToMessage !== 'object') {
+    return null;
+  }
+
+  const replyRecord = replyToMessage as Record<string, unknown>;
+  const from = replyRecord.from;
+  if (!from || typeof from !== 'object') {
+    return null;
+  }
+
+  const username = (from as Record<string, unknown>).username;
+  if (typeof username !== 'string' || username.toLowerCase() !== botUsername.toLowerCase()) {
+    return null;
+  }
+
+  const text = firstNonEmptyString(replyRecord.text, replyRecord.caption);
+  const messageId = resolveTelegramMessageId(replyToMessage);
+  return {
+    ...(messageId !== undefined ? { messageId } : {}),
+    ...(text ? { text: truncateReplyContextText(text) } : {}),
+  };
+}
+
+function firstNonEmptyString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function truncateReplyContextText(value: string): string {
+  return value.length > 1200 ? `${value.slice(0, 1197)}...` : value;
 }
 
 function resolveTelegramMessageId(message: unknown): number | undefined {

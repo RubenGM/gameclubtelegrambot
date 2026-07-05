@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-06-12.
+Última revisión: 2026-06-30.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -18,6 +18,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, canarios/reintentos Telegram, systemd/tray y backups.           |
 | Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname visible, bienvenidas, avisos privados y alta web en `/alta`.     |
 | Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG etiquetado como buscar grupo y ayuda contextual por sección activa.                 |
+| Asistente LLM de órdenes naturales           | 🟠 Parcial           | `/ask`, botón privado, fallback privado y menciones en grupos bajo feature flag; lecturas MVP y escrituras confirmadas parciales.            |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario, avisando impacto con progreso editable.                    |
@@ -27,6 +28,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
+| Impresión                                    | 🟢 Operativo         | Botón privado con estados admin Activar/Desactivar/Modo prueba, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial. |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
 | Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
@@ -45,8 +47,8 @@ Implementado:
 - Configuracion runtime validada con `zod` y editor/wizard en `src/config/*` y `src/bootstrap/*`.
 - PostgreSQL con Drizzle, schema central y migraciones en `src/infrastructure/database/schema.ts`.
 - Long polling con `allowed_updates` limitado a `message` y `callback_query` en `src/telegram/runtime-boundary-support.ts`.
-- Capa intermedia de reintentos para envios y operaciones Telegram en `src/telegram/telegram-api-retry.ts`, usada desde el boundary runtime.
-- Canario de salud de Telegram API: detecta fallos transitorios, mantiene estado degradado temporal y añade aviso a mensajes privados de texto mientras dura la incidencia; no añade ese estado al final de mensajes enviados a grupos.
+- Capa intermedia de reintentos para envios y operaciones Telegram en `src/telegram/telegram-api-retry.ts`, usada desde el boundary runtime; respeta `retry_after` de Telegram sin recortarlo al máximo de backoff propio.
+- Canario de salud de Telegram API: detecta fallos transitorios y mantiene estado degradado temporal para diagnóstico interno sin añadir avisos a las respuestas visibles del bot.
 - El middleware global de Telegram responde los errores inesperados con el detalle exacto saneado para operador/usuario, en vez de ocultarlos tras un mensaje generico.
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
 - Herramienta `npm run opencode:image` y wrapper `scripts/opencode-cawa.sh` para enviar prompts/imagenes a OpenCode con el usuario operador; usa `openai/gpt-5.4-mini` por defecto y esta pensada como paso previo a búsquedas BGG o traducciones asistidas, no como fuente de metadatos.
@@ -79,14 +81,14 @@ Implementado:
 - `/admin/member-signups` permite revisar desde el panel web las solicitudes de alta recibidas, su estado, el resumen de avisos enviados y marcar cada solicitud como contactada, aprobada, rechazada o pendiente.
 - `/admin/welcome` permite a admins configurar plantillas aleatorias de bienvenida de grupo, con placeholder `$USERNAME`, GIF opcional mediante Telegram animation file ID, plantillas globales y plantillas especificas por Telegram user ID.
 - Al aprobar una solicitud desde Telegram (`/approve` o callbacks de revisión), el bot no envía bienvenida privada ni publica plantillas en grupos. Las bienvenidas de grupo se envían sólo cuando Telegram informa de una entrada real al grupo y ese grupo tiene `/autojoin enabled`.
-- El teclado privado de admins incluye `Bienvenidas`, que lista las plantillas actuales con paginacion por botones de teclado, pie visible `Mostrando X-Y de Z. Página A/B`, un enlace inline compacto junto a cada plantilla para abrir su detalle, acciones de detalle para previsualizar, editar texto, editar GIF/video, activar/pausar, eliminar y crear una bienvenida nueva directamente desde Telegram enviando el texto con formato Telegram conservado (negrita, cursiva, etc.) y despues un GIF/video opcional como adjunto, aceptando animaciones Telegram, videos convertidos por el movil y archivos `.gif`.
+- El teclado privado inicial de admins mantiene las acciones diarias de socio y agrupa las herramientas administrativas tras el botón `Admin`; dentro de ese submenú está `Bienvenidas`, que lista las plantillas actuales con paginacion por botones de teclado, pie visible `Mostrando X-Y de Z. Página A/B`, un enlace inline compacto junto a cada plantilla para abrir su detalle, acciones de detalle para previsualizar, editar texto, editar GIF/video, activar/pausar, eliminar y crear una bienvenida nueva directamente desde Telegram enviando el texto con formato Telegram conservado (negrita, cursiva, etc.) y despues un GIF/video opcional como adjunto, aceptando animaciones Telegram, videos convertidos por el movil y archivos `.gif`.
 - En privado, los aliases secretos `Welcome`, `/welcome`, `Bienvenida` y `/bienvenida` envian al usuario una previsualizacion real de la bienvenida aleatoria que le tocaria, usando su nombre visible guardado; `/welcome 1` y `/bienvenida 1` fuerzan una plantilla concreta por posicion visible.
 - Las revocaciones notifican al usuario afectado y a admins suscritos.
 - Persistencia y auditoria en `users`, `user_status_audit_log`, `user_permission_assignments` y `user_permission_audit_log`.
 
 Riesgos o pendientes:
 
-- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos especificos para rol admin, revocacion de acceso y storage category access.
+- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos especificos para rol admin, revocacion de acceso, storage category access y permiso global de impresión.
 
 ## Idioma, menus y ayuda
 
@@ -96,7 +98,7 @@ Implementado:
 
 - `/language` y flujo de idioma en privado/grupo.
 - Menu principal dinamico por rol, estado, chat y sesion en `src/telegram/action-menu.ts`.
-- El menu aprobado/admin muestra "LFG (buscar grupo)", "Avisos" y una accion visible para cambiar el nombre mostrado por el bot; el menu admin añade tambien gestion rapida de bienvenidas desde Telegram.
+- El menu aprobado/admin muestra "LFG (buscar grupo)", "Avisos" y una accion visible para cambiar el nombre mostrado por el bot; el menu raiz de admins añade un botón `Admin` que abre las herramientas administrativas sin mezclar solicitudes, usuarios, mesas admin y bienvenidas con las acciones diarias.
 - `Inicio` y `/start` normal limpian cualquier sesion activa antes de reconstruir la portada, evitando dejar al usuario atrapado con un teclado de `/cancel`, y muestran hasta 3 avisos activos recientes.
 - Ayuda contextual en `src/telegram/command-registry.ts` y seccion activa gestionada desde `runtime-boundary-registration.ts`.
 - Soporte visible para `ca`, `es` y `en`.
@@ -104,6 +106,46 @@ Implementado:
 Riesgos o pendientes:
 
 - Muchos flujos dependen de comparar texto localizado de botones. Cambios de copy pueden romper acciones si no se actualizan tests.
+
+## Asistente LLM de órdenes naturales
+
+Estado: `parcial`.
+
+Implementado:
+
+- Configuración runtime `llmCommands` con variables `GAMECLUB_LLM_COMMANDS_*`, apagada por defecto mediante `GAMECLUB_LLM_COMMANDS_ENABLED=false`.
+- Documentación operativa mantenida en `docs/llm-natural-language.md`; cualquier cambio en interacción LLM/chat natural debe actualizar esa guía en el mismo cambio.
+- Servicio de invocación LLM con proveedor configurable (`codex` por defecto, `opencode` alternativo), modelo `gpt-5.4-mini` con razonamiento `low`, timeout y errores clasificados; Codex se invoca mediante `GAMECLUB_CODEX_BIN`, `codex exec --ephemeral --sandbox read-only` y schemas de salida.
+- Contrato JSON versionado, parser estricto, schemas JSON para Codex, allowlist de intents/actions, umbrales locales de confianza (`0.75` lectura, `0.90` escritura) y rechazo de acciones administrativas con el copy obligatorio.
+- Prompt generado desde un catálogo tipado de capacidades permitidas por rol/contexto, sin dar autoridad a la LLM para ejecutar lógica de negocio.
+- La primera pasada puede pedir `nextStep.useStrongerModel`; el bot valida localmente esa señal y sólo escala la siguiente llamada de lectura semántica para `bot.search`, `catalog.detail`, `catalog.recommend` y `storage.search`. Los admins pueden elegir desde `Admin` -> `Modelos IA` el perfil normal y el perfil de más pensamiento entre `GPT-5.3-Codex-Spark`, `GPT-5.4-Mini`, `GPT-5.4` y `GPT-5.5` con los niveles de reasoning admitidos, persistiendo la selección en `app_metadata`.
+- El selector admin de `Modelos IA` muestra una tabla comparativa con el último test guardado por combinación, permite lanzar un test pequeño desde Telegram y guarda el resultado en `data/llm-model-tests/<modelo>_<reasoning>.json`, sobrescribiendo el resultado anterior de esa misma combinación; duración, éxitos/fracasos, tokens y coste se muestran, dejando tokens/coste como `n/d` si Codex no los expone de forma fiable.
+- Comando privado `/ask` para socios aprobados.
+- Botón privado `Preguntar al bot` visible sólo cuando la feature está habilitada.
+- Fallback privado configurable con `GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED`, ejecutado al final de la cadena de handlers para no capturar comandos ni botones. Las sesiones pasivas de lectura de catálogo no bloquean el fallback LLM cuando el texto libre no coincide con acciones del detalle.
+- Lecturas en grupos/topics cuando el usuario menciona explícitamente al bot o responde a un mensaje suyo; las respuestas conservan `message_thread_id`, ofrecen abrir el privado y envían a la LLM el texto del mensaje del bot respondido como contexto conversacional.
+- Sesión LLM conversacional con expiración funcional de 15 minutos dentro del flujo `llm-command`.
+- Recibo/progreso editable inmediato para peticiones LLM: el bot confirma recepción antes de invocar el proveedor LLM, muestra una barra aproximada y textos breves de estado sin exponer la petición completa, edita el mismo mensaje con estados intermedios mientras espera a la IA y lo completa con lectura, aclaración, rechazo o confirmación.
+- La LLM puede devolver `progress.messages` con hasta 4 textos cortos y personalizados para que el bot los muestre durante la búsqueda de datos o la preparación del siguiente paso; el bot los sanea, mantiene fallback genérico y no permite que esos mensajes ejecuten lógica.
+- Lecturas MVP desde repositorios internos para ayuda, agenda, catálogo, préstamos, Storage, avisos, compras conjuntas, LFG y estado básico de `/news`; los listados directos muestran hasta 12 elementos, las búsquedas multi-fuente mantienen 5 por sección para controlar longitud, enlazan a los detalles del bot cuando existe deep link estable y añaden enlaces de continuación para abrir el listado completo cuando hay más resultados.
+- `general.answer` permite respuestas conversacionales o preguntas generales que no necesitan datos internos del bot; las consultas sobre agenda, catálogo, Storage, préstamos, avisos, compras, LFG o noticias siguen obligadas a pasar por handlers internos.
+- Búsqueda multi-fuente `bot.search` para peticiones transversales como “qué tenemos de Star Wars”: consulta en paralelo agenda, catálogo, Storage, compras conjuntas, avisos y LFG, respeta fuentes restringidas por la LLM y puede entregar los resultados estructurados a una segunda pasada LLM para redactar una respuesta útil sin inventar datos.
+- Las lecturas que necesitan interpretación pueden crear un feedback loop: el bot consulta repositorios internos, envía datos reales y contexto de reply a la LLM mediante schema de respuesta, escapa el texto resultante y añade enlaces generados por código; si falla la síntesis, usa el render determinista con enlaces.
+- Las preguntas sobre una ficha de catálogo respondida infieren el título de la ficha si la LLM omite `query`; `catalog.detail` recupera ese ítem concreto y entrega metadatos de catálogo/BGG a la segunda pasada LLM para responder sobre lo que el usuario haya preguntado.
+- El prompt distingue catálogo físico/prestable frente a Storage como repositorio de archivos, incluyendo STL y material de rol como libros, manuales, aventuras, fichas y mapas, para clasificar mejor consultas ambiguas.
+- Las recomendaciones LLM de catálogo usan `catalog.recommend`: el bot filtra juegos reales por tipo, disponibilidad y número de jugadores, usa la consulta como señal de ranking semántico sobre texto y metadatos BGG en vez de como filtro duro, aplica fallback a rangos cercanos, juegos prestados o metadatos incompletos cuando no hay coincidencia exacta, envía candidatos con metadatos a la LLM para elegir, y renderiza la respuesta con enlaces a los detalles del bot.
+- La importación/autocorrección BGG guarda metadatos útiles para recomendaciones: peso medio, rating, bayes average, usuarios, votos de peso y rangos de jugadores recomendados por encuesta, además de categorías y mecánicas.
+- Las búsquedas LLM de Storage refinan los candidatos con una segunda pasada semántica sobre descripción, ruta completa de categoría, tags y archivos para separar, por ejemplo, material de rol/PDF de modelos STL con la misma franquicia; si la consulta coincide con una categoría, el bot incluye también sus descendientes para encontrar archivos guardados en subcarpetas específicas, y trata todo lo que cuelga de la categoría raíz de STL como contenido de impresión 3D (`STL`, modelos 3D, figuras, estatuas, miniaturas o dioramas) en vez de exigir extensión `.stl` literal.
+- Timeout LLM por defecto ampliado a 60s para reducir cortes en grupos y búsquedas con refinado semántico; los timeouts se comunican con mensaje específico al usuario.
+- Las lecturas usan el riesgo local de la allowlist por encima del `safety.risk` devuelto por la LLM, de modo que consultas como agenda semanal no caen en confirmación/prellenado aunque la LLM clasifique mal la salida.
+- Métricas saneadas persistidas en `audit_log` con intención, confianza, origen, tipo de chat, resultado, duración y motivo; no guardan texto literal del usuario, prompt completo ni respuesta completa de la LLM.
+- Confirmación LLM previa para escrituras y preparación/delegación a flujos normales para `notice.create`, `notice.archive`, `lfg.create`, `schedule.join`, `schedule.leave`, `group_purchase.join`, `catalog.loan.create` y `storage.upload.start`; la persistencia final sigue dependiendo de los handlers estándar y sus confirmaciones cuando existan.
+
+Riesgos o pendientes:
+
+- OpenCode queda disponible como proveedor alternativo, pero el despliegue operativo usa Codex por defecto tras pruebas reales de clasificación con schema.
+- Falta conectar prellenado equivalente para el resto de escrituras (`schedule.create`, creación/edición de catálogo, creación/edición de compras y edición de Storage) sin duplicar reglas de negocio.
+- Las lecturas MVP son resúmenes básicos; falta UX de detalle largo por privado y selección guiada entre múltiples resultados.
 
 ## Mesas
 
@@ -132,7 +174,7 @@ Implementado:
 - Avisos de conflicto y capacidad al crear/editar.
 - Integracion con eventos del local para mostrar impacto.
 - Listado y snapshots de grupo con enlace `Ver detalles` solo cuando la actividad tiene mensaje extra guardado; en ese caso no imprimen la descripcion larga en linea y el deep link reenvia el mensaje original al usuario.
-- Publicacion de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic. El bot recuerda el ultimo snapshot por grupo/topic y borra el anterior tras publicar uno nuevo.
+- Publicación de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic. El bot recuerda el último snapshot por grupo/topic y borra el anterior tras publicar uno nuevo; si Telegram rechaza el borrado por antigüedad o permisos, edita el mensaje anterior a puntos suspensivos para que no queden dos calendarios largos visibles.
 
 Riesgos o pendientes:
 
@@ -168,10 +210,11 @@ Implementado:
 - Media por URL con tipo `image`, `link` o `document`.
 - Los admins pueden añadir imagen a un item existente desde el detalle usando URL o adjunto Telegram.
 - Los admins pueden autocorregir datos de juegos/expansiones y libros desde el detalle: el bot reconsulta BGG/Open Library con el titulo o ID disponible, si BGG devuelve varias coincidencias muestra opciones para elegir manualmente, intenta traducir al castellano las descripciones BGG cuando el bot esta en español usando DeepL si esta configurado y OpenCode como fallback, actualiza campos, limpia referencias externas/metadata visibles, edita un mensaje de progreso con duracion por paso (API, traduccion, guardado, descarga/subida de portada y detalle) y reporta si la portada se ha importado, ya existia o no estaba disponible. Tambien pueden traducir solo la descripcion actual del item sin tocar el resto de datos usando progreso editable.
+- El detalle admin de juegos/expansiones avisa al final cuando detecta una referencia BGG antigua sin metadatos modernos de rating, peso o jugadores recomendados, con enlace y boton de teclado para una importacion BGG rapida que actualiza solo metadata sin traducir descripcion ni importar portada; tras esa importacion rapida, el detalle actualizado enlaza el juego pendiente anterior y siguiente para revisar la cola con menos pasos. El comando privado secreto de admins `/update_bgg` y el boton `Actualizar BGG` del submenu Admin recorren todos los juegos/expansiones activos, aplican esa importacion rapida solo a los que la necesitan y mantienen un mensaje editable con barra de progreso y resumen final.
 - Las imagenes reales del catalogo se guardan como entradas de Storage en una categoria interna `catalog_media`, oculta de la navegacion normal de `/storage`.
 - La media principal de un item es la primera imagen por `sortOrder`, usando `0` como portada.
 - Al abrir el detalle de un item, el bot intenta mostrar primero la portada principal y despues una ficha resumida con breadcrumbs, titulo, propietario si existe, disponibilidad, prestatario si existe, jugadores, duracion y enlace "Ver detalles" a la ficha completa.
-- Las acciones del detalle de item se muestran en teclado de respuesta persistente para mantener libres los enlaces HTML dentro del mensaje.
+- Las acciones del detalle de item se muestran en teclado de respuesta persistente para mantener libres los enlaces HTML dentro del mensaje; los detalles de lectura, préstamo y admin mantienen siempre `Inicio` y `Ayuda` al final del teclado para poder salir del contexto.
 - En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; OpenCode sugiere el titulo y, si se crea el item, el bot pregunta si se guarda esa portada como imagen principal.
 - `/catalog_search` como consulta para usuarios aprobados.
 - Vista de lectura con indice por rangos de tres iniciales: cada bloque muestra total de articulos y desglose por juegos de mesa, libros y accesorios, con enlaces normales `t.me?...start=` en el texto; los grupos internos no aparecen en la navegacion principal.
@@ -239,6 +282,7 @@ Implementado:
 - Botón privado `Avisos` y comandos `/avisos`/`/notices` para socios aprobados y admins sin distinción de creación.
 - Lista de avisos activos separada en dos mensajes: avisos propios cuando existan y avisos de otros socios siempre, aunque esté vacía; cada aviso incluye acciones inline para verlo y, si corresponde, editarlo o archivarlo.
 - Creación guiada con texto Telegram conservado como HTML seguro, adjuntos múltiples copiados desde el privado, duración permanente, por horas o hasta un día concreto.
+- Validación del tamaño final publicable en Telegram, incluyendo cabecera, HTML seguro y firma del creador, antes de confirmar un texto que superaría el límite de mensaje.
 - Antes de crear, si no hay destinos suscritos a la categoría `/news` `avisos`, el bot avisa de que un admin debe configurar el canal/topic y no continúa.
 - Publicación sólo en grupos/topics suscritos específicamente a `avisos`, guardando cada `chat_id`, `message_thread_id` y `message_id` publicado; el mensaje publicado no muestra la duración interna del aviso.
 - Edición manual: el creador o cualquier admin puede modificar texto, adjuntos o duración; el bot borra las publicaciones anteriores y republica la versión actualizada.
@@ -287,7 +331,7 @@ Implementado:
 - Tags visibles como enlaces `#tag (X archivos)` hacia busqueda por tag, listado paginado de tags, entrada flexible sin `#` en prompts explicitos y gestion desde el detalle de archivo para propietario o admin.
 - Criterio de organizacion visible en los flujos de subida: categorias para ubicacion/tipo general del contenido y tags para rasgos cruzados como criaturas, facciones, formatos, campañas o packs mixtos.
 - Busqueda de Storage con entrada guiada para buscar por palabra/tag o explorar categorias nivel a nivel, normalizando `#tag` y buscando tambien por nombre de categoria.
-- Subida por DM: el usuario elige categoria con selector nivel a nivel, envia adjuntos con recibo editable del total del lote, finaliza, revisa tags con opcion de omitir, revisa una vista previa acotada para no superar el limite de Telegram con botones visibles para editar descripcion, añadir tags, añadir imagenes o completar, acumula imagenes adicionales con recibo editable, recibe aviso antes de completar sin tags y el bot muestra progreso editable con estado por adjunto mientras copia al topic canonico, indexa, notifica suscripciones y refresca la categoria.
+- Subida por DM: el usuario elige categoria con selector nivel a nivel, envia adjuntos con recibo editable del total del lote, finaliza, revisa tags con opcion de omitir, revisa una vista previa acotada para no superar el limite de Telegram con botones visibles para editar descripcion, añadir tags, añadir imagenes o completar, acumula imagenes adicionales con recibo editable, recibe aviso antes de completar sin tags y el bot muestra progreso editable con estado por adjunto mientras copia al topic canonico, indexa y notifica suscripciones; al terminar edita el recibo con enlaces directos a la entrada guardada y a su categoria.
 - Subida por reenvio de mensajes de Telegram en privado: en modo neutral el bot pregunta que hacer, permite "Añadir a almacenamiento", acumula mensajes reenviados con un recibo editable del total del lote, pide categoria, precarga descripcion/tags/adjuntos/texto desde el mensaje reenviado, filtra enlaces `t.me` de spam antes de derivar descripcion o guardar captions y confirma tags antes de mostrar la vista previa.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
 - Soporte de `document`, `photo`, `video` y `audio`.
@@ -314,6 +358,45 @@ Documentacion relacionada:
 
 - `improvements/storage_tui_management_plan.md` describe el alcance usado para el gestor TUI de Storage.
 - `docs/superpowers/specs/2026-04-21-telegram-storage-design.md` contiene el diseño original.
+
+## Impresión
+
+Estado: `operativo`.
+
+Implementado:
+
+- Botón privado `Imprimir`, visible cuando un admin pone la feature en `Activar` o `Modo prueba` desde `Admin` -> `Impresora` y el usuario es admin o tiene el permiso global `printing.use`.
+- Comando privado `/print` para iniciar el mismo flujo sin depender del teclado; socios aprobados sin `printing.use` reciben una denegación explicativa y no abren sesión de impresión.
+- El estado operativo se persiste en `app_metadata` con efecto inmediato: `Activar`, `Desactivar` o `Modo prueba`. Al desactivar se bloquean nuevas sesiones y se oculta el botón, pero las sesiones ya iniciadas pueden terminar.
+- Los admins gestionan el permiso desde `Admin` -> `Impresora` con `Conceder impresión`, `Revocar impresión` y `Accesos impresión`; las listas usan mensajes HTML con enlaces profundos, paginación por teclado y estadísticas por usuario de impresiones enviadas y páginas estimadas. Los admins siempre pueden imprimir aunque no tengan una asignación explícita.
+- Entrada desde adjuntos Telegram: PDFs directos, documentos Office/OpenDocument convertibles a PDF mediante LibreOffice headless y fotos/imágenes JPG, PNG, WebP, TIFF o BMP normalizadas a PDF con ImageMagick.
+- Entrada desde Storage: el detalle de entradas imprimibles muestra `Imprimir` cuando la feature está activa, el archivo tiene `telegramFileId`, el usuario puede leer la entrada de Storage y además es admin o tiene `printing.use`.
+- El flujo rechaza de forma explicativa archivos que superan el límite de descarga del Bot API de Telegram en la nube (20 MB) antes de llamar a `getFile` cuando conoce el tamaño, salvo que el runtime tenga activado `telegram.localBotApi` para descargas grandes de impresión.
+- Integración opcional con Bot API local sólo para impresión: `downloadFile` acepta `allowLocalBotApi`, el resto del bot sigue usando la ruta cloud por defecto, y si el intento local falla se registra el error y se usa el fallback cloud.
+- El despliegue instala `gameclubtelegrambot-local-bot-api.service` como servicio systemd hermano del bot principal: `startup.sh` lo habilita/reinicia antes del bot cuando `telegram.localBotApi.enabled=true`, y lo detiene/deshabilita cuando está apagado.
+- Cuando un archivo no puede descargarse por tamaño, el flujo cierra la sesión de impresión y restaura la navegación normal o el detalle de Storage, sin dejar un teclado de `Cancelar` huérfano.
+- Cuando una descarga falla de forma transitoria (por ejemplo `fetch failed`), el flujo no propaga el error al chat: en adjuntos directos conserva el paso de archivo para reenviar el PDF sin reiniciar, y desde Storage restaura el detalle para reintentar con `Imprimir`.
+- Para archivos dentro del límite de descarga, el flujo descarga el archivo temporalmente, normaliza Office a PDF si hace falta, inspecciona páginas con `pdfinfo`, pide páginas, copias, orientación `Vertical`/`Horizontal` y modo `Una cara`/`Doble cara` sólo si la cola CUPS confirma dúplex automático.
+- Las imágenes se normalizan a PDF con ImageMagick después de elegir orientación: A4 vertical por defecto o A4 horizontal cuando el usuario lo selecciona.
+- Si el documento normalizado sólo tiene una página, el flujo salta la pregunta de páginas y pide directamente copias; si finalmente se imprime una sola página con una sola copia, también salta `Una cara`/`Doble cara` y usa una cara por defecto.
+- Las preguntas del flujo muestran botones rápidos: `Todas` y `Cancelar` en páginas, `1` y `Cancelar` en copias, `Vertical`/`Horizontal` en orientación, y `Cancelar` se mantiene visible en el resto de pasos.
+- Confirmación extra si se seleccionan más de 10 páginas distintas y confirmación extra si se piden más de 10 copias.
+- Confirmación final con archivo, páginas, copias, orientación, modo de caras, total estimado y cola CUPS antes de llamar a `lp`.
+- En `Modo prueba`, el usuario recorre el flujo completo y el trabajo queda registrado con ID `test-mode`, pero el bot no llama a `lp` ni envía nada a CUPS.
+- Al completar una impresión iniciada desde Storage, el bot restaura el teclado normal y vuelve a mostrar el detalle del mismo archivo para que el usuario pueda seguir usando sus acciones.
+- La orientación se envía a CUPS con `orientation-requested=3` para vertical y `orientation-requested=4` para horizontal; los PDFs se envían además con `fit-to-page=true` y `media=A4` para escalar al área imprimible y evitar recortes de márgenes físicos.
+- Doble cara sólo automática: cuando la cola CUPS confirma soporte, el usuario puede elegir doble cara y el trabajo se envía con `sides=two-sided-long-edge`; si CUPS no confirma el soporte, o no se puede leer el estado, el flujo oculta esa opción y usa `one-sided`.
+- Historial persistente en `print_jobs` con usuario, origen, archivo, páginas, copias, total estimado, modo, cola, estado, ID CUPS y error seguro.
+- Menú admin `Impresora` con estado de cola, activación/desactivación, concesión/revocación de permisos de impresión, refresco e historial reciente.
+- Las pruebas automatizadas usan runners falsos y no envían trabajos reales a la impresora física `HP-LaserJet-P2015-Series`.
+
+Riesgos o pendientes:
+
+- No se aceptan enlaces externos en la primera versión.
+- La v1 de imágenes imprime una imagen como una página A4 ajustada y centrada; no hay todavía selección de orientación, márgenes, tamaño real, recorte, álbumes ni varias imágenes por página.
+- Los documentos de Telegram superiores a 20 MB requieren activar y operar el servidor Bot API local en el PC del club; si no está activo, el bot los seguirá rechazando con explicación. Si falta el binario `telegram-bot-api`, el despliegue lo compila desde la fuente oficial de TDLib cuando la feature local está activada.
+- No hay cancelación de trabajos ya enviados a CUPS desde el bot.
+- La prueba real de papel/tóner queda para validación presencial en el club.
 
 ## Backups, consola operativa y panel web
 

@@ -1,4 +1,5 @@
 import type { AuthorizationService } from '../authorization/service.js';
+import { printPermissionKey } from '../printing/print-permissions.js';
 import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
@@ -11,6 +12,8 @@ export interface TelegramActionMenuContext {
   chat: TelegramChatContext;
   session: ConversationSessionRecord | null;
   language: BotLanguage;
+  llmCommandsEnabled?: boolean;
+  printingEnabled?: boolean;
 }
 
 export interface TelegramResolvedActionMenu {
@@ -147,6 +150,37 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
   {
+    id: 'print',
+    label: (language) => createTelegramI18n(language).actionMenu.print,
+    telemetryActionKey: 'menu.print',
+    uxSection: 'primary',
+    buttonRole: 'primary',
+    contexts: ['private'],
+    isVisible: (context) =>
+      Boolean(context.printingEnabled) &&
+      context.actor.isApproved &&
+      !context.actor.isBlocked &&
+      (context.actor.isAdmin || context.authorization.can(printPermissionKey)),
+  },
+  {
+    id: 'ask_bot',
+    label: (language) => createTelegramI18n(language).actionMenu.askBot,
+    telemetryActionKey: 'menu.ask_bot',
+    uxSection: 'primary',
+    buttonRole: 'primary',
+    contexts: ['private'],
+    isVisible: (context) => Boolean(context.llmCommandsEnabled) && context.actor.isApproved && !context.actor.isBlocked,
+  },
+  {
+    id: 'admin',
+    label: (language) => createTelegramI18n(language).actionMenu.admin,
+    telemetryActionKey: 'menu.admin',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'member_debug',
     label: (language) => createTelegramI18n(language).actionMenu.memberDebug,
     telemetryActionKey: 'menu.member_debug',
@@ -195,6 +229,33 @@ const actionDefinitions: TelegramActionDefinition[] = [
     id: 'welcome_templates',
     label: (language) => createTelegramI18n(language).actionMenu.welcomeTemplates,
     telemetryActionKey: 'menu.welcome_templates',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
+    id: 'update_bgg',
+    label: (language) => createTelegramI18n(language).actionMenu.updateBgg,
+    telemetryActionKey: 'menu.update_bgg',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
+    id: 'llm_models',
+    label: (language) => createTelegramI18n(language).actionMenu.llmModels,
+    telemetryActionKey: 'menu.llm_models',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
+    id: 'printer_admin',
+    label: (language) => createTelegramI18n(language).actionMenu.printerAdmin,
+    telemetryActionKey: 'menu.printer_admin',
     uxSection: 'admin',
     buttonRole: 'secondary',
     contexts: ['private'],
@@ -256,7 +317,12 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['review_access', 'manage_users'], ['schedule', 'tables'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'welcome_templates'], ['change_display_name'], ['language', 'help']],
+    rows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'notices'], ['change_display_name', 'admin'], ['print'], ['ask_bot'], ['language', 'help']],
+  },
+  {
+    id: 'private-admin-tools',
+    matches: () => false,
+    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['printer_admin'], ['member_debug'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',
@@ -265,7 +331,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'change_display_name'], ['language', 'help']],
+    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'change_display_name'], ['print'], ['ask_bot'], ['language', 'help']],
   },
   {
     id: 'private-pending-default',
@@ -353,6 +419,105 @@ export function resolveTelegramMenuSelection({
 
   return {
     menuId: menu.menuId,
+    actionId: action.id,
+    label: action.label(context.language),
+    telemetryActionKey: action.telemetryActionKey,
+    uxSection: action.uxSection,
+  };
+}
+
+export function resolveTelegramAdminActionMenu({
+  context,
+}: {
+  context: TelegramActionMenuContext;
+}): TelegramResolvedActionMenu | undefined {
+  if (context.chat.kind !== 'private' || !context.actor.isAdmin || context.session !== null) {
+    return undefined;
+  }
+
+  return resolveActionMenuById('private-admin-tools', context);
+}
+
+export function resolveTelegramAdminMenuSelection({
+  context,
+  text,
+}: {
+  context: TelegramActionMenuContext;
+  text: string;
+}): TelegramResolvedMenuSelection | undefined {
+  const normalizedText = text.trim();
+  if (!normalizedText || context.chat.kind !== 'private' || !context.actor.isAdmin || context.session !== null) {
+    return undefined;
+  }
+
+  return resolveMenuSelectionById({
+    context,
+    menuId: 'private-admin-tools',
+    text: normalizedText,
+  });
+}
+
+function resolveActionMenuById(
+  menuId: string,
+  context: TelegramActionMenuContext,
+): TelegramResolvedActionMenu | undefined {
+  const menu = menuDefinitions.find((candidate) => candidate.id === menuId);
+  if (!menu) {
+    return undefined;
+  }
+
+  const visibleRows = resolveVisibleActionRows(menu, context);
+
+  const replyKeyboard = visibleRows.map((row) =>
+    row.map((action) => ({
+      text: action.label(context.language),
+      semanticRole: action.buttonRole,
+    })),
+  );
+
+  if (replyKeyboard.length === 0) {
+    return undefined;
+  }
+
+  return {
+    menuId: menu.id,
+    replyKeyboard,
+    actionRows: visibleRows.map((row) => row.map((action) => action.id)),
+    actions: visibleRows.flat().map((action) => ({
+      id: action.id,
+      label: action.label(context.language),
+      telemetryActionKey: action.telemetryActionKey,
+      uxSection: action.uxSection,
+    })),
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+function resolveMenuSelectionById({
+  context,
+  menuId,
+  text,
+}: {
+  context: TelegramActionMenuContext;
+  menuId: string;
+  text: string;
+}): TelegramResolvedMenuSelection | undefined {
+  const menuDefinition = menuDefinitions.find((candidate) => candidate.id === menuId);
+  if (!menuDefinition) {
+    return undefined;
+  }
+
+  const visibleActions = resolveVisibleActionRows(menuDefinition, context).flat();
+  const action = visibleActions.find((candidate) =>
+    supportedBotLanguages.some((language) => candidate.label(language) === text),
+  );
+  if (!action) {
+    return undefined;
+  }
+
+  return {
+    menuId,
     actionId: action.id,
     label: action.label(context.language),
     telemetryActionKey: action.telemetryActionKey,

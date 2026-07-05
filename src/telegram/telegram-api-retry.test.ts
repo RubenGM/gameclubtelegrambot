@@ -44,11 +44,16 @@ test('withTelegramApiRetry retries transient network failures', async () => {
 
 test('withTelegramApiRetry respects Telegram retry_after responses', async () => {
   const sleeps: number[] = [];
+  const logs: Array<{ bindings: { retryDelayMs?: number }; message: string }> = [];
   let attempts = 0;
 
   const result = await withTelegramApiRetry(
     {
       operation: 'sendMessage',
+      logger: {
+        info: (bindings, message) => logs.push({ bindings, message }),
+        error: () => {},
+      },
       sleep: async (milliseconds) => {
         sleeps.push(milliseconds);
       },
@@ -70,6 +75,43 @@ test('withTelegramApiRetry respects Telegram retry_after responses', async () =>
   assert.equal(result, 'sent');
   assert.equal(attempts, 2);
   assert.deepEqual(sleeps, [2_000]);
+  assert.equal(logs[0]?.bindings.retryDelayMs, 2_000);
+});
+
+test('withTelegramApiRetry does not cap Telegram retry_after to the generic backoff limit', async () => {
+  const sleeps: number[] = [];
+  const logs: Array<{ bindings: { retryDelayMs?: number }; message: string }> = [];
+  let attempts = 0;
+
+  const result = await withTelegramApiRetry(
+    {
+      operation: 'copyMessage',
+      logger: {
+        info: (bindings, message) => logs.push({ bindings, message }),
+        error: () => {},
+      },
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+      },
+    },
+    async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw {
+          error_code: 429,
+          parameters: {
+            retry_after: 12,
+          },
+        };
+      }
+      return 'copied';
+    },
+  );
+
+  assert.equal(result, 'copied');
+  assert.equal(attempts, 2);
+  assert.deepEqual(sleeps, [12_000]);
+  assert.equal(logs[0]?.bindings.retryDelayMs, 12_000);
 });
 
 test('withTelegramApiRetry does not retry permanent Telegram API failures', async () => {

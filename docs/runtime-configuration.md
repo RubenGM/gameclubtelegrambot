@@ -77,6 +77,18 @@ El contracte runtime actual inclou:
 - `notifications.defaults.eventReminderLeadHours` amb default `24`
 - `featureFlags` com a mapa de claus booleanes
 
+La impressió Telegram no afegeix camps obligatoris al JSON runtime. L'estat
+operatiu viu a `app_metadata` sota la clau `printing.settings`, gestionada des
+del menú privat `Admin` -> `Impresora`, amb tres valors: `disabled`, `test` i
+`enabled`. En `test`, el bot permet recórrer tot el flux i registrar el treball
+amb ID `test-mode`, però no envia cap comanda `lp` a CUPS. Si encara no hi ha
+configuració persistida, el bot considera la impressió desactivada i fa servir
+com a fallback la cua CUPS `HP-LaserJet-P2015-Series`. Els registres antics amb
+`enabled: true/false` es llegeixen com `enabled` o `disabled`.
+Els permisos d'usuari no viuen al JSON runtime: els admins poden imprimir
+sempre, i els socis no-admin necessiten una assignació global `printing.use` a
+`user_permission_assignments`, gestionada des de `Admin` -> `Impresora`.
+
 Els camps secrets es poden aportar des de `.env` o des de variables d'entorn reals. Quan existeixen tots dos, la variable d'entorn real preval.
 
 ## Exemple de configuració
@@ -149,6 +161,63 @@ L'editor TUI pot escriure aquest split automàticament:
 - `bootstrap.firstAdmin.telegramUserId` és la identitat canònica; `username` només és ajuda humana i no s'ha d'usar com a clau única.
 - `notifications.defaults.*` defineix defaults explícits per al primer arrencada; no s'han d'inferir implícitament a partir de feature flags o del context del xat.
 - Camps futurs opcionals s'han d'afegir amb defaults o amb una nova `schemaVersion`, evitant trencar configs persistides de versions anteriors.
+
+## Impressió Telegram
+
+La feature d'impressió depèn de capacitats del sistema local:
+
+- CUPS amb la cua configurada i accessible per l'usuari del servei.
+- `lp`, `lpoptions` i `pdfinfo` disponibles al `PATH`.
+- `soffice`/LibreOffice headless per convertir documents Office/OpenDocument a PDF.
+- `magick`/ImageMagick per normalitzar fotos i documents d'imatge a PDF A4 abans d'enviar-los a CUPS.
+
+El bot envia treballs a CUPS només després de confirmació explícita de l'usuari.
+Les proves automatitzades i les validacions de desenvolupament han d'utilitzar
+runners falsos o una impressora virtual; no han d'enviar treballs reals a la
+impressora física del club. La validació final de papel/tóner queda para una
+prueba presencial.
+
+Per a fitxers grans, la impressió pot usar opcionalment un servidor Telegram Bot
+API local sense canviar la resta del bot. La configuració viu a
+`telegram.localBotApi`:
+
+```json
+{
+  "telegram": {
+    "localBotApi": {
+      "enabled": false,
+      "baseUrl": "http://127.0.0.1:8081",
+      "dataDir": "/var/lib/gameclubtelegrambot/telegram-bot-api"
+    }
+  }
+}
+```
+
+Amb `enabled: true`, només el flux d'impressió demana descàrregues grans per la
+ruta local. Si el servidor local falla, el runtime cau a la descàrrega cloud
+normal, de manera que els fitxers petits continuen funcionant. La resta de
+fluxos no opten a aquesta ruta per defecte.
+
+Quan s'activa, el runtime també exigeix les credencials d'aplicació de Telegram
+al `.env` desplegat:
+
+- `GAMECLUB_TELEGRAM_LOCAL_BOT_API_ID`
+- `GAMECLUB_TELEGRAM_LOCAL_BOT_API_HASH`
+
+`./startup.sh` instal·la la unitat germana
+`gameclubtelegrambot-local-bot-api.service` al costat del servei principal. Si
+`telegram.localBotApi.enabled` és `true`, l'habilita i la reinicia abans de
+reiniciar `gameclubtelegrambot.service`; si és `false`, la deixa aturada i
+deshabilitada. La unitat escolta només a loopback i comparteix usuari de sistema
+amb el bot perquè impressió pugui copiar les rutes locals que retorni
+`getFile`.
+
+Si `telegram.localBotApi.enabled` és `true` i no existeix cap binari
+`telegram-bot-api`, l'instal·lador compila el servidor oficial de TDLib amb
+`scripts/install-telegram-bot-api.sh` i l'instal·la a `/usr/local/bin`. Aquesta
+compilació pot tardar diversos minuts el primer cop.
+
+Documentació operativa detallada: `docs/telegram-local-bot-api-printing.md`.
 
 ## Workflow de migracions
 

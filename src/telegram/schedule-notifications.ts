@@ -7,6 +7,7 @@ import type { NewsGroupRepository } from '../news/news-group-catalog.js';
 import { eventsNewsGroupCategory } from '../news/news-group-catalog.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import type { TelegramSentMessage } from './runtime-boundary.js';
+import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 
 export interface ScheduleCalendarChange {
   action: 'created' | 'updated' | 'deleted';
@@ -19,12 +20,14 @@ export async function notifyScheduleConflicts({
   scheduleRepository,
   loadEvent,
   sendPrivateMessage,
+  botLanguage,
 }: {
   eventId: number;
   actorTelegramUserId: number;
   scheduleRepository: ScheduleRepository;
   loadEvent: (eventId: number) => Promise<ScheduleEventRecord>;
   sendPrivateMessage: (telegramUserId: number, message: string) => Promise<void>;
+  botLanguage?: string;
 }): Promise<void> {
   const conflicts = await detectScheduleConflicts({
     repository: scheduleRepository,
@@ -41,16 +44,21 @@ export async function notifyScheduleConflicts({
   const overlapSummary = overlappingEvents
     .map((event) => `${event.title} (${formatTimestamp(event.startsAt)} - ${formatTimestamp(getScheduleEventEndsAt(event))})`)
     .join('\n- ');
+  const texts = createTelegramI18n(normalizeBotLanguage(botLanguage, 'ca')).schedule;
 
   await Promise.all(
     conflicts.impactedTelegramUserIds.map((telegramUserId) =>
       sendPrivateMessage(
         telegramUserId,
         [
-          'S ha detectat un possible conflicte amb les teves reserves del club.',
-          `Nova activitat o canvi: ${subjectEvent.title} (${formatTimestamp(subjectEvent.startsAt)} - ${formatTimestamp(getScheduleEventEndsAt(subjectEvent))})`,
-          `Altres activitats afectades:\n- ${overlapSummary}`,
-          'El bot no ha bloquejat la reserva. Si us plau, coordina-t hi manualment amb la resta de persones implicades.',
+          texts.conflictDetected,
+          formatScheduleText(texts.conflictSubject, {
+            title: subjectEvent.title,
+            startsAt: formatTimestamp(subjectEvent.startsAt),
+            endsAt: formatTimestamp(getScheduleEventEndsAt(subjectEvent)),
+          }),
+          formatScheduleText(texts.conflictAffected, { summary: overlapSummary }),
+          texts.conflictUnblocked,
         ].join('\n'),
       ),
     ),
@@ -61,6 +69,7 @@ export async function publishCalendarSnapshotToNewsGroups({
   change,
   sendGroupMessage,
   deleteMessage,
+  editMessageText,
   snapshotStorage,
   newsGroupRepository,
   database,
@@ -73,6 +82,7 @@ export async function publishCalendarSnapshotToNewsGroups({
   change: ScheduleCalendarChange;
   sendGroupMessage?: (chatId: number, message: string, options?: { parseMode?: 'HTML'; messageThreadId?: number }) => Promise<TelegramSentMessage | void>;
   deleteMessage?: (input: { chatId: number; messageId: number }) => Promise<void>;
+  editMessageText?: (input: { chatId: number; messageId: number; text: string; options?: { parseMode?: 'HTML' } }) => Promise<void>;
   snapshotStorage?: AppMetadataSessionStorage;
   newsGroupRepository: NewsGroupRepository;
   database: unknown;
@@ -90,6 +100,8 @@ export async function publishCalendarSnapshotToNewsGroups({
   if (groups.length === 0) {
     return;
   }
+  const language = normalizeBotLanguage(botLanguage, 'ca');
+  const texts = createTelegramI18n(language).schedule;
 
   const entries = await loadUpcomingCalendarEntries({
     database,
@@ -98,18 +110,20 @@ export async function publishCalendarSnapshotToNewsGroups({
     ...(tableRepository ? { tableRepository } : {}),
   });
   const message = entries.length > 0
-    ? `Calendari actualitzat:\n${formatCalendarMessage(entries, botLanguage ?? 'ca')}`
-    : 'Calendari actualitzat: no hi ha activitats ni esdeveniments propers ara mateix.';
+    ? `${texts.calendarBroadcastTitle}\n${formatCalendarMessage(entries, language)}`
+    : texts.calendarBroadcastEmpty;
   const footer = await formatCalendarBroadcastFooter({
     change,
-    language: botLanguage ?? 'ca',
+    language,
     resolveActorDisplayName,
   });
+  const replacedText = texts.calendarBroadcastReplaced;
 
   await Promise.all(
     groups.map(async (group) => {
+      const text = `${message}\n\n${footer}`;
       try {
-        const sent = await sendGroupMessage(group.chatId, `${message}\n\n${footer}`, {
+        const sent = await sendGroupMessage(group.chatId, text, {
           parseMode: 'HTML',
           ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
         });
@@ -117,7 +131,9 @@ export async function publishCalendarSnapshotToNewsGroups({
           chatId: group.chatId,
           messageThreadId: group.messageThreadId,
           sent,
+          replacedText,
           ...(deleteMessage ? { deleteMessage } : {}),
+          ...(editMessageText ? { editMessageText } : {}),
           ...(snapshotStorage ? { snapshotStorage } : {}),
         });
       } catch (error) {
@@ -137,13 +153,17 @@ async function rememberAndDeletePreviousCalendarSnapshot({
   chatId,
   messageThreadId,
   sent,
+  replacedText,
   deleteMessage,
+  editMessageText,
   snapshotStorage,
 }: {
   chatId: number;
   messageThreadId: number | null;
   sent: TelegramSentMessage | void;
+  replacedText: string;
   deleteMessage?: (input: { chatId: number; messageId: number }) => Promise<void>;
+  editMessageText?: (input: { chatId: number; messageId: number; text: string; options?: { parseMode?: 'HTML' } }) => Promise<void>;
   snapshotStorage?: AppMetadataSessionStorage;
 }): Promise<void> {
   if (!snapshotStorage || !sent?.messageId) {
@@ -166,13 +186,36 @@ async function rememberAndDeletePreviousCalendarSnapshot({
   try {
     await deleteMessage({ chatId: previous.chatId, messageId: previous.messageId });
   } catch (error) {
+    const deleteError = error instanceof Error ? error.message : String(error);
     console.warn(JSON.stringify({
       event: 'schedule.calendar-broadcast.previous-delete.failed',
       chatId: previous.chatId,
       messageThreadId: previous.messageThreadId,
       messageId: previous.messageId,
-      error: error instanceof Error ? error.message : String(error),
+      error: deleteError,
     }));
+
+    if (!editMessageText) {
+      return;
+    }
+
+    try {
+      await editMessageText({
+        chatId: previous.chatId,
+        messageId: previous.messageId,
+        text: replacedText,
+        options: { parseMode: 'HTML' },
+      });
+    } catch (editError) {
+      console.warn(JSON.stringify({
+        event: 'schedule.calendar-broadcast.previous-replace.failed',
+        chatId: previous.chatId,
+        messageThreadId: previous.messageThreadId,
+        messageId: previous.messageId,
+        error: editError instanceof Error ? editError.message : String(editError),
+        deleteError,
+      }));
+    }
   }
 }
 
@@ -213,12 +256,24 @@ async function formatCalendarBroadcastFooter({
   resolveActorDisplayName: () => Promise<string>;
 }): Promise<string> {
   const userName = await resolveActorDisplayName();
-  const actionLabel =
-    change.action === 'created'
-      ? 'creado'
-      : change.action === 'updated'
-        ? 'actualizado'
-        : 'eliminado';
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule;
+  const actionLabel = change.action === 'created'
+    ? texts.calendarBroadcastActionCreated
+    : change.action === 'updated'
+      ? texts.calendarBroadcastActionUpdated
+      : texts.calendarBroadcastActionDeleted;
 
-  return `<i>${escapeHtml(userName)} ha ${actionLabel} la actividad ${escapeHtml(change.event.title)} del ${escapeHtml(formatDayHeading(change.event.startsAt.slice(0, 10), language))}</i>`;
+  return `<i>${escapeHtml(formatScheduleText(texts.calendarBroadcastFooter, {
+    actor: userName,
+    action: actionLabel,
+    title: change.event.title,
+    day: formatDayHeading(change.event.startsAt.slice(0, 10), language),
+  }))}</i>`;
+}
+
+function formatScheduleText(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce(
+    (message, [key, value]) => message.replaceAll(`{${key}}`, value),
+    template,
+  );
 }

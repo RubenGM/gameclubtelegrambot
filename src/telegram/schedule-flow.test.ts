@@ -12,6 +12,7 @@ import type { ConversationSessionRecord } from './conversation-session.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import { normalizeDisplayName } from '../membership/display-name.js';
 import { publishCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
+import { createTelegramI18n } from './i18n.js';
 import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleMessage,
@@ -38,6 +39,22 @@ function formatCalendarTime(value: string): string {
 
 function formatCalendarRange(startsAt: string, endsAt: string): string {
   return `${formatCalendarTime(startsAt)}-${formatCalendarTime(endsAt)}`;
+}
+
+function interpolateTestText(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce(
+    (message, [key, value]) => message.replaceAll(`{${key}}`, value),
+    template,
+  );
+}
+
+function escapeTestHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
@@ -1358,7 +1375,15 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
     ),
   );
   assert.doesNotMatch(groupMessages[0]?.message ?? '', /Traed promo pack/);
-  assert.match(groupMessages[0]?.message ?? '', /ha creado la actividad Dune Imperium del Diumenge 5 abril/i);
+  const texts = createTelegramI18n('ca').schedule;
+  assert.ok((groupMessages[0]?.message ?? '').includes(
+    escapeTestHtml(interpolateTestText(texts.calendarBroadcastFooter, {
+      actor: 'Ada (@ada)',
+      action: texts.calendarBroadcastActionCreated,
+      title: 'Dune Imperium',
+      day: 'Diumenge 5 abril',
+    })),
+  ));
 });
 
 test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapshot message per destination', async () => {
@@ -1396,6 +1421,7 @@ test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapsho
     ['telegram.schedule.calendar_snapshot:-200:0', JSON.stringify({ chatId: -200, messageThreadId: null, messageId: 901 })],
   ]));
   const deletedMessages: Array<{ chatId: number; messageId: number }> = [];
+  const editedMessages: Array<{ chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }> = [];
   const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
 
   await publishCalendarSnapshotToNewsGroups({
@@ -1406,6 +1432,9 @@ test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapsho
     },
     deleteMessage: async (input) => {
       deletedMessages.push(input);
+    },
+    editMessageText: async (input) => {
+      editedMessages.push(input);
     },
     snapshotStorage,
     newsGroupRepository,
@@ -1418,6 +1447,79 @@ test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapsho
 
   assert.equal(groupMessages.length, 1);
   assert.deepEqual(deletedMessages, [{ chatId: -200, messageId: 901 }]);
+  assert.deepEqual(editedMessages, []);
+  assert.equal(
+    await snapshotStorage.get('telegram.schedule.calendar_snapshot:-200:0'),
+    JSON.stringify({ chatId: -200, messageThreadId: null, messageId: 902 }),
+  );
+});
+
+test('publishCalendarSnapshotToNewsGroups retires the previous snapshot when Telegram refuses deletion', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 1,
+      title: 'Dune Imperium',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 5,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -200,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      enabledAt: '2026-04-04T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ]);
+  const snapshotStorage = createMemoryAppMetadataStorage(new Map([
+    ['telegram.schedule.calendar_snapshot:-200:0', JSON.stringify({ chatId: -200, messageThreadId: null, messageId: 901 })],
+  ]));
+  const editedMessages: Array<{ chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }> = [];
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+
+  await publishCalendarSnapshotToNewsGroups({
+    change: { action: 'updated', event: (await scheduleRepository.findEventById(1))! },
+    sendGroupMessage: async (chatId, message, options) => {
+      groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
+      return { messageId: 902 };
+    },
+    deleteMessage: async () => {
+      throw new Error("Call to 'deleteMessage' failed! (400: Bad Request: message can't be deleted)");
+    },
+    editMessageText: async (input) => {
+      editedMessages.push(input);
+    },
+    snapshotStorage,
+    newsGroupRepository,
+    database: undefined,
+    scheduleRepository,
+    tableRepository: createTableRepository(),
+    venueEventRepository: createVenueEventRepository(),
+    resolveActorDisplayName: async () => 'Rubén',
+  });
+
+  assert.equal(groupMessages.length, 1);
+  assert.equal(editedMessages.length, 1);
+  assert.deepEqual(editedMessages[0], {
+    chatId: -200,
+    messageId: 901,
+    text: createTelegramI18n('ca').schedule.calendarBroadcastReplaced,
+    options: { parseMode: 'HTML' },
+  });
   assert.equal(
     await snapshotStorage.get('telegram.schedule.calendar_snapshot:-200:0'),
     JSON.stringify({ chatId: -200, messageThreadId: null, messageId: 902 }),

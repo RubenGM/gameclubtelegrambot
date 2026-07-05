@@ -168,6 +168,7 @@ export interface TelegramScheduleContext {
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
       sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
       deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
+      editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
       copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
       forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     };
@@ -1659,6 +1660,7 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
 > {
   const sendGroupMessage = context.runtime.bot.sendGroupMessage;
   const deleteMessage = context.runtime.bot.deleteMessage;
+  const editMessageText = context.runtime.bot.editMessageText;
 
   return {
     ...(sendGroupMessage
@@ -1668,6 +1670,7 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
         }
       : {}),
     ...(deleteMessage ? { deleteMessage: deleteMessage.bind(context.runtime.bot) } : {}),
+    ...(editMessageText ? { editMessageText: editMessageText.bind(context.runtime.bot) } : {}),
     newsGroupRepository: resolveNewsGroupRepository(context),
     database: context.runtime.services.database.db,
     snapshotStorage: createDatabaseAppMetadataSessionStorage({ database: context.runtime.services.database.db as never }),
@@ -1692,6 +1695,7 @@ async function runAfterScheduleSaveSideEffects(
         scheduleRepository: resolveScheduleRepository(context),
         loadEvent: async (eventId) => loadEventOrThrow(context, eventId),
         sendPrivateMessage: async (telegramUserId, message) => context.runtime.bot.sendPrivateMessage(telegramUserId, message),
+        botLanguage: resolveBotLanguage(context),
       });
     });
   }

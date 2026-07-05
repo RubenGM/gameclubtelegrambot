@@ -528,6 +528,7 @@ function buildCatalogLoanItemDetailReplyKeyboard({
   rows.push(...actionRows
     .map((row) => row.filter((button) => !prioritizedTexts.has(button.text)).map((button) => button.text))
     .filter((row) => row.length > 0));
+  rows.push([texts.actionMenu.start, texts.actionMenu.help]);
   return rows;
 }
 

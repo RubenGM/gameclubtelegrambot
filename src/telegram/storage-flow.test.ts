@@ -358,6 +358,8 @@ function createContext(
     createdTopic = { chatId: -100555, name: 'Manuales', messageThreadId: 77 },
     failCreateForumTopic = false,
     supportsEditMessageText = false,
+    printingMode = 'disabled',
+    canPrint = false,
   }: {
     isAdmin?: boolean;
     canReadCategoryIds?: number[];
@@ -377,6 +379,8 @@ function createContext(
     createdTopic?: { chatId: number; name: string; messageThreadId: number };
     failCreateForumTopic?: boolean;
     supportsEditMessageText?: boolean;
+    printingMode?: 'disabled' | 'enabled' | 'test';
+    canPrint?: boolean;
   } = {},
 ): {
   context: TelegramCommandHandlerContext & Record<string, unknown>;
@@ -425,7 +429,7 @@ function createContext(
             ? permissionKey === 'storage.entry.read'
               ? canReadCategoryIds.includes(Number(resource.id))
               : canUploadCategoryIds.includes(Number(resource.id))
-            : false,
+            : permissionKey === 'printing.use' && canPrint,
           permissionKey,
           reason: 'test',
         }),
@@ -434,7 +438,7 @@ function createContext(
             ? permissionKey === 'storage.entry.read'
               ? canReadCategoryIds.includes(Number(resource.id))
               : canUploadCategoryIds.includes(Number(resource.id))
-            : false,
+            : permissionKey === 'printing.use' && canPrint,
       },
       session: {
         get current() {
@@ -529,6 +533,12 @@ function createContext(
       },
     },
     storageRepository: repository,
+    printSettingsStore: {
+      async getSettings() {
+        return { mode: printingMode, cupsQueue: 'Virtual-PDF' };
+      },
+      async saveSettings() {},
+    },
     ...(storageCategoryAccessRepository ? { storageCategoryAccessRepository } : {}),
     storageCategorySubscriptionRepository: resolvedStorageCategorySubscriptionRepository,
     storageDefaultChatStore,
@@ -3188,6 +3198,87 @@ test('sendStorageEntryDetail shows edit action to the original uploader', async 
   ]);
 });
 
+test('sendStorageEntryDetail shows print action only to users with print permission', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 99,
+    sourceKind: 'dm_copy',
+    description: 'Manual imprimible',
+    tags: [],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 501,
+      storageThreadId: 10,
+      telegramFileId: 'file-1',
+      telegramFileUniqueId: 'unique-1',
+      attachmentKind: 'document',
+      caption: null,
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+
+  const denied = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [],
+    printingMode: 'enabled',
+    canPrint: false,
+  });
+  denied.context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageStartText(denied.context as never);
+  assert.equal(Boolean(denied.replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Imprimir')), false);
+
+  const allowed = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  allowed.context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageStartText(allowed.context as never);
+  assert.equal(allowed.replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Imprimir'), true);
+});
+
+test('sendStorageEntryDetail shows print action for stored photos with print permission', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 99,
+    sourceKind: 'dm_copy',
+    description: 'Mapa imprimible',
+    tags: [],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 501,
+      storageThreadId: 10,
+      telegramFileId: 'photo-file-1',
+      telegramFileUniqueId: 'photo-unique-1',
+      attachmentKind: 'photo',
+      caption: null,
+      originalFileName: null,
+      mimeType: null,
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+
+  const allowed = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  allowed.context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageStartText(allowed.context as never);
+
+  assert.equal(allowed.replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Imprimir'), true);
+});
+
 test('handleTelegramStorageCallback opens edit flow only for allowed users', async () => {
   const repository = createRepository([createCategory()]);
   await repository.createEntry({
@@ -3439,8 +3530,8 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   assert.equal(repository.__entries.length, 1);
   assert.equal(repository.__entries[0]?.entry.description, 'Manual de campana');
   assert.deepEqual(repository.__entries[0]?.entry.tags, ['rol', 'pdf']);
-  assert.match(replies.at(-2)?.message ?? '', /Subida en curso/);
-  assert.match(replies.at(-2)?.message ?? '', /Copiando adjuntos al topic de Storage/);
+  assert.match(replies.at(-1)?.message ?? '', /Subida en curso/);
+  assert.match(replies.at(-1)?.message ?? '', /Copiando adjuntos al topic de Storage/);
   assert.equal(editedMessages.length, 7);
   assert.equal(editedMessages[0]?.text, 'Adjunto añadido al lote actual. Total: 2.');
   const uploadProgressEdits = editedMessages.slice(1);
@@ -3450,10 +3541,18 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   assert.match(uploadProgressEdits[2]?.text ?? '', /Registrando la entrada en el índice/);
   assert.match(uploadProgressEdits[3]?.text ?? '', /Avisando suscripciones/);
   assert.match(uploadProgressEdits[4]?.text ?? '', /✅ Avisando suscripciones/);
-  assert.equal(uploadProgressEdits[5]?.text, 'Archivo guardado en Manuales con 2 adjunto(s).');
-  assert.deepEqual(uploadProgressEdits[5]?.options?.replyKeyboard, [[{ text: '/cancel', semanticRole: 'danger' }]]);
-  assert.match(replies.at(-1)?.message ?? '', /Manual de campana/);
-  assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
+  assert.equal(
+    uploadProgressEdits[5]?.text,
+    '<a href="https://t.me/cawatest_bot?start=storage_entry_1">Manual de campana</a> guardado en <a href="https://t.me/cawatest_bot?start=storage_category_7">Manuales</a> con 2 adjunto(s).',
+  );
+  assert.deepEqual(uploadProgressEdits[5]?.options?.replyKeyboard?.[0], [{ text: 'Listar categorías', semanticRole: 'primary' }]);
+  assert.deepEqual(uploadProgressEdits[5]?.options?.replyKeyboard?.[4], [
+    { text: 'Subir archivos', semanticRole: 'success' },
+    { text: 'Añadir imágenes', semanticRole: 'success' },
+  ]);
+  assert.equal(uploadProgressEdits[5]?.options?.parseMode, 'HTML');
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Manual de campana/);
+  assert.equal(getCurrentSession(), null);
 });
 
 test('handleTelegramStorageText keeps large upload previews below Telegram message limits after tags', async () => {
@@ -3700,7 +3799,7 @@ test('handleTelegramStorageText uses the normalized file name as the default upl
 
   assert.equal(repository.__entries[0]?.entry.description, 'Manual de Campana final');
   assert.deepEqual(repository.__entries[0]?.entry.tags, []);
-  assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
+  assert.equal(getCurrentSession(), null);
 });
 
 test('handleTelegramStorageText adds images to the upload draft from the preview', async () => {
@@ -3769,7 +3868,7 @@ test('handleTelegramStorageText adds images to the upload draft from the preview
   assert.equal(repository.__entries[0]?.messages[1]?.attachmentKind, 'photo');
   assert.equal(repository.__entries[0]?.messages[1]?.caption, 'Portada');
   assert.deepEqual(copiedMessages.map((message) => message.messageId), [77, 78]);
-  assert.equal(getCurrentSession()?.flowKey, 'storage-category-view');
+  assert.equal(getCurrentSession(), null);
 });
 
 test('handleTelegramStorageText asks whether multiple DM uploads should be stored together or separately', async () => {

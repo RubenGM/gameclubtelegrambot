@@ -698,6 +698,7 @@ test('createTelegramBoundary registers member-facing table callbacks', async () 
   assert.ok(events.includes('register:callback:table_read:inspect:'));
   assert.ok(events.includes('register:/venue_events'));
   assert.ok(events.includes('register:callback:venue_event_admin:inspect:'));
+  assert.ok(events.includes('register:/update_bgg'));
 });
 
 test('createTelegramBoundary replies with a safe message and clears session on unexpected handler errors', async () => {
@@ -1234,7 +1235,7 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Revisar sol·licituds', 'Administrar usuaris'], ['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes', 'LFG (buscar grup)'], ['Avisos', 'Benvingudes'], ['Canviar nom'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Avisos'], ['Canviar nom', 'Admin'], ['Idioma', 'Ajuda']]);
   assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
   assert.match(replies[0]?.message ?? '', /sol·licituds/i);
   assert.match(replies[1]?.message ?? '', /Què pots fer ara/);
@@ -2988,6 +2989,8 @@ test('isTelegramInternalTextCommand accepts catalog letter fallback commands onl
   assert.equal(isTelegramInternalTextCommand('/cat_jkl'), true);
   assert.equal(isTelegramInternalTextCommand('/cat_hash_ab@cawa_management_bot'), true);
   assert.equal(isTelegramInternalTextCommand('/catalog_admin_letters_hash_ab@cawa_management_bot'), true);
+  assert.equal(isTelegramInternalTextCommand('/update_bgg'), true);
+  assert.equal(isTelegramInternalTextCommand('/update_bgg@cawa_management_bot'), true);
   assert.equal(isTelegramInternalTextCommand('/start catalog_admin_letters_JKL'), false);
   assert.equal(isTelegramInternalTextCommand('/storage_category_86'), false);
 });

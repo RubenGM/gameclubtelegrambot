@@ -40,8 +40,11 @@ import {
   createAppMetadataMembershipAutojoinStore,
   toggleMembershipAutojoin,
 } from '../membership/autojoin-store.js';
+import { createAppMetadataPrintingSettingsStore } from '../printing/print-settings.js';
 import {
   resolveTelegramActionMenu,
+  resolveTelegramAdminActionMenu,
+  resolveTelegramAdminMenuSelection,
   resolveTelegramMenuSelection,
   type TelegramResolvedActionMenu,
 } from './action-menu.js';
@@ -84,6 +87,18 @@ import {
   lfgCallbackPrefixes,
 } from './lfg-flow.js';
 import {
+  handleTelegramLlmAskCommand,
+  handleTelegramLlmCallback,
+  handleTelegramLlmFallbackText,
+  handleTelegramLlmMenuText,
+  llmCommandCallbackPrefixes,
+} from './llm-command-flow.js';
+import {
+  handleTelegramLlmModelAdminCallback,
+  handleTelegramLlmModelAdminText,
+  llmModelAdminCallbackPrefixes,
+} from './llm-model-admin-flow.js';
+import {
   handleTelegramNewsGroupCallback,
   handleTelegramNewsGroupText,
   newsGroupCallbackPrefixes,
@@ -96,6 +111,11 @@ import {
   handleTelegramNoticeText,
   noticeCallbackPrefixes,
 } from './notice-flow.js';
+import {
+  handleTelegramPrintMessage,
+  handleTelegramPrintText,
+} from './print-flow.js';
+import { handleTelegramPrinterAdminStartText, handleTelegramPrinterAdminText } from './printer-admin-flow.js';
 import { buildTodayAtClubSummary } from './today-at-club-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { renderTelegramMessageTextAsHtml } from './telegram-entity-html.js';
@@ -112,6 +132,7 @@ import {
   handleTelegramStorageMessage,
   handleTelegramStorageStartText,
   handleTelegramStorageText,
+  sendStorageEntryDetail,
   storageCallbackPrefixes,
 } from './storage-flow.js';
 import {
@@ -202,6 +223,8 @@ export function registerHandlers({
   registerScheduleCallbacks({ bot });
   registerGroupPurchaseCallbacks({ bot });
   registerLfgCallbacks({ bot });
+  registerLlmCommandCallbacks({ bot });
+  registerLlmModelAdminCallbacks({ bot });
   registerNoticeCallbacks({ bot });
   registerNewsGroupCallbacks({ bot });
   registerTableReadCallbacks({ bot });
@@ -236,6 +259,10 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramActionMenuText(context, { publicName, adminElevationPasswordHash })) {
+      return;
+    }
+
+    if (await handleTelegramPrintText(withPrintCompletionNavigation(context))) {
       return;
     }
 
@@ -292,6 +319,10 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramPrinterAdminText(context)) {
+      return;
+    }
+
     if (await handleTelegramCalendarText(context)) {
       return;
     }
@@ -312,6 +343,10 @@ function registerTextHandlers({
 
     if (await handleTelegramCatalogReadText(context)) {
       setActiveHelpSection(context, 'catalog');
+      return;
+    }
+
+    if (await handleTelegramLlmFallbackText(context)) {
       return;
     }
   });
@@ -344,6 +379,10 @@ function registerMessageHandlers({
     }
 
     if (await handleTelegramNoticeMessage(context)) {
+      return;
+    }
+
+    if (await handleTelegramPrintMessage(withPrintCompletionNavigation(context))) {
       return;
     }
 
@@ -1289,6 +1328,30 @@ function registerNewsGroupCallbacks({
   }
 }
 
+function registerLlmCommandCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(llmCommandCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramLlmCallback(context);
+    });
+  }
+}
+
+function registerLlmModelAdminCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(llmModelAdminCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramLlmModelAdminCallback(context);
+    });
+  }
+}
+
 function createDefaultCommands({
   publicName,
   adminElevationPasswordHash,
@@ -1297,6 +1360,19 @@ function createDefaultCommands({
   adminElevationPasswordHash: string;
 }): TelegramCommandDefinition[] {
   return [
+    {
+      command: 'ask',
+      contexts: ['private'],
+      access: 'approved',
+      descriptionByLanguage: {
+        ca: 'Pregunta al bot en llenguatge natural',
+        es: 'Pregunta al bot en lenguaje natural',
+        en: 'Ask the bot in natural language',
+      },
+      handle: async (context) => {
+        await handleTelegramLlmAskCommand(context);
+      },
+    },
     {
       command: 'elevate_admin',
       contexts: ['private'],
@@ -1489,6 +1565,15 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'print',
+      contexts: ['private'],
+      access: 'approved',
+      description: 'Prepara un document per imprimir',
+      handle: async (context) => {
+        await handleTelegramPrintText(withPrintCompletionNavigation({ ...context, messageText: '/print' }));
+      },
+    },
+    {
       command: 'news',
       contexts: ['group', 'group-news'],
       access: 'admin',
@@ -1539,6 +1624,14 @@ function createDefaultCommands({
       description: 'Mostra el dashboard de préstecs actius',
       handle: async (context) => {
         await handleTelegramCatalogAdminText({ ...context, messageText: '/loan_admin' });
+      },
+    },
+    {
+      command: 'update_bgg',
+      contexts: ['private'],
+      access: 'admin',
+      handle: async (context) => {
+        await handleTelegramCatalogAdminText({ ...context, messageText: '/update_bgg' });
       },
     },
     {
@@ -1672,6 +1765,9 @@ function createDefaultCommands({
           return;
         }
         if (await handleTelegramStorageStartText({ ...context })) {
+          return;
+        }
+        if (await handleTelegramPrinterAdminStartText({ ...context })) {
           return;
         }
         if (await handleTelegramVenueEventAdminStartText({ ...context })) {
@@ -2226,6 +2322,9 @@ function registerCatalogAdminCallbacks({
   bot.onCallback(catalogAdminCallbackPrefixes.autocorrect, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
+  bot.onCallback(catalogAdminCallbackPrefixes.quickBggMetadata, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
   bot.onCallback(catalogAdminCallbackPrefixes.autocorrectBggCandidate, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
@@ -2505,18 +2604,35 @@ async function handleTelegramActionMenuText(
   }
 
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const actionMenuContext = {
+    actor: context.runtime.actor,
+    authorization: context.runtime.authorization,
+    chat: context.runtime.chat,
+    session: context.runtime.session.current,
+    language,
+    llmCommandsEnabled: Boolean(context.runtime.llmCommands?.enabled),
+    printingEnabled: await resolvePrintingEnabled(context),
+  };
   const selection = resolveTelegramMenuSelection({
-    context: {
-      actor: context.runtime.actor,
-      authorization: context.runtime.authorization,
-      chat: context.runtime.chat,
-      session: context.runtime.session.current,
-      language,
-    },
+    context: actionMenuContext,
+    text,
+  }) ?? resolveTelegramAdminMenuSelection({
+    context: actionMenuContext,
     text,
   });
 
   if (selection && selection.uxSection !== 'flow') {
+    if (selection.actionId === 'admin') {
+      const adminMenu = resolveTelegramAdminActionMenu({ context: actionMenuContext });
+      if (!adminMenu) {
+        return false;
+      }
+
+      await recordTelegramMenuShown(context, adminMenu);
+      await context.reply(createTelegramI18n(language).common.adminMenuOpened, adminMenu);
+      return true;
+    }
+
     if (selection.actionId === 'review_access') {
       if (context.runtime.chat.kind === 'private' && context.runtime.actor.isAdmin) {
         await handleReviewAccess(context);
@@ -2566,6 +2682,30 @@ async function handleTelegramActionMenuText(
         }),
       );
       return true;
+    }
+
+    if (selection.actionId === 'ask_bot') {
+      return handleTelegramLlmMenuText(context);
+    }
+
+    if (selection.actionId === 'print') {
+      return handleTelegramPrintText(withPrintCompletionNavigation({ ...context, messageText: selection.label }));
+    }
+
+    if (selection.actionId === 'update_bgg') {
+      const handled = await handleTelegramCatalogAdminText({ ...context, messageText: '/update_bgg' });
+      if (handled) {
+        setActiveHelpSection(context, 'catalog');
+      }
+      return handled;
+    }
+
+    if (selection.actionId === 'llm_models') {
+      return handleTelegramLlmModelAdminText({ ...context, messageText: selection.label });
+    }
+
+    if (selection.actionId === 'printer_admin') {
+      return handleTelegramPrinterAdminText({ ...context, messageText: selection.label });
     }
 
     const localizedContext = { ...context, messageText: selection.label };
@@ -3115,7 +3255,7 @@ function activeHelpSectionKey(context: TelegramCommandHandlerContext): string | 
 async function buildReplyOptionsForCurrentActionMenu(
   context: TelegramCommandHandlerContext,
 ): Promise<TelegramReplyOptions | undefined> {
-  const menu = resolveCurrentActionMenu(context);
+  const menu = await resolveCurrentActionMenuWithRuntimeSettings(context);
   if (!menu) {
     return undefined;
   }
@@ -3136,6 +3276,58 @@ function resolveCurrentActionMenu(context: TelegramCommandHandlerContext): Teleg
   });
 }
 
+async function resolveCurrentActionMenuWithRuntimeSettings(context: TelegramCommandHandlerContext): Promise<TelegramResolvedActionMenu | undefined> {
+  return resolveTelegramActionMenu({
+    context: {
+      actor: context.runtime.actor,
+      authorization: context.runtime.authorization,
+      chat: context.runtime.chat,
+      session: context.runtime.session.current,
+      language: context.runtime.bot.language ?? 'ca',
+      printingEnabled: await resolvePrintingEnabled(context),
+    },
+  });
+}
+
+async function resolvePrintingEnabled(context: TelegramCommandHandlerContext): Promise<boolean> {
+  try {
+    const store = createAppMetadataPrintingSettingsStore({
+      storage: createDatabaseAppMetadataSessionStorage({
+        database: context.runtime.services.database.db,
+      }),
+      defaultQueue: 'HP-LaserJet-P2015-Series',
+    });
+    return (await store.getSettings()).mode !== 'disabled';
+  } catch {
+    return false;
+  }
+}
+
+function withPrintCompletionNavigation(context: TelegramCommandHandlerContext): TelegramCommandHandlerContext & {
+  restorePrintedStorageEntry: (restoreContext: TelegramCommandHandlerContext, entryId: number) => Promise<void>;
+  restorePrintHome: (restoreContext: TelegramCommandHandlerContext) => Promise<void>;
+} {
+  return {
+    ...context,
+    restorePrintedStorageEntry: async (restoreContext, entryId) => {
+      const language = normalizeBotLanguage(restoreContext.runtime.bot.language, 'ca');
+      await restoreContext.reply(
+        createTelegramI18n(language).actionMenu.start,
+        await buildReplyOptionsForCurrentActionMenu(restoreContext),
+      );
+      await sendStorageEntryDetail(restoreContext, entryId, language);
+      setActiveHelpSection(restoreContext, 'storage');
+    },
+    restorePrintHome: async (restoreContext) => {
+      const language = normalizeBotLanguage(restoreContext.runtime.bot.language, 'ca');
+      await restoreContext.reply(
+        createTelegramI18n(language).actionMenu.start,
+        await buildReplyOptionsForCurrentActionMenu(restoreContext),
+      );
+    },
+  };
+}
+
 async function recordCurrentMenuActionSelection(
   context: TelegramCommandHandlerContext,
 ): Promise<void> {
@@ -3144,14 +3336,19 @@ async function recordCurrentMenuActionSelection(
     return;
   }
 
+  const actionMenuContext = {
+    actor: context.runtime.actor,
+    authorization: context.runtime.authorization,
+    chat: context.runtime.chat,
+    session: context.runtime.session.current,
+    language: context.runtime.bot.language ?? 'ca',
+    printingEnabled: await resolvePrintingEnabled(context),
+  };
   const selection = resolveTelegramMenuSelection({
-    context: {
-      actor: context.runtime.actor,
-      authorization: context.runtime.authorization,
-      chat: context.runtime.chat,
-      session: context.runtime.session.current,
-      language: context.runtime.bot.language ?? 'ca',
-    },
+    context: actionMenuContext,
+    text,
+  }) ?? resolveTelegramAdminMenuSelection({
+    context: actionMenuContext,
     text,
   });
   if (!selection || selection.uxSection === 'flow') {

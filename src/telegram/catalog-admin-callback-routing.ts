@@ -10,6 +10,7 @@ export type CatalogAdminCallbackPrefixes = {
   edit: string;
   createActivity: string;
   autocorrect: string;
+  quickBggMetadata: string;
   autocorrectBggCandidate: string;
   translateDescription: string;
   setOwnerSelf: string;
@@ -32,6 +33,7 @@ export type CatalogAdminCallbackRoute =
   | { kind: 'edit-item'; itemId: number }
   | { kind: 'create-activity'; itemId: number }
   | { kind: 'autocorrect-item'; itemId: number }
+  | { kind: 'quick-bgg-metadata'; itemId: number }
   | { kind: 'autocorrect-bgg-candidate'; itemId: number; boardGameGeekId: string }
   | { kind: 'translate-description'; itemId: number }
   | { kind: 'set-owner-self'; itemId: number }
@@ -74,6 +76,9 @@ export function parseCatalogAdminCallbackRoute(
   if (callbackData.startsWith(prefixes.autocorrectBggCandidate)) {
     const selection = parseAutocorrectBggCandidate(callbackData, prefixes.autocorrectBggCandidate);
     return selection ? { kind: 'autocorrect-bgg-candidate', ...selection } : null;
+  }
+  if (callbackData.startsWith(prefixes.quickBggMetadata)) {
+    return { kind: 'quick-bgg-metadata', itemId: parseItemId(callbackData, prefixes.quickBggMetadata) };
   }
   if (callbackData.startsWith(prefixes.autocorrect)) {
     return { kind: 'autocorrect-item', itemId: parseItemId(callbackData, prefixes.autocorrect) };
