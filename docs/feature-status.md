@@ -384,7 +384,7 @@ Implementado:
 - Confirmación final con archivo, páginas, copias, orientación, modo de caras, total estimado y cola CUPS antes de llamar a `lp`.
 - En `Modo prueba`, el usuario recorre el flujo completo y el trabajo queda registrado con ID `test-mode`, pero el bot no llama a `lp` ni envía nada a CUPS.
 - Al completar una impresión iniciada desde Storage, el bot restaura el teclado normal y vuelve a mostrar el detalle del mismo archivo para que el usuario pueda seguir usando sus acciones.
-- La orientación se envía a CUPS con `orientation-requested=3` para vertical y `orientation-requested=4` para horizontal.
+- La orientación se envía a CUPS con `orientation-requested=3` para vertical y `orientation-requested=4` para horizontal; los PDFs se envían además con `fit-to-page=true` y `media=A4` para escalar al área imprimible y evitar recortes de márgenes físicos.
 - Doble cara sólo automática: cuando la cola CUPS confirma soporte, el usuario puede elegir doble cara y el trabajo se envía con `sides=two-sided-long-edge`; si CUPS no confirma el soporte, o no se puede leer el estado, el flujo oculta esa opción y usa `one-sided`.
 - Historial persistente en `print_jobs` con usuario, origen, archivo, páginas, copias, total estimado, modo, cola, estado, ID CUPS y error seguro.
 - Menú admin `Impresora` con estado de cola, activación/desactivación, concesión/revocación de permisos de impresión, refresco e historial reciente.

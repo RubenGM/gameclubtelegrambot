@@ -94,6 +94,10 @@ export function createPrintService({
         `sides=${sides}`,
         '-o',
         `orientation-requested=${orientation === 'landscape' ? 4 : 3}`,
+        '-o',
+        'fit-to-page=true',
+        '-o',
+        'media=A4',
         pdfPath,
       ]);
 

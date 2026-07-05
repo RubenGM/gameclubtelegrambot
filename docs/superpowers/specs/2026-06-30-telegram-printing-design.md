@@ -184,6 +184,14 @@ Si CUPS no expone dúplex automático, o no se puede leer el estado de la cola, 
 bot oculta la opción de doble cara y continúa a una cara. No se implementa doble
 cara manual.
 
+## Escalado y márgenes físicos
+
+Los trabajos PDF deben enviarse a CUPS con `fit-to-page=true` y `media=A4`.
+La impresora física no puede imprimir hasta el borde del papel; si CUPS rasteriza
+un PDF a tamaño real, el borde superior o lateral puede caer fuera del área
+imprimible y quedar recortado. El escalado a página replica el comportamiento que
+el usuario observa al imprimir una captura o imagen ajustada al papel.
+
 ## Control de abuso
 
 La feature no bloquea por número total físico de hojas porque el club imprime a

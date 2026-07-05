@@ -152,6 +152,10 @@ test('print service submits jobs to lp without touching a real printer in tests'
       'sides=two-sided-long-edge',
       '-o',
       'orientation-requested=4',
+      '-o',
+      'fit-to-page=true',
+      '-o',
+      'media=A4',
       '/tmp/fichas.pdf',
     ],
   }]);
