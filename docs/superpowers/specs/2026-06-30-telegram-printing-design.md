@@ -283,14 +283,14 @@ fallback la cola actual `HP-LaserJet-P2015-Series`. Los valores antiguos
 
 ## Mejoras futuras para imágenes
 
-La primera iteración imprime cada imagen como una página A4, autoorientada,
-ajustada dentro de la página y centrada sobre fondo blanco. Es deliberadamente
-simple para no abrir nuevas decisiones de UX antes de tener uso real.
+La impresión permite elegir orientación vertical u horizontal antes de enviar el
+trabajo. Para imágenes, el PDF normalizado se genera en A4 vertical u horizontal
+según esa elección, autoorientado, ajustado dentro de la página y centrado sobre
+fondo blanco. Para PDF y Office normalizado, la orientación se envía a CUPS como
+opción del trabajo.
 
 Mejoras preparadas para iteraciones posteriores:
 
-- Elegir orientación automática o manual (`vertical`/`horizontal`) antes de
-  convertir a PDF.
 - Elegir ajuste: encajar completa, rellenar con recorte o tamaño real cuando la
   resolución lo permita.
 - Márgenes configurables o presets rápidos para mapas, handouts y fichas.

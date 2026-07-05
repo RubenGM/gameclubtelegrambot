@@ -82,7 +82,7 @@ test('handleTelegramPrintMessage prepares a Telegram photo and asks directly for
   }), true);
 
   assert.deepEqual(downloads, [{ fileId: 'telegram-photo', destinationPath: '/tmp/gameclub-print/telegram-photo', allowLocalBotApi: true }]);
-  assert.deepEqual(imageConversions, [{ inputPath: '/tmp/gameclub-print/telegram-photo', outputDir: '/tmp/gameclub-print' }]);
+  assert.deepEqual(imageConversions, []);
   assert.equal(getCurrentSession()?.stepKey, 'copies');
   assert.match(replies.at(-1)?.message ?? '', /1 página/i);
   assert.match(replies.at(-1)?.message ?? '', /copias/i);
@@ -198,6 +198,9 @@ test('handleTelegramPrintText submits after extra confirmations for many copies'
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
 
   await handleTelegramPrintText({ ...context, messageText: '12' });
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar']]);
+
+  await handleTelegramPrintText({ ...context, messageText: 'Horizontal' });
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Una cara', 'Doble cara'], ['Cancelar']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Doble cara' });
@@ -214,6 +217,7 @@ test('handleTelegramPrintText submits after extra confirmations for many copies'
     copies: 12,
     pageRanges: '1-4',
     sides: 'two-sided-long-edge',
+    orientation: 'landscape',
   }]);
   const jobs = await history.listRecent({ limit: 1 });
   assert.equal(jobs[0]?.status, 'submitted');
@@ -248,9 +252,12 @@ test('handleTelegramPrintText keeps cancel available after validation errors and
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
 
   await handleTelegramPrintText({ ...context, messageText: '1' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Una cara', 'Doble cara'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'algo raro' });
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar']]);
+
+  await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Una cara', 'Doble cara'], ['Cancelar']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Una cara' });
@@ -278,8 +285,12 @@ test('handleTelegramPrintText skips side selection for one selected page and one
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
 
   await handleTelegramPrintText({ ...context, messageText: '1' });
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar']]);
+
+  await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar']]);
   assert.match(replies.at(-1)?.message ?? '', /Páginas: 3/);
+  assert.match(replies.at(-1)?.message ?? '', /Orientación: Vertical/);
   assert.match(replies.at(-1)?.message ?? '', /Modo: Una cara/);
 
   await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
@@ -290,6 +301,7 @@ test('handleTelegramPrintText skips side selection for one selected page and one
     copies: 1,
     pageRanges: '3',
     sides: 'one-sided',
+    orientation: 'portrait',
   }]);
   const jobs = await history.listRecent({ limit: 1 });
   assert.equal(jobs[0]?.selectedPageCount, 1);
@@ -315,6 +327,7 @@ test('handleTelegramPrintText completes test mode without submitting to CUPS', a
   });
   await handleTelegramPrintText({ ...context, messageText: '1-2' });
   await handleTelegramPrintText({ ...context, messageText: '1' });
+  await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
   await handleTelegramPrintText({ ...context, messageText: 'Una cara' });
   await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
 
@@ -364,6 +377,7 @@ test('startTelegramPrintFromStorageMessage prepares storage files and records st
   }), true);
   await handleTelegramPrintText({ ...context, messageText: '1-2' });
   await handleTelegramPrintText({ ...context, messageText: '1' });
+  await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
   await handleTelegramPrintText({ ...context, messageText: 'Una cara' });
   await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
 
@@ -389,11 +403,12 @@ test('startTelegramPrintFromStorageMessage prepares image documents and records 
   }), true);
   await handleTelegramPrintText({ ...context, messageText: 'Todas' });
   await handleTelegramPrintText({ ...context, messageText: '1' });
+  await handleTelegramPrintText({ ...context, messageText: 'Horizontal' });
   await handleTelegramPrintText({ ...context, messageText: 'Una cara' });
   await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
 
   assert.deepEqual(downloads, [{ fileId: 'storage-image', destinationPath: '/tmp/gameclub-print/storage-image', allowLocalBotApi: true }]);
-  assert.deepEqual(imageConversions, [{ inputPath: '/tmp/gameclub-print/storage-image', outputDir: '/tmp/gameclub-print' }]);
+  assert.deepEqual(imageConversions, [{ inputPath: '/tmp/gameclub-print/storage-image', outputDir: '/tmp/gameclub-print', orientation: 'landscape' }]);
   const jobs = await history.listRecent({ limit: 1 });
   assert.equal(jobs[0]?.detectedType, 'image');
   assert.equal(jobs[0]?.originalFileName, 'mapa.png');
@@ -473,8 +488,15 @@ function createContext({
 }) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const downloads: Array<{ fileId: string; destinationPath: string; allowLocalBotApi?: boolean }> = [];
-  const submissions: Array<{ pdfPath: string; queue: string; copies: number; pageRanges: string; sides: 'one-sided' | 'two-sided-long-edge' }> = [];
-  const imageConversions: Array<{ inputPath: string; outputDir: string }> = [];
+  const submissions: Array<{
+    pdfPath: string;
+    queue: string;
+    copies: number;
+    pageRanges: string;
+    sides: 'one-sided' | 'two-sided-long-edge';
+    orientation: 'portrait' | 'landscape';
+  }> = [];
+  const imageConversions: Array<{ inputPath: string; outputDir: string; orientation: 'portrait' | 'landscape' }> = [];
   const cleanups: string[][] = [];
   let currentSession: ConversationSessionRecord | null = null;
   const printService: PrintService = {
@@ -484,8 +506,8 @@ function createContext({
     async convertOfficeToPdf() {
       return '/tmp/gameclub-print/converted.pdf';
     },
-    async convertImageToPdf(inputPath, outputDir) {
-      imageConversions.push({ inputPath, outputDir });
+    async convertImageToPdf(inputPath, outputDir, orientation) {
+      imageConversions.push({ inputPath, outputDir, orientation });
       return '/tmp/gameclub-print/converted-image.pdf';
     },
     async getPrinterStatus(queue) {

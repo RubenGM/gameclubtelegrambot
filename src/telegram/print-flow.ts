@@ -13,7 +13,7 @@ import {
   type PrintJobDetectedType,
   type PrintJobSides,
 } from '../printing/print-job-history.js';
-import { createPrintService, type PrintService } from '../printing/print-service.js';
+import { createPrintService, type PrintJobOrientation, type PrintService } from '../printing/print-service.js';
 import { parsePrintPageSelection } from '../printing/page-selection.js';
 import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
 import { type TelegramCommandHandlerContext } from './command-registry.js';
@@ -39,7 +39,7 @@ type PrintSessionData = {
   storageMessageId?: number;
   fileId: string;
   filePath: string;
-  pdfPath: string;
+  pdfPath?: string;
   originalFileName: string;
   mimeType: string | null;
   detectedType: PrintJobDetectedType;
@@ -49,6 +49,7 @@ type PrintSessionData = {
   selectedPagesLabel?: string;
   selectedPageCount?: number;
   copies?: number;
+  orientation?: PrintJobOrientation;
   sides?: PrintJobSides;
   confirmedManyPages?: boolean;
   confirmedManyCopies?: boolean;
@@ -132,18 +133,17 @@ export async function handleTelegramPrintMessage(context: PrintFlowContext): Pro
   }
 
   const printService = resolvePrintService(context);
-  const pdfPath = await normalizePrintableToPdf(printService, detectedType, filePath);
-  const inspection = await printService.inspectPdf(pdfPath);
+  const prepared = await preparePrintableForInspection(printService, detectedType, filePath);
 
   const data: PrintSessionData = {
     origin: 'telegram_attachment',
     fileId: media.fileId,
     filePath,
-    pdfPath,
+    ...(prepared.pdfPath ? { pdfPath: prepared.pdfPath } : {}),
     originalFileName: media.originalFileName ?? texts.defaultImageFileName,
     mimeType: media.mimeType ?? null,
     detectedType,
-    pageCount: inspection.pageCount,
+    pageCount: prepared.pageCount,
     cupsQueue: String(session.data.cupsQueue ?? defaultPrintQueue),
     printMode: session.data.printMode === 'test' ? 'test' : 'enabled',
   };
@@ -218,19 +218,18 @@ export async function startTelegramPrintFromStorageMessage(
   }
 
   const printService = resolvePrintService(context);
-  const pdfPath = await normalizePrintableToPdf(printService, detectedType, filePath);
-  const inspection = await printService.inspectPdf(pdfPath);
+  const prepared = await preparePrintableForInspection(printService, detectedType, filePath);
   const data: PrintSessionData = {
     origin: 'storage_entry',
     storageEntryId: input.storageEntryId,
     storageMessageId: input.storageMessageId,
     fileId: input.fileId,
     filePath,
-    pdfPath,
+    ...(prepared.pdfPath ? { pdfPath: prepared.pdfPath } : {}),
     originalFileName: input.originalFileName ?? (detectedType === 'image' ? texts.defaultImageFileName : `storage-${input.storageEntryId}`),
     mimeType: input.mimeType,
     detectedType,
-    pageCount: inspection.pageCount,
+    pageCount: prepared.pageCount,
     cupsQueue: settings.cupsQueue,
     printMode: settings.mode,
   };
@@ -277,6 +276,19 @@ async function continuePrintSession(context: PrintFlowContext, text: string): Pr
     }
 
     const nextData = { ...data, copies };
+    await context.runtime.session.advance({ stepKey: 'orientation', data: nextData });
+    await context.reply(texts.askOrientation, orientationKeyboard(language));
+    return true;
+  }
+
+  if (session.stepKey === 'orientation') {
+    const orientation = resolveOrientation(text, texts);
+    if (!orientation) {
+      await context.reply(texts.askOrientation, orientationKeyboard(language));
+      return true;
+    }
+
+    const nextData = { ...data, orientation };
     if (shouldSkipSidesSelection(nextData)) {
       await context.runtime.session.advance({ stepKey: 'confirm', data: { ...nextData, sides: 'one-sided' } });
       return askNextConfirmation(context, { ...nextData, sides: 'one-sided' });
@@ -374,6 +386,7 @@ async function askNextConfirmation(context: PrintFlowContext, data: PrintSession
     fileName: data.originalFileName,
     pages: data.selectedPagesLabel ?? '',
     copies: String(data.copies ?? 1),
+    orientation: data.orientation === 'landscape' ? texts.landscape : texts.portrait,
     sides: data.sides === 'two-sided-long-edge' ? texts.twoSided : texts.oneSided,
     total: String((data.selectedPageCount ?? 0) * (data.copies ?? 1)),
     queue: data.cupsQueue,
@@ -387,6 +400,8 @@ async function submitPrintJob(context: PrintFlowContext, data: PrintSessionData)
   const history = resolvePrintJobHistory(context);
   const printService = resolvePrintService(context);
   const copies = data.copies ?? 1;
+  const orientation = data.orientation ?? 'portrait';
+  const pdfPath = await resolveSubmissionPdfPath(printService, data, orientation);
   const selectedPageCount = data.selectedPageCount ?? data.pageCount;
   const job = await history.createJob({
     requestedByTelegramUserId: context.runtime.actor.telegramUserId,
@@ -418,11 +433,12 @@ async function submitPrintJob(context: PrintFlowContext, data: PrintSessionData)
       completed = true;
     } else {
       const result = await printService.submitPdfJob({
-        pdfPath: data.pdfPath,
+        pdfPath,
         queue: data.cupsQueue,
         copies,
         pageRanges: data.selectedPagesLabel ?? `1-${data.pageCount}`,
         sides: data.sides ?? 'one-sided',
+        orientation,
       });
       await history.markSubmitted(job.id, {
         cupsJobId: result.cupsJobId ?? 'n/d',
@@ -438,7 +454,7 @@ async function submitPrintJob(context: PrintFlowContext, data: PrintSessionData)
     });
     throw error;
   } finally {
-    await printService.cleanup([data.filePath, data.pdfPath]);
+    await printService.cleanup([data.filePath, pdfPath]);
     await context.runtime.session.cancel();
   }
 
@@ -512,6 +528,19 @@ function resolveSides(text: string, texts: ReturnType<typeof createTelegramI18n>
   }
   if (text === texts.twoSided || /^doble cara$/i.test(text) || /^double-sided$/i.test(text)) {
     return 'two-sided-long-edge';
+  }
+  return null;
+}
+
+function resolveOrientation(
+  text: string,
+  texts: ReturnType<typeof createTelegramI18n>['printing'],
+): PrintJobOrientation | null {
+  if (text === texts.portrait || /^(vertical|portrait)$/i.test(text)) {
+    return 'portrait';
+  }
+  if (text === texts.landscape || /^(horizontal|horitzontal|landscape)$/i.test(text)) {
+    return 'landscape';
   }
   return null;
 }
@@ -616,18 +645,35 @@ function detectPrintableType(input: {
   return null;
 }
 
-async function normalizePrintableToPdf(
+async function preparePrintableForInspection(
   printService: PrintService,
   detectedType: PrintJobDetectedType,
   filePath: string,
-): Promise<string> {
-  if (detectedType === 'pdf') {
-    return filePath;
-  }
+): Promise<{ pageCount: number; pdfPath?: string }> {
   if (detectedType === 'image') {
-    return printService.convertImageToPdf(filePath, defaultTempDir);
+    return { pageCount: 1 };
   }
-  return printService.convertOfficeToPdf(filePath, defaultTempDir);
+  if (detectedType === 'pdf') {
+    const inspection = await printService.inspectPdf(filePath);
+    return { pageCount: inspection.pageCount, pdfPath: filePath };
+  }
+  const pdfPath = await printService.convertOfficeToPdf(filePath, defaultTempDir);
+  const inspection = await printService.inspectPdf(pdfPath);
+  return { pageCount: inspection.pageCount, pdfPath };
+}
+
+async function resolveSubmissionPdfPath(
+  printService: PrintService,
+  data: PrintSessionData,
+  orientation: PrintJobOrientation,
+): Promise<string> {
+  if (data.pdfPath) {
+    return data.pdfPath;
+  }
+  if (data.detectedType !== 'image') {
+    throw new Error('Printable session is missing a normalized PDF path');
+  }
+  return printService.convertImageToPdf(data.filePath, defaultTempDir, orientation);
 }
 
 function sanitizePathSegment(value: string): string {
@@ -647,6 +693,11 @@ function copiesKeyboard(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
 function sidesKeyboard(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
   const texts = createTelegramI18n(language);
   return withKeyboard([[texts.printing.oneSided, texts.printing.twoSided], [texts.printing.cancelButton]]);
+}
+
+function orientationKeyboard(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language);
+  return withKeyboard([[texts.printing.portrait, texts.printing.landscape], [texts.printing.cancelButton]]);
 }
 
 function confirmationKeyboard(confirmButton: string, language: 'ca' | 'es' | 'en'): TelegramReplyOptions {

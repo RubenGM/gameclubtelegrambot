@@ -12,11 +12,12 @@ export interface PrintingProcessResult {
 }
 
 export type PrintingProcessRunner = (command: string, args: string[]) => Promise<PrintingProcessResult>;
+export type PrintJobOrientation = 'portrait' | 'landscape';
 
 export interface PrintService {
   inspectPdf(pdfPath: string): Promise<{ pageCount: number }>;
   convertOfficeToPdf(inputPath: string, outputDir: string): Promise<string>;
-  convertImageToPdf(inputPath: string, outputDir: string): Promise<string>;
+  convertImageToPdf(inputPath: string, outputDir: string, orientation: PrintJobOrientation): Promise<string>;
   getPrinterStatus(queue: string): Promise<{ queue: string; duplexSupported: boolean }>;
   submitPdfJob(input: {
     pdfPath: string;
@@ -24,6 +25,7 @@ export interface PrintService {
     copies: number;
     pageRanges: string;
     sides: PrintJobSides;
+    orientation: PrintJobOrientation;
   }): Promise<{ cupsJobId: string | null }>;
   cleanup(paths: string[]): Promise<void>;
 }
@@ -55,19 +57,20 @@ export function createPrintService({
       ]);
       return join(outputDir, `${basename(inputPath, extname(inputPath))}.pdf`);
     },
-    async convertImageToPdf(inputPath, outputDir) {
+    async convertImageToPdf(inputPath, outputDir, orientation) {
       const outputPath = join(outputDir, `${basename(inputPath, extname(inputPath))}.pdf`);
+      const pageSize = orientation === 'landscape' ? '842x595' : '595x842';
       await runChecked(runner, 'magick', [
         inputPath,
         '-auto-orient',
         '-resize',
-        '595x842>',
+        `${pageSize}>`,
         '-gravity',
         'center',
         '-background',
         'white',
         '-extent',
-        '595x842',
+        pageSize,
         outputPath,
       ]);
       return outputPath;
@@ -79,7 +82,7 @@ export function createPrintService({
         duplexSupported: /(?:^|\n)Duplex\/.*:\s*.*(?:DuplexNoTumble|DuplexTumble|two-sided)/i.test(result.stdout),
       };
     },
-    async submitPdfJob({ pdfPath, queue, copies, pageRanges, sides }) {
+    async submitPdfJob({ pdfPath, queue, copies, pageRanges, sides, orientation }) {
       const result = await runChecked(runner, 'lp', [
         '-d',
         queue,
@@ -89,6 +92,8 @@ export function createPrintService({
         `page-ranges=${pageRanges}`,
         '-o',
         `sides=${sides}`,
+        '-o',
+        `orientation-requested=${orientation === 'landscape' ? 4 : 3}`,
         pdfPath,
       ]);
 

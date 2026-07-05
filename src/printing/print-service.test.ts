@@ -32,7 +32,7 @@ test('print service converts office files to PDF with LibreOffice headless', asy
   }]);
 });
 
-test('print service converts image files to a one-page PDF with ImageMagick', async () => {
+test('print service converts image files to a portrait one-page PDF with ImageMagick', async () => {
   const calls: Array<{ command: string; args: string[] }> = [];
   const service = createPrintService({
     runner: async (command, args) => {
@@ -41,7 +41,7 @@ test('print service converts image files to a one-page PDF with ImageMagick', as
     },
   });
 
-  assert.equal(await service.convertImageToPdf('/tmp/foto.jpg', '/tmp/out'), '/tmp/out/foto.pdf');
+  assert.equal(await service.convertImageToPdf('/tmp/foto.jpg', '/tmp/out', 'portrait'), '/tmp/out/foto.pdf');
   assert.deepEqual(calls, [{
     command: 'magick',
     args: [
@@ -56,6 +56,34 @@ test('print service converts image files to a one-page PDF with ImageMagick', as
       '-extent',
       '595x842',
       '/tmp/out/foto.pdf',
+    ],
+  }]);
+});
+
+test('print service converts landscape image files to a landscape one-page PDF with ImageMagick', async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const service = createPrintService({
+    runner: async (command, args) => {
+      calls.push({ command, args });
+      return { stdout: '', stderr: '', exitCode: 0 };
+    },
+  });
+
+  assert.equal(await service.convertImageToPdf('/tmp/mapa.png', '/tmp/out', 'landscape'), '/tmp/out/mapa.pdf');
+  assert.deepEqual(calls, [{
+    command: 'magick',
+    args: [
+      '/tmp/mapa.png',
+      '-auto-orient',
+      '-resize',
+      '842x595>',
+      '-gravity',
+      'center',
+      '-background',
+      'white',
+      '-extent',
+      '842x595',
+      '/tmp/out/mapa.pdf',
     ],
   }]);
 });
@@ -90,11 +118,24 @@ test('print service submits jobs to lp without touching a real printer in tests'
     copies: 7,
     pageRanges: '1-4',
     sides: 'two-sided-long-edge',
+    orientation: 'landscape',
   }), { cupsJobId: 'Virtual-PDF-42' });
 
   assert.deepEqual(calls, [{
     command: 'lp',
-    args: ['-d', 'Virtual-PDF', '-n', '7', '-o', 'page-ranges=1-4', '-o', 'sides=two-sided-long-edge', '/tmp/fichas.pdf'],
+    args: [
+      '-d',
+      'Virtual-PDF',
+      '-n',
+      '7',
+      '-o',
+      'page-ranges=1-4',
+      '-o',
+      'sides=two-sided-long-edge',
+      '-o',
+      'orientation-requested=4',
+      '/tmp/fichas.pdf',
+    ],
   }]);
 });
 
