@@ -103,6 +103,24 @@ test('print service detects duplex support from lpoptions', async () => {
   });
 });
 
+test('print service treats an uninstalled duplexer as no duplex support', async () => {
+  const service = createPrintService({
+    runner: async () => ({
+      stdout: [
+        'Duplex/2-Sided Printing: *None DuplexNoTumble DuplexTumble',
+        'Option1/Duplexer: *False True',
+      ].join('\n'),
+      stderr: '',
+      exitCode: 0,
+    }),
+  });
+
+  assert.deepEqual(await service.getPrinterStatus('HP-LaserJet-P2015-Series'), {
+    queue: 'HP-LaserJet-P2015-Series',
+    duplexSupported: false,
+  });
+});
+
 test('print service submits jobs to lp without touching a real printer in tests', async () => {
   const calls: Array<{ command: string; args: string[] }> = [];
   const service = createPrintService({

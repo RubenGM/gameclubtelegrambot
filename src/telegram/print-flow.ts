@@ -46,6 +46,7 @@ type PrintSessionData = {
   pageCount: number;
   cupsQueue: string;
   printMode: Exclude<PrintingMode, 'disabled'>;
+  duplexSupported?: boolean;
   selectedPagesLabel?: string;
   selectedPageCount?: number;
   copies?: number;
@@ -87,7 +88,11 @@ export async function handleTelegramPrintText(context: PrintFlowContext): Promis
   await context.runtime.session.start({
     flowKey: printFlowKey,
     stepKey: 'file',
-    data: { cupsQueue: settings.cupsQueue, printMode: settings.mode },
+    data: {
+      cupsQueue: settings.cupsQueue,
+      printMode: settings.mode,
+      duplexSupported: await resolvePrinterDuplexSupported(context, settings.cupsQueue),
+    },
   });
   await context.reply(texts.askDocument, cancelKeyboard(language));
   return true;
@@ -129,7 +134,8 @@ export async function handleTelegramPrintMessage(context: PrintFlowContext): Pro
       await replyDownloadTooLargeAndRestoreNavigation(context, media.fileSizeBytes);
       return true;
     }
-    throw error;
+    await replyDownloadFailedAndKeepRetry(context, filePath);
+    return true;
   }
 
   const printService = resolvePrintService(context);
@@ -146,6 +152,7 @@ export async function handleTelegramPrintMessage(context: PrintFlowContext): Pro
     pageCount: prepared.pageCount,
     cupsQueue: String(session.data.cupsQueue ?? defaultPrintQueue),
     printMode: session.data.printMode === 'test' ? 'test' : 'enabled',
+    duplexSupported: session.data.duplexSupported === true,
   };
 
   await continueAfterPrintablePrepared(context, data, 'advance');
@@ -214,7 +221,11 @@ export async function startTelegramPrintFromStorageMessage(
       });
       return true;
     }
-    throw error;
+    await replyDownloadFailedAndRestoreNavigation(context, filePath, {
+      origin: 'storage_entry',
+      storageEntryId: input.storageEntryId,
+    });
+    return true;
   }
 
   const printService = resolvePrintService(context);
@@ -232,6 +243,7 @@ export async function startTelegramPrintFromStorageMessage(
     pageCount: prepared.pageCount,
     cupsQueue: settings.cupsQueue,
     printMode: settings.mode,
+    duplexSupported: await resolvePrinterDuplexSupported(context, settings.cupsQueue),
   };
 
   await continueAfterPrintablePrepared(context, data, 'start');
@@ -288,8 +300,9 @@ async function continuePrintSession(context: PrintFlowContext, text: string): Pr
       return true;
     }
 
-    const nextData = { ...data, orientation };
-    if (shouldSkipSidesSelection(nextData)) {
+    const duplexSupported = data.duplexSupported ?? await resolvePrinterDuplexSupported(context, data.cupsQueue);
+    const nextData = { ...data, orientation, duplexSupported };
+    if (shouldSkipSidesSelection(nextData) || !duplexSupported) {
       await context.runtime.session.advance({ stepKey: 'confirm', data: { ...nextData, sides: 'one-sided' } });
       return askNextConfirmation(context, { ...nextData, sides: 'one-sided' });
     }
@@ -510,6 +523,29 @@ async function replyDownloadTooLargeAndRestoreNavigation(
   await context.restorePrintHome?.(context);
 }
 
+async function replyDownloadFailedAndKeepRetry(context: PrintFlowContext, filePath: string): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  await resolvePrintService(context).cleanup([filePath]);
+  await context.reply(createTelegramI18n(language).printing.downloadFailedRetry, cancelKeyboard(language));
+}
+
+async function replyDownloadFailedAndRestoreNavigation(
+  context: PrintFlowContext,
+  filePath: string,
+  data?: Partial<PrintSessionData>,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  await resolvePrintService(context).cleanup([filePath]);
+  await context.reply(createTelegramI18n(language).printing.storageDownloadFailedRetry);
+
+  if (data?.origin === 'storage_entry' && data.storageEntryId && context.restorePrintedStorageEntry) {
+    await context.restorePrintedStorageEntry(context, data.storageEntryId);
+    return;
+  }
+
+  await context.restorePrintHome?.(context);
+}
+
 function needsManyPagesConfirmation(data: PrintSessionData): boolean {
   return (data.selectedPageCount ?? 0) > 10 && data.confirmedManyPages !== true;
 }
@@ -558,6 +594,14 @@ function resolvePrintSettingsStore(context: PrintFlowContext): PrintingSettingsS
 
 function resolvePrintService(context: PrintFlowContext): PrintService {
   return context.printService ?? createPrintService();
+}
+
+async function resolvePrinterDuplexSupported(context: PrintFlowContext, queue: string): Promise<boolean> {
+  try {
+    return (await resolvePrintService(context).getPrinterStatus(queue)).duplexSupported === true;
+  } catch {
+    return false;
+  }
 }
 
 function resolvePrintJobHistory(context: PrintFlowContext): PrintJobHistoryRepository {

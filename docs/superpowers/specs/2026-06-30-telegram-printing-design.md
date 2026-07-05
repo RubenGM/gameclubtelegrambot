@@ -102,6 +102,10 @@ Cuando está activada:
 4. El bot comprueba el tamaño declarado por Telegram. Si supera 20 MB y no está
    activo el soporte local de descargas grandes, lo rechaza con explicación.
 5. El bot descarga el fichero con la capacidad Telegram `downloadFile`.
+   - Si la descarga falla de forma transitoria, por ejemplo con `fetch failed`,
+     el bot limpia cualquier parcial y permite reintentar: en adjunto directo
+     mantiene la sesión en el paso de archivo para reenviar el documento; desde
+     Storage restaura el detalle para pulsar `Imprimir` de nuevo.
 6. El bot valida extensión/MIME y tipo detectado con `file`.
 7. Si es PDF, lo conserva como fuente normalizada.
 8. Si es Office, lo convierte a PDF con `soffice --headless --convert-to pdf`.
@@ -117,9 +121,10 @@ Cuando está activada:
    - Lista como `1,3,5-7`.
 12. El bot valida que las páginas existan y elimina duplicados.
 13. El bot pregunta cuántas copias imprimir.
-14. Si la selección final es una sola página y una sola copia, el bot salta la
-    pregunta `Una cara`/`Doble cara` y usa `one-sided`. En cualquier otro caso,
-    pregunta `Una cara` o `Doble cara`.
+14. Si la selección final es una sola página y una sola copia, o si la cola CUPS
+    no confirma dúplex automático, el bot salta la pregunta `Una cara`/`Doble
+    cara` y usa `one-sided`. En cualquier otro caso, pregunta `Una cara` o
+    `Doble cara`.
 15. Si la selección contiene más de 10 páginas distintas, pide confirmación
     extra.
 16. Si el número de copias supera 10, pide confirmación extra.
@@ -165,16 +170,19 @@ el comportamiento normal de Storage.
 
 ## Doble cara
 
-El bot ofrecerá siempre la elección `Una cara` / `Doble cara`, pero solo enviará
-doble cara automática cuando la cola CUPS indique soporte. En la cola actual
-`HP-LaserJet-P2015-Series`, `lpoptions` expone `Duplex/2-Sided Printing`, así
-que la implementación debe detectar esa capacidad y mapear:
+El bot ofrecerá la elección `Una cara` / `Doble cara` sólo cuando la cola CUPS
+confirme dúplex automático. La detección debe mirar tanto las opciones de modo
+como el estado del accesorio dúplex instalado; por ejemplo, si `lpoptions`
+expone `Duplex/2-Sided Printing` pero también `Option1/Duplexer: *False True`,
+el bot debe tratar la cola como sin dúplex automático. Cuando la capacidad está
+confirmada, el mapeo es:
 
 - `Una cara` -> `lp -o sides=one-sided`.
 - `Doble cara` -> `lp -o sides=two-sided-long-edge`.
 
-Si CUPS no expone dúplex automático, el bot debe avisar y permitir continuar a
-una cara. No se implementa doble cara manual.
+Si CUPS no expone dúplex automático, o no se puede leer el estado de la cola, el
+bot oculta la opción de doble cara y continúa a una cara. No se implementa doble
+cara manual.
 
 ## Control de abuso
 

@@ -79,7 +79,7 @@ export function createPrintService({
       const result = await runChecked(runner, 'lpoptions', ['-p', queue, '-l']);
       return {
         queue,
-        duplexSupported: /(?:^|\n)Duplex\/.*:\s*.*(?:DuplexNoTumble|DuplexTumble|two-sided)/i.test(result.stdout),
+        duplexSupported: detectDuplexSupport(result.stdout),
       };
     },
     async submitPdfJob({ pdfPath, queue, copies, pageRanges, sides, orientation }) {
@@ -155,6 +155,15 @@ function parsePdfInfoPageCount(stdout: string): number | null {
 
 function parseCupsJobId(stdout: string): string | null {
   return /request id is\s+([^\s]+)/i.exec(stdout)?.[1] ?? null;
+}
+
+function detectDuplexSupport(lpoptionsOutput: string): boolean {
+  const duplexerMatch = /(?:^|\n)[^\n]*Duplexer[^:\n]*:\s*([^\n]*)/i.exec(lpoptionsOutput);
+  if (duplexerMatch && /\*False\b/i.test(duplexerMatch[1] ?? '')) {
+    return false;
+  }
+
+  return /(?:^|\n)Duplex\/.*:\s*.*(?:DuplexNoTumble|DuplexTumble|two-sided)/i.test(lpoptionsOutput);
 }
 
 async function removePath(path: string): Promise<void> {

@@ -375,7 +375,8 @@ Implementado:
 - Integración opcional con Bot API local sólo para impresión: `downloadFile` acepta `allowLocalBotApi`, el resto del bot sigue usando la ruta cloud por defecto, y si el intento local falla se registra el error y se usa el fallback cloud.
 - El despliegue instala `gameclubtelegrambot-local-bot-api.service` como servicio systemd hermano del bot principal: `startup.sh` lo habilita/reinicia antes del bot cuando `telegram.localBotApi.enabled=true`, y lo detiene/deshabilita cuando está apagado.
 - Cuando un archivo no puede descargarse por tamaño, el flujo cierra la sesión de impresión y restaura la navegación normal o el detalle de Storage, sin dejar un teclado de `Cancelar` huérfano.
-- Para archivos dentro del límite de descarga, el flujo descarga el archivo temporalmente, normaliza Office a PDF si hace falta, inspecciona páginas con `pdfinfo`, pide páginas, copias, orientación `Vertical`/`Horizontal` y modo `Una cara`/`Doble cara`.
+- Cuando una descarga falla de forma transitoria (por ejemplo `fetch failed`), el flujo no propaga el error al chat: en adjuntos directos conserva el paso de archivo para reenviar el PDF sin reiniciar, y desde Storage restaura el detalle para reintentar con `Imprimir`.
+- Para archivos dentro del límite de descarga, el flujo descarga el archivo temporalmente, normaliza Office a PDF si hace falta, inspecciona páginas con `pdfinfo`, pide páginas, copias, orientación `Vertical`/`Horizontal` y modo `Una cara`/`Doble cara` sólo si la cola CUPS confirma dúplex automático.
 - Las imágenes se normalizan a PDF con ImageMagick después de elegir orientación: A4 vertical por defecto o A4 horizontal cuando el usuario lo selecciona.
 - Si el documento normalizado sólo tiene una página, el flujo salta la pregunta de páginas y pide directamente copias; si finalmente se imprime una sola página con una sola copia, también salta `Una cara`/`Doble cara` y usa una cara por defecto.
 - Las preguntas del flujo muestran botones rápidos: `Todas` y `Cancelar` en páginas, `1` y `Cancelar` en copias, `Vertical`/`Horizontal` en orientación, y `Cancelar` se mantiene visible en el resto de pasos.
@@ -384,7 +385,7 @@ Implementado:
 - En `Modo prueba`, el usuario recorre el flujo completo y el trabajo queda registrado con ID `test-mode`, pero el bot no llama a `lp` ni envía nada a CUPS.
 - Al completar una impresión iniciada desde Storage, el bot restaura el teclado normal y vuelve a mostrar el detalle del mismo archivo para que el usuario pueda seguir usando sus acciones.
 - La orientación se envía a CUPS con `orientation-requested=3` para vertical y `orientation-requested=4` para horizontal.
-- Doble cara sólo automática: cuando el usuario elige doble cara, el trabajo se envía con `sides=two-sided-long-edge`; no hay modo manual de girar papel.
+- Doble cara sólo automática: cuando la cola CUPS confirma soporte, el usuario puede elegir doble cara y el trabajo se envía con `sides=two-sided-long-edge`; si CUPS no confirma el soporte, o no se puede leer el estado, el flujo oculta esa opción y usa `one-sided`.
 - Historial persistente en `print_jobs` con usuario, origen, archivo, páginas, copias, total estimado, modo, cola, estado, ID CUPS y error seguro.
 - Menú admin `Impresora` con estado de cola, activación/desactivación, concesión/revocación de permisos de impresión, refresco e historial reciente.
 - Las pruebas automatizadas usan runners falsos y no envían trabajos reales a la impresora física `HP-LaserJet-P2015-Series`.

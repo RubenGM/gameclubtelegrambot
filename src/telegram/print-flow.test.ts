@@ -176,6 +176,35 @@ test('handleTelegramPrintMessage explains Telegram getFile size failures', async
   assert.deepEqual(restoredHome, ['home']);
 });
 
+test('handleTelegramPrintMessage keeps file step retryable after transient download failures', async () => {
+  const { context, replies, downloads, cleanups, getCurrentSession } = createContext({
+    printingMode: 'enabled',
+    downloadError: new Error('fetch failed'),
+    canPrint: true,
+  });
+
+  await handleTelegramPrintText({ ...context, messageText: '/print' });
+  assert.equal(await handleTelegramPrintMessage({
+    ...context,
+    messageMedia: {
+      attachmentKind: 'document',
+      fileId: 'telegram-fetch-failed',
+      fileUniqueId: 'fetch-failed',
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1200,
+      messageId: 55,
+    },
+  }), true);
+
+  assert.deepEqual(downloads, []);
+  assert.equal(getCurrentSession()?.stepKey, 'file');
+  assert.match(replies.at(-1)?.message ?? '', /no he podido descargar/i);
+  assert.match(replies.at(-1)?.message ?? '', /vuelve a enviarlo/i);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Cancelar']]);
+  assert.deepEqual(cleanups, [['/tmp/gameclub-print/telegram-fetch-failed']]);
+});
+
 test('handleTelegramPrintText submits after extra confirmations for many copies', async () => {
   const history = createMemoryPrintJobHistoryRepository();
   const restoredHome: string[] = [];
@@ -306,6 +335,77 @@ test('handleTelegramPrintText skips side selection for one selected page and one
   const jobs = await history.listRecent({ limit: 1 });
   assert.equal(jobs[0]?.selectedPageCount, 1);
   assert.equal(jobs[0]?.estimatedPhysicalPages, 1);
+});
+
+test('handleTelegramPrintText skips side selection when printer duplex support is not confirmed', async () => {
+  const history = createMemoryPrintJobHistoryRepository();
+  const { context, replies, submissions } = createContext({
+    printingMode: 'enabled',
+    history,
+    canPrint: true,
+    duplexSupported: false,
+  });
+
+  await handleTelegramPrintText({ ...context, messageText: '/print' });
+  await handleTelegramPrintMessage({
+    ...context,
+    messageMedia: {
+      attachmentKind: 'document',
+      fileId: 'telegram-file',
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1200,
+      messageId: 55,
+    },
+  });
+
+  await handleTelegramPrintText({ ...context, messageText: '1-4' });
+  await handleTelegramPrintText({ ...context, messageText: '2' });
+  await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
+
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar']]);
+  assert.match(replies.at(-1)?.message ?? '', /Modo: Una cara/);
+
+  await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
+
+  assert.deepEqual(submissions, [{
+    pdfPath: '/tmp/gameclub-print/telegram-file',
+    queue: 'Virtual-PDF',
+    copies: 2,
+    pageRanges: '1-4',
+    sides: 'one-sided',
+    orientation: 'portrait',
+  }]);
+  const jobs = await history.listRecent({ limit: 1 });
+  assert.equal(jobs[0]?.sides, 'one-sided');
+});
+
+test('handleTelegramPrintText skips side selection when printer status cannot be read', async () => {
+  const { context, replies } = createContext({
+    printingMode: 'enabled',
+    canPrint: true,
+    printerStatusError: new Error('lpoptions unavailable'),
+  });
+
+  await handleTelegramPrintText({ ...context, messageText: '/print' });
+  await handleTelegramPrintMessage({
+    ...context,
+    messageMedia: {
+      attachmentKind: 'document',
+      fileId: 'telegram-file',
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1200,
+      messageId: 55,
+    },
+  });
+
+  await handleTelegramPrintText({ ...context, messageText: '1-4' });
+  await handleTelegramPrintText({ ...context, messageText: '2' });
+  await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
+
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar']]);
+  assert.match(replies.at(-1)?.message ?? '', /Modo: Una cara/);
 });
 
 test('handleTelegramPrintText completes test mode without submitting to CUPS', async () => {
@@ -439,6 +539,33 @@ test('startTelegramPrintFromStorageMessage rejects files over Telegram download 
   assert.deepEqual(restoredStorageEntries, [123]);
 });
 
+test('startTelegramPrintFromStorageMessage restores storage detail after transient download failures', async () => {
+  const restoredStorageEntries: number[] = [];
+  const { context, replies, downloads, cleanups, getCurrentSession } = createContext({
+    printingMode: 'enabled',
+    restoredStorageEntries,
+    downloadError: new Error('fetch failed'),
+    canPrint: true,
+  });
+
+  assert.equal(await startTelegramPrintFromStorageMessage(context, {
+    storageEntryId: 123,
+    storageMessageId: 456,
+    fileId: 'storage-fetch-failed',
+    originalFileName: 'manual.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 1200,
+  }), true);
+
+  assert.deepEqual(downloads, []);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /no he podido descargar/i);
+  assert.match(replies.at(-1)?.message ?? '', /inténtalo de nuevo/i);
+  assert.equal(replies.at(-1)?.options, undefined);
+  assert.deepEqual(cleanups, [['/tmp/gameclub-print/storage-fetch-failed']]);
+  assert.deepEqual(restoredStorageEntries, [123]);
+});
+
 test('startTelegramPrintFromStorageMessage allows large files when local Bot API downloads are available', async () => {
   const { context, replies, downloads, getCurrentSession } = createContext({
     printingMode: 'enabled',
@@ -475,6 +602,8 @@ function createContext({
   canPrint = false,
   isAdmin = false,
   pageCount = 12,
+  duplexSupported = true,
+  printerStatusError,
 }: {
   printingMode: 'disabled' | 'test' | 'enabled';
   history?: ReturnType<typeof createMemoryPrintJobHistoryRepository>;
@@ -485,6 +614,8 @@ function createContext({
   canPrint?: boolean;
   isAdmin?: boolean;
   pageCount?: number;
+  duplexSupported?: boolean;
+  printerStatusError?: Error;
 }) {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const downloads: Array<{ fileId: string; destinationPath: string; allowLocalBotApi?: boolean }> = [];
@@ -511,7 +642,10 @@ function createContext({
       return '/tmp/gameclub-print/converted-image.pdf';
     },
     async getPrinterStatus(queue) {
-      return { queue, duplexSupported: true };
+      if (printerStatusError) {
+        throw printerStatusError;
+      }
+      return { queue, duplexSupported };
     },
     async submitPdfJob(input) {
       submissions.push(input);
