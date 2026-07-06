@@ -1048,8 +1048,10 @@ test('handleTelegramCatalogAdminText imports a BGG collection and refreshes exis
   assert.equal((await repository.findItemById(3))?.displayName, 'Root');
   assert.equal((await repository.findItemById(3))?.publisher, 'Leder Games');
   assert.equal((await repository.findItemById(3))?.recommendedAge, 10);
-  assert.equal((await repository.findItemById(4))?.itemType, 'expansion');
-  assert.equal((await repository.findItemById(4))?.displayName, 'Riverfolk Expansion');
+  const importedExpansion = (await repository.listItems({ includeDeactivated: true }))
+    .find((item) => item.externalRefs?.boardGameGeekId === '202');
+  assert.equal(importedExpansion?.itemType, 'expansion');
+  assert.equal(importedExpansion?.displayName, 'Riverfolk Expansion');
   assert.equal(auditRepository.__events.filter((event) => event.actionKey === 'catalog.item.updated').length, 1);
   assert.equal(auditRepository.__events.filter((event) => event.actionKey === 'catalog.item.created').length, 1);
 });
