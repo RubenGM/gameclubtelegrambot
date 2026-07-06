@@ -13,6 +13,7 @@ export interface PrintingProcessResult {
 
 export type PrintingProcessRunner = (command: string, args: string[]) => Promise<PrintingProcessResult>;
 export type PrintJobOrientation = 'portrait' | 'landscape';
+export type PrintJobPagesPerSheet = 1 | 2 | 4;
 
 export interface PrintService {
   inspectPdf(pdfPath: string): Promise<{ pageCount: number }>;
@@ -26,6 +27,7 @@ export interface PrintService {
     pageRanges: string;
     sides: PrintJobSides;
     orientation: PrintJobOrientation;
+    pagesPerSheet: PrintJobPagesPerSheet;
   }): Promise<{ cupsJobId: string | null }>;
   cleanup(paths: string[]): Promise<void>;
 }
@@ -82,7 +84,7 @@ export function createPrintService({
         duplexSupported: detectDuplexSupport(result.stdout),
       };
     },
-    async submitPdfJob({ pdfPath, queue, copies, pageRanges, sides, orientation }) {
+    async submitPdfJob({ pdfPath, queue, copies, pageRanges, sides, orientation, pagesPerSheet }) {
       const result = await runChecked(runner, 'lp', [
         '-d',
         queue,
@@ -94,6 +96,8 @@ export function createPrintService({
         `sides=${sides}`,
         '-o',
         `orientation-requested=${orientation === 'landscape' ? 4 : 3}`,
+        '-o',
+        `number-up=${pagesPerSheet}`,
         '-o',
         'fit-to-page=true',
         '-o',

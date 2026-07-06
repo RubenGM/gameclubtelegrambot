@@ -223,6 +223,9 @@ test('handleTelegramPrintText submits after extra confirmations for many copies'
     },
   });
   await handleTelegramPrintText({ ...context, messageText: '1-4' });
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2', '4'], ['Cancelar']]);
+
+  await handleTelegramPrintText({ ...context, messageText: '2' });
   assert.match(replies.at(-1)?.message ?? '', /escribir cualquier número/i);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
 
@@ -247,12 +250,60 @@ test('handleTelegramPrintText submits after extra confirmations for many copies'
     pageRanges: '1-4',
     sides: 'two-sided-long-edge',
     orientation: 'landscape',
+    pagesPerSheet: 2,
   }]);
   const jobs = await history.listRecent({ limit: 1 });
   assert.equal(jobs[0]?.status, 'submitted');
   assert.equal(jobs[0]?.copies, 12);
-  assert.equal(jobs[0]?.estimatedPhysicalPages, 48);
+  assert.equal(jobs[0]?.pagesPerSheet, 2);
+  assert.equal(jobs[0]?.estimatedPhysicalPages, 12);
   assert.deepEqual(restoredHome, ['home']);
+});
+
+test('handleTelegramPrintText only offers useful pages-per-sheet options', async () => {
+  const { context, replies, submissions } = createContext({ printingMode: 'enabled', canPrint: true });
+
+  await handleTelegramPrintText({ ...context, messageText: '/print' });
+  await handleTelegramPrintMessage({
+    ...context,
+    messageMedia: {
+      attachmentKind: 'document',
+      fileId: 'telegram-file',
+      originalFileName: 'dos-hojas.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1200,
+      messageId: 55,
+    },
+  });
+
+  await handleTelegramPrintText({ ...context, messageText: '1-2' });
+  assert.match(replies.at(-1)?.message ?? '', /páginas por hoja/i);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2'], ['Cancelar']]);
+
+  await handleTelegramPrintText({ ...context, messageText: '4' });
+  assert.match(replies.at(-1)?.message ?? '', /páginas por hoja/i);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2'], ['Cancelar']]);
+
+  await handleTelegramPrintText({ ...context, messageText: '2' });
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
+
+  await handleTelegramPrintText({ ...context, messageText: '1' });
+  await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
+  await handleTelegramPrintText({ ...context, messageText: 'Una cara' });
+  assert.match(replies.at(-1)?.message ?? '', /Páginas por hoja: 2/);
+  assert.match(replies.at(-1)?.message ?? '', /Total estimado: 1/);
+
+  await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
+
+  assert.deepEqual(submissions, [{
+    pdfPath: '/tmp/gameclub-print/telegram-file',
+    queue: 'Virtual-PDF',
+    copies: 1,
+    pageRanges: '1-2',
+    sides: 'one-sided',
+    orientation: 'portrait',
+    pagesPerSheet: 2,
+  }]);
 });
 
 test('handleTelegramPrintText keeps cancel available after validation errors and many-page confirmation', async () => {
@@ -275,9 +326,12 @@ test('handleTelegramPrintText keeps cancel available after validation errors and
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Todas'], ['Cancelar']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Todas' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2', '4'], ['Cancelar']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'abc' });
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2', '4'], ['Cancelar']]);
+
+  await handleTelegramPrintText({ ...context, messageText: '1' });
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
 
   await handleTelegramPrintText({ ...context, messageText: '1' });
@@ -331,6 +385,7 @@ test('handleTelegramPrintText skips side selection for one selected page and one
     pageRanges: '3',
     sides: 'one-sided',
     orientation: 'portrait',
+    pagesPerSheet: 1,
   }]);
   const jobs = await history.listRecent({ limit: 1 });
   assert.equal(jobs[0]?.selectedPageCount, 1);
@@ -361,6 +416,7 @@ test('handleTelegramPrintText skips side selection when printer duplex support i
 
   await handleTelegramPrintText({ ...context, messageText: '1-4' });
   await handleTelegramPrintText({ ...context, messageText: '2' });
+  await handleTelegramPrintText({ ...context, messageText: '2' });
   await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar']]);
@@ -375,6 +431,7 @@ test('handleTelegramPrintText skips side selection when printer duplex support i
     pageRanges: '1-4',
     sides: 'one-sided',
     orientation: 'portrait',
+    pagesPerSheet: 2,
   }]);
   const jobs = await history.listRecent({ limit: 1 });
   assert.equal(jobs[0]?.sides, 'one-sided');
@@ -402,6 +459,7 @@ test('handleTelegramPrintText skips side selection when printer status cannot be
 
   await handleTelegramPrintText({ ...context, messageText: '1-4' });
   await handleTelegramPrintText({ ...context, messageText: '2' });
+  await handleTelegramPrintText({ ...context, messageText: '2' });
   await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar']]);
@@ -427,6 +485,7 @@ test('handleTelegramPrintText completes test mode without submitting to CUPS', a
   });
   await handleTelegramPrintText({ ...context, messageText: '1-2' });
   await handleTelegramPrintText({ ...context, messageText: '1' });
+  await handleTelegramPrintText({ ...context, messageText: '1' });
   await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
   await handleTelegramPrintText({ ...context, messageText: 'Una cara' });
   await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
@@ -436,6 +495,7 @@ test('handleTelegramPrintText completes test mode without submitting to CUPS', a
   const jobs = await history.listRecent({ limit: 1 });
   assert.equal(jobs[0]?.status, 'submitted');
   assert.equal(jobs[0]?.cupsJobId, 'test-mode');
+  assert.equal(jobs[0]?.pagesPerSheet, 1);
   assert.equal(jobs[0]?.estimatedPhysicalPages, 2);
   assert.deepEqual(restoredHome, ['home']);
 });
@@ -476,6 +536,7 @@ test('startTelegramPrintFromStorageMessage prepares storage files and records st
     fileSizeBytes: 1200,
   }), true);
   await handleTelegramPrintText({ ...context, messageText: '1-2' });
+  await handleTelegramPrintText({ ...context, messageText: '1' });
   await handleTelegramPrintText({ ...context, messageText: '1' });
   await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
   await handleTelegramPrintText({ ...context, messageText: 'Una cara' });
@@ -626,6 +687,7 @@ function createContext({
     pageRanges: string;
     sides: 'one-sided' | 'two-sided-long-edge';
     orientation: 'portrait' | 'landscape';
+    pagesPerSheet: 1 | 2 | 4;
   }> = [];
   const imageConversions: Array<{ inputPath: string; outputDir: string; orientation: 'portrait' | 'landscape' }> = [];
   const cleanups: string[][] = [];

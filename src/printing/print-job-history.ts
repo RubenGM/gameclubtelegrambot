@@ -7,6 +7,7 @@ export type PrintJobOrigin = 'telegram_attachment' | 'storage_entry';
 export type PrintJobDetectedType = 'pdf' | 'office' | 'image';
 export type PrintJobSides = 'one-sided' | 'two-sided-long-edge';
 export type PrintJobStatus = 'prepared' | 'submitted' | 'failed' | 'cancelled';
+export type PrintJobPagesPerSheet = 1 | 2 | 4;
 
 export interface PrintJobHistoryRecord {
   id: number;
@@ -22,6 +23,7 @@ export interface PrintJobHistoryRecord {
   selectedPagesLabel: string;
   selectedPageCount: number;
   copies: number;
+  pagesPerSheet: PrintJobPagesPerSheet;
   estimatedPhysicalPages: number;
   sides: PrintJobSides;
   cupsQueue: string;
@@ -35,8 +37,8 @@ export interface PrintJobHistoryRecord {
 
 export type NewPrintJobHistoryRecord = Omit<
   PrintJobHistoryRecord,
-  'id' | 'status' | 'cupsJobId' | 'errorMessage' | 'createdAt' | 'submittedAt' | 'completedAt'
->;
+  'id' | 'status' | 'cupsJobId' | 'errorMessage' | 'createdAt' | 'submittedAt' | 'completedAt' | 'pagesPerSheet'
+> & { pagesPerSheet?: PrintJobPagesPerSheet };
 
 export interface PrintJobHistoryRepository {
   createJob(input: NewPrintJobHistoryRecord): Promise<PrintJobHistoryRecord>;
@@ -54,6 +56,7 @@ export function createMemoryPrintJobHistoryRepository(): PrintJobHistoryReposito
     async createJob(input) {
       const record: PrintJobHistoryRecord = {
         ...input,
+        pagesPerSheet: input.pagesPerSheet ?? 1,
         id: nextId++,
         status: 'prepared',
         cupsJobId: null,
@@ -114,6 +117,7 @@ export function createDatabasePrintJobHistoryRepository({
           selectedPagesLabel: input.selectedPagesLabel,
           selectedPageCount: input.selectedPageCount,
           copies: input.copies,
+          pagesPerSheet: input.pagesPerSheet ?? 1,
           estimatedPhysicalPages: input.estimatedPhysicalPages,
           sides: input.sides,
           cupsQueue: input.cupsQueue,
@@ -195,6 +199,7 @@ function mapPrintJobRow(row: typeof printJobs.$inferSelect): PrintJobHistoryReco
     selectedPagesLabel: row.selectedPagesLabel,
     selectedPageCount: row.selectedPageCount,
     copies: row.copies,
+    pagesPerSheet: row.pagesPerSheet as PrintJobPagesPerSheet,
     estimatedPhysicalPages: row.estimatedPhysicalPages,
     sides: row.sides as PrintJobSides,
     cupsQueue: row.cupsQueue,

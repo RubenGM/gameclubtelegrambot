@@ -780,6 +780,7 @@ export const printJobs = pgTable(
     selectedPagesLabel: varchar('selected_pages_label', { length: 255 }).notNull(),
     selectedPageCount: integer('selected_page_count').notNull(),
     copies: integer('copies').notNull(),
+    pagesPerSheet: integer('pages_per_sheet').notNull().default(1),
     estimatedPhysicalPages: integer('estimated_physical_pages').notNull(),
     sides: varchar('sides', { length: 32 }).notNull(),
     cupsQueue: varchar('cups_queue', { length: 255 }).notNull(),

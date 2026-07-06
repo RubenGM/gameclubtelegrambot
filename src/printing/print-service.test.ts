@@ -137,6 +137,7 @@ test('print service submits jobs to lp without touching a real printer in tests'
     pageRanges: '1-4',
     sides: 'two-sided-long-edge',
     orientation: 'landscape',
+    pagesPerSheet: 2,
   }), { cupsJobId: 'Virtual-PDF-42' });
 
   assert.deepEqual(calls, [{
@@ -152,6 +153,8 @@ test('print service submits jobs to lp without touching a real printer in tests'
       'sides=two-sided-long-edge',
       '-o',
       'orientation-requested=4',
+      '-o',
+      'number-up=2',
       '-o',
       'fit-to-page=true',
       '-o',

@@ -11,6 +11,7 @@ import {
   createDatabasePrintJobHistoryRepository,
   type PrintJobHistoryRepository,
   type PrintJobDetectedType,
+  type PrintJobPagesPerSheet,
   type PrintJobSides,
 } from '../printing/print-job-history.js';
 import { createPrintService, type PrintJobOrientation, type PrintService } from '../printing/print-service.js';
@@ -49,6 +50,7 @@ type PrintSessionData = {
   duplexSupported?: boolean;
   selectedPagesLabel?: string;
   selectedPageCount?: number;
+  pagesPerSheet?: PrintJobPagesPerSheet;
   copies?: number;
   orientation?: PrintJobOrientation;
   sides?: PrintJobSides;
@@ -272,10 +274,26 @@ async function continuePrintSession(context: PrintFlowContext, text: string): Pr
       return true;
     }
 
-    await context.runtime.session.advance({
-      stepKey: 'copies',
-      data: { ...data, selectedPagesLabel: parsed.label, selectedPageCount: parsed.pages.length },
-    });
+    const nextData: PrintSessionData = { ...data, selectedPagesLabel: parsed.label, selectedPageCount: parsed.pages.length };
+    if (shouldAskPagesPerSheet(nextData)) {
+      await context.runtime.session.advance({ stepKey: 'pages-per-sheet', data: nextData });
+      await context.reply(texts.askPagesPerSheet, pagesPerSheetKeyboard(language, parsed.pages.length));
+      return true;
+    }
+
+    await context.runtime.session.advance({ stepKey: 'copies', data: { ...nextData, pagesPerSheet: 1 } });
+    await context.reply(texts.askCopies, copiesKeyboard(language));
+    return true;
+  }
+
+  if (session.stepKey === 'pages-per-sheet') {
+    const pagesPerSheet = resolvePagesPerSheet(text, data.selectedPageCount ?? 0);
+    if (!pagesPerSheet) {
+      await context.reply(texts.askPagesPerSheet, pagesPerSheetKeyboard(language, data.selectedPageCount ?? 0));
+      return true;
+    }
+
+    await context.runtime.session.advance({ stepKey: 'copies', data: { ...data, pagesPerSheet } });
     await context.reply(texts.askCopies, copiesKeyboard(language));
     return true;
   }
@@ -360,9 +378,9 @@ async function continueAfterPrintablePrepared(
   if (data.pageCount === 1) {
     const nextData: PrintSessionData = { ...data, selectedPagesLabel: '1', selectedPageCount: 1 };
     if (sessionMode === 'start') {
-      await context.runtime.session.start({ flowKey: printFlowKey, stepKey: 'copies', data: nextData });
+      await context.runtime.session.start({ flowKey: printFlowKey, stepKey: 'copies', data: { ...nextData, pagesPerSheet: 1 } });
     } else {
-      await context.runtime.session.advance({ stepKey: 'copies', data: nextData });
+      await context.runtime.session.advance({ stepKey: 'copies', data: { ...nextData, pagesPerSheet: 1 } });
     }
     await context.reply(formatText(texts.preparedSinglePage, {
       fileName: data.originalFileName,
@@ -399,9 +417,10 @@ async function askNextConfirmation(context: PrintFlowContext, data: PrintSession
     fileName: data.originalFileName,
     pages: data.selectedPagesLabel ?? '',
     copies: String(data.copies ?? 1),
+    pagesPerSheet: String(data.pagesPerSheet ?? 1),
     orientation: data.orientation === 'landscape' ? texts.landscape : texts.portrait,
     sides: data.sides === 'two-sided-long-edge' ? texts.twoSided : texts.oneSided,
-    total: String((data.selectedPageCount ?? 0) * (data.copies ?? 1)),
+    total: String(calculateEstimatedPhysicalPages(data)),
     queue: data.cupsQueue,
   }), confirmationKeyboard(texts.finalConfirmButton, language));
   return true;
@@ -416,6 +435,7 @@ async function submitPrintJob(context: PrintFlowContext, data: PrintSessionData)
   const orientation = data.orientation ?? 'portrait';
   const pdfPath = await resolveSubmissionPdfPath(printService, data, orientation);
   const selectedPageCount = data.selectedPageCount ?? data.pageCount;
+  const pagesPerSheet = data.pagesPerSheet ?? 1;
   const job = await history.createJob({
     requestedByTelegramUserId: context.runtime.actor.telegramUserId,
     requestedByDisplayName: context.from?.username ?? String(context.runtime.actor.telegramUserId),
@@ -429,7 +449,8 @@ async function submitPrintJob(context: PrintFlowContext, data: PrintSessionData)
     selectedPagesLabel: data.selectedPagesLabel ?? `1-${data.pageCount}`,
     selectedPageCount,
     copies,
-    estimatedPhysicalPages: selectedPageCount * copies,
+    pagesPerSheet,
+    estimatedPhysicalPages: calculateEstimatedPhysicalPages({ ...data, selectedPageCount, copies, pagesPerSheet }),
     sides: data.sides ?? 'one-sided',
     cupsQueue: data.cupsQueue,
   });
@@ -452,6 +473,7 @@ async function submitPrintJob(context: PrintFlowContext, data: PrintSessionData)
         pageRanges: data.selectedPagesLabel ?? `1-${data.pageCount}`,
         sides: data.sides ?? 'one-sided',
         orientation,
+        pagesPerSheet,
       });
       await history.markSubmitted(job.id, {
         cupsJobId: result.cupsJobId ?? 'n/d',
@@ -556,6 +578,39 @@ function needsManyCopiesConfirmation(data: PrintSessionData): boolean {
 
 function shouldSkipSidesSelection(data: PrintSessionData): boolean {
   return data.selectedPageCount === 1 && data.copies === 1;
+}
+
+function shouldAskPagesPerSheet(data: PrintSessionData): boolean {
+  return (data.selectedPageCount ?? 0) > 1;
+}
+
+function resolvePagesPerSheet(text: string, selectedPageCount: number): PrintJobPagesPerSheet | null {
+  const value = Number(text);
+  if (!Number.isInteger(value) || !getPagesPerSheetOptions(selectedPageCount).includes(value as PrintJobPagesPerSheet)) {
+    return null;
+  }
+  return value as PrintJobPagesPerSheet;
+}
+
+function getPagesPerSheetOptions(selectedPageCount: number): PrintJobPagesPerSheet[] {
+  if (selectedPageCount >= 4) {
+    return [1, 2, 4];
+  }
+  if (selectedPageCount >= 2) {
+    return [1, 2];
+  }
+  return [1];
+}
+
+function calculateEstimatedPhysicalPages(data: Pick<PrintSessionData, 'selectedPageCount' | 'copies' | 'pagesPerSheet' | 'sides'>): number {
+  const logicalPages = data.selectedPageCount ?? 0;
+  const copies = data.copies ?? 1;
+  const pagesPerSheet = data.pagesPerSheet ?? 1;
+  const sheetsPerCopyOneSided = Math.ceil(logicalPages / pagesPerSheet);
+  const sheetsPerCopy = data.sides === 'two-sided-long-edge'
+    ? Math.ceil(sheetsPerCopyOneSided / 2)
+    : sheetsPerCopyOneSided;
+  return sheetsPerCopy * copies;
 }
 
 function resolveSides(text: string, texts: ReturnType<typeof createTelegramI18n>['printing']): PrintJobSides | null {
@@ -732,6 +787,14 @@ function pagesKeyboard(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
 function copiesKeyboard(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
   const texts = createTelegramI18n(language);
   return withKeyboard([['1'], [texts.printing.cancelButton]]);
+}
+
+function pagesPerSheetKeyboard(language: 'ca' | 'es' | 'en', selectedPageCount: number): TelegramReplyOptions {
+  const texts = createTelegramI18n(language);
+  return withKeyboard([
+    getPagesPerSheetOptions(selectedPageCount).map(String),
+    [texts.printing.cancelButton],
+  ]);
 }
 
 function sidesKeyboard(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
