@@ -12,6 +12,7 @@ type CatalogLoanCategoryItemType = 'board-game' | 'book' | 'rpg-book';
 
 export type NewsGroupCategoryKey =
   | 'events'
+  | 'public-events'
   | 'avisos'
   | 'group-purchases'
   | 'lfg:players'
@@ -46,6 +47,21 @@ export const newsGroupCategories: readonly NewsGroupCategoryDescriptor[] = [
       en: 'club activities and calendar',
     },
     defaultSubscribed: true,
+  },
+  {
+    key: 'public-events',
+    aliases: ['public-events', 'eventos-publicos', 'actividades-publicas', 'activitats-publiques', 'public'],
+    label: {
+      ca: 'public-events',
+      es: 'public-events',
+      en: 'public-events',
+    },
+    description: {
+      ca: 'activitats públiques obertes a persones no sòcies',
+      es: 'actividades públicas abiertas a personas no socias',
+      en: 'public activities open to non-members',
+    },
+    defaultSubscribed: false,
   },
   {
     key: 'avisos',
@@ -181,6 +197,7 @@ export const newsGroupCategoryDefaults = newsGroupCategories.filter((category) =
 export const lfgPlayerNewsCategory = 'lfg:players' as const;
 export const lfgGroupNewsCategory = 'lfg:groups' as const;
 export const eventsNewsGroupCategory = 'events' as const;
+export const publicEventsNewsGroupCategory = 'public-events' as const;
 export const noticesNewsGroupCategory = 'avisos' as const;
 export const groupPurchaseNewsGroupCategory = 'group-purchases' as const;
 export const newMembersNewsGroupCategory = 'nuevos_miembros' as const;

@@ -78,7 +78,7 @@ import {
 } from './schedule-parsing.js';
 import { formatScheduleDraftSummary } from './schedule-draft-summary.js';
 import { formatScheduleListWithVenueImpact } from './schedule-list-impact.js';
-import { notifyScheduleConflicts, publishCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
+import { notifyScheduleConflicts, publishCalendarSnapshotToNewsGroups, publishPublicCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
 import {
   buildAttendanceModeOptions,
   buildCancelConfirmOptions,
@@ -1701,12 +1701,20 @@ async function runAfterScheduleSaveSideEffects(
   }
 
   await ignoreSchedulePostSaveFailure(async () => {
+    const calendarBroadcastDependencies = buildCalendarBroadcastDependencies(context);
     await publishCalendarSnapshotToNewsGroups({
       change: {
         action,
         event,
       },
-      ...buildCalendarBroadcastDependencies(context),
+      ...calendarBroadcastDependencies,
+    });
+    await publishPublicCalendarSnapshotToNewsGroups({
+      change: {
+        action,
+        event,
+      },
+      ...calendarBroadcastDependencies,
     });
   });
 }

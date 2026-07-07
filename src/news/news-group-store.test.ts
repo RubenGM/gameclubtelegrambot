@@ -2,10 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { newsGroupSubscriptions, newsGroups } from '../infrastructure/database/schema.js';
+import { resolveNewsGroupCategory } from './news-group-catalog.js';
 import { createDatabaseNewsGroupRepository } from './news-group-store.js';
 
 const newsGroupsTable = newsGroups as unknown;
 const newsGroupSubscriptionsTable = newsGroupSubscriptions as unknown;
+
+test('news group catalog resolves public events as a non-default category', () => {
+  assert.equal(resolveNewsGroupCategory('public-events')?.key, 'public-events');
+  assert.equal(resolveNewsGroupCategory('actividades-publicas')?.key, 'public-events');
+  assert.equal(resolveNewsGroupCategory('public-events')?.defaultSubscribed, false);
+});
 
 test('createDatabaseNewsGroupRepository persists news groups and resolves enabled status', async () => {
   const repository = createDatabaseNewsGroupRepository({

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
-import type { NewsGroupRecord, NewsGroupRepository } from '../news/news-group-catalog.js';
+import { resolveNewsGroupCategory, type NewsGroupRecord, type NewsGroupRepository } from '../news/news-group-catalog.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import type { ScheduleEventRecord, ScheduleParticipantRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
@@ -11,7 +11,7 @@ import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import { normalizeDisplayName } from '../membership/display-name.js';
-import { publishCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
+import { publishCalendarSnapshotToNewsGroups, publishPublicCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
 import { createTelegramI18n } from './i18n.js';
 import {
   handleTelegramScheduleCallback,
@@ -57,8 +57,8 @@ function escapeTestHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
-  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'>>;
+type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'isPublic' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
+  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'isPublic' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'>>;
 
 test.beforeEach((t: any) => {
   t.mock.timers.enable({
@@ -91,6 +91,7 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
         tableId: input.tableId,
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
+        isPublic: input.isPublic,
         initialOccupiedSeats: input.initialOccupiedSeats,
         capacity: input.capacity,
         lifecycleStatus: 'scheduled',
@@ -130,6 +131,7 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
         tableId: input.tableId,
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
+        isPublic: input.isPublic,
         initialOccupiedSeats: input.initialOccupiedSeats,
         capacity: input.capacity,
         updatedAt: '2026-04-04T11:00:00.000Z',
@@ -190,6 +192,7 @@ function normalizeScheduleEventFixture(event: ScheduleEventFixture): ScheduleEve
   return {
     ...event,
     attendanceMode: event.attendanceMode ?? 'open',
+    isPublic: event.isPublic ?? false,
     initialOccupiedSeats: event.initialOccupiedSeats ?? 0,
     detailsMessageChatId: event.detailsMessageChatId ?? null,
     detailsMessageId: event.detailsMessageId ?? null,
@@ -534,6 +537,10 @@ function createNewsGroupRepository(
     },
     async listSubscribedGroupsByCategory(categoryKey) {
       const subscriptions = subscribedGroupsByCategory.get(categoryKey);
+      const category = resolveNewsGroupCategory(categoryKey);
+      if (!subscriptions && category?.defaultSubscribed === false) {
+        return [];
+      }
       return Array.from(groups.values()).filter((group) => {
         if (!group.isEnabled) {
           return false;
@@ -571,7 +578,7 @@ function createAuditRepository(): AuditLogRepository & { __events: AuditLogEvent
   };
 }
 
-function createMemoryAppMetadataStorage(values: Map<string, string>): AppMetadataSessionStorage {
+function createMemoryAppMetadataStorage(values: Map<string, string> = new Map()): AppMetadataSessionStorage {
   return {
     async get(key) {
       return values.get(key) ?? null;
@@ -1449,9 +1456,88 @@ test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapsho
   assert.deepEqual(deletedMessages, [{ chatId: -200, messageId: 901 }]);
   assert.deepEqual(editedMessages, []);
   assert.equal(
-    await snapshotStorage.get('telegram.schedule.calendar_snapshot:-200:0'),
+    await snapshotStorage.get('telegram.schedule.calendar_snapshot:events:-200:0'),
     JSON.stringify({ chatId: -200, messageThreadId: null, messageId: 902 }),
   );
+});
+
+test('publishPublicCalendarSnapshotToNewsGroups publishes only public schedule events with separate snapshot keys', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 1,
+      title: 'Evento público',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 5,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+      isPublic: true,
+    },
+    {
+      id: 2,
+      title: 'Evento privado',
+      description: null,
+      startsAt: '2026-04-05T18:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 5,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+      isPublic: false,
+    },
+  ]);
+  const newsGroupRepository = createNewsGroupRepository([
+    {
+      chatId: -201,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      enabledAt: '2026-04-04T10:00:00.000Z',
+      disabledAt: null,
+    },
+  ], new Map([['public-events', new Set([-201])]]));
+  const snapshotStorage = createMemoryAppMetadataStorage();
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+
+  await publishPublicCalendarSnapshotToNewsGroups({
+    change: { action: 'updated', event: (await scheduleRepository.findEventById(1))! },
+    sendGroupMessage: async (chatId, message, options) => {
+      groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
+      return { messageId: 903 };
+    },
+    snapshotStorage,
+    newsGroupRepository,
+    database: undefined,
+    scheduleRepository,
+    tableRepository: createTableRepository(),
+    venueEventRepository: createVenueEventRepository(),
+    resolveActorDisplayName: async () => 'Rubén',
+  });
+
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.chatId, -201);
+  assert.match(groupMessages[0]?.message ?? '', /Evento público/);
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /Evento privado/);
+  assert.equal(
+    await snapshotStorage.get('telegram.schedule.calendar_snapshot:public-events:-201:0'),
+    JSON.stringify({ chatId: -201, messageThreadId: null, messageId: 903 }),
+  );
+  assert.equal(await snapshotStorage.get('telegram.schedule.calendar_snapshot:events:-201:0'), null);
 });
 
 test('publishCalendarSnapshotToNewsGroups retires the previous snapshot when Telegram refuses deletion', async () => {
@@ -1521,7 +1607,7 @@ test('publishCalendarSnapshotToNewsGroups retires the previous snapshot when Tel
     options: { parseMode: 'HTML' },
   });
   assert.equal(
-    await snapshotStorage.get('telegram.schedule.calendar_snapshot:-200:0'),
+    await snapshotStorage.get('telegram.schedule.calendar_snapshot:events:-200:0'),
     JSON.stringify({ chatId: -200, messageThreadId: null, messageId: 902 }),
   );
 });

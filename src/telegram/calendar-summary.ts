@@ -23,6 +23,7 @@ export type CalendarEntry =
       description: string | null;
       tableName: string | null;
       attendanceMode: ScheduleAttendanceMode;
+      isPublic: boolean;
       capacity: number;
       availableSeats: number;
       hasDetails: boolean;
@@ -42,12 +43,14 @@ export async function loadUpcomingCalendarEntries({
   scheduleRepository,
   venueEventRepository,
   tableRepository,
+  publicOnly = false,
 }: {
   database: unknown;
   now?: Date;
   scheduleRepository?: ScheduleRepository;
   venueEventRepository?: VenueEventRepository;
   tableRepository?: ClubTableRepository;
+  publicOnly?: boolean;
 }): Promise<CalendarEntry[]> {
   const startsAtFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
 
@@ -57,8 +60,9 @@ export async function loadUpcomingCalendarEntries({
   ]);
 
   const tableNames = new Map<number, string | null>();
+  const visibleScheduleEvents = publicOnly ? scheduleEvents.filter((event) => event.isPublic) : scheduleEvents;
   const scheduleEntries = await Promise.all(
-    scheduleEvents.map(async (event) => {
+    visibleScheduleEvents.map(async (event) => {
       const tableName = event.tableId ? await loadTableName(database, tableRepository, tableNames, event.tableId) : null;
       const attendance = await getScheduleEventAttendance({ repository: scheduleRepository ?? createDatabaseScheduleRepository({ database: database as never }), eventId: event.id });
       return {
@@ -70,6 +74,7 @@ export async function loadUpcomingCalendarEntries({
         description: event.description,
         tableName,
         attendanceMode: event.attendanceMode,
+        isPublic: event.isPublic,
         capacity: event.capacity,
         availableSeats: attendance.snapshot.availableSeats,
         hasDetails: event.detailsMessageChatId !== null && event.detailsMessageId !== null,
@@ -77,14 +82,16 @@ export async function loadUpcomingCalendarEntries({
     }),
   );
 
-  const venueEntries = venueEvents.map((event) => ({
-    kind: 'venue' as const,
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    title: event.name,
-    description: event.description,
-    allDay: isAllDayVenueEvent(event),
-  }));
+  const venueEntries = publicOnly
+    ? []
+    : venueEvents.map((event) => ({
+        kind: 'venue' as const,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        title: event.name,
+        description: event.description,
+        allDay: isAllDayVenueEvent(event),
+      }));
 
   return [...scheduleEntries, ...venueEntries].sort((left, right) => {
     const byStart = new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime();
