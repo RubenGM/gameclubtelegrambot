@@ -8,8 +8,8 @@ import {
   type VenueEventImpactSignal,
 } from './venue-event-impact-signals.js';
 
-type ScheduleEventFixture = Omit<ScheduleEventRecord, 'detailsMessageChatId' | 'detailsMessageId'> &
-  Partial<Pick<ScheduleEventRecord, 'detailsMessageChatId' | 'detailsMessageId'>>;
+type ScheduleEventFixture = Omit<ScheduleEventRecord, 'isPublic' | 'detailsMessageChatId' | 'detailsMessageId'> &
+  Partial<Pick<ScheduleEventRecord, 'isPublic' | 'detailsMessageChatId' | 'detailsMessageId'>>;
 
 function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleRepository {
   const events = new Map(initialEvents.map((event) => {
@@ -52,6 +52,7 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
 function normalizeScheduleEventFixture(event: ScheduleEventFixture): ScheduleEventRecord {
   return {
     ...event,
+    isPublic: event.isPublic ?? false,
     detailsMessageChatId: event.detailsMessageChatId ?? null,
     detailsMessageId: event.detailsMessageId ?? null,
   };

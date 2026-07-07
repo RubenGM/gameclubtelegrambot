@@ -16,8 +16,8 @@ import {
   type ScheduleRepository,
 } from './schedule-catalog.js';
 
-type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
-  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'>>;
+type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'isPublic' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
+  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'isPublic' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'>>;
 
 function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleRepository {
   const events = new Map(initialEvents.map((event) => {

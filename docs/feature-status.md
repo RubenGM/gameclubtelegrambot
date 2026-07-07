@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-06-30.
+Última revisión: 2026-07-07.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -20,11 +20,11 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG etiquetado como buscar grupo y ayuda contextual por sección activa.                 |
 | Asistente LLM de órdenes naturales           | 🟠 Parcial           | `/ask`, botón privado, fallback privado y menciones en grupos bajo feature flag; lecturas MVP y escrituras confirmadas parciales.            |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
-| Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
+| Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, actividades públicas abiertas, conflictos, recordatorios y feeds de noticias.             |
 | Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario, avisando impacto con progreso editable.                    |
 | Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y procesos largos con progreso editable. |
 | Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
-| Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `nuevos_miembros`; `/admin/news` resume feeds activos. |
+| Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `public-events`; `/admin/news` resume feeds activos. |
 | Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
@@ -168,13 +168,14 @@ Estado: `operativo`.
 Implementado:
 
 - `/schedule` con crear, listar, editar, cancelar, detalle por deep link, unirse y salir.
-- Soporte de fecha, hora, duracion, mesa opcional, juego de catalogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, plazas iniciales ocupadas, capacidad y mensaje extra opcional con adjuntos para detalles.
+- Soporte de fecha, hora, duracion, mesa opcional, juego de catalogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, visibilidad pública sólo para mesas abiertas, plazas iniciales ocupadas, capacidad y mensaje extra opcional con adjuntos para detalles.
+- Las actividades públicas siguen apareciendo en las listas internas normales y además permiten que usuarios de Telegram no aprobados abran el deep link de detalle y se apunten, sin convertirlos en socios del club.
 - Si el usuario escribe solo la hora de inicio, el bot pasa a un paso especifico de minutos con botones rapidos (`:00`, `:15`, `:30`, `:45`) y copy propio.
 - Preferencia de recordatorio al apuntarse y worker persistente de recordatorios.
 - Avisos de conflicto y capacidad al crear/editar.
 - Integracion con eventos del local para mostrar impacto.
 - Listado y snapshots de grupo con enlace `Ver detalles` solo cuando la actividad tiene mensaje extra guardado; en ese caso no imprimen la descripcion larga en linea y el deep link reenvia el mensaje original al usuario.
-- Publicación de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic. El bot recuerda el último snapshot por grupo/topic y borra el anterior tras publicar uno nuevo; si Telegram rechaza el borrado por antigüedad o permisos, edita el mensaje anterior a puntos suspensivos para que no queden dos calendarios largos visibles.
+- Publicación de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic. El feed separado `public-events` no se activa por defecto y publica sólo la agenda filtrada a actividades públicas. El bot recuerda el último snapshot por grupo/topic/categoría y borra el anterior tras publicar uno nuevo; si Telegram rechaza el borrado por antigüedad o permisos, edita el mensaje anterior a puntos suspensivos para que no queden dos calendarios largos visibles.
 
 Riesgos o pendientes:
 
@@ -265,8 +266,8 @@ Implementado:
 - `/news activar` dentro de un topic habilita el grupo y suscribe el feed de agenda (`events`) a ese topic para evitar que las actualizaciones de calendario caigan al general.
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
 - Las respuestas administrativas de `/news` confirman feed y destino por nombre de grupo cuando Telegram lo proporciona, y se borran automaticamente tras 1 minuto para no ensuciar el grupo o topic; las publicaciones reales de feeds se conservan.
-- Catálogo canónico de categorías de noticias y aliases reutilizado por agenda, LFG, préstamos, compras conjuntas y altas web (`nuevos_miembros`).
-- Publicación de novedades por categoría concreta (agenda => `events`, Avisos => `avisos`, compras conjuntas => `group-purchases`, LFG, préstamos por tipo de ítem, altas web => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto, como `events` y `group-purchases`, si no tienen ese feed suscrito explícitamente.
+- Catálogo canónico de categorías de noticias y aliases reutilizado por agenda, agenda pública, LFG, préstamos, compras conjuntas y altas web (`nuevos_miembros`).
+- Publicación de novedades por categoría concreta (agenda interna => `events`, agenda pública filtrada => `public-events`, Avisos => `avisos`, compras conjuntas => `group-purchases`, LFG, préstamos por tipo de ítem, altas web => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto, como `events` y `group-purchases`, si no tienen ese feed suscrito explícitamente.
 - `/admin/news` muestra los feeds disponibles y cuántos destinos activos hay suscritos a cada categoría.
 
 Pendiente:
@@ -454,7 +455,7 @@ Pendiente:
 | Runtime/menus | `src/telegram/runtime-boundary.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/command-registry.test.ts` |
 | Bienvenidas/nickname | `src/membership/welcome-template-store.test.ts`, `src/membership/access-flow.test.ts`, `src/telegram/runtime-boundary.test.ts`, `src/telegram/action-menu.test.ts` |
 | Acceso | `src/membership/*.test.ts`, `src/telegram/runtime-boundary.test.ts` |
-| Agenda | `src/telegram/schedule-flow.test.ts`, `src/schedule/*reminder*.test.ts` |
+| Agenda | `src/telegram/schedule-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-catalog-store.test.ts`, `src/schedule/*reminder*.test.ts` |
 | Mesas | `src/telegram/table-admin-flow.test.ts`, `src/telegram/table-read-flow.test.ts` |
 | Catalogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Prestamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-store.test.ts` |

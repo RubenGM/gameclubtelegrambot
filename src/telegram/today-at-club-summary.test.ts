@@ -102,6 +102,7 @@ function createScheduleEvent(input: { id: number; title: string; startsAt: strin
     createdByTelegramUserId: 77,
     tableId: null,
     attendanceMode: 'open',
+    isPublic: false,
     initialOccupiedSeats: 0,
     capacity: 4,
     lifecycleStatus: 'scheduled',
