@@ -725,6 +725,74 @@ test('handleTelegramScheduleStartText opens an activity detail from a deep link 
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar activitat'));
 });
 
+test('handleTelegramScheduleStartText lets non-approved users open and join public schedule events', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Evento público',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      attendanceMode: 'open',
+      isPublic: true,
+      initialOccupiedSeats: 0,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 123 });
+  context.runtime.actor.status = 'pending';
+  context.runtime.actor.isApproved = false;
+  context.messageText = '/start schedule_event_4';
+
+  assert.equal(await handleTelegramScheduleStartText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Evento público/);
+
+  context.callbackData = `${scheduleCallbackPrefixes.join}4`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.equal((await scheduleRepository.findParticipant(4, 123))?.status, 'active');
+});
+
+test('handleTelegramScheduleStartText keeps private schedule events closed to non-approved users', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 5,
+      title: 'Evento privado',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      attendanceMode: 'open',
+      isPublic: false,
+      initialOccupiedSeats: 0,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 123 });
+  context.runtime.actor.status = 'pending';
+  context.runtime.actor.isApproved = false;
+  context.messageText = '/start schedule_event_5';
+
+  assert.equal(await handleTelegramScheduleStartText(context), false);
+  assert.equal(replies.length, 0);
+});
+
 test('handleTelegramScheduleStartText forwards the saved details message from a deep link payload', async () => {
   const scheduleRepository = createScheduleRepository([
     {
@@ -808,6 +876,10 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
 
   context.messageText = scheduleLabels.attendanceOpen;
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'public-visibility');
+
+  context.messageText = scheduleLabels.publicVisibilityNo;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
 
   context.messageText = '5';
@@ -851,6 +923,57 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
 });
 
+test('handleTelegramScheduleText asks public visibility after open attendance mode', async () => {
+  const { context, replies, getCurrentSession } = createContext({ actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Torneo abierto';
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.durationMinutes;
+  await handleTelegramScheduleText(context);
+  context.messageText = '180';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.attendanceOpen;
+  await handleTelegramScheduleText(context);
+
+  assert.equal(getCurrentSession()?.stepKey, 'public-visibility');
+  assert.match(replies.at(-1)?.message ?? '', /activitat pública/i);
+});
+
+test('handleTelegramScheduleText skips public visibility for closed activities', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Mesa cerrada';
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.durationMinutes;
+  await handleTelegramScheduleText(context);
+  context.messageText = '180';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.attendanceClosed;
+  await handleTelegramScheduleText(context);
+  context.messageText = '4';
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.noTable;
+  await handleTelegramScheduleText(context);
+  context.messageText = scheduleLabels.confirmCreate;
+  await handleTelegramScheduleText(context);
+
+  assert.doesNotMatch(replies.map((reply) => reply.message).join('\n'), /activitat pública/i);
+  assert.equal((await scheduleRepository.findEventById(1))?.isPublic, false);
+});
+
 test('handleTelegramScheduleText adds an optional description only from the final create step', async () => {
   const scheduleRepository = createScheduleRepository();
   const { context, replies, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
@@ -884,6 +1007,7 @@ test('handleTelegramScheduleText adds an optional description only from the fina
       time: '16:00',
       durationMinutes: 120,
       attendanceMode: 'closed',
+      isPublic: false,
       capacity: 5,
       initialOccupiedSeats: 0,
       tableId: null,
@@ -1052,6 +1176,10 @@ test('handleTelegramScheduleText creates an activity with no duration using the 
 
   context.messageText = scheduleLabels.attendanceOpen;
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'public-visibility');
+
+  context.messageText = scheduleLabels.publicVisibilityNo;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
 
   context.messageText = '4';
@@ -1090,6 +1218,10 @@ test('handleTelegramScheduleText creates an activity from whole hours duration i
 
   context.messageText = scheduleLabels.attendanceOpen;
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'public-visibility');
+
+  context.messageText = scheduleLabels.publicVisibilityNo;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
 
   context.messageText = '4';
@@ -1127,6 +1259,10 @@ test('handleTelegramScheduleText creates an activity from hours-and-minutes dura
   assert.equal(getCurrentSession()?.stepKey, 'attendance-mode');
 
   context.messageText = scheduleLabels.attendanceOpen;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'public-visibility');
+
+  context.messageText = scheduleLabels.publicVisibilityNo;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
 
@@ -1200,6 +1336,10 @@ test('handleTelegramScheduleText offers quick minute buttons when creating an ac
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'attendance-mode');
   context.messageText = scheduleLabels.attendanceOpen;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'public-visibility');
+
+  context.messageText = scheduleLabels.publicVisibilityNo;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
   context.messageText = '4';
@@ -2405,6 +2545,7 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
       [scheduleLabels.editFieldTime, scheduleLabels.editFieldDuration],
       [scheduleLabels.editFieldCapacity],
       [scheduleLabels.editFieldInitialOccupiedSeats],
+      [scheduleLabels.editFieldPublicVisibility],
       [scheduleLabels.editFieldTable],
       ['Descripció'],
       [scheduleLabels.confirmEdit],

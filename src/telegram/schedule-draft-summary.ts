@@ -31,6 +31,7 @@ export async function formatScheduleDraftSummary({
   const time = String(data.time ?? event?.startsAt.slice(11, 16) ?? '');
   const durationMinutes = Number(data.durationMinutes ?? event?.durationMinutes ?? 0);
   const attendanceMode = String(data.attendanceMode ?? event?.attendanceMode ?? 'open');
+  const isPublic = data.isPublic === undefined ? event?.isPublic === true : data.isPublic === true;
   const capacity = Number(data.capacity ?? event?.capacity ?? 0);
   const initialOccupiedSeats = Number(data.initialOccupiedSeats ?? event?.initialOccupiedSeats ?? 0);
   const effectiveTableId = data.tableId === undefined ? event?.tableId ?? null : asNullableNumber(data.tableId);
@@ -52,6 +53,7 @@ export async function formatScheduleDraftSummary({
     `${texts.detailsStart}: ${formatTimestamp(buildStartsAt(date, time))}`,
     `${texts.detailsDuration}: ${formatDurationMinutes(durationMinutes)}`,
     `${texts.detailsAttendanceMode}: ${attendanceMode === 'closed' ? texts.closedDetailTag : texts.openDetailTag}`,
+    `${texts.detailsVisibility}: ${isPublic ? texts.publicActivityTag : texts.memberOnlyActivityTag}`,
     `${attendanceMode === 'closed' ? texts.detailsPeople : texts.detailsSeats}: ${capacity}`,
     ...(attendanceMode === 'open' ? [`${texts.detailsInitialOccupiedSeats}: ${initialOccupiedSeats}`] : []),
     `${texts.detailsTable}: ${table?.displayName ?? texts.noTable}`,
