@@ -260,6 +260,13 @@
       "when": 1783303677121,
       "tag": "0036_absent_gwen_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783430505000,
+      "tag": "0037_public_schedule_events",
+      "breakpoints": true
     }
   ]
 }
