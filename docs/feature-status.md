@@ -27,7 +27,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `public-events`; `/admin/news` resume feeds activos. |
 | Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
-| Rol / partidas de rol                        | 🟠 Parcial           | Botón privado `Rol`, creación, solicitudes, sesiones y recurrencias con Agenda; handouts ocultos preparados, entrega pendiente.          |
+| Rol / partidas de rol                        | 🟢 Operativo         | Crear campañas/one-shots, solicitudes, sesiones Agenda, recurrencias, handouts ocultos y acceso externo controlado para one-shots.      |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
 | Impresión                                    | 🟢 Operativo         | Botón privado con estados admin Activar/Desactivar/Modo prueba, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial. |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
@@ -110,7 +110,7 @@ Riesgos o pendientes:
 
 ## Rol / partidas de rol
 
-Estado: `parcial`.
+Estado: `operativo`.
 
 Implementado:
 
@@ -126,12 +126,14 @@ Implementado:
 - El worker de recurrencias arranca junto al servicio y mantiene la ventana futura de campañas recurrentes creando eventos Agenda enlazados en `role_game_sessions`; las sesiones canceladas enlazadas no se recrean.
 - Las sesiones de rol reutilizan Agenda: crean eventos con `createScheduleEvent`, enlazan `role_game_sessions`, apuntan automaticamente a jugadores confirmados hasta la capacidad disponible cuando la partida lo configura y enlazan el recibo a `schedule_event_<id>`.
 - Los detalles muestran `Solicitar plaza` cuando corresponde y los managers operativos pueden aceptar o rechazar solicitudes con botones inline diferenciados por rol semantico.
-- Infraestructura Storage para handouts internos con proposito `role_game_handouts`, oculto de Storage normal, `/storage`, busquedas, web/TUI Storage y busquedas LLM; la entrega visible queda reservada para enlaces `role_material_<id>`.
+- Los one-shots publicos con politica `members_and_external` se pueden abrir desde `/start role_game_<id>` por usuarios no aprobados y permiten solicitar plaza externa sin aprobar automaticamente la membresia del usuario.
+- Infraestructura Storage para handouts internos con proposito `role_game_handouts`, oculto de Storage normal, `/storage`, busquedas, web/TUI Storage y busquedas LLM.
+- Los managers pueden subir material desde la ficha de partida; el bot copia el adjunto a Storage interno con progreso editable, crea `role_game_materials` como `gm_only` y devuelve enlace `role_material_<id>` sin exponer `storage_entry_<id>`.
+- Los handouts pueden enviarse sólo esta vez, enviarse y revelarse o revelarse sin envio; el bot copia los adjuntos almacenados a jugadores confirmados, registra `role_game_material_deliveries`, resume fallos parciales y aplica permisos de Rol a `role_material_<id>`.
 
 Pendiente:
 
 - Edicion guiada de partidas.
-- Subida, permisos de detalle y entrega Telegram de handouts privados.
 
 ## Asistente LLM de órdenes naturales
 
@@ -487,7 +489,7 @@ Pendiente:
 | Catalogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Prestamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
 | Compras conjuntas | `src/telegram/group-purchase-flow.test.ts`, `src/group-purchases/*.test.ts` |
-| Rol / partidas de rol | `src/role-games/role-game-scheduler.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
+| Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Avisos | `src/telegram/notice-flow.test.ts`, `src/notices/*.test.ts`, `src/news/news-group-store.test.ts` |
 | Storage | `src/telegram/storage-flow.test.ts`, `src/storage/*.test.ts` |
 | Noticias | `src/telegram/news-group-flow.test.ts`, `src/news/news-group-store.test.ts`, `src/telegram/runtime-boundary.test.ts` |
