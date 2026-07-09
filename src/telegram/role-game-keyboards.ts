@@ -8,6 +8,7 @@ export const roleGameCallbackPrefixes = {
   requestSeat: 'role_game:request:',
   acceptRequest: 'role_game:accept:',
   rejectRequest: 'role_game:reject:',
+  scheduleSession: 'role_game:schedule:',
 } as const;
 
 export function buildRoleGameHomeKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
@@ -71,15 +72,22 @@ export function buildRoleGameDetailInlineKeyboard({
   gameId,
   requestMemberIds = [],
   canRequestSeat = false,
+  canScheduleSession = false,
   language = 'ca',
 }: {
   gameId: number;
   requestMemberIds?: number[];
   canRequestSeat?: boolean;
+  canScheduleSession?: boolean;
   language?: BotLanguage;
 }): Pick<TelegramReplyOptions, 'inlineKeyboard'> {
   const texts = createTelegramI18n(language).roleGames;
   const inlineKeyboard: NonNullable<TelegramReplyOptions['inlineKeyboard']> = [];
+  if (canScheduleSession) {
+    inlineKeyboard.push([
+      { text: texts.scheduleNextSession, callbackData: `${roleGameCallbackPrefixes.scheduleSession}${gameId}`, semanticRole: 'success' },
+    ]);
+  }
   if (canRequestSeat) {
     inlineKeyboard.push([
       { text: texts.requestSeat, callbackData: `${roleGameCallbackPrefixes.requestSeat}${gameId}`, semanticRole: 'success' },

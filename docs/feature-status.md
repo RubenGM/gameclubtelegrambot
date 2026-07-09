@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-07-07.
+Última revisión: 2026-07-09.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -27,7 +27,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `public-events`; `/admin/news` resume feeds activos. |
 | Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
-| Rol / partidas de rol                        | 🟠 Parcial           | Botón privado `Rol`, `/rol`, listas paginadas, deep links, creación guiada y solicitudes; Agenda y handouts quedan pendientes.             |
+| Rol / partidas de rol                        | 🟠 Parcial           | Botón privado `Rol`, creación, solicitudes y sesiones manuales respaldadas por Agenda; recurrencias y handouts quedan pendientes.           |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
 | Impresión                                    | 🟢 Operativo         | Botón privado con estados admin Activar/Desactivar/Modo prueba, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial. |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
@@ -119,13 +119,17 @@ Implementado:
 - Home con `Mis partidas`, `Partidas visibles`, `Crear partida` y `Cancelar` con rol danger.
 - Listas read-only de partidas propias y visibles desde `RoleGameRepository`, con paginacion estilo Telegram y deep links `role_game_<id>` al detalle.
 - `/start role_game_<id>` abre el detalle de la partida en privado.
-- `Crear partida` inicia un flujo guiado cancelable para crear la partida base con tipo, titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion y modo de programacion preparado para tareas posteriores.
+- `Crear partida` inicia un flujo guiado cancelable para crear la partida base con tipo, titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion y modo de programacion.
+- Los one-shots piden fecha y hora en la creacion y generan una primera sesion en `schedule_events` enlazada con `role_game_sessions`.
+- Las campañas y partidas manuales muestran `Programar siguiente sesión` a GM/coorganizadores/admins, y tambien a jugadores confirmados si la partida permite programacion manual por jugadores.
+- Las sesiones de rol reutilizan Agenda: crean eventos con `createScheduleEvent`, enlazan `role_game_sessions`, apuntan automaticamente a jugadores confirmados cuando la partida lo configura y enlazan el recibo a `schedule_event_<id>`.
 - Los detalles muestran `Solicitar plaza` cuando corresponde y los managers operativos pueden aceptar o rechazar solicitudes con botones inline diferenciados por rol semantico.
 
 Pendiente:
 
 - Edicion guiada de partidas.
-- Sesiones respaldadas por Agenda, recurrencias y handouts privados respaldados por Storage.
+- Recurrencias automaticas y worker de recurrencias.
+- Handouts privados respaldados por Storage.
 
 ## Asistente LLM de órdenes naturales
 

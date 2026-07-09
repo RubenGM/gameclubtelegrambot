@@ -9,12 +9,21 @@ import {
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type {
   CreateRoleGameInput,
+  CreateRoleGameSessionLinkInput,
   RoleGameMemberRecord,
   RoleGameRecord,
   RoleGameRepository,
+  RoleGameSessionRecord,
 } from '../role-games/role-game-catalog.js';
+import type {
+  ScheduleEventRecord,
+  ScheduleParticipantRecord,
+  ScheduleRepository,
+} from '../schedule/schedule-catalog.js';
 import type { TelegramReplyKeyboardButton } from './runtime-boundary.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+
+type FakeRoleGameRepository = RoleGameRepository & { createdSessionLinks: RoleGameSessionRecord[] };
 
 test('handleTelegramRoleGameText opens the role game home menu', async () => {
   const context = createRoleGameTestContext({ messageText: '/rol' });
@@ -177,6 +186,52 @@ test('handleTelegramRoleGameText creates a role game with guided prompts', async
   assert.match(lastReply(context).message, /Partida creada/);
 });
 
+test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event', async () => {
+  let createdGame: RoleGameRecord | null = null;
+  const scheduleRepository = createFakeScheduleRepository();
+  const roleGameRepository = createFakeRoleGameRepository({
+    onCreateGame: async (input) => {
+      createdGame = sampleRoleGame({ ...input, id: 51, type: 'one_shot' });
+      return createdGame;
+    },
+  });
+  const context = createRoleGameTestContext({
+    messageText: 'Crear partida',
+    roleGameRepository,
+    scheduleRepository,
+  });
+
+  assert.equal(await handleTelegramRoleGameText(context), true);
+  await sendRoleGameText(context, 'One-shot');
+  await sendRoleGameText(context, 'La partida única');
+  await sendRoleGameText(context, 'Mothership');
+  await sendRoleGameText(context, 'Una noche en el espacio');
+  await sendRoleGameText(context, '4');
+  await sendRoleGameText(context, 'Socios');
+  await sendRoleGameText(context, 'Solicitud');
+  await sendRoleGameText(context, 'Revisión manual');
+  await sendRoleGameText(context, 'Manual');
+
+  assert.match(lastReply(context).message, /fecha/i);
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar'));
+
+  await sendRoleGameText(context, '06/08/2026');
+  assert.match(lastReply(context).message, /hora/i);
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar'));
+
+  await sendRoleGameText(context, '18:00');
+  assert.match(lastReply(context).message, /Confirmar/i);
+  await sendRoleGameText(context, 'Confirmar');
+
+  const created = assertRoleGame(createdGame);
+  const event = await scheduleRepository.findEventById(1);
+  assert.equal(event?.title, created.title);
+  assert.equal(event?.startsAt, new Date(2026, 7, 6, 18, 0).toISOString());
+  assert.equal(roleGameRepository.createdSessionLinks.at(0)?.source, 'one_shot_initial');
+  assert.equal(roleGameRepository.createdSessionLinks.at(0)?.roleGameId, created.id);
+  assert.match(lastReply(context).message, /schedule_event_1/);
+});
+
 test('handleTelegramRoleGameText cancels role game creation without orphan keyboard', async () => {
   let createCalls = 0;
   const context = createRoleGameTestContext({
@@ -312,6 +367,89 @@ test('handleTelegramRoleGameCallback blocks non-managers from accepting requests
   assert.match(lastReply(context).message, /No tienes permisos/);
 });
 
+test('handleTelegramRoleGameCallback lets a manager schedule the next manual session', async () => {
+  const game = sampleRoleGame({ id: 82, primaryGmTelegramUserId: 42, allowPlayerManualScheduling: false });
+  const scheduleRepository = createFakeScheduleRepository();
+  const roleGameRepository = createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, []]]) });
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: 'role_game:schedule:82',
+    roleGameRepository,
+    scheduleRepository,
+  });
+
+  assert.equal(await handleTelegramRoleGameCallback(context), true);
+  assert.equal(getCurrentSession(context)?.flowKey, 'role-game-manual-session');
+  assert.match(lastReply(context).message, /fecha/i);
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar'));
+
+  delete context.callbackData;
+  await sendRoleGameText(context, '06/08/2026');
+  assert.match(lastReply(context).message, /hora/i);
+
+  await sendRoleGameText(context, '18:00');
+  const event = await scheduleRepository.findEventById(1);
+  assert.equal(event?.title, game.title);
+  assert.equal(roleGameRepository.createdSessionLinks.at(0)?.source, 'manual');
+  assert.equal(getCurrentSession(context), null);
+  assert.match(lastReply(context).message, /Sesión programada/i);
+  assert.match(lastReply(context).message, /schedule_event_1/);
+});
+
+test('handleTelegramRoleGameCallback lets confirmed players schedule when the game allows it', async () => {
+  const game = sampleRoleGame({
+    id: 83,
+    primaryGmTelegramUserId: 42,
+    allowPlayerManualScheduling: true,
+  });
+  const player = sampleRoleGameMember({ roleGameId: game.id, telegramUserId: 77, role: 'player', status: 'confirmed' });
+  const scheduleRepository = createFakeScheduleRepository();
+  const roleGameRepository = createFakeRoleGameRepository({
+    gamesById: [game],
+    membersByGameId: new Map([[game.id, [player]]]),
+  });
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: 'role_game:schedule:83',
+    roleGameRepository,
+    scheduleRepository,
+    actor: { telegramUserId: 77 },
+  });
+
+  assert.equal(await handleTelegramRoleGameCallback(context), true);
+  await sendRoleGameText(context, '06/08/2026');
+  await sendRoleGameText(context, '18:00');
+
+  assert.equal((await scheduleRepository.findEventById(1))?.createdByTelegramUserId, 77);
+  assert.equal(roleGameRepository.createdSessionLinks.at(0)?.createdByTelegramUserId, 77);
+});
+
+test('handleTelegramRoleGameCallback blocks confirmed players from manual scheduling when disabled', async () => {
+  const game = sampleRoleGame({
+    id: 84,
+    primaryGmTelegramUserId: 42,
+    allowPlayerManualScheduling: false,
+  });
+  const player = sampleRoleGameMember({ roleGameId: game.id, telegramUserId: 77, role: 'player', status: 'confirmed' });
+  const scheduleRepository = createFakeScheduleRepository();
+  const roleGameRepository = createFakeRoleGameRepository({
+    gamesById: [game],
+    membersByGameId: new Map([[game.id, [player]]]),
+  });
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: 'role_game:schedule:84',
+    roleGameRepository,
+    scheduleRepository,
+    actor: { telegramUserId: 77 },
+  });
+
+  assert.equal(await handleTelegramRoleGameCallback(context), true);
+  assert.equal(getCurrentSession(context), null);
+  assert.equal(await scheduleRepository.findEventById(1), null);
+  assert.match(lastReply(context).message, /No tienes permisos/);
+});
+
 test('handleTelegramRoleGameCallback does not accept when the game is full', async () => {
   const game = sampleRoleGame({ id: 74, primaryGmTelegramUserId: 42, capacity: 1 });
   const confirmed = sampleRoleGameMember({ id: 12, roleGameId: game.id, telegramUserId: 101, status: 'confirmed' });
@@ -365,17 +503,19 @@ function createRoleGameTestContext({
   messageText,
   callbackData,
   roleGameRepository = createFakeRoleGameRepository(),
+  scheduleRepository = createFakeScheduleRepository(),
   session = {},
   actor = {},
 }: {
   messageText: string;
   callbackData?: string;
   roleGameRepository?: RoleGameRepository;
+  scheduleRepository?: ScheduleRepository;
   session?: {
     current?: TelegramCommandHandlerContext['runtime']['session']['current'];
   };
   actor?: Partial<TelegramCommandHandlerContext['runtime']['actor']>;
-}): TelegramCommandHandlerContext & { roleGameRepository: RoleGameRepository; replies: Array<{ message: string; options?: TelegramReplyOptions }> } {
+}): TelegramCommandHandlerContext & { roleGameRepository: RoleGameRepository; scheduleRepository: ScheduleRepository; replies: Array<{ message: string; options?: TelegramReplyOptions }> } {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   const runtimeSession = {
     current: session.current ?? null,
@@ -411,6 +551,7 @@ function createRoleGameTestContext({
     messageText,
     callbackData,
     roleGameRepository,
+    scheduleRepository,
     replies,
     reply: async (message: string, options?: TelegramReplyOptions) => {
       replies.push(options ? { message, options } : { message });
@@ -439,7 +580,7 @@ function createRoleGameTestContext({
         sendPrivateMessage: async () => {},
       },
     },
-  } as unknown as TelegramCommandHandlerContext & { roleGameRepository: RoleGameRepository; replies: Array<{ message: string; options?: TelegramReplyOptions }> };
+  } as unknown as TelegramCommandHandlerContext & { roleGameRepository: RoleGameRepository; scheduleRepository: ScheduleRepository; replies: Array<{ message: string; options?: TelegramReplyOptions }> };
 }
 
 function lastReply(context: { replies: Array<{ message: string; options?: TelegramReplyOptions }> }) {
@@ -499,7 +640,8 @@ function createFakeRoleGameRepository({
     status: RoleGameMemberRecord['status'];
     actorTelegramUserId: number;
   }) => Promise<RoleGameMemberRecord>;
-} = {}): RoleGameRepository {
+} = {}): FakeRoleGameRepository {
+  const createdSessionLinks: RoleGameSessionRecord[] = [];
   return {
     createGame: async (input) => {
       if (onCreateGame) {
@@ -535,10 +677,16 @@ function createFakeRoleGameRepository({
     createMember: async () => {
       throw new Error('not implemented in this test');
     },
-    createSessionLink: async () => {
-      throw new Error('not implemented in this test');
+    createSessionLink: async (input: CreateRoleGameSessionLinkInput) => {
+      const link: RoleGameSessionRecord = {
+        id: createdSessionLinks.length + 1,
+        ...input,
+        createdAt: '2026-07-09T10:00:00.000Z',
+      };
+      createdSessionLinks.push(link);
+      return link;
     },
-    listSessionLinks: async () => [],
+    listSessionLinks: async () => createdSessionLinks,
     createMaterial: async () => {
       throw new Error('not implemented in this test');
     },
@@ -560,6 +708,60 @@ function createFakeRoleGameRepository({
         return onSetMemberStatus(input);
       }
       throw new Error('not implemented in this test');
+    },
+    createdSessionLinks,
+  } as FakeRoleGameRepository;
+}
+
+function createFakeScheduleRepository(): ScheduleRepository {
+  const events = new Map<number, ScheduleEventRecord>();
+  const participants = new Map<string, ScheduleParticipantRecord>();
+  let nextEventId = 1;
+  return {
+    createEvent: async (input) => {
+      const createdAt = '2026-07-09T10:00:00.000Z';
+      const event: ScheduleEventRecord = {
+        id: nextEventId,
+        ...input,
+        detailsMessageChatId: input.detailsMessageChatId ?? null,
+        detailsMessageId: input.detailsMessageId ?? null,
+        catalogItemId: input.catalogItemId ?? null,
+        lifecycleStatus: 'scheduled',
+        createdAt,
+        updatedAt: createdAt,
+        cancelledAt: null,
+        cancelledByTelegramUserId: null,
+        cancellationReason: null,
+      };
+      nextEventId += 1;
+      events.set(event.id, event);
+      return event;
+    },
+    findEventById: async (eventId) => events.get(eventId) ?? null,
+    listEvents: async () => Array.from(events.values()),
+    updateEvent: async () => {
+      throw new Error('not implemented in this test');
+    },
+    cancelEvent: async () => {
+      throw new Error('not implemented in this test');
+    },
+    findParticipant: async (eventId, participantTelegramUserId) => participants.get(`${eventId}:${participantTelegramUserId}`) ?? null,
+    listParticipants: async (eventId) =>
+      Array.from(participants.values()).filter((participant) => participant.scheduleEventId === eventId),
+    upsertParticipant: async (input) => {
+      const existing = participants.get(`${input.eventId}:${input.participantTelegramUserId}`);
+      const participant: ScheduleParticipantRecord = {
+        scheduleEventId: input.eventId,
+        participantTelegramUserId: input.participantTelegramUserId,
+        status: input.status,
+        addedByTelegramUserId: existing?.addedByTelegramUserId ?? input.actorTelegramUserId,
+        removedByTelegramUserId: input.status === 'removed' ? input.actorTelegramUserId : null,
+        joinedAt: existing?.joinedAt ?? '2026-07-09T10:00:00.000Z',
+        updatedAt: '2026-07-09T10:00:00.000Z',
+        leftAt: input.status === 'removed' ? '2026-07-09T10:00:00.000Z' : null,
+      };
+      participants.set(`${input.eventId}:${input.participantTelegramUserId}`, participant);
+      return participant;
     },
   };
 }

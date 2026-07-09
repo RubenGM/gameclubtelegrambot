@@ -15,8 +15,21 @@ import {
   type RoleGameVisibility,
 } from '../role-games/role-game-catalog.js';
 import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalog-store.js';
+import { createManualRoleGameSession, createRoleGameScheduleSession } from '../role-games/role-game-scheduler.js';
+import type { ScheduleRepository } from '../schedule/schedule-catalog.js';
+import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
+import {
+  buildStartsAt,
+  parseDate,
+  parseTime,
+} from './schedule-parsing.js';
+import {
+  escapeHtml,
+  formatTimestamp,
+} from './schedule-presentation.js';
 import {
   buildRoleGameHomeKeyboard,
   buildRoleGameCreateConfirmationKeyboard,
@@ -36,6 +49,7 @@ import type { TelegramReplyButton } from './runtime-boundary.js';
 
 const roleGameListFlowKey = 'role-games-list';
 const roleGameCreateFlowKey = 'role-game-create';
+const roleGameManualSessionFlowKey = 'role-game-manual-session';
 const roleGameStartPayloadPrefix = 'role_game_';
 
 type RoleGameListKind = 'mine' | 'visible';
@@ -49,7 +63,11 @@ type RoleGameCreateStep =
   | 'entry-mode'
   | 'acceptance-mode'
   | 'scheduling-mode'
+  | 'initial-session-date'
+  | 'initial-session-time'
   | 'confirm';
+
+type RoleGameManualSessionStep = 'date' | 'time';
 
 interface RoleGameCreateDraft {
   type?: RoleGameType;
@@ -70,10 +88,19 @@ interface RoleGameCreateDraft {
   schedulingMode?: RoleGameSchedulingMode;
   recurrenceRule?: null;
   recurrenceWindowCount?: number;
+  initialSessionDate?: string;
+  initialSessionTime?: string;
+}
+
+interface RoleGameManualSessionDraft {
+  gameId?: number;
+  date?: string;
+  time?: string;
 }
 
 export type TelegramRoleGameContext = TelegramCommandHandlerContext & {
   roleGameRepository?: RoleGameRepository;
+  scheduleRepository?: ScheduleRepository;
 };
 
 export { roleGameCallbackPrefixes };
@@ -100,6 +127,10 @@ export async function handleTelegramRoleGameText(context: TelegramRoleGameContex
 
   if (isRoleGameCreateSession(context)) {
     return handleRoleGameCreateStep(context, text, language);
+  }
+
+  if (isRoleGameManualSessionSession(context)) {
+    return handleRoleGameManualSessionStep(context, text, language);
   }
 
   if (isRoleGameListSession(context) && text === texts.nextPage) {
@@ -210,6 +241,31 @@ export async function handleTelegramRoleGameCallback(context: TelegramRoleGameCo
       return true;
     }
     await context.reply(message, buildRoleGameHomeKeyboard(language));
+    return true;
+  }
+
+  if (callbackData.startsWith(roleGameCallbackPrefixes.scheduleSession)) {
+    const gameId = parseCallbackEntityId(callbackData, roleGameCallbackPrefixes.scheduleSession);
+    if (gameId === null) {
+      await context.reply(createTelegramI18n(language).roleGames.notFound, buildRoleGameHomeKeyboard(language));
+      return true;
+    }
+    const game = await findVisibleRoleGameDetail(context, gameId);
+    if (!game) {
+      await context.reply(createTelegramI18n(language).roleGames.notFound, buildRoleGameHomeKeyboard(language));
+      return true;
+    }
+    const actorMember = await resolveRepository(context).findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+    if (!canScheduleManualRoleGameSession(context, game, actorMember)) {
+      await context.reply(createTelegramI18n(language).roleGames.permissionDenied, buildRoleGameHomeKeyboard(language));
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: roleGameManualSessionFlowKey,
+      stepKey: 'date',
+      data: { gameId },
+    });
+    await context.reply(createTelegramI18n(language).roleGames.promptManualSessionDate, buildRoleGameCreateStepKeyboard({ language }));
     return true;
   }
 
@@ -330,6 +386,30 @@ async function handleRoleGameCreateStep(
       draft.schedulingMode = parseCreateOption(text, {
         manual: texts.optionManualScheduling,
       });
+      if (draft.type === 'one_shot') {
+        return advanceRoleGameCreate(context, language, 'initial-session-date', draft, texts.promptInitialSessionDate);
+      }
+      await context.runtime.session.advance({ stepKey: 'confirm', data: draft });
+      await context.reply(`${texts.promptConfirmCreate}\n\n${formatRoleGameCreateSummary(draft, language)}`, {
+        ...buildRoleGameCreateConfirmationKeyboard(language),
+        parseMode: 'HTML',
+      });
+      return true;
+    }
+    if (step === 'initial-session-date') {
+      const date = parseDate(text);
+      if (date instanceof Error) {
+        throw date;
+      }
+      draft.initialSessionDate = date;
+      return advanceRoleGameCreate(context, language, 'initial-session-time', draft, texts.promptInitialSessionTime);
+    }
+    if (step === 'initial-session-time') {
+      const time = parseTime(text);
+      if (time instanceof Error) {
+        throw time;
+      }
+      draft.initialSessionTime = time;
       await context.runtime.session.advance({ stepKey: 'confirm', data: draft });
       await context.reply(`${texts.promptConfirmCreate}\n\n${formatRoleGameCreateSummary(draft, language)}`, {
         ...buildRoleGameCreateConfirmationKeyboard(language),
@@ -338,8 +418,9 @@ async function handleRoleGameCreateStep(
       return true;
     }
     if (step === 'confirm' && text === texts.confirmCreate) {
+      const repository = resolveRepository(context);
       const game = await createRoleGame({
-        repository: resolveRepository(context),
+        repository,
         type: requireDraftValue(draft.type),
         title: requireDraftValue(draft.title),
         system: requireDraftValue(draft.system),
@@ -361,8 +442,88 @@ async function handleRoleGameCreateStep(
         recurrenceRule: null,
         recurrenceWindowCount: draft.recurrenceWindowCount ?? 0,
       });
+      const initialSession = draft.type === 'one_shot' && draft.initialSessionDate && draft.initialSessionTime
+        ? await createRoleGameScheduleSession({
+          roleGameRepository: repository,
+          scheduleRepository: resolveScheduleRepository(context),
+          game,
+          startsAt: buildStartsAt(draft.initialSessionDate, draft.initialSessionTime),
+          actorTelegramUserId: context.runtime.actor.telegramUserId,
+          source: 'one_shot_initial',
+        })
+        : null;
       await context.runtime.session.cancel();
-      await context.reply(`${texts.created}\n\n${formatRoleGameDetailMessage({ game, language })}`, {
+      await context.reply([
+        initialSession ? texts.createdWithSession : texts.created,
+        initialSession ? formatRoleGameScheduleEventLink(initialSession.event.id, initialSession.event.startsAt) : null,
+        formatRoleGameDetailMessage({ game, language }),
+      ].filter((line): line is string => Boolean(line)).join('\n\n'), {
+        ...buildRoleGameHomeKeyboard(language),
+        parseMode: 'HTML',
+      });
+      return true;
+    }
+  } catch {
+    await context.reply(texts.invalidCreateValue, buildRoleGameCreateStepKeyboard({ language }));
+    return true;
+  }
+
+  await context.reply(texts.invalidCreateValue, buildRoleGameCreateStepKeyboard({ language }));
+  return true;
+}
+
+async function handleRoleGameManualSessionStep(
+  context: TelegramRoleGameContext,
+  text: string,
+  language: BotLanguage,
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== roleGameManualSessionFlowKey) {
+    return false;
+  }
+  const texts = createTelegramI18n(language).roleGames;
+  const draft = { ...(session.data as RoleGameManualSessionDraft) };
+  const step = session.stepKey as RoleGameManualSessionStep;
+
+  try {
+    if (step === 'date') {
+      const date = parseDate(text);
+      if (date instanceof Error) {
+        throw date;
+      }
+      draft.date = date;
+      await context.runtime.session.advance({ stepKey: 'time', data: draft });
+      await context.reply(texts.promptManualSessionTime, buildRoleGameCreateStepKeyboard({ language }));
+      return true;
+    }
+    if (step === 'time') {
+      const time = parseTime(text);
+      if (time instanceof Error) {
+        throw time;
+      }
+      draft.time = time;
+      const gameId = requireDraftValue(draft.gameId);
+      const game = await resolveRepository(context).findGameById(gameId);
+      if (!game) {
+        await context.runtime.session.cancel();
+        await context.reply(texts.notFound, buildRoleGameHomeKeyboard(language));
+        return true;
+      }
+      const actorMember = await resolveRepository(context).findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+      if (!canScheduleManualRoleGameSession(context, game, actorMember)) {
+        await context.runtime.session.cancel();
+        await context.reply(texts.permissionDenied, buildRoleGameHomeKeyboard(language));
+        return true;
+      }
+      const sessionResult = await createManualRoleGameSession({
+        roleGameRepository: resolveRepository(context),
+        scheduleRepository: resolveScheduleRepository(context),
+        game,
+        startsAt: buildStartsAt(requireDraftValue(draft.date), requireDraftValue(draft.time)),
+        actorTelegramUserId: context.runtime.actor.telegramUserId,
+      });
+      await context.runtime.session.cancel();
+      await context.reply(`${texts.sessionScheduled}\n\n${formatRoleGameScheduleEventLink(sessionResult.event.id, sessionResult.event.startsAt)}`, {
         ...buildRoleGameHomeKeyboard(language),
         parseMode: 'HTML',
       });
@@ -570,6 +731,7 @@ async function replyWithRoleGameDetail(
     isApproved: context.runtime.actor.isApproved,
   };
   const canManageRequests = canManageRoleGameOperationally(actor, game, actorMember);
+  const canScheduleSession = canScheduleManualRoleGameSession(context, game, actorMember);
   const requestMemberIds = canManageRequests
     ? members.filter((member) => member.role === 'player' && member.status === 'requested').map((member) => member.id)
     : [];
@@ -584,6 +746,7 @@ async function replyWithRoleGameDetail(
     ...buildRoleGameDetailInlineKeyboard({
       gameId: game.id,
       canRequestSeat,
+      canScheduleSession,
       requestMemberIds,
       language,
     }),
@@ -634,6 +797,28 @@ function isRoleGameListSession(context: TelegramRoleGameContext): boolean {
 
 function isRoleGameCreateSession(context: TelegramRoleGameContext): boolean {
   return context.runtime.session.current?.flowKey === roleGameCreateFlowKey;
+}
+
+function isRoleGameManualSessionSession(context: TelegramRoleGameContext): boolean {
+  return context.runtime.session.current?.flowKey === roleGameManualSessionFlowKey;
+}
+
+function canScheduleManualRoleGameSession(
+  context: TelegramRoleGameContext,
+  game: RoleGameRecord,
+  actorMember: RoleGameMemberRecord | null,
+): boolean {
+  const actor = {
+    telegramUserId: context.runtime.actor.telegramUserId,
+    isAdmin: context.runtime.actor.isAdmin,
+    isApproved: context.runtime.actor.isApproved,
+  };
+  if (canManageRoleGameOperationally(actor, game, actorMember)) {
+    return true;
+  }
+  return game.allowPlayerManualScheduling &&
+    actorMember?.role === 'player' &&
+    actorMember.status === 'confirmed';
 }
 
 function parseCreateOption<T extends string>(text: string, options: Record<T, string>): T {
@@ -691,4 +876,14 @@ function resolveRepository(context: TelegramRoleGameContext): RoleGameRepository
   return context.roleGameRepository ?? createDatabaseRoleGameRepository({
     database: context.runtime.services.database.db,
   });
+}
+
+function resolveScheduleRepository(context: TelegramRoleGameContext): ScheduleRepository {
+  return context.scheduleRepository ?? createDatabaseScheduleRepository({
+    database: context.runtime.services.database.db as never,
+  });
+}
+
+function formatRoleGameScheduleEventLink(eventId: number, startsAt: string): string {
+  return `<a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${eventId}`))}">Agenda ${escapeHtml(formatTimestamp(startsAt))}</a>`;
 }
