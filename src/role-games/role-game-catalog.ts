@@ -131,15 +131,92 @@ export interface CreateRoleGameMemberInput {
   role: RoleGameMemberRole;
   status: RoleGameMemberStatus;
   isExternal: boolean;
+  characterName?: string | null;
+  playerNote?: string | null;
   requestedByTelegramUserId: number | null;
+}
+
+export interface UpdateRoleGameInput {
+  gameId: number;
+  status?: RoleGameStatus;
+  title?: string;
+  system?: string;
+  description?: string | null;
+  visibility?: RoleGameVisibility;
+  publicJoinPolicy?: RoleGamePublicJoinPolicy;
+  entryMode?: RoleGameEntryMode;
+  acceptanceMode?: RoleGameAcceptanceMode;
+  capacity?: number;
+  primaryGmTelegramUserId?: number;
+  defaultDurationMinutes?: number;
+  defaultTableId?: number | null;
+  defaultAttendanceMode?: 'open' | 'closed';
+  defaultIsPublicScheduleEvent?: boolean;
+  autoAddConfirmedPlayers?: boolean;
+  allowPlayerManualScheduling?: boolean;
+  schedulingMode?: RoleGameSchedulingMode;
+  recurrenceRule?: RoleGameRecurrenceRule | null;
+  recurrenceWindowCount?: number;
+  closedAt?: string | null;
+}
+
+export interface ListVisibleRoleGamesInput {
+  actor: RoleGameActor;
+}
+
+export type CreateOrUpdateRoleGameMemberInput = CreateRoleGameMemberInput;
+
+export interface CreateRoleGameSessionLinkInput {
+  roleGameId: number;
+  scheduleEventId: number;
+  source: RoleGameSessionSource;
+  generatedForStartsAt: string | null;
+  createdByTelegramUserId: number;
+}
+
+export interface CreateRoleGameMaterialInput {
+  roleGameId: number;
+  internalStorageEntryId: number;
+  title: string;
+  description: string | null;
+  visibility: RoleGameMaterialVisibility;
+  deliveryState: RoleGameMaterialDeliveryState;
+  uploadedByTelegramUserId: number;
+}
+
+export interface UpdateRoleGameMaterialVisibilityInput {
+  materialId: number;
+  visibility: RoleGameMaterialVisibility;
+  deliveryState: RoleGameMaterialDeliveryState;
+}
+
+export interface CreateRoleGameMaterialDeliveryInput {
+  roleGameMaterialId: number;
+  recipientTelegramUserId: number;
+  sentByTelegramUserId: number;
+  deliveryMode: RoleGameMaterialDeliveryMode;
+  status: RoleGameMaterialDeliveryStatus;
+  errorCode: string | null;
 }
 
 export interface RoleGameRepository {
   createGame(input: CreateRoleGameInput): Promise<RoleGameRecord>;
   findGameById(gameId: number): Promise<RoleGameRecord | null>;
+  updateGame(input: UpdateRoleGameInput): Promise<RoleGameRecord>;
+  listVisibleGames(input: ListVisibleRoleGamesInput): Promise<RoleGameRecord[]>;
+  listGamesForUser(telegramUserId: number): Promise<RoleGameRecord[]>;
+  createOrUpdateMember(input: CreateOrUpdateRoleGameMemberInput): Promise<RoleGameMemberRecord>;
+  findMember(gameId: number, telegramUserId: number): Promise<RoleGameMemberRecord | null>;
   findMemberByTelegramUserId(gameId: number, telegramUserId: number): Promise<RoleGameMemberRecord | null>;
+  listMembers(gameId: number): Promise<RoleGameMemberRecord[]>;
   countConfirmedPlayers(gameId: number): Promise<number>;
   createMember(input: CreateRoleGameMemberInput): Promise<RoleGameMemberRecord>;
+  createSessionLink(input: CreateRoleGameSessionLinkInput): Promise<RoleGameSessionRecord>;
+  listSessionLinks(gameId: number): Promise<RoleGameSessionRecord[]>;
+  createMaterial(input: CreateRoleGameMaterialInput): Promise<RoleGameMaterialRecord>;
+  findMaterialById(materialId: number): Promise<RoleGameMaterialRecord | null>;
+  updateMaterialVisibility(input: UpdateRoleGameMaterialVisibilityInput): Promise<RoleGameMaterialRecord>;
+  createMaterialDelivery(input: CreateRoleGameMaterialDeliveryInput): Promise<RoleGameMaterialDeliveryRecord>;
   requestSeat(input: {
     roleGameId: number;
     telegramUserId: number;

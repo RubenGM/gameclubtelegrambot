@@ -9,8 +9,11 @@ import {
   requestRoleGameSeat,
   type CreateRoleGameInput,
   type RoleGameMemberRecord,
+  type RoleGameMaterialDeliveryRecord,
+  type RoleGameMaterialRecord,
   type RoleGameRecord,
   type RoleGameRepository,
+  type RoleGameSessionRecord,
 } from './role-game-catalog.js';
 
 test('createRoleGame normalizes a member-visible campaign with primary GM', async () => {
@@ -205,8 +208,14 @@ test('requestRoleGameSeat delegates seat allocation to one repository operation'
 function createMemoryRoleGameRepository(): RoleGameRepository {
   const games = new Map<number, RoleGameRecord>();
   const members = new Map<number, RoleGameMemberRecord>();
+  const sessionLinks = new Map<number, RoleGameSessionRecord>();
+  const materials = new Map<number, RoleGameMaterialRecord>();
+  const deliveries = new Map<number, RoleGameMaterialDeliveryRecord>();
   let nextGameId = 1;
   let nextMemberId = 1;
+  let nextSessionLinkId = 1;
+  let nextMaterialId = 1;
+  let nextDeliveryId = 1;
 
   return {
     async createGame(input) {
@@ -240,10 +249,70 @@ function createMemoryRoleGameRepository(): RoleGameRepository {
     async findGameById(gameId) {
       return games.get(gameId) ?? null;
     },
+    async updateGame(input) {
+      const existing = games.get(input.gameId);
+      if (!existing) {
+        throw new Error(`Role game ${input.gameId} not found`);
+      }
+      const updated: RoleGameRecord = {
+        ...existing,
+        ...input,
+        id: existing.id,
+        updatedAt: '2026-07-09T12:10:00.000Z',
+      };
+      games.set(updated.id, updated);
+      return updated;
+    },
+    async listVisibleGames(input) {
+      return Array.from(games.values()).filter((game) => {
+        const membership =
+          Array.from(members.values()).find(
+            (member) => member.roleGameId === game.id && member.telegramUserId === input.actor.telegramUserId,
+          ) ?? null;
+        return canViewRoleGame(input.actor, game, membership);
+      });
+    },
+    async listGamesForUser(telegramUserId) {
+      const roleGameIds = new Set(
+        Array.from(members.values())
+          .filter((member) => member.telegramUserId === telegramUserId)
+          .map((member) => member.roleGameId),
+      );
+      return Array.from(games.values()).filter((game) => roleGameIds.has(game.id));
+    },
+    async createOrUpdateMember(input) {
+      const existing =
+        Array.from(members.values()).find(
+          (member) => member.roleGameId === input.roleGameId && member.telegramUserId === input.telegramUserId,
+        ) ?? null;
+      if (!existing) {
+        return this.createMember(input);
+      }
+      const updated: RoleGameMemberRecord = {
+        ...existing,
+        role: input.role,
+        status: input.status,
+        isExternal: input.isExternal,
+        characterName: input.characterName ?? null,
+        playerNote: input.playerNote ?? null,
+        requestedByTelegramUserId: input.requestedByTelegramUserId,
+        updatedAt: '2026-07-09T12:10:00.000Z',
+      };
+      members.set(updated.id, updated);
+      return updated;
+    },
+    async findMember(gameId, telegramUserId) {
+      return (
+        Array.from(members.values()).find((member) => member.roleGameId === gameId && member.telegramUserId === telegramUserId) ?? null
+      );
+    },
     async findMemberByTelegramUserId(gameId, telegramUserId) {
       return (
         Array.from(members.values()).find((member) => member.roleGameId === gameId && member.telegramUserId === telegramUserId) ?? null
       );
+    },
+    async listMembers(gameId) {
+      return Array.from(members.values()).filter((member) => member.roleGameId === gameId);
     },
     async countConfirmedPlayers(gameId) {
       return Array.from(members.values()).filter(
@@ -259,14 +328,66 @@ function createMemoryRoleGameRepository(): RoleGameRepository {
         role: input.role,
         status: input.status,
         isExternal: input.isExternal,
-        characterName: null,
-        playerNote: null,
+        characterName: input.characterName ?? null,
+        playerNote: input.playerNote ?? null,
         requestedByTelegramUserId: input.requestedByTelegramUserId,
         createdAt: now,
         updatedAt: now,
       };
       members.set(member.id, member);
       return member;
+    },
+    async createSessionLink(input) {
+      const now = '2026-07-09T12:05:00.000Z';
+      const link: RoleGameSessionRecord = {
+        ...input,
+        id: nextSessionLinkId++,
+        createdAt: now,
+      };
+      sessionLinks.set(link.id, link);
+      return link;
+    },
+    async listSessionLinks(gameId) {
+      return Array.from(sessionLinks.values()).filter((link) => link.roleGameId === gameId);
+    },
+    async createMaterial(input) {
+      const now = '2026-07-09T12:05:00.000Z';
+      const material: RoleGameMaterialRecord = {
+        ...input,
+        id: nextMaterialId++,
+        createdAt: now,
+        updatedAt: now,
+        revealedAt: null,
+      };
+      materials.set(material.id, material);
+      return material;
+    },
+    async findMaterialById(materialId) {
+      return materials.get(materialId) ?? null;
+    },
+    async updateMaterialVisibility(input) {
+      const existing = materials.get(input.materialId);
+      if (!existing) {
+        throw new Error(`Role game material ${input.materialId} not found`);
+      }
+      const updated: RoleGameMaterialRecord = {
+        ...existing,
+        visibility: input.visibility,
+        deliveryState: input.deliveryState,
+        updatedAt: '2026-07-09T12:10:00.000Z',
+        revealedAt: input.deliveryState === 'revealed' ? '2026-07-09T12:10:00.000Z' : null,
+      };
+      materials.set(updated.id, updated);
+      return updated;
+    },
+    async createMaterialDelivery(input) {
+      const delivery: RoleGameMaterialDeliveryRecord = {
+        ...input,
+        id: nextDeliveryId++,
+        sentAt: '2026-07-09T12:05:00.000Z',
+      };
+      deliveries.set(delivery.id, delivery);
+      return delivery;
     },
     async requestSeat(input) {
       const existing =
