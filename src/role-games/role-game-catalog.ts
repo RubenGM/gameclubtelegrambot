@@ -217,6 +217,7 @@ export interface RoleGameRepository {
   listSessionLinks(gameId: number): Promise<RoleGameSessionRecord[]>;
   createMaterial(input: CreateRoleGameMaterialInput): Promise<RoleGameMaterialRecord>;
   findMaterialById(materialId: number): Promise<RoleGameMaterialRecord | null>;
+  listMaterials(gameId: number): Promise<RoleGameMaterialRecord[]>;
   updateMaterialVisibility(input: UpdateRoleGameMaterialVisibilityInput): Promise<RoleGameMaterialRecord>;
   createMaterialDelivery(input: CreateRoleGameMaterialDeliveryInput): Promise<RoleGameMaterialDeliveryRecord>;
   requestSeat(input: {

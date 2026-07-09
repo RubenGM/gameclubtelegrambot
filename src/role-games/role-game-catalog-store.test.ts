@@ -312,6 +312,7 @@ test('database role game repository creates materials, reveals visibility and re
     uploadedByTelegramUserId: 42,
   });
   const loaded = await repository.findMaterialById(material.id);
+  const listed = await repository.listMaterials(game.id);
   const revealed = await repository.updateMaterialVisibility({
     materialId: material.id,
     visibility: 'players',
@@ -327,6 +328,7 @@ test('database role game repository creates materials, reveals visibility and re
   });
 
   assert.equal(loaded?.title, 'Pista del sótano');
+  assert.deepEqual(listed.map((listedMaterial) => listedMaterial.id), [material.id]);
   assert.equal(revealed.visibility, 'players');
   assert.equal(revealed.deliveryState, 'revealed');
   assert.ok(revealed.revealedAt);
@@ -569,6 +571,7 @@ function createRoleGameStoreFixture() {
           return {
             where: () => ({
               limit: async () => materials.slice(0, 1),
+              orderBy: async () => materials,
             }),
           };
         }
@@ -616,6 +619,7 @@ function createRoleGameStoreFixture() {
           return {
             where: () => ({
               limit: async () => materials.slice(0, 1),
+              orderBy: async () => materials,
             }),
           };
         }

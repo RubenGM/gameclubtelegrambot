@@ -285,6 +285,14 @@ export function createDatabaseRoleGameRepository({
       const row = rows.find((candidate) => candidate.id === materialId) ?? null;
       return row ? mapRoleGameMaterialRow(row) : null;
     },
+    async listMaterials(gameId) {
+      const rows = await database
+        .select()
+        .from(roleGameMaterials)
+        .where(eq(roleGameMaterials.roleGameId, gameId))
+        .orderBy(asc(roleGameMaterials.createdAt), asc(roleGameMaterials.id));
+      return rows.filter((row) => row.roleGameId === gameId).map(mapRoleGameMaterialRow);
+    },
     async updateMaterialVisibility(input) {
       const now = new Date();
       const rows = await database

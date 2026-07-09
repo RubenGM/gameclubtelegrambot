@@ -277,6 +277,7 @@ function createMemoryRoleGameRepository({
       throw new Error('not implemented in this test');
     },
     findMaterialById: async () => null,
+    listMaterials: async () => [],
     updateMaterialVisibility: async () => {
       throw new Error('not implemented in this test');
     },

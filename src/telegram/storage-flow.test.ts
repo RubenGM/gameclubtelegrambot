@@ -1333,6 +1333,72 @@ test('handleTelegramStorageText hides role game handout categories from storage 
   assert.deepEqual(copiedMessages, []);
 });
 
+test('handleTelegramStorageCallback blocks direct internal role handout storage actions', async () => {
+  const repository = createRepository([
+    createCategory({ id: 8, slug: 'handouts', displayName: 'Handouts de rol', storageThreadId: 11, categoryPurpose: 'role_game_handouts' }),
+  ]);
+  await repository.createEntry({
+    categoryId: 8,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Secreto del villano',
+    tags: ['rol'],
+    messages: [
+      {
+        storageChatId: -100123,
+        storageMessageId: 900,
+        storageThreadId: 11,
+        telegramFileId: 'file-1',
+        telegramFileUniqueId: 'unique-1',
+        attachmentKind: 'document',
+        caption: null,
+        originalFileName: 'secreto-villano.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        mediaGroupId: null,
+        sortOrder: 0,
+      },
+    ],
+  });
+
+  const edit = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [8],
+    canUploadCategoryIds: [8],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  edit.context.callbackData = `${storageCallbackPrefixes.editEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(edit.context as never), true);
+  assert.equal(edit.getCurrentSession(), null);
+  assert.equal(edit.replies.at(-1)?.message, 'No existe ninguna entrada disponible con ese identificador.');
+
+  const remove = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [8],
+    canUploadCategoryIds: [8],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  remove.context.callbackData = `${storageCallbackPrefixes.deleteEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(remove.context as never), true);
+  assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'active');
+  assert.equal(remove.getCurrentSession(), null);
+  assert.equal(remove.replies.at(-1)?.message, 'No existe ninguna entrada disponible con ese identificador.');
+
+  const print = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [8],
+    canUploadCategoryIds: [8],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  print.context.callbackData = `${storageCallbackPrefixes.printEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(print.context as never), true);
+  assert.equal(print.getCurrentSession(), null);
+  assert.equal(print.replies.at(-1)?.message, 'No existe ninguna entrada disponible con ese identificador.');
+});
+
 test('handleTelegramStorageText searches entries inside readable categories', async () => {
   const repository = createRepository([createCategory()]);
   await repository.createEntry({

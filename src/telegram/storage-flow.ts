@@ -2041,7 +2041,11 @@ async function startStorageEntryPrint(
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).storage;
   const detail = await resolveRepository(context).getEntryDetail(entryId);
-  if (!detail || detail.entry.lifecycleStatus !== 'active') {
+  if (
+    !detail ||
+    detail.entry.lifecycleStatus !== 'active' ||
+    !isUserVisibleStorageEntryDetail(detail)
+  ) {
     await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
     return true;
   }
@@ -6408,6 +6412,9 @@ function canManageStorageEntries(context: StorageFlowContext): boolean {
 }
 
 function canEditStorageEntry(context: StorageFlowContext, detail: StorageEntryDetailRecord): boolean {
+  if (!isUserVisibleStorageEntryDetail(detail)) {
+    return false;
+  }
   return (
     canManageStorageEntries(context) ||
     detail.entry.createdByTelegramUserId === context.runtime.actor.telegramUserId
@@ -6415,7 +6422,14 @@ function canEditStorageEntry(context: StorageFlowContext, detail: StorageEntryDe
 }
 
 function canManageStorageEntryTags(context: StorageFlowContext, detail: StorageEntryDetailRecord): boolean {
+  if (!isUserVisibleStorageEntryDetail(detail)) {
+    return false;
+  }
   return context.runtime.actor.isAdmin || detail.entry.createdByTelegramUserId === context.runtime.actor.telegramUserId;
+}
+
+function isUserVisibleStorageEntryDetail(detail: StorageEntryDetailRecord): boolean {
+  return isUserVisibleStorageCategoryPurpose(detail.category.categoryPurpose);
 }
 
 function parsePositiveInteger(value: string): number | null {

@@ -11,6 +11,9 @@ export const roleGameCallbackPrefixes = {
   scheduleSession: 'role_game:schedule:',
   configureRecurrence: 'role_game:configure_recurrence:',
   materialUpload: 'role_game:material_upload:',
+  materials: 'role_game:materials:',
+  edit: 'role_game:edit:',
+  invite: 'role_game:invite:',
   material: 'role_game:material:',
 } as const;
 
@@ -77,7 +80,8 @@ export function buildRoleGameDetailInlineKeyboard({
   canRequestSeat = false,
   canScheduleSession = false,
   canConfigureRecurrence = false,
-  canManageMaterials = false,
+  canEditGame = false,
+  canManageGame = false,
   language = 'ca',
 }: {
   gameId: number;
@@ -85,7 +89,8 @@ export function buildRoleGameDetailInlineKeyboard({
   canRequestSeat?: boolean;
   canScheduleSession?: boolean;
   canConfigureRecurrence?: boolean;
-  canManageMaterials?: boolean;
+  canEditGame?: boolean;
+  canManageGame?: boolean;
   language?: BotLanguage;
 }): Pick<TelegramReplyOptions, 'inlineKeyboard'> {
   const texts = createTelegramI18n(language).roleGames;
@@ -100,9 +105,18 @@ export function buildRoleGameDetailInlineKeyboard({
       { text: texts.scheduleNextSession, callbackData: `${roleGameCallbackPrefixes.scheduleSession}${gameId}`, semanticRole: 'success' },
     ]);
   }
-  if (canManageMaterials) {
+  if (canEditGame) {
+    inlineKeyboard.push([
+      { text: texts.editGame, callbackData: `${roleGameCallbackPrefixes.edit}${gameId}`, semanticRole: 'primary' },
+    ]);
+  }
+  if (canManageGame) {
+    inlineKeyboard.push([
+      { text: texts.invitePlayers, callbackData: `${roleGameCallbackPrefixes.invite}${gameId}`, semanticRole: 'success' },
+    ]);
     inlineKeyboard.push([
       { text: texts.uploadMaterial, callbackData: `${roleGameCallbackPrefixes.materialUpload}${gameId}`, semanticRole: 'primary' },
+      { text: texts.materials, callbackData: `${roleGameCallbackPrefixes.materials}${gameId}:1`, semanticRole: 'primary' },
     ]);
   }
   if (canRequestSeat) {

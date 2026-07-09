@@ -598,6 +598,11 @@ function createMemoryRoleGameRepository(): RoleGameRepository {
     async findMaterialById(materialId) {
       return materials.get(materialId) ?? null;
     },
+    async listMaterials(gameId) {
+      return Array.from(materials.values())
+        .filter((material) => material.roleGameId === gameId)
+        .sort((left, right) => left.id - right.id);
+    },
     async updateMaterialVisibility(input) {
       const existing = materials.get(input.materialId);
       if (!existing) {

@@ -27,7 +27,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `public-events`; `/admin/news` resume feeds activos. |
 | Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
-| Rol / partidas de rol                        | 🟢 Operativo         | Crear campañas/one-shots, solicitudes, sesiones Agenda, recurrencias, handouts ocultos y acceso externo controlado para one-shots.      |
+| Rol / partidas de rol                        | 🟢 Operativo         | Crear, editar e invitar a campañas/one-shots, solicitudes, sesiones Agenda, recurrencias y handouts ocultos gestionados desde Rol.       |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
 | Impresión                                    | 🟢 Operativo         | Botón privado con estados admin Activar/Desactivar/Modo prueba, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial. |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
@@ -118,8 +118,10 @@ Implementado:
 - Comandos `/rol` y `/role_games` para abrir el menu de Rol.
 - Home con `Mis partidas`, `Partidas visibles`, `Crear partida` y `Cancelar` con rol danger.
 - Listas read-only de partidas propias y visibles desde `RoleGameRepository`, con paginacion estilo Telegram y deep links `role_game_<id>` al detalle.
-- `/start role_game_<id>` abre el detalle de la partida en privado.
+- `/start role_game_<id>` abre el detalle de la partida en privado con acciones inline de gestion visibles para GM/coorganizadores/admins.
 - `Crear partida` inicia un flujo guiado cancelable para crear la partida base con tipo, titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion y modo de programacion.
+- `Editar partida` inicia un flujo guiado cancelable para cambiar titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion, programacion manual por jugadores, publicacion Agenda por defecto y estado.
+- `Invitar jugadores` genera un enlace `role_game_<id>` compartible con resumen de plazas confirmadas sin aprobar automaticamente membresias.
 - Los one-shots piden fecha y hora en la creacion y generan una primera sesion en `schedule_events` enlazada con `role_game_sessions`.
 - Las campañas activas en modo manual muestran `Programar siguiente sesión` a GM/coorganizadores/admins, y tambien a jugadores confirmados si la partida permite programacion manual por jugadores; one-shots, partidas pausadas y campañas recurrentes no exponen esta accion manual.
 - Las campañas pueden configurarse como recurrentes desde la creacion o desde el detalle con `Configurar recurrencia`, indicando intervalo semanal, dia, hora y ventana de sesiones futuras.
@@ -129,11 +131,8 @@ Implementado:
 - Los one-shots publicos con politica `members_and_external` se pueden abrir desde `/start role_game_<id>` por usuarios no aprobados y permiten solicitar plaza externa sin aprobar automaticamente la membresia del usuario.
 - Infraestructura Storage para handouts internos con proposito `role_game_handouts`, oculto de Storage normal, `/storage`, busquedas, web/TUI Storage y busquedas LLM.
 - Los managers pueden subir material desde la ficha de partida; el bot copia el adjunto a Storage interno con progreso editable, crea `role_game_materials` como `gm_only` y devuelve enlace `role_material_<id>` sin exponer `storage_entry_<id>`.
+- `Materiales` lista handouts subidos desde Rol con paginacion inline cuando corresponde, enlazando solo `role_material_<id>` y sin abrir acceso a Storage.
 - Los handouts pueden enviarse sólo esta vez, enviarse y revelarse o revelarse sin envio; el bot copia los adjuntos almacenados a jugadores confirmados, registra `role_game_material_deliveries`, resume fallos parciales y aplica permisos de Rol a `role_material_<id>`.
-
-Pendiente:
-
-- Edicion guiada de partidas.
 
 ## Asistente LLM de órdenes naturales
 
