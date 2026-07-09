@@ -7,6 +7,8 @@ import {
   canViewRoleGame,
   createRoleGame,
   requestRoleGameSeat,
+  resolveRoleGameSeatRequest,
+  setRoleGameMemberStatus,
   type CreateRoleGameInput,
   type RoleGameMemberRecord,
   type RoleGameMaterialDeliveryRecord,
@@ -205,6 +207,98 @@ test('requestRoleGameSeat delegates seat allocation to one repository operation'
   assert.equal(createCalls, 0);
 });
 
+test('setRoleGameMemberStatus normalizes and delegates status changes', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const game = await repository.createGame(sampleCreateInput());
+  const requested = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+
+  const updated = await setRoleGameMemberStatus({
+    repository,
+    memberId: requested.id,
+    status: 'confirmed',
+    actorTelegramUserId: 42,
+  });
+
+  assert.equal(updated.status, 'confirmed');
+});
+
+test('resolveRoleGameSeatRequest confirms only pending player requests with capacity', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const game = await repository.createGame(sampleCreateInput({ capacity: 2 }));
+  const requested = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+
+  const updated = await resolveRoleGameSeatRequest({
+    repository,
+    memberId: requested.id,
+    status: 'confirmed',
+    actorTelegramUserId: 42,
+  });
+
+  assert.equal(updated.status, 'confirmed');
+});
+
+test('resolveRoleGameSeatRequest rejects non-pending and full confirmations', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const game = await repository.createGame(sampleCreateInput({ capacity: 1 }));
+  await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 101,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 101,
+  });
+  const requested = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+  const coorganizer = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 102,
+    role: 'coorganizer',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 102,
+  });
+
+  await assert.rejects(
+    resolveRoleGameSeatRequest({
+      repository,
+      memberId: requested.id,
+      status: 'confirmed',
+      actorTelegramUserId: 42,
+    }),
+    /full/,
+  );
+  await assert.rejects(
+    resolveRoleGameSeatRequest({
+      repository,
+      memberId: coorganizer.id,
+      status: 'rejected',
+      actorTelegramUserId: 42,
+    }),
+    /not a pending player request/,
+  );
+});
+
 function createMemoryRoleGameRepository(): RoleGameRepository {
   const games = new Map<number, RoleGameRecord>();
   const members = new Map<number, RoleGameMemberRecord>();
@@ -310,6 +404,9 @@ function createMemoryRoleGameRepository(): RoleGameRepository {
       return (
         Array.from(members.values()).find((member) => member.roleGameId === gameId && member.telegramUserId === telegramUserId) ?? null
       );
+    },
+    async findMemberById(memberId) {
+      return members.get(memberId) ?? null;
     },
     async listMembers(gameId) {
       return Array.from(members.values()).filter((member) => member.roleGameId === gameId);

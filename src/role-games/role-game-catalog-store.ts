@@ -180,6 +180,11 @@ export function createDatabaseRoleGameRepository({
       const row = await findMemberRow(database, gameId, telegramUserId);
       return row ? mapRoleGameMemberRow(row) : null;
     },
+    async findMemberById(memberId) {
+      const rows = await database.select().from(roleGameMembers).where(eq(roleGameMembers.id, memberId)).limit(1);
+      const row = rows.find((candidate) => candidate.id === memberId) ?? null;
+      return row ? mapRoleGameMemberRow(row) : null;
+    },
     async listMembers(gameId) {
       const rows = await database
         .select()

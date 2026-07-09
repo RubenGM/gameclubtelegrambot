@@ -208,6 +208,7 @@ export interface RoleGameRepository {
   createOrUpdateMember(input: CreateOrUpdateRoleGameMemberInput): Promise<RoleGameMemberRecord>;
   findMember(gameId: number, telegramUserId: number): Promise<RoleGameMemberRecord | null>;
   findMemberByTelegramUserId(gameId: number, telegramUserId: number): Promise<RoleGameMemberRecord | null>;
+  findMemberById(memberId: number): Promise<RoleGameMemberRecord | null>;
   listMembers(gameId: number): Promise<RoleGameMemberRecord[]>;
   countConfirmedPlayers(gameId: number): Promise<number>;
   createMember(input: CreateRoleGameMemberInput): Promise<RoleGameMemberRecord>;
@@ -301,6 +302,42 @@ export async function setRoleGameMemberStatus({
     memberId: normalizeEntityId(memberId, 'role game member'),
     status,
     actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
+  });
+}
+
+export async function resolveRoleGameSeatRequest({
+  repository,
+  memberId,
+  status,
+  actorTelegramUserId,
+}: {
+  repository: RoleGameRepository;
+  memberId: number;
+  status: 'confirmed' | 'rejected';
+  actorTelegramUserId: number;
+}): Promise<RoleGameMemberRecord> {
+  const normalizedMemberId = normalizeEntityId(memberId, 'role game member');
+  const normalizedActorTelegramUserId = normalizeTelegramUserId(actorTelegramUserId, 'actor');
+  const member = await repository.findMemberById(normalizedMemberId);
+  if (!member || member.role !== 'player' || member.status !== 'requested') {
+    throw new Error(`Role game member ${normalizedMemberId} is not a pending player request`);
+  }
+
+  if (status === 'confirmed') {
+    const game = await repository.findGameById(member.roleGameId);
+    if (!game) {
+      throw new Error(`Role game ${member.roleGameId} not found`);
+    }
+    const confirmedPlayers = await repository.countConfirmedPlayers(game.id);
+    if (confirmedPlayers >= game.capacity) {
+      throw new Error(`Role game ${game.id} is full`);
+    }
+  }
+
+  return repository.setMemberStatus({
+    memberId: normalizedMemberId,
+    status,
+    actorTelegramUserId: normalizedActorTelegramUserId,
   });
 }
 

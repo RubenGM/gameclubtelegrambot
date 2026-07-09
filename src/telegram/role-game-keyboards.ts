@@ -5,6 +5,9 @@ export const roleGameCallbackPrefixes = {
   detail: 'role_game:detail:',
   listMine: 'role_game:list:mine:',
   listVisible: 'role_game:list:visible:',
+  requestSeat: 'role_game:request:',
+  acceptRequest: 'role_game:accept:',
+  rejectRequest: 'role_game:reject:',
 } as const;
 
 export function buildRoleGameHomeKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
@@ -40,6 +43,55 @@ export function buildRoleGameListKeyboard({
     [successButton(texts.createGame)],
     [dangerButton(texts.cancel)],
   ]);
+}
+
+export function buildRoleGameCreateStepKeyboard({
+  language = 'ca',
+  rows = [],
+}: {
+  language?: BotLanguage;
+  rows?: TelegramReplyButton[][];
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    ...rows,
+    [dangerButton(texts.cancel)],
+  ]);
+}
+
+export function buildRoleGameCreateConfirmationKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [successButton(texts.confirmCreate)],
+    [dangerButton(texts.cancel)],
+  ]);
+}
+
+export function buildRoleGameDetailInlineKeyboard({
+  gameId,
+  requestMemberIds = [],
+  canRequestSeat = false,
+  language = 'ca',
+}: {
+  gameId: number;
+  requestMemberIds?: number[];
+  canRequestSeat?: boolean;
+  language?: BotLanguage;
+}): Pick<TelegramReplyOptions, 'inlineKeyboard'> {
+  const texts = createTelegramI18n(language).roleGames;
+  const inlineKeyboard: NonNullable<TelegramReplyOptions['inlineKeyboard']> = [];
+  if (canRequestSeat) {
+    inlineKeyboard.push([
+      { text: texts.requestSeat, callbackData: `${roleGameCallbackPrefixes.requestSeat}${gameId}`, semanticRole: 'success' },
+    ]);
+  }
+  for (const memberId of requestMemberIds) {
+    inlineKeyboard.push([
+      { text: texts.acceptRequest, callbackData: `${roleGameCallbackPrefixes.acceptRequest}${memberId}`, semanticRole: 'success' },
+      { text: texts.rejectRequest, callbackData: `${roleGameCallbackPrefixes.rejectRequest}${memberId}`, semanticRole: 'danger' },
+    ]);
+  }
+  return inlineKeyboard.length > 0 ? { inlineKeyboard } : {};
 }
 
 function buildRoleGameReplyKeyboard(language: BotLanguage, rows: TelegramReplyButton[][]): TelegramReplyOptions {
