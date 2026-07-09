@@ -133,6 +133,16 @@ test('canViewRoleGameMaterial allows confirmed players after reveal', () => {
   assert.equal(canViewRoleGameMaterial({ telegramUserId: 101, isAdmin: false }, game, requested, material), false);
 });
 
+test('canViewRoleGameMaterial scopes external confirmed players to their game', () => {
+  const game = sampleGame({ id: 7, primaryGmTelegramUserId: 42, visibility: 'public', publicJoinPolicy: 'members_and_external' });
+  const material = sampleMaterial({ roleGameId: game.id, visibility: 'players', deliveryState: 'revealed' });
+  const externalPlayer = sampleMember({ roleGameId: game.id, telegramUserId: 100, role: 'player', status: 'confirmed', isExternal: true });
+  const otherGameMaterial = sampleMaterial({ roleGameId: 8, visibility: 'players', deliveryState: 'revealed' });
+
+  assert.equal(canViewRoleGameMaterial({ telegramUserId: 100, isAdmin: false, isApproved: false }, game, externalPlayer, material), true);
+  assert.equal(canViewRoleGameMaterial({ telegramUserId: 100, isAdmin: false, isApproved: false }, game, externalPlayer, otherGameMaterial), false);
+});
+
 test('createRoleGameMaterial normalizes gm-only material metadata', async () => {
   const repository = createMemoryRoleGameRepository();
   const material = await createRoleGameMaterial({
@@ -248,6 +258,7 @@ test('requestRoleGameSeat requires public external access for unapproved actors'
   const repository = createMemoryRoleGameRepository();
   const game = await repository.createGame(
     sampleCreateInput({
+      type: 'one_shot',
       visibility: 'public',
       publicJoinPolicy: 'members_only',
     }),
@@ -259,6 +270,42 @@ test('requestRoleGameSeat requires public external access for unapproved actors'
       gameId: game.id,
       telegramUserId: 100,
       actor: { telegramUserId: 100, isAdmin: false, isApproved: false },
+    }),
+    /does not accept external players/,
+  );
+});
+
+test('requestRoleGameSeat accepts only public one-shots for external actors', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const oneShot = await repository.createGame(sampleCreateInput({
+    type: 'one_shot',
+    visibility: 'public',
+    publicJoinPolicy: 'members_and_external',
+    acceptanceMode: 'auto_until_full',
+  }));
+  const campaign = await repository.createGame(sampleCreateInput({
+    type: 'campaign',
+    title: 'Campaña abierta',
+    visibility: 'public',
+    publicJoinPolicy: 'members_and_external',
+    acceptanceMode: 'auto_until_full',
+  }));
+
+  const member = await requestRoleGameSeat({
+    repository,
+    gameId: oneShot.id,
+    telegramUserId: 100,
+    actor: { telegramUserId: 100, isAdmin: false, isApproved: false },
+  });
+
+  assert.equal(member.status, 'confirmed');
+  assert.equal(member.isExternal, true);
+  await assert.rejects(
+    requestRoleGameSeat({
+      repository,
+      gameId: campaign.id,
+      telegramUserId: 101,
+      actor: { telegramUserId: 101, isAdmin: false, isApproved: false },
     }),
     /does not accept external players/,
   );

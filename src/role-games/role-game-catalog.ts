@@ -276,7 +276,10 @@ export async function requestRoleGameSeat({
   }
 
   const isExternal = normalizedActor.isApproved !== true;
-  if (isExternal && (game.visibility !== 'public' || game.publicJoinPolicy !== 'members_and_external')) {
+  if (
+    isExternal &&
+    (game.type !== 'one_shot' || game.visibility !== 'public' || game.publicJoinPolicy !== 'members_and_external')
+  ) {
     throw new Error(`Role game ${normalizedGameId} does not accept external players`);
   }
 

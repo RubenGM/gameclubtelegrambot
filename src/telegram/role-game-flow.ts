@@ -249,7 +249,11 @@ export async function handleTelegramRoleGameStartText(context: TelegramRoleGameC
 
 export async function handleTelegramRoleGameCallback(context: TelegramRoleGameContext): Promise<boolean> {
   const callbackData = context.callbackData;
-  if (!callbackData || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
+  if (!callbackData || context.runtime.chat.kind !== 'private' || context.runtime.actor.isBlocked) {
+    return false;
+  }
+  const isExternalSeatRequest = callbackData.startsWith(roleGameCallbackPrefixes.requestSeat);
+  if (!context.runtime.actor.isApproved && !isExternalSeatRequest) {
     return false;
   }
 

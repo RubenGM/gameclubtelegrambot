@@ -135,6 +135,63 @@ test('handleTelegramRoleGameStartText blocks member-only deep links for unapprov
   assert.match(lastReply(context).message, /No se ha encontrado/);
 });
 
+test('handleTelegramRoleGameStartText opens public external one-shot links for unapproved actors', async () => {
+  const game = sampleRoleGame({
+    id: 24,
+    type: 'one_shot',
+    title: 'Jornada abierta',
+    visibility: 'public',
+    publicJoinPolicy: 'members_and_external',
+  });
+  const context = createRoleGameTestContext({
+    messageText: '/start role_game_24',
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game] }),
+    actor: { telegramUserId: 100, isApproved: false, status: 'pending' },
+  });
+
+  const handled = await handleTelegramRoleGameStartText(context);
+
+  assert.equal(handled, true);
+  assert.match(lastReply(context).message, /Jornada abierta/);
+  assert.match(lastReply(context).options?.inlineKeyboard?.flat().map((button) => button.text).join(' ') ?? '', /Solicitar plaza/);
+});
+
+test('handleTelegramRoleGameCallback lets unapproved external users request public one-shot seats without approving membership', async () => {
+  const game = sampleRoleGame({
+    id: 25,
+    type: 'one_shot',
+    visibility: 'public',
+    publicJoinPolicy: 'members_and_external',
+    acceptanceMode: 'auto_until_full',
+  });
+  let requestedExternal: boolean | null = null;
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: 'role_game:request:25',
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, []]]),
+      onRequestSeat: async (input) => {
+        requestedExternal = input.isExternal;
+        return sampleRoleGameMember({
+          roleGameId: game.id,
+          telegramUserId: input.telegramUserId,
+          status: 'confirmed',
+          isExternal: input.isExternal,
+        });
+      },
+    }),
+    actor: { telegramUserId: 100, isApproved: false, status: 'pending' },
+  });
+
+  const handled = await handleTelegramRoleGameCallback(context);
+
+  assert.equal(handled, true);
+  assert.equal(requestedExternal, true);
+  assert.equal(context.runtime.actor.status, 'pending');
+  assert.match(lastReply(context).message, /Plaza confirmada/);
+});
+
 test('handleTelegramRoleGameCallback blocks fabricated private-game details for non-members', async () => {
   const game = sampleRoleGame({ id: 23, title: 'Mesa privada', visibility: 'private', primaryGmTelegramUserId: 99 });
   const context = createRoleGameTestContext({
