@@ -265,6 +265,13 @@ contenido narrativo, el bot debe entregar a la LLM datos suficientes para
 distinguir el tipo de contenido: descripción, categoría, tags, nombres de
 archivos, tipo de adjunto y metadatos disponibles.
 
+Las búsquedas normales de Storage sólo exponen categorías de propósito
+`user_uploads`. Las categorías internas como `catalog_media` y los handouts de
+Rol (`role_game_handouts`) no se entregan a `storage.search`, `bot.search`,
+listados de categorías ni enlaces `storage_entry_<id>`. Los materiales de Rol
+deben abrirse por enlaces `role_material_<id>` y por los permisos propios de
+Rol cuando esa entrega esté conectada.
+
 La categoría principal de STL representa el ámbito completo de contenido de
 impresión 3D. Todo lo que cuelga de esa raíz debe interpretarse como STL,
 modelos 3D, figuras, estatuas, miniaturas, dioramas o términos equivalentes,

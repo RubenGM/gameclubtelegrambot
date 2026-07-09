@@ -308,7 +308,10 @@ export function isCatalogImageAttachment(attachment: CatalogMediaAttachmentInput
 async function resolveCatalogMediaStorageCategory(
   context: CatalogMediaStorageContext,
 ): Promise<{ ok: true; category: StorageCategoryRecord } | { ok: false; reason: string }> {
-  const existing = (await context.repository.listCategories()).find(
+  const categories = context.repository.listAllCategoriesForInternalUse
+    ? await context.repository.listAllCategoriesForInternalUse()
+    : await context.repository.listCategories();
+  const existing = categories.find(
     (category) => category.lifecycleStatus === 'active' && (
       category.categoryPurpose === 'catalog_media' || category.slug === catalogMediaStorageCategorySlug
     ),

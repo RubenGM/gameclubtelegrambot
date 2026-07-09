@@ -13,6 +13,7 @@ import {
   type StorageEntryDetailRecord,
   type StorageEntryMessageRecord,
 } from '../storage/storage-catalog.js';
+import { isUserVisibleStorageCategoryPurpose } from '../storage/storage-internal-purpose.js';
 import {
   createDatabaseStorageCategoryAccessRepository,
   type StorageCategoryAccessRepository,
@@ -2463,7 +2464,11 @@ export async function sendStorageEntryDetail(
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).storage;
   const detail = loadedDetail ?? await resolveRepository(context).getEntryDetail(entryId);
-  if (!detail || detail.entry.lifecycleStatus !== 'active') {
+  if (
+    !detail ||
+    detail.entry.lifecycleStatus !== 'active' ||
+    !isUserVisibleStorageCategoryPurpose(detail.category.categoryPurpose)
+  ) {
     await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
     return true;
   }
@@ -4350,7 +4355,7 @@ async function listActiveCategories(context: StorageFlowContext): Promise<Storag
 
 function isVisibleUserStorageCategory(category: StorageCategoryRecord): boolean {
   return category.lifecycleStatus === 'active'
-    && category.categoryPurpose === 'user_uploads'
+    && isUserVisibleStorageCategoryPurpose(category.categoryPurpose)
     && !internalStorageCategorySlugs.has(category.slug.toLowerCase())
     && !internalStorageCategoryDisplayNames.has(category.displayName.trim().toLowerCase());
 }
@@ -4378,7 +4383,7 @@ function buildStorageCategoryParentChoices(
   categories: StorageCategoryRecord[],
 ): StorageCategoryRecord[] {
   const excludedIds = new Set([category.id, ...collectStorageCategoryDescendantIds(category.id, categories)]);
-  return categories.filter((candidate) => !excludedIds.has(candidate.id) && candidate.lifecycleStatus === 'active' && candidate.categoryPurpose === 'user_uploads');
+  return categories.filter((candidate) => !excludedIds.has(candidate.id) && candidate.lifecycleStatus === 'active' && isUserVisibleStorageCategoryPurpose(candidate.categoryPurpose));
 }
 
 async function buildStorageCategorySummaries(

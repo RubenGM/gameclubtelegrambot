@@ -27,7 +27,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `public-events`; `/admin/news` resume feeds activos. |
 | Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
-| Rol / partidas de rol                        | 🟠 Parcial           | Botón privado `Rol`, creación, solicitudes, sesiones manuales y recurrencias con ventana futura respaldadas por Agenda; handouts pendientes. |
+| Rol / partidas de rol                        | 🟠 Parcial           | Botón privado `Rol`, creación, solicitudes, sesiones y recurrencias con Agenda; handouts ocultos preparados, entrega pendiente.          |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
 | Impresión                                    | 🟢 Operativo         | Botón privado con estados admin Activar/Desactivar/Modo prueba, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial. |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
@@ -126,11 +126,12 @@ Implementado:
 - El worker de recurrencias arranca junto al servicio y mantiene la ventana futura de campañas recurrentes creando eventos Agenda enlazados en `role_game_sessions`; las sesiones canceladas enlazadas no se recrean.
 - Las sesiones de rol reutilizan Agenda: crean eventos con `createScheduleEvent`, enlazan `role_game_sessions`, apuntan automaticamente a jugadores confirmados hasta la capacidad disponible cuando la partida lo configura y enlazan el recibo a `schedule_event_<id>`.
 - Los detalles muestran `Solicitar plaza` cuando corresponde y los managers operativos pueden aceptar o rechazar solicitudes con botones inline diferenciados por rol semantico.
+- Infraestructura Storage para handouts internos con proposito `role_game_handouts`, oculto de Storage normal, `/storage`, busquedas, web/TUI Storage y busquedas LLM; la entrega visible queda reservada para enlaces `role_material_<id>`.
 
 Pendiente:
 
 - Edicion guiada de partidas.
-- Handouts privados respaldados por Storage.
+- Subida, permisos de detalle y entrega Telegram de handouts privados.
 
 ## Asistente LLM de órdenes naturales
 
@@ -160,7 +161,7 @@ Implementado:
 - El prompt distingue catálogo físico/prestable frente a Storage como repositorio de archivos, incluyendo STL y material de rol como libros, manuales, aventuras, fichas y mapas, para clasificar mejor consultas ambiguas.
 - Las recomendaciones LLM de catálogo usan `catalog.recommend`: el bot filtra juegos reales por tipo, disponibilidad y número de jugadores, usa la consulta como señal de ranking semántico sobre texto y metadatos BGG en vez de como filtro duro, aplica fallback a rangos cercanos, juegos prestados o metadatos incompletos cuando no hay coincidencia exacta, envía candidatos con metadatos a la LLM para elegir, y renderiza la respuesta con enlaces a los detalles del bot.
 - La importación/autocorrección BGG guarda metadatos útiles para recomendaciones: peso medio, rating, bayes average, usuarios, votos de peso y rangos de jugadores recomendados por encuesta, además de categorías y mecánicas.
-- Las búsquedas LLM de Storage refinan los candidatos con una segunda pasada semántica sobre descripción, ruta completa de categoría, tags y archivos para separar, por ejemplo, material de rol/PDF de modelos STL con la misma franquicia; si la consulta coincide con una categoría, el bot incluye también sus descendientes para encontrar archivos guardados en subcarpetas específicas, y trata todo lo que cuelga de la categoría raíz de STL como contenido de impresión 3D (`STL`, modelos 3D, figuras, estatuas, miniaturas o dioramas) en vez de exigir extensión `.stl` literal.
+- Las búsquedas LLM de Storage refinan los candidatos visibles con una segunda pasada semántica sobre descripción, ruta completa de categoría, tags y archivos para separar, por ejemplo, material de rol/PDF de modelos STL con la misma franquicia; si la consulta coincide con una categoría visible, el bot incluye también sus descendientes para encontrar archivos guardados en subcarpetas específicas, y trata todo lo que cuelga de la categoría raíz de STL como contenido de impresión 3D (`STL`, modelos 3D, figuras, estatuas, miniaturas o dioramas) en vez de exigir extensión `.stl` literal. Los handouts internos de Rol no se devuelven por `storage.search` ni por la sección Storage de `bot.search`.
 - Timeout LLM por defecto ampliado a 60s para reducir cortes en grupos y búsquedas con refinado semántico; los timeouts se comunican con mensaje específico al usuario.
 - Las lecturas usan el riesgo local de la allowlist por encima del `safety.risk` devuelto por la LLM, de modo que consultas como agenda semanal no caen en confirmación/prellenado aunque la LLM clasifique mal la salida.
 - Métricas saneadas persistidas en `audit_log` con intención, confianza, origen, tipo de chat, resultado, duración y motivo; no guardan texto literal del usuario, prompt completo ni respuesta completa de la LLM.
@@ -357,6 +358,7 @@ Implementado:
 - Tags visibles como enlaces `#tag (X archivos)` hacia busqueda por tag, listado paginado de tags, entrada flexible sin `#` en prompts explicitos y gestion desde el detalle de archivo para propietario o admin.
 - Criterio de organizacion visible en los flujos de subida: categorias para ubicacion/tipo general del contenido y tags para rasgos cruzados como criaturas, facciones, formatos, campañas o packs mixtos.
 - Busqueda de Storage con entrada guiada para buscar por palabra/tag o explorar categorias nivel a nivel, normalizando `#tag` y buscando tambien por nombre de categoria.
+- Las categorias internas `catalog_media` y `role_game_handouts` quedan fuera de la navegacion normal, busqueda, web/TUI Storage y enlaces `storage_entry_<id>`.
 - Subida por DM: el usuario elige categoria con selector nivel a nivel, envia adjuntos con recibo editable del total del lote, finaliza, revisa tags con opcion de omitir, revisa una vista previa acotada para no superar el limite de Telegram con botones visibles para editar descripcion, añadir tags, añadir imagenes o completar, acumula imagenes adicionales con recibo editable, recibe aviso antes de completar sin tags y el bot muestra progreso editable con estado por adjunto mientras copia al topic canonico, indexa y notifica suscripciones; al terminar edita el recibo con enlaces directos a la entrada guardada y a su categoria.
 - Subida por reenvio de mensajes de Telegram en privado: en modo neutral el bot pregunta que hacer, permite "Añadir a almacenamiento", acumula mensajes reenviados con un recibo editable del total del lote, pide categoria, precarga descripcion/tags/adjuntos/texto desde el mensaje reenviado, filtra enlaces `t.me` de spam antes de derivar descripcion o guardar captions y confirma tags antes de mostrar la vista previa.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.

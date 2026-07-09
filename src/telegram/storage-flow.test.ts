@@ -1285,6 +1285,54 @@ test('handleTelegramStorageText shows categories directly in the storage menu', 
   assert.match(replies.at(-1)?.message ?? '', /Categorías disponibles:/);
 });
 
+test('handleTelegramStorageText hides role game handout categories from storage menu and search', async () => {
+  const repository = createRepository([
+    createCategory({ id: 7, slug: 'manuales', displayName: 'Manuales', categoryPurpose: 'user_uploads' }),
+    createCategory({ id: 8, slug: 'handouts', displayName: 'Handouts de rol', storageThreadId: 11, categoryPurpose: 'role_game_handouts' }),
+  ]);
+  await repository.createEntry({
+    categoryId: 8,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Secreto del villano',
+    tags: ['rol'],
+    messages: [
+      {
+        storageChatId: -100123,
+        storageMessageId: 900,
+        storageThreadId: 11,
+        telegramFileId: 'file-1',
+        telegramFileUniqueId: 'unique-1',
+        attachmentKind: 'document',
+        caption: null,
+        originalFileName: 'secreto-villano.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        mediaGroupId: null,
+        sortOrder: 0,
+      },
+    ],
+  });
+  const { context, replies, copiedMessages } = createContext(repository, { canReadCategoryIds: [7, 8], canUploadCategoryIds: [7, 8] });
+
+  context.messageText = 'Almacenamiento';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Handouts de rol|Secreto del villano|storage_entry_1/);
+
+  context.messageText = 'Buscar archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'villano';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Handouts de rol|Secreto del villano|storage_entry_1/);
+
+  context.messageText = '/start storage_entry_1';
+  assert.equal(await handleTelegramStorageStartText(context as never), true);
+
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Handouts de rol|Secreto del villano/);
+  assert.deepEqual(copiedMessages, []);
+});
+
 test('handleTelegramStorageText searches entries inside readable categories', async () => {
   const repository = createRepository([createCategory()]);
   await repository.createEntry({

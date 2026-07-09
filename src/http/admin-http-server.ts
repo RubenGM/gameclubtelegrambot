@@ -2072,11 +2072,11 @@ async function fetchAdminStorageOverview(
     categories,
     entries,
   ] = await Promise.all([
-    safeCount(services, "select count(*)::int as count from storage_categories where lifecycle_status = 'active'"),
-    safeCount(services, "select count(*)::int as count from storage_categories where lifecycle_status = 'archived'"),
-    safeCount(services, "select count(*)::int as count from storage_entries where lifecycle_status = 'active'"),
-    safeCount(services, "select count(*)::int as count from storage_entries where lifecycle_status = 'deleted'"),
-    safeCount(services, 'select count(*)::int as count from storage_entry_messages'),
+    safeCount(services, "select count(*)::int as count from storage_categories where lifecycle_status = 'active' and category_purpose = 'user_uploads'"),
+    safeCount(services, "select count(*)::int as count from storage_categories where lifecycle_status = 'archived' and category_purpose = 'user_uploads'"),
+    safeCount(services, "select count(*)::int as count from storage_entries entries inner join storage_categories categories on categories.id = entries.category_id where entries.lifecycle_status = 'active' and categories.category_purpose = 'user_uploads'"),
+    safeCount(services, "select count(*)::int as count from storage_entries entries inner join storage_categories categories on categories.id = entries.category_id where entries.lifecycle_status = 'deleted' and categories.category_purpose = 'user_uploads'"),
+    safeCount(services, "select count(*)::int as count from storage_entry_messages messages inner join storage_entries entries on entries.id = messages.entry_id inner join storage_categories categories on categories.id = entries.category_id where categories.category_purpose = 'user_uploads'"),
     fetchStorageCategoryAdminRows(services),
     fetchStorageEntryAdminRows(services, { search: normalizedSearch, categoryId }),
   ]);
@@ -2119,6 +2119,7 @@ async function fetchStorageCategoryAdminRows(services: InfrastructureRuntimeServ
         from storage_categories categories
         left join storage_categories parents on parents.id = categories.parent_category_id
         left join storage_entries entries on entries.category_id = categories.id
+        where categories.category_purpose = 'user_uploads'
         group by categories.id, parents.display_name
         order by
           case when categories.lifecycle_status = 'active' then 0 else 1 end,
@@ -2156,6 +2157,7 @@ async function fetchStorageEntryAdminRows(
   } else {
     return [];
   }
+  filters.push("categories.category_purpose = 'user_uploads'");
   const where = filters.length > 0 ? `where ${filters.join(' and ')}` : '';
   try {
     const result = await services.database.pool.query<StorageEntryAdminRow>(
@@ -2299,6 +2301,7 @@ async function fetchStorageEntryAdminDetail(services: InfrastructureRuntimeServi
           limit 1
         ) preview on true
         where entries.id = $1
+          and categories.category_purpose = 'user_uploads'
         group by entries.id, categories.display_name, users.display_name, preview.telegram_file_id, preview.mime_type, preview.attachment_kind
       `,
       [entryId],
@@ -2333,6 +2336,7 @@ async function fetchStorageCategoryAdminDetail(services: InfrastructureRuntimeSe
         left join storage_categories parents on parents.id = categories.parent_category_id
         left join storage_entries entries on entries.category_id = categories.id
         where categories.id = $1
+          and categories.category_purpose = 'user_uploads'
         group by categories.id, parents.display_name
       `,
       [categoryId],
@@ -3061,8 +3065,12 @@ async function fetchAdminStorageMedia(
     `
       select messages.telegram_file_id, messages.mime_type, messages.attachment_kind
       from storage_entries entries
+      inner join storage_categories categories on categories.id = entries.category_id
       inner join storage_entry_messages messages on messages.entry_id = entries.id
       where entries.id = $1
+        and entries.lifecycle_status = 'active'
+        and categories.lifecycle_status = 'active'
+        and categories.category_purpose = 'user_uploads'
         and messages.telegram_file_id is not null
         and (messages.attachment_kind = 'photo' or messages.mime_type like 'image/%')
       order by messages.sort_order asc, messages.id asc

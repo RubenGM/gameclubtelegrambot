@@ -8,6 +8,7 @@ import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-s
 import { createDatabaseStorageRepository } from '../storage/storage-catalog-store.js';
 import type { CatalogItemRecord, CatalogItemType } from '../catalog/catalog-model.js';
 import type { StorageCategoryRecord, StorageEntryDetailRecord } from '../storage/storage-catalog.js';
+import { isUserVisibleStorageCategoryPurpose } from '../storage/storage-internal-purpose.js';
 import type { TelegramLlmCommandContext } from './llm-command-flow.js';
 import type { LlmCommandIntent } from './llm-command-actions.js';
 import type { LlmCommandGenerateJsonOptions } from './llm-command-service.js';
@@ -227,7 +228,7 @@ async function recommendCatalogItems(
 
 async function listStorageCategories(context: TelegramLlmCommandContext) {
   const categories = await createDatabaseStorageRepository({ database: context.runtime.services.database.db }).listCategories();
-  return categories.filter((category) => category.lifecycleStatus === 'active' && category.categoryPurpose === 'user_uploads');
+  return categories.filter((category) => category.lifecycleStatus === 'active' && isUserVisibleStorageCategoryPurpose(category.categoryPurpose));
 }
 
 async function searchStorage(

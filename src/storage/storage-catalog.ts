@@ -1,5 +1,5 @@
 export type StorageCategoryLifecycleStatus = 'active' | 'archived';
-export type StorageCategoryPurpose = 'user_uploads' | 'catalog_media';
+export type StorageCategoryPurpose = 'user_uploads' | 'catalog_media' | 'role_game_handouts';
 export type StorageEntrySourceKind = 'topic_direct' | 'dm_copy';
 export type StorageEntryLifecycleStatus = 'active' | 'hidden' | 'deleted' | 'missing_source';
 export type StorageAttachmentKind = 'document' | 'photo' | 'video' | 'audio' | 'text';
@@ -103,6 +103,7 @@ export interface StorageCategoryRepository {
   }): Promise<StorageCategoryRecord>;
   findCategoryById(categoryId: number): Promise<StorageCategoryRecord | null>;
   findCategoryByStorageThread(storageChatId: number, storageThreadId: number): Promise<StorageCategoryRecord | null>;
+  listAllCategoriesForInternalUse?(): Promise<StorageCategoryRecord[]>;
   listCategories(): Promise<StorageCategoryRecord[]>;
   createEntry(input: {
     categoryId: number;
@@ -473,7 +474,7 @@ function normalizeTelegramId(value: number, label: string): number {
 }
 
 function normalizeCategoryPurpose(value: StorageCategoryPurpose): StorageCategoryPurpose {
-  if (value === 'user_uploads' || value === 'catalog_media') {
+  if (value === 'user_uploads' || value === 'catalog_media' || value === 'role_game_handouts') {
     return value;
   }
   throw new Error('Storage category purpose is invalid');

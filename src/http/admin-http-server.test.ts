@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -103,6 +103,13 @@ test('admin http server exposes public feedback and protects admin pages', async
         }
         if (sql.includes('count(*)::int as count from storage_entry_messages')) {
           return { rows: [{ count: 12 }] };
+        }
+        if (sql.includes('from storage_entries entries') && sql.includes('inner join storage_entry_messages messages')) {
+          return {
+            rows: sql.includes("categories.category_purpose = 'user_uploads'")
+              ? [{ telegram_file_id: 'photo-file-id', mime_type: 'image/jpeg', attachment_kind: 'photo' }]
+              : [],
+          };
         }
         if (sql.includes('from storage_categories categories') && sql.includes('left join storage_categories parents')) {
           return {
@@ -626,6 +633,22 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminStorageHtml, /\/admin\/storage\/media\/55\/0/);
     assert.doesNotMatch(adminStorageHtml, /<strong>#55<\/strong>/);
     assert.match(adminStorageHtml, /\/admin\/storage\/entries\/55\/edit/);
+
+    await mkdir(join(tmp, 'data/http-cache/admin-storage-media'), { recursive: true });
+    await writeFile(join(tmp, 'data/http-cache/admin-storage-media/55-0.bin'), 'cached-photo');
+    const storageMediaResponse = await fetch(`${baseUrl}/admin/storage/media/55/0`, { headers: { cookie } });
+    assert.equal(storageMediaResponse.status, 200);
+    assert.equal(storageMediaResponse.headers.get('content-type'), 'image/jpeg');
+    assert.equal(await storageMediaResponse.text(), 'cached-photo');
+    assert.ok(
+      queries.some((query) => (
+        query.sql.includes('from storage_entries entries') &&
+        query.sql.includes('inner join storage_categories categories') &&
+        query.sql.includes("categories.category_purpose = 'user_uploads'") &&
+        query.params[0] === 55 &&
+        query.params[1] === 0
+      )),
+    );
 
     const storageEntryEditPage = await fetch(`${baseUrl}/admin/storage/entries/55/edit`, { headers: { cookie } });
     assert.equal(storageEntryEditPage.status, 200);
