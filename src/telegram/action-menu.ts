@@ -141,6 +141,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
   },
   {
+    id: 'role_games',
+    label: (language) => createTelegramI18n(language).actionMenu.roleGames,
+    telemetryActionKey: 'menu.role_games',
+    uxSection: 'primary',
+    buttonRole: 'primary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked,
+  },
+  {
     id: 'notices',
     label: (language) => createTelegramI18n(language).actionMenu.notices,
     telemetryActionKey: 'menu.notices',
@@ -317,7 +326,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'notices'], ['change_display_name', 'admin'], ['print'], ['ask_bot'], ['language', 'help']],
+    rows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'role_games'], ['notices', 'change_display_name'], ['admin'], ['print'], ['ask_bot'], ['language', 'help']],
   },
   {
     id: 'private-admin-tools',
@@ -331,7 +340,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'change_display_name'], ['print'], ['ask_bot'], ['language', 'help']],
+    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['role_games', 'notices'], ['change_display_name'], ['print'], ['ask_bot'], ['language', 'help']],
   },
   {
     id: 'private-pending-default',

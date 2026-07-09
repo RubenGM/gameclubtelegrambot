@@ -1235,7 +1235,7 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Avisos'], ['Canviar nom', 'Admin'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Rol'], ['Avisos', 'Canviar nom'], ['Admin'], ['Idioma', 'Ajuda']]);
   assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
   assert.match(replies[0]?.message ?? '', /sol·licituds/i);
   assert.match(replies[1]?.message ?? '', /Què pots fer ara/);
@@ -1934,10 +1934,11 @@ test('cancel restores the default action menu after an active flow', async () =>
             [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
             [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
             [{ text: 'Compres conjuntes', semanticRole: 'primary' }, { text: 'LFG (buscar grup)', semanticRole: 'primary' }],
-            [{ text: 'Avisos', semanticRole: 'primary' }, { text: 'Canviar nom', semanticRole: 'secondary' }],
+            [{ text: 'Rol', semanticRole: 'primary' }, { text: 'Avisos', semanticRole: 'primary' }],
+            [{ text: 'Canviar nom', semanticRole: 'secondary' }],
             [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
           ],
-          actionRows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['notices', 'change_display_name'], ['language', 'help']],
+          actionRows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['role_games', 'notices'], ['change_display_name'], ['language', 'help']],
           actions: [
             { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
             { id: 'tables_read', label: 'Taules', telemetryActionKey: 'menu.tables', uxSection: 'primary' },
@@ -1945,6 +1946,7 @@ test('cancel restores the default action menu after an active flow', async () =>
             { id: 'storage', label: 'Emmagatzematge', telemetryActionKey: 'menu.storage', uxSection: 'primary' },
             { id: 'group_purchases', label: 'Compres conjuntes', telemetryActionKey: 'menu.group_purchases', uxSection: 'primary' },
             { id: 'lfg', label: 'LFG (buscar grup)', telemetryActionKey: 'menu.lfg', uxSection: 'primary' },
+            { id: 'role_games', label: 'Rol', telemetryActionKey: 'menu.role_games', uxSection: 'primary' },
             { id: 'notices', label: 'Avisos', telemetryActionKey: 'menu.notices', uxSection: 'primary' },
             { id: 'change_display_name', label: 'Canviar nom', telemetryActionKey: 'menu.change_display_name', uxSection: 'utility' },
             { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
@@ -2074,9 +2076,109 @@ test('start menu action clears active flow before showing the default keyboard',
     ['Activitats', 'Taules'],
     ['Catàleg', 'Emmagatzematge'],
     ['Compres conjuntes', 'LFG (buscar grup)'],
-    ['Avisos', 'Canviar nom'],
+    ['Rol', 'Avisos'],
+    ['Canviar nom'],
     ['Idioma', 'Ajuda'],
   ]);
+
+  await telegram.stop();
+});
+
+test('private approved members can open role games from the root action menu', async () => {
+  const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  let textHandler: TelegramCommandHandler | undefined;
+
+  const telegram = await createTelegramBoundary({
+    config: runtimeConfig,
+    logger: {
+      info: () => {},
+      error: () => {},
+    },
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createEmptyScheduleDatabaseStub() as never,
+        close: async () => {},
+      },
+    },
+    loadActor: async ({ telegramUserId }) => ({
+      telegramUserId,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    }),
+    createConversationSessionStore: () => ({
+      loadSession: async () => null,
+      saveSession: async () => {},
+      deleteSession: async () => false,
+      deleteExpiredSessions: async () => 0,
+    }),
+    createBot: () => {
+      const middlewares: TelegramMiddleware[] = [];
+
+      return {
+        use: (middleware) => {
+          middlewares.push(middleware);
+        },
+        onCommand: () => {},
+        onCallback: () => {},
+        onText: (handler) => {
+          textHandler = handler;
+        },
+        sendPrivateMessage: async () => {},
+        startPolling: async () => {
+          const context: TelegramContextLike = {
+            chat: {
+              id: 100,
+              type: 'private',
+            },
+            from: {
+              id: 42,
+            },
+            messageText: 'Rol',
+            reply: async (message: string, options?: TelegramReplyOptions) => {
+              replies.push({ message, ...(options ? { options } : {}) });
+            },
+          };
+
+          let index = -1;
+          const dispatch = async (middlewareIndex: number): Promise<void> => {
+            if (middlewareIndex <= index) {
+              throw new Error('next called multiple times');
+            }
+
+            index = middlewareIndex;
+
+            if (middlewareIndex === middlewares.length) {
+              if (!textHandler) {
+                throw new Error('text handler not registered');
+              }
+
+              await textHandler(context as unknown as TelegramCommandHandlerContext);
+              return;
+            }
+
+            const middleware = middlewares[middlewareIndex];
+            if (!middleware) {
+              throw new Error(`middleware ${middlewareIndex} not registered`);
+            }
+
+            await middleware(context, () => dispatch(middlewareIndex + 1));
+          };
+
+          await dispatch(0);
+        },
+        stopPolling: async () => {},
+      };
+    },
+  });
+
+  assert.equal(telegram.status.bot, 'connected');
+  assert.equal(replies.length, 1);
+  assert.match(replies[0]?.message ?? '', /Rol/);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard)?.at(0), ['Les meves partides', 'Partides visibles']);
 
   await telegram.stop();
 });
@@ -2607,7 +2709,7 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
 
   assert.equal(telegram.status.bot, 'connected');
   assert.match(replies[0]?.message ?? '', /Des del menú pots obrir activitats, taules i catàleg/);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes', 'LFG (buscar grup)'], ['Avisos', 'Canviar nom'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes', 'LFG (buscar grup)'], ['Rol', 'Avisos'], ['Canviar nom'], ['Idioma', 'Ajuda']]);
   assert.deepEqual(auditEvents, [
     {
       actionKey: 'telegram.menu.shown',
@@ -2618,8 +2720,8 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
         chatKind: 'private',
         actorRole: 'member',
         language: 'ca',
-        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'storage', 'group_purchases', 'lfg', 'notices', 'change_display_name', 'language', 'help'],
-        visibleLabels: ['Activitats', 'Taules', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'LFG (buscar grup)', 'Avisos', 'Canviar nom', 'Idioma', 'Ajuda'],
+        visibleActionIds: ['schedule', 'tables_read', 'catalog', 'storage', 'group_purchases', 'lfg', 'role_games', 'notices', 'change_display_name', 'language', 'help'],
+        visibleLabels: ['Activitats', 'Taules', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'LFG (buscar grup)', 'Rol', 'Avisos', 'Canviar nom', 'Idioma', 'Ajuda'],
       },
     },
   ]);

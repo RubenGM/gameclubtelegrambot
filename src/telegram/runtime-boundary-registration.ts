@@ -87,6 +87,12 @@ import {
   lfgCallbackPrefixes,
 } from './lfg-flow.js';
 import {
+  handleTelegramRoleGameCallback,
+  handleTelegramRoleGameStartText,
+  handleTelegramRoleGameText,
+  roleGameCallbackPrefixes,
+} from './role-game-flow.js';
+import {
   handleTelegramLlmAskCommand,
   handleTelegramLlmCallback,
   handleTelegramLlmFallbackText,
@@ -223,6 +229,7 @@ export function registerHandlers({
   registerScheduleCallbacks({ bot });
   registerGroupPurchaseCallbacks({ bot });
   registerLfgCallbacks({ bot });
+  registerRoleGameCallbacks({ bot });
   registerLlmCommandCallbacks({ bot });
   registerLlmModelAdminCallbacks({ bot });
   registerNoticeCallbacks({ bot });
@@ -307,6 +314,11 @@ function registerTextHandlers({
 
     if (await handleTelegramLfgText(context)) {
       setActiveHelpSection(context, 'lfg');
+      return;
+    }
+
+    if (await handleTelegramRoleGameText(context)) {
+      setActiveHelpSection(context, 'role_games');
       return;
     }
 
@@ -1316,6 +1328,18 @@ function registerLfgCallbacks({
   }
 }
 
+function registerRoleGameCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(roleGameCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramRoleGameCallback(context);
+    });
+  }
+}
+
 function registerNewsGroupCallbacks({
   bot,
 }: {
@@ -1527,6 +1551,32 @@ function createDefaultCommands({
       },
       handle: async (context) => {
         await handleTelegramLfgCommand(context);
+      },
+    },
+    {
+      command: 'rol',
+      contexts: ['private'],
+      access: 'approved',
+      descriptionByLanguage: {
+        ca: 'Consulta partides de rol del club',
+        es: 'Consulta partidas de rol del club',
+        en: 'Browse club role-playing games',
+      },
+      handle: async (context) => {
+        await handleTelegramRoleGameText({ ...context, messageText: '/rol' });
+      },
+    },
+    {
+      command: 'role_games',
+      contexts: ['private'],
+      access: 'approved',
+      descriptionByLanguage: {
+        ca: 'Consulta partides de rol del club',
+        es: 'Consulta partidas de rol del club',
+        en: 'Browse club role-playing games',
+      },
+      handle: async (context) => {
+        await handleTelegramRoleGameText({ ...context, messageText: '/role_games' });
       },
     },
     {
@@ -1762,6 +1812,9 @@ function createDefaultCommands({
           return;
         }
         if (await handleTelegramGroupPurchaseStartText({ ...context })) {
+          return;
+        }
+        if (await handleTelegramRoleGameStartText({ ...context })) {
           return;
         }
         if (await handleTelegramStorageStartText({ ...context })) {
@@ -2744,6 +2797,14 @@ async function handleTelegramActionMenuText(
       const handled = await handleTelegramLfgText(localizedContext);
       if (handled) {
         setActiveHelpSection(context, 'lfg');
+      }
+      return handled;
+    }
+
+    if (selection.actionId === 'role_games') {
+      const handled = await handleTelegramRoleGameText(localizedContext);
+      if (handled) {
+        setActiveHelpSection(context, 'role_games');
       }
       return handled;
     }

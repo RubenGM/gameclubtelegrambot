@@ -17,7 +17,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 | Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, canarios/reintentos Telegram, systemd/tray y backups.           |
 | Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname visible, bienvenidas, avisos privados y alta web en `/alta`.     |
-| Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG etiquetado como buscar grupo y ayuda contextual por sección activa.                 |
+| Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG, Rol read-only y ayuda contextual por sección activa.                              |
 | Asistente LLM de órdenes naturales           | 🟠 Parcial           | `/ask`, botón privado, fallback privado y menciones en grupos bajo feature flag; lecturas MVP y escrituras confirmadas parciales.            |
 | Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
 | Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, actividades públicas abiertas, conflictos, recordatorios y feeds de noticias.             |
@@ -27,6 +27,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `public-events`; `/admin/news` resume feeds activos. |
 | Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
 | Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
+| Rol / partidas de rol                        | 🟠 Parcial           | Botón privado `Rol`, `/rol`, listas read-only paginadas y deep links `role_game_<id>`; creación, Agenda y handouts quedan pendientes.      |
 | Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
 | Impresión                                    | 🟢 Operativo         | Botón privado con estados admin Activar/Desactivar/Modo prueba, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial. |
 | Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
@@ -98,7 +99,7 @@ Implementado:
 
 - `/language` y flujo de idioma en privado/grupo.
 - Menu principal dinamico por rol, estado, chat y sesion en `src/telegram/action-menu.ts`.
-- El menu aprobado/admin muestra "LFG (buscar grupo)", "Avisos" y una accion visible para cambiar el nombre mostrado por el bot; el menu raiz de admins añade un botón `Admin` que abre las herramientas administrativas sin mezclar solicitudes, usuarios, mesas admin y bienvenidas con las acciones diarias.
+- El menu aprobado/admin muestra "LFG (buscar grupo)", "Rol", "Avisos" y una accion visible para cambiar el nombre mostrado por el bot; el menu raiz de admins añade un botón `Admin` que abre las herramientas administrativas sin mezclar solicitudes, usuarios, mesas admin y bienvenidas con las acciones diarias.
 - `Inicio` y `/start` normal limpian cualquier sesion activa antes de reconstruir la portada, evitando dejar al usuario atrapado con un teclado de `/cancel`, y muestran hasta 3 avisos activos recientes.
 - Ayuda contextual en `src/telegram/command-registry.ts` y seccion activa gestionada desde `runtime-boundary-registration.ts`.
 - Soporte visible para `ca`, `es` y `en`.
@@ -106,6 +107,24 @@ Implementado:
 Riesgos o pendientes:
 
 - Muchos flujos dependen de comparar texto localizado de botones. Cambios de copy pueden romper acciones si no se actualizan tests.
+
+## Rol / partidas de rol
+
+Estado: `parcial`.
+
+Implementado:
+
+- Botón privado `Rol` para socios aprobados y admins en el menu raiz, manteniendo herramientas administrativas dentro de `Admin`.
+- Comandos `/rol` y `/role_games` para abrir el menu read-only.
+- Home con `Mis partidas`, `Partidas visibles`, `Crear partida` como entrada visual pendiente y `Cancelar` con rol danger.
+- Listas read-only de partidas propias y visibles desde `RoleGameRepository`, con paginacion estilo Telegram y deep links `role_game_<id>` al detalle.
+- `/start role_game_<id>` abre el detalle de la partida en privado.
+
+Pendiente:
+
+- Creación y edicion guiada de partidas.
+- Solicitudes/aceptacion de plazas.
+- Sesiones respaldadas por Agenda, recurrencias y handouts privados respaldados por Storage.
 
 ## Asistente LLM de órdenes naturales
 
@@ -460,6 +479,7 @@ Pendiente:
 | Catalogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Prestamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
 | Compras conjuntas | `src/telegram/group-purchase-flow.test.ts`, `src/group-purchases/*.test.ts` |
+| Rol / partidas de rol | `src/telegram/role-game-flow.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Avisos | `src/telegram/notice-flow.test.ts`, `src/notices/*.test.ts`, `src/news/news-group-store.test.ts` |
 | Storage | `src/telegram/storage-flow.test.ts`, `src/storage/*.test.ts` |
 | Noticias | `src/telegram/news-group-flow.test.ts`, `src/news/news-group-store.test.ts`, `src/telegram/runtime-boundary.test.ts` |

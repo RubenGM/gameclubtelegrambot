@@ -28,6 +28,7 @@ export const commonTexts = {
     helpSectionStorageDetail: 'A l’emmagatzematge pots veure categories, cercar arxius, obrir entrades per ID i gestionar fitxers.',
     helpSectionGroupPurchasesDetail: 'A les compres conjuntes pots veure compres obertes, crear-ne de noves, apuntar-te-hi i gestionar participants i confirmacions.',
     helpSectionLfgDetail: 'Al menú de LFG pots veure jugadors o grups buscant-se, publicar una nova cerca i gestionar els teus anuncis.',
+    helpSectionRoleGamesDetail: 'Al menú de Rol pots veure les teves partides, consultar partides visibles i obrir-ne el detall.',
     helpSectionNoticesDetail: 'Als avisos pots publicar missatges amb format i adjunts als canals/topics subscrits i arxivar els teus avisos actius.',
     helpFooterPrivate: "Escriu-me en privat per obrir el menú principal del club. Des d'aquí només et puc orientar i deixar-te canviar l'idioma.",
     helpPendingApproval:
@@ -40,6 +41,7 @@ export const commonTexts = {
     helpStorageAction: 'consulta material guardat del club.',
     helpGroupPurchasesAction: 'segueix i participa en comandes compartides.',
     helpLfgAction: 'troba grup o jugadors per jugar.',
+    helpRoleGamesAction: 'consulta partides de rol i campanyes del club.',
     helpNoticesAction: 'publica avisos als canals configurats del club.',
     helpWelcomeTemplatesAction: 'configura missatges de benvinguda amb GIF opcionals.',
     helpChangeDisplayNameAction: 'canvia el nom amb què et veurà el bot.',
@@ -53,6 +55,8 @@ export const commonTexts = {
       'Aquí pots veure compres obertes, obrir-ne de noves, convidar participants i comprovar estat i confirmació de pagaments o assistència.',
     helpContextLfg:
       'Aquí pots veure jugadors que busquen grup, veure anuncis de grups que busquen jugadors i publicar o tancar els teus propis anuncis de joc.',
+    helpContextRoleGames:
+      'Aquí pots consultar partides de rol, campanyes i one-shots disponibles sense iniciar cap procés de creació.',
     helpContextNotices:
       'Aquí pots crear avisos amb format i adjunts, veure els avisos actius i arxivar els teus. Els admins poden arxivar qualsevol aviso.',
     helpContextStorage:
@@ -169,6 +173,7 @@ export const commonTexts = {
     helpSectionStorageDetail: 'En el almacenamiento puedes ver categorías, buscar archivos, abrir entradas por ID y gestionar archivos.',
     helpSectionGroupPurchasesDetail: 'En compras conjuntas puedes ver compras abiertas, crear nuevas, apuntarte y gestionar participantes y confirmaciones.',
     helpSectionLfgDetail: 'En el LFG puedes ver jugadores o grupos buscando juego, publicar una nueva búsqueda y gestionar tus anuncios.',
+    helpSectionRoleGamesDetail: 'En Rol puedes ver tus partidas, consultar partidas visibles y abrir su detalle.',
     helpSectionNoticesDetail: 'En avisos puedes publicar mensajes con formato y adjuntos en los canales/topics suscritos y archivar tus avisos activos.',
     helpFooterPrivate: 'Escríbeme en privado para abrir el menú principal del club. Desde aquí solo puedo orientarte y dejarte cambiar el idioma.',
     helpPendingApproval:
@@ -181,6 +186,7 @@ export const commonTexts = {
     helpStorageAction: 'consulta material guardado del club.',
     helpGroupPurchasesAction: 'sigue y participa en pedidos compartidos.',
     helpLfgAction: 'encuentra grupo o jugadores para jugar.',
+    helpRoleGamesAction: 'consulta partidas de rol y campañas del club.',
     helpNoticesAction: 'publica avisos en los canales configurados del club.',
     helpWelcomeTemplatesAction: 'configura mensajes de bienvenida con GIF opcionales.',
     helpChangeDisplayNameAction: 'cambia el nombre con el que te verá el bot.',
@@ -194,6 +200,8 @@ export const commonTexts = {
       'Aquí puedes ver compras abiertas, crear una, invitar participantes y revisar el estado y confirmación de cada compra.',
     helpContextLfg:
       'Aquí puedes ver jugadores que buscan grupo, anuncios de grupos que buscan jugadores y publicar o cerrar tus propios anuncios.',
+    helpContextRoleGames:
+      'Aquí puedes consultar partidas de rol, campañas y one-shots disponibles sin iniciar ningún proceso de creación.',
     helpContextNotices:
       'Aquí puedes crear avisos con formato y adjuntos, ver los avisos activos y archivar los tuyos. Los admins pueden archivar cualquier aviso.',
     helpContextStorage:
@@ -310,6 +318,7 @@ export const commonTexts = {
     helpSectionStorageDetail: 'In storage you can browse categories, search files, open entries by ID, and upload files.',
     helpSectionGroupPurchasesDetail: 'In group purchases you can view open purchases, create new ones, join them, and manage participants and confirmations.',
     helpSectionLfgDetail: 'In LFG you can see players or groups looking for matches, post a new search, and manage your ads.',
+    helpSectionRoleGamesDetail: 'In role-playing you can see your games, browse visible games, and open details.',
     helpSectionNoticesDetail: 'In notices you can publish formatted messages with attachments to subscribed channels/topics and archive your active notices.',
     helpFooterPrivate: 'Message me in private to open the main club menu. From here I can only guide you and let you change the language.',
     helpPendingApproval:
@@ -322,6 +331,7 @@ export const commonTexts = {
     helpStorageAction: 'check stored club material.',
     helpGroupPurchasesAction: 'follow and join shared orders.',
     helpLfgAction: 'find a group or players to play.',
+    helpRoleGamesAction: 'browse club role-playing games and campaigns.',
     helpNoticesAction: 'publish notices in the configured club channels.',
     helpWelcomeTemplatesAction: 'configure welcome messages with optional GIFs.',
     helpChangeDisplayNameAction: 'change the name the bot uses for you.',
@@ -335,6 +345,8 @@ export const commonTexts = {
       'You can browse open shared purchases, create new ones, invite participants, and track order status and confirmations.',
     helpContextLfg:
       'You can see players looking for a group, groups looking for players, and publish or close your own ads.',
+    helpContextRoleGames:
+      'You can browse role-playing games, campaigns, and one-shots without starting a creation flow.',
     helpContextNotices:
       'You can create notices with formatting and attachments, view active notices, and archive yours. Admins can archive any notice.',
     helpContextStorage:
@@ -435,6 +447,7 @@ export const actionMenuTexts = {
     storage: 'Emmagatzematge',
     groupPurchases: 'Compres conjuntes',
     lfg: 'LFG (buscar grup)',
+    roleGames: 'Rol',
     notices: 'Avisos',
     print: 'Imprimir',
     askBot: 'Pregunta al bot',
@@ -464,6 +477,7 @@ export const actionMenuTexts = {
     storage: 'Almacenamiento',
     groupPurchases: 'Compras conjuntas',
     lfg: 'LFG (buscar grupo)',
+    roleGames: 'Rol',
     notices: 'Avisos',
     print: 'Imprimir',
     askBot: 'Preguntar al bot',
@@ -493,6 +507,7 @@ export const actionMenuTexts = {
     storage: 'Storage',
     groupPurchases: 'Group purchases',
     lfg: 'LFG (find group)',
+    roleGames: 'Role-playing',
     notices: 'Notices',
     print: 'Print',
     askBot: 'Ask the bot',
