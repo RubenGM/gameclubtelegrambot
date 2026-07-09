@@ -88,6 +88,7 @@ import {
 } from './lfg-flow.js';
 import {
   handleTelegramRoleGameCallback,
+  handleTelegramRoleGameMessage,
   handleTelegramRoleGameStartText,
   handleTelegramRoleGameText,
   roleGameCallbackPrefixes,
@@ -391,6 +392,11 @@ function registerMessageHandlers({
     }
 
     if (await handleTelegramNoticeMessage(context)) {
+      return;
+    }
+
+    if (await handleTelegramRoleGameMessage(context)) {
+      setActiveHelpSection(context, 'role_games');
       return;
     }
 

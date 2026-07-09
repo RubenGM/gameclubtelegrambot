@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  canViewRoleGameMaterial,
+  createRoleGameMaterial,
+  recordRoleGameMaterialDelivery,
+  revealRoleGameMaterial,
   canManageRoleGame,
   canManageRoleGameOperationally,
   canViewRoleGame,
@@ -105,6 +109,91 @@ test('requestRoleGameSeat auto-confirms while capacity remains', async () => {
   });
 
   assert.equal(member.status, 'confirmed');
+});
+
+test('canViewRoleGameMaterial keeps gm-only handouts hidden from players', () => {
+  const game = sampleGame({ primaryGmTelegramUserId: 42 });
+  const material = sampleMaterial({ roleGameId: game.id, visibility: 'gm_only' });
+  const player = sampleMember({ roleGameId: game.id, telegramUserId: 100, role: 'player', status: 'confirmed' });
+  const coorganizer = sampleMember({ roleGameId: game.id, telegramUserId: 77, role: 'coorganizer', status: 'confirmed' });
+
+  assert.equal(canViewRoleGameMaterial({ telegramUserId: 42, isAdmin: false }, game, null, material), true);
+  assert.equal(canViewRoleGameMaterial({ telegramUserId: 77, isAdmin: false }, game, coorganizer, material), true);
+  assert.equal(canViewRoleGameMaterial({ telegramUserId: 100, isAdmin: false }, game, player, material), false);
+  assert.equal(canViewRoleGameMaterial({ telegramUserId: 500, isAdmin: true }, game, null, material), true);
+});
+
+test('canViewRoleGameMaterial allows confirmed players after reveal', () => {
+  const game = sampleGame({ primaryGmTelegramUserId: 42 });
+  const material = sampleMaterial({ roleGameId: game.id, visibility: 'players', deliveryState: 'revealed' });
+  const player = sampleMember({ roleGameId: game.id, telegramUserId: 100, role: 'player', status: 'confirmed' });
+  const requested = sampleMember({ roleGameId: game.id, telegramUserId: 101, role: 'player', status: 'requested' });
+
+  assert.equal(canViewRoleGameMaterial({ telegramUserId: 100, isAdmin: false }, game, player, material), true);
+  assert.equal(canViewRoleGameMaterial({ telegramUserId: 101, isAdmin: false }, game, requested, material), false);
+});
+
+test('createRoleGameMaterial normalizes gm-only material metadata', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const material = await createRoleGameMaterial({
+    repository,
+    roleGameId: 7,
+    internalStorageEntryId: 33,
+    title: '  Mapa secreto   del templo  ',
+    description: '  Sólo para dirección  ',
+    visibility: 'gm_only',
+    uploadedByTelegramUserId: 42,
+  });
+
+  assert.equal(material.title, 'Mapa secreto del templo');
+  assert.equal(material.description, 'Sólo para dirección');
+  assert.equal(material.deliveryState, 'not_sent');
+});
+
+test('revealRoleGameMaterial makes a handout visible to players', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const material = await repository.createMaterial({
+    roleGameId: 7,
+    internalStorageEntryId: 33,
+    title: 'Mapa secreto',
+    description: null,
+    visibility: 'gm_only',
+    deliveryState: 'not_sent',
+    uploadedByTelegramUserId: 42,
+  });
+
+  const revealed = await revealRoleGameMaterial({ repository, materialId: material.id });
+
+  assert.equal(revealed.visibility, 'players');
+  assert.equal(revealed.deliveryState, 'revealed');
+  assert.equal(revealed.revealedAt, '2026-07-09T12:10:00.000Z');
+});
+
+test('recordRoleGameMaterialDelivery persists sent and failed delivery attempts', async () => {
+  const repository = createMemoryRoleGameRepository();
+
+  const sent = await recordRoleGameMaterialDelivery({
+    repository,
+    roleGameMaterialId: 12,
+    recipientTelegramUserId: 100,
+    sentByTelegramUserId: 42,
+    deliveryMode: 'send_only',
+    status: 'sent',
+    errorCode: null,
+  });
+  const failed = await recordRoleGameMaterialDelivery({
+    repository,
+    roleGameMaterialId: 12,
+    recipientTelegramUserId: 101,
+    sentByTelegramUserId: 42,
+    deliveryMode: 'send_and_reveal',
+    status: 'failed',
+    errorCode: 'Forbidden',
+  });
+
+  assert.equal(sent.status, 'sent');
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.errorCode, 'Forbidden');
 });
 
 test('requestRoleGameSeat waitlists when auto-accept is full', async () => {
@@ -587,6 +676,23 @@ function sampleMember(overrides: Partial<RoleGameMemberRecord> = {}): RoleGameMe
     requestedByTelegramUserId: 42,
     createdAt: '2026-07-09T12:00:00.000Z',
     updatedAt: '2026-07-09T12:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function sampleMaterial(overrides: Partial<RoleGameMaterialRecord> = {}): RoleGameMaterialRecord {
+  return {
+    id: 1,
+    roleGameId: 1,
+    internalStorageEntryId: 33,
+    title: 'Mapa secreto',
+    description: null,
+    visibility: 'gm_only',
+    deliveryState: 'not_sent',
+    uploadedByTelegramUserId: 42,
+    createdAt: '2026-07-09T12:00:00.000Z',
+    updatedAt: '2026-07-09T12:00:00.000Z',
+    revealedAt: null,
     ...overrides,
   };
 }

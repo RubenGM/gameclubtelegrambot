@@ -10,6 +10,8 @@ export const roleGameCallbackPrefixes = {
   rejectRequest: 'role_game:reject:',
   scheduleSession: 'role_game:schedule:',
   configureRecurrence: 'role_game:configure_recurrence:',
+  materialUpload: 'role_game:material_upload:',
+  material: 'role_game:material:',
 } as const;
 
 export function buildRoleGameHomeKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
@@ -75,6 +77,7 @@ export function buildRoleGameDetailInlineKeyboard({
   canRequestSeat = false,
   canScheduleSession = false,
   canConfigureRecurrence = false,
+  canManageMaterials = false,
   language = 'ca',
 }: {
   gameId: number;
@@ -82,6 +85,7 @@ export function buildRoleGameDetailInlineKeyboard({
   canRequestSeat?: boolean;
   canScheduleSession?: boolean;
   canConfigureRecurrence?: boolean;
+  canManageMaterials?: boolean;
   language?: BotLanguage;
 }): Pick<TelegramReplyOptions, 'inlineKeyboard'> {
   const texts = createTelegramI18n(language).roleGames;
@@ -96,6 +100,11 @@ export function buildRoleGameDetailInlineKeyboard({
       { text: texts.scheduleNextSession, callbackData: `${roleGameCallbackPrefixes.scheduleSession}${gameId}`, semanticRole: 'success' },
     ]);
   }
+  if (canManageMaterials) {
+    inlineKeyboard.push([
+      { text: texts.uploadMaterial, callbackData: `${roleGameCallbackPrefixes.materialUpload}${gameId}`, semanticRole: 'primary' },
+    ]);
+  }
   if (canRequestSeat) {
     inlineKeyboard.push([
       { text: texts.requestSeat, callbackData: `${roleGameCallbackPrefixes.requestSeat}${gameId}`, semanticRole: 'success' },
@@ -108,6 +117,34 @@ export function buildRoleGameDetailInlineKeyboard({
     ]);
   }
   return inlineKeyboard.length > 0 ? { inlineKeyboard } : {};
+}
+
+export function buildRoleGameMaterialInlineKeyboard({
+  materialId,
+  canManage = false,
+  language = 'ca',
+}: {
+  materialId: number;
+  canManage?: boolean;
+  language?: BotLanguage;
+}): Pick<TelegramReplyOptions, 'inlineKeyboard'> {
+  if (!canManage) {
+    return {};
+  }
+  const texts = createTelegramI18n(language).roleGames;
+  return {
+    inlineKeyboard: [
+      [
+        { text: texts.sendMaterialOnly, callbackData: `${roleGameCallbackPrefixes.material}send_only:${materialId}`, semanticRole: 'primary' },
+      ],
+      [
+        { text: texts.sendAndRevealMaterial, callbackData: `${roleGameCallbackPrefixes.material}send_and_reveal:${materialId}`, semanticRole: 'success' },
+      ],
+      [
+        { text: texts.revealMaterialOnly, callbackData: `${roleGameCallbackPrefixes.material}reveal_only:${materialId}`, semanticRole: 'success' },
+      ],
+    ],
+  };
 }
 
 function buildRoleGameReplyKeyboard(language: BotLanguage, rows: TelegramReplyButton[][]): TelegramReplyOptions {

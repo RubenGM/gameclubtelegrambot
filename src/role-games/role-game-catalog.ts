@@ -342,6 +342,72 @@ export async function resolveRoleGameSeatRequest({
   });
 }
 
+export function canViewRoleGameMaterial(
+  actor: RoleGameActor,
+  game: RoleGameRecord,
+  membership: RoleGameMemberRecord | null,
+  material: RoleGameMaterialRecord,
+): boolean {
+  if (material.roleGameId !== game.id) {
+    return false;
+  }
+  if (actor.isAdmin || game.primaryGmTelegramUserId === actor.telegramUserId) {
+    return true;
+  }
+  if (membership?.telegramUserId !== actor.telegramUserId || membership.status !== 'confirmed') {
+    return false;
+  }
+  if (membership.role === 'coorganizer') {
+    return true;
+  }
+  return material.visibility === 'players';
+}
+
+export async function createRoleGameMaterial({
+  repository,
+  ...input
+}: Omit<CreateRoleGameMaterialInput, 'deliveryState'> & {
+  deliveryState?: RoleGameMaterialDeliveryState;
+  repository: RoleGameRepository;
+}): Promise<RoleGameMaterialRecord> {
+  return repository.createMaterial({
+    ...input,
+    roleGameId: normalizeEntityId(input.roleGameId, 'role game'),
+    internalStorageEntryId: normalizeEntityId(input.internalStorageEntryId, 'storage entry'),
+    title: normalizeText(input.title, 'material title', 1, 255),
+    description: normalizeOptionalText(input.description),
+    uploadedByTelegramUserId: normalizeTelegramUserId(input.uploadedByTelegramUserId, 'uploader'),
+    deliveryState: input.deliveryState ?? 'not_sent',
+  });
+}
+
+export async function revealRoleGameMaterial({
+  repository,
+  materialId,
+}: {
+  repository: RoleGameRepository;
+  materialId: number;
+}): Promise<RoleGameMaterialRecord> {
+  return repository.updateMaterialVisibility({
+    materialId: normalizeEntityId(materialId, 'role game material'),
+    visibility: 'players',
+    deliveryState: 'revealed',
+  });
+}
+
+export async function recordRoleGameMaterialDelivery({
+  repository,
+  ...input
+}: CreateRoleGameMaterialDeliveryInput & { repository: RoleGameRepository }): Promise<RoleGameMaterialDeliveryRecord> {
+  return repository.createMaterialDelivery({
+    ...input,
+    roleGameMaterialId: normalizeEntityId(input.roleGameMaterialId, 'role game material'),
+    recipientTelegramUserId: normalizeTelegramUserId(input.recipientTelegramUserId, 'recipient'),
+    sentByTelegramUserId: normalizeTelegramUserId(input.sentByTelegramUserId, 'sender'),
+    errorCode: normalizeOptionalText(input.errorCode),
+  });
+}
+
 export function canViewRoleGame(
   actor: RoleGameActor,
   game: RoleGameRecord,
