@@ -9,6 +9,7 @@ export const roleGameCallbackPrefixes = {
   acceptRequest: 'role_game:accept:',
   rejectRequest: 'role_game:reject:',
   scheduleSession: 'role_game:schedule:',
+  configureRecurrence: 'role_game:configure_recurrence:',
 } as const;
 
 export function buildRoleGameHomeKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
@@ -73,16 +74,23 @@ export function buildRoleGameDetailInlineKeyboard({
   requestMemberIds = [],
   canRequestSeat = false,
   canScheduleSession = false,
+  canConfigureRecurrence = false,
   language = 'ca',
 }: {
   gameId: number;
   requestMemberIds?: number[];
   canRequestSeat?: boolean;
   canScheduleSession?: boolean;
+  canConfigureRecurrence?: boolean;
   language?: BotLanguage;
 }): Pick<TelegramReplyOptions, 'inlineKeyboard'> {
   const texts = createTelegramI18n(language).roleGames;
   const inlineKeyboard: NonNullable<TelegramReplyOptions['inlineKeyboard']> = [];
+  if (canConfigureRecurrence) {
+    inlineKeyboard.push([
+      { text: texts.configureRecurrence, callbackData: `${roleGameCallbackPrefixes.configureRecurrence}${gameId}`, semanticRole: 'primary' },
+    ]);
+  }
   if (canScheduleSession) {
     inlineKeyboard.push([
       { text: texts.scheduleNextSession, callbackData: `${roleGameCallbackPrefixes.scheduleSession}${gameId}`, semanticRole: 'success' },

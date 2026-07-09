@@ -110,6 +110,16 @@ export function createDatabaseRoleGameRepository({
       }
       return mapRoleGameRow(row);
     },
+    async listRecurringGames() {
+      const rows = await database
+        .select()
+        .from(roleGames)
+        .where(eq(roleGames.schedulingMode, 'recurring'))
+        .orderBy(asc(roleGames.id));
+      return rows
+        .map(mapRoleGameRow)
+        .filter((game) => game.status === 'active' && game.recurrenceRule && game.recurrenceWindowCount > 0);
+    },
     async listVisibleGames(input) {
       const [gameRows, memberRows] = await Promise.all([
         database.select().from(roleGames).orderBy(asc(roleGames.title), asc(roleGames.id)),

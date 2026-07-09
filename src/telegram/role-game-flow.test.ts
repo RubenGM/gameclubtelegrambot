@@ -186,6 +186,47 @@ test('handleTelegramRoleGameText creates a role game with guided prompts', async
   assert.match(lastReply(context).message, /Partida creada/);
 });
 
+test('handleTelegramRoleGameText creates a recurring campaign with recurrence settings', async () => {
+  let createdGame: RoleGameRecord | null = null;
+  const context = createRoleGameTestContext({
+    messageText: 'Crear partida',
+    roleGameRepository: createFakeRoleGameRepository({
+      onCreateGame: async (input) => {
+        createdGame = sampleRoleGame({ ...input, id: 52 });
+        return createdGame;
+      },
+    }),
+  });
+
+  assert.equal(await handleTelegramRoleGameText(context), true);
+  await sendRoleGameText(context, 'Campaña');
+  await sendRoleGameText(context, 'La campaña semanal');
+  await sendRoleGameText(context, 'Pathfinder 2e');
+  await sendRoleGameText(context, 'Una campaña recurrente');
+  await sendRoleGameText(context, '5');
+  await sendRoleGameText(context, 'Socios');
+  await sendRoleGameText(context, 'Solicitud');
+  await sendRoleGameText(context, 'Revisión manual');
+  await sendRoleGameText(context, 'Recurrente');
+
+  assert.match(lastReply(context).message, /cada cuántas semanas/i);
+  await sendRoleGameText(context, '2');
+  assert.match(lastReply(context).message, /día de la semana/i);
+  await sendRoleGameText(context, 'Miércoles');
+  assert.match(lastReply(context).message, /hora/i);
+  await sendRoleGameText(context, '18:30');
+  assert.match(lastReply(context).message, /sesiones futuras/i);
+  await sendRoleGameText(context, '3');
+  assert.match(lastReply(context).message, /Confirmar/i);
+  await sendRoleGameText(context, 'Confirmar');
+
+  const created = assertRoleGame(createdGame);
+  assert.equal(created.schedulingMode, 'recurring');
+  assert.deepEqual(created.recurrenceRule, { intervalWeeks: 2, weekday: 3, time: '18:30' });
+  assert.equal(created.recurrenceWindowCount, 3);
+  assert.match(lastReply(context).message, /Partida creada/);
+});
+
 test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event', async () => {
   let createdGame: RoleGameRecord | null = null;
   const scheduleRepository = createFakeScheduleRepository();
@@ -394,6 +435,82 @@ test('handleTelegramRoleGameCallback lets a manager schedule the next manual ses
   assert.equal(getCurrentSession(context), null);
   assert.match(lastReply(context).message, /Sesión programada/i);
   assert.match(lastReply(context).message, /schedule_event_1/);
+});
+
+test('handleTelegramRoleGameCallback hides manual scheduling for non-manual games', async () => {
+  const games = [
+    sampleRoleGame({ id: 85, title: 'One-shot', type: 'one_shot', schedulingMode: 'manual' }),
+    sampleRoleGame({ id: 86, title: 'Pausada', status: 'paused', schedulingMode: 'manual' }),
+    sampleRoleGame({ id: 87, title: 'Recurrente', type: 'campaign', schedulingMode: 'recurring', recurrenceRule: { intervalWeeks: 1, weekday: 4, time: '18:00' }, recurrenceWindowCount: 3 }),
+  ];
+
+  for (const game of games) {
+    const roleGameRepository = createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, []]]) });
+    const scheduleRepository = createFakeScheduleRepository();
+    const detailContext = createRoleGameTestContext({
+      messageText: '',
+      callbackData: `role_game:detail:${game.id}`,
+      roleGameRepository,
+      scheduleRepository,
+    });
+
+    assert.equal(await handleTelegramRoleGameCallback(detailContext), true);
+    assert.equal(lastReply(detailContext).options?.inlineKeyboard?.flat().some((button) => button.text === 'Programar siguiente sesión') ?? false, false);
+
+    const scheduleContext = createRoleGameTestContext({
+      messageText: '',
+      callbackData: `role_game:schedule:${game.id}`,
+      roleGameRepository,
+      scheduleRepository,
+    });
+
+    assert.equal(await handleTelegramRoleGameCallback(scheduleContext), true);
+    assert.equal(getCurrentSession(scheduleContext), null);
+    assert.equal(await scheduleRepository.findEventById(1), null);
+    assert.match(lastReply(scheduleContext).message, /No tienes permisos/);
+  }
+});
+
+test('handleTelegramRoleGameCallback lets managers configure recurrence with confirmation', async () => {
+  let updatedGame: RoleGameRecord | null = null;
+  const game = sampleRoleGame({ id: 88, primaryGmTelegramUserId: 42, schedulingMode: 'manual' });
+  const futureEvent = sampleScheduleEvent({ id: 1, startsAt: new Date(2026, 7, 6, 18, 0).toISOString() });
+  const roleGameRepository = createFakeRoleGameRepository({
+    gamesById: [game],
+    membersByGameId: new Map([[game.id, []]]),
+    sessionLinksByGameId: new Map([[game.id, [sampleSessionLink({ roleGameId: game.id, scheduleEventId: futureEvent.id })]]]),
+    onUpdateGame: async (input) => {
+      updatedGame = sampleRoleGame({ ...game, ...input, id: game.id });
+      return updatedGame;
+    },
+  });
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: 'role_game:configure_recurrence:88',
+    roleGameRepository,
+    scheduleRepository: createFakeScheduleRepository({ events: [futureEvent] }),
+  });
+
+  assert.equal(await handleTelegramRoleGameCallback(context), true);
+  assert.equal(getCurrentSession(context)?.flowKey, 'role-game-recurrence-config');
+  assert.match(lastReply(context).message, /cada cuántas semanas/i);
+
+  delete context.callbackData;
+  await sendRoleGameText(context, '1');
+  await sendRoleGameText(context, 'Jueves');
+  await sendRoleGameText(context, '18:00');
+  await sendRoleGameText(context, '3');
+
+  assert.match(lastReply(context).message, /sesiones futuras existentes/i);
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Confirmar'));
+
+  await sendRoleGameText(context, 'Confirmar');
+
+  const updated = assertRoleGame(updatedGame);
+  assert.equal(updated.schedulingMode, 'recurring');
+  assert.deepEqual(updated.recurrenceRule, { intervalWeeks: 1, weekday: 4, time: '18:00' });
+  assert.equal(updated.recurrenceWindowCount, 3);
+  assert.match(lastReply(context).message, /Recurrencia guardada/i);
 });
 
 test('handleTelegramRoleGameCallback lets confirmed players schedule when the game allows it', async () => {
@@ -620,7 +737,9 @@ function createFakeRoleGameRepository({
   userGames = [],
   gamesById = [...visibleGames, ...userGames],
   membersByGameId = new Map<number, RoleGameMemberRecord[]>(),
+  sessionLinksByGameId = new Map<number, RoleGameSessionRecord[]>(),
   onCreateGame,
+  onUpdateGame,
   onRequestSeat,
   onSetMemberStatus,
 }: {
@@ -628,7 +747,9 @@ function createFakeRoleGameRepository({
   userGames?: RoleGameRecord[];
   gamesById?: RoleGameRecord[];
   membersByGameId?: Map<number, RoleGameMemberRecord[]>;
+  sessionLinksByGameId?: Map<number, RoleGameSessionRecord[]>;
   onCreateGame?: (input: CreateRoleGameInput) => Promise<RoleGameRecord>;
+  onUpdateGame?: (input: Parameters<RoleGameRepository['updateGame']>[0]) => Promise<RoleGameRecord>;
   onRequestSeat?: (input: {
     roleGameId: number;
     telegramUserId: number;
@@ -641,7 +762,7 @@ function createFakeRoleGameRepository({
     actorTelegramUserId: number;
   }) => Promise<RoleGameMemberRecord>;
 } = {}): FakeRoleGameRepository {
-  const createdSessionLinks: RoleGameSessionRecord[] = [];
+  const createdSessionLinks: RoleGameSessionRecord[] = Array.from(sessionLinksByGameId.values()).flat();
   return {
     createGame: async (input) => {
       if (onCreateGame) {
@@ -650,7 +771,10 @@ function createFakeRoleGameRepository({
       throw new Error('not implemented in this test');
     },
     findGameById: async (gameId) => gamesById.find((game) => game.id === gameId) ?? null,
-    updateGame: async () => {
+    updateGame: async (input) => {
+      if (onUpdateGame) {
+        return onUpdateGame(input);
+      }
       throw new Error('not implemented in this test');
     },
     listVisibleGames: async () => visibleGames,
@@ -686,7 +810,7 @@ function createFakeRoleGameRepository({
       createdSessionLinks.push(link);
       return link;
     },
-    listSessionLinks: async () => createdSessionLinks,
+    listSessionLinks: async (gameId) => createdSessionLinks.filter((link) => link.roleGameId === gameId),
     createMaterial: async () => {
       throw new Error('not implemented in this test');
     },
@@ -713,10 +837,14 @@ function createFakeRoleGameRepository({
   } as FakeRoleGameRepository;
 }
 
-function createFakeScheduleRepository(): ScheduleRepository {
-  const events = new Map<number, ScheduleEventRecord>();
+function createFakeScheduleRepository({
+  events: initialEvents = [],
+}: {
+  events?: ScheduleEventRecord[];
+} = {}): ScheduleRepository {
+  const events = new Map<number, ScheduleEventRecord>(initialEvents.map((event) => [event.id, event]));
   const participants = new Map<string, ScheduleParticipantRecord>();
-  let nextEventId = 1;
+  let nextEventId = Math.max(0, ...initialEvents.map((event) => event.id)) + 1;
   return {
     createEvent: async (input) => {
       const createdAt = '2026-07-09T10:00:00.000Z';
@@ -738,7 +866,8 @@ function createFakeScheduleRepository(): ScheduleRepository {
       return event;
     },
     findEventById: async (eventId) => events.get(eventId) ?? null,
-    listEvents: async () => Array.from(events.values()),
+    listEvents: async (input) =>
+      Array.from(events.values()).filter((event) => input.includeCancelled || event.lifecycleStatus !== 'cancelled'),
     updateEvent: async () => {
       throw new Error('not implemented in this test');
     },
@@ -810,6 +939,45 @@ function sampleRoleGameMember(overrides: Partial<RoleGameMemberRecord> = {}): Ro
     requestedByTelegramUserId: 42,
     createdAt: '2026-07-09T10:00:00.000Z',
     updatedAt: '2026-07-09T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function sampleSessionLink(overrides: Partial<RoleGameSessionRecord> = {}): RoleGameSessionRecord {
+  return {
+    id: 1,
+    roleGameId: 1,
+    scheduleEventId: 1,
+    source: 'manual',
+    generatedForStartsAt: null,
+    createdByTelegramUserId: 42,
+    createdAt: '2026-07-09T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function sampleScheduleEvent(overrides: Partial<ScheduleEventRecord> = {}): ScheduleEventRecord {
+  return {
+    id: 1,
+    title: 'Partida de prueba',
+    description: 'Una partida lista para jugar.',
+    detailsMessageChatId: null,
+    detailsMessageId: null,
+    startsAt: '2026-08-06T16:00:00.000Z',
+    durationMinutes: 180,
+    organizerTelegramUserId: 42,
+    createdByTelegramUserId: 42,
+    tableId: null,
+    attendanceMode: 'closed',
+    isPublic: false,
+    initialOccupiedSeats: 0,
+    capacity: 5,
+    lifecycleStatus: 'scheduled',
+    createdAt: '2026-07-09T10:00:00.000Z',
+    updatedAt: '2026-07-09T10:00:00.000Z',
+    cancelledAt: null,
+    cancelledByTelegramUserId: null,
+    cancellationReason: null,
     ...overrides,
   };
 }

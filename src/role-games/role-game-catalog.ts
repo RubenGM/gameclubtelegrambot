@@ -203,6 +203,7 @@ export interface RoleGameRepository {
   createGame(input: CreateRoleGameInput): Promise<RoleGameRecord>;
   findGameById(gameId: number): Promise<RoleGameRecord | null>;
   updateGame(input: UpdateRoleGameInput): Promise<RoleGameRecord>;
+  listRecurringGames?(): Promise<RoleGameRecord[]>;
   listVisibleGames(input: ListVisibleRoleGamesInput): Promise<RoleGameRecord[]>;
   listGamesForUser(telegramUserId: number): Promise<RoleGameRecord[]>;
   createOrUpdateMember(input: CreateOrUpdateRoleGameMemberInput): Promise<RoleGameMemberRecord>;

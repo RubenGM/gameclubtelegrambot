@@ -24,6 +24,8 @@ import { createDatabaseScheduleEventReminderRepository } from '../schedule/sched
 import { sendDueScheduleEventReminders } from '../schedule/schedule-reminders.js';
 import { createScheduleReminderWorker, type ScheduleReminderWorker } from '../schedule/schedule-reminder-worker.js';
 import { createAdminHttpServer, type AdminHttpServer } from '../http/admin-http-server.js';
+import { createRoleGameRecurrenceWorker } from '../role-games/role-game-recurrence-worker.js';
+import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalog-store.js';
 
 export interface LoggerLike {
   info(bindings: object, message: string): void;
@@ -39,6 +41,10 @@ export interface CreateAppOptions {
     onFatalRuntimeError: TelegramFatalRuntimeErrorHandler;
   }) => Promise<TelegramBoundary>;
   startScheduleReminders?: (options: {
+    services: InfrastructureRuntimeServices;
+    telegram: TelegramBoundary;
+  }) => ScheduleReminderWorker;
+  startRoleGameRecurrences?: (options: {
     services: InfrastructureRuntimeServices;
     telegram: TelegramBoundary;
   }) => ScheduleReminderWorker;
@@ -114,6 +120,17 @@ export function createApp({
         });
       },
     }),
+  startRoleGameRecurrences = ({ services }) =>
+    createRoleGameRecurrenceWorker({
+      enabled: true,
+      intervalMs: 60_000,
+      roleGameRepository: createDatabaseRoleGameRepository({ database: services.database.db }),
+      scheduleRepository: createDatabaseScheduleRepository({ database: services.database.db }),
+      actorTelegramUserId: config.bootstrap.firstAdmin.telegramUserId,
+      logger: {
+        error: logger.error?.bind(logger) ?? (() => {}),
+      },
+    }),
   startAdminHttpServer = ({ services, telegram }) =>
     createAdminHttpServer({
       config,
@@ -131,6 +148,7 @@ export function createApp({
   let infrastructure: InfrastructureBoundary | undefined;
   let telegram: TelegramBoundary | undefined;
   let scheduleReminders: ScheduleReminderWorker | undefined;
+  let roleGameRecurrences: ScheduleReminderWorker | undefined;
   let adminHttpServer: AdminHttpServer | undefined;
   const fatalRuntimeErrorHandlers = new Set<TelegramFatalRuntimeErrorHandler>();
   const emitFatalRuntimeError = (error: unknown) => {
@@ -160,6 +178,8 @@ export function createApp({
         telegram = startedTelegram;
         scheduleReminders = startScheduleReminders({ services: startedInfrastructure.services, telegram });
         await scheduleReminders.start();
+        roleGameRecurrences = startRoleGameRecurrences({ services: startedInfrastructure.services, telegram });
+        await roleGameRecurrences.start();
         adminHttpServer = startAdminHttpServer({ services: startedInfrastructure.services, telegram });
         await adminHttpServer.start();
         await notifyFirstAdminReady({
@@ -203,6 +223,9 @@ export function createApp({
             await adminHttpServer.stop();
           }
           if (scheduleReminders) {
+            if (roleGameRecurrences) {
+              await roleGameRecurrences.stop();
+            }
             await scheduleReminders.stop();
           }
           await telegram.stop();
@@ -221,6 +244,7 @@ export function createApp({
 
       telegram = undefined;
       scheduleReminders = undefined;
+      roleGameRecurrences = undefined;
       adminHttpServer = undefined;
       infrastructure = undefined;
 

@@ -8,6 +8,7 @@ import {
   type RoleGameEntryMode,
   type RoleGameMemberRecord,
   type RoleGamePublicJoinPolicy,
+  type RoleGameRecurrenceRule,
   type RoleGameRepository,
   type RoleGameRecord,
   type RoleGameSchedulingMode,
@@ -50,6 +51,7 @@ import type { TelegramReplyButton } from './runtime-boundary.js';
 const roleGameListFlowKey = 'role-games-list';
 const roleGameCreateFlowKey = 'role-game-create';
 const roleGameManualSessionFlowKey = 'role-game-manual-session';
+const roleGameRecurrenceConfigFlowKey = 'role-game-recurrence-config';
 const roleGameStartPayloadPrefix = 'role_game_';
 
 type RoleGameListKind = 'mine' | 'visible';
@@ -63,11 +65,16 @@ type RoleGameCreateStep =
   | 'entry-mode'
   | 'acceptance-mode'
   | 'scheduling-mode'
+  | 'recurrence-interval'
+  | 'recurrence-weekday'
+  | 'recurrence-time'
+  | 'recurrence-window'
   | 'initial-session-date'
   | 'initial-session-time'
   | 'confirm';
 
 type RoleGameManualSessionStep = 'date' | 'time';
+type RoleGameRecurrenceConfigStep = 'interval' | 'weekday' | 'time' | 'window' | 'confirm';
 
 interface RoleGameCreateDraft {
   type?: RoleGameType;
@@ -86,7 +93,7 @@ interface RoleGameCreateDraft {
   autoAddConfirmedPlayers?: boolean;
   allowPlayerManualScheduling?: boolean;
   schedulingMode?: RoleGameSchedulingMode;
-  recurrenceRule?: null;
+  recurrenceRule?: RoleGameRecurrenceRule | null;
   recurrenceWindowCount?: number;
   initialSessionDate?: string;
   initialSessionTime?: string;
@@ -96,6 +103,15 @@ interface RoleGameManualSessionDraft {
   gameId?: number;
   date?: string;
   time?: string;
+}
+
+interface RoleGameRecurrenceConfigDraft {
+  gameId?: number;
+  intervalWeeks?: number;
+  weekday?: RoleGameRecurrenceRule['weekday'];
+  time?: string;
+  windowCount?: number;
+  existingFutureSessions?: number;
 }
 
 export type TelegramRoleGameContext = TelegramCommandHandlerContext & {
@@ -131,6 +147,10 @@ export async function handleTelegramRoleGameText(context: TelegramRoleGameContex
 
   if (isRoleGameManualSessionSession(context)) {
     return handleRoleGameManualSessionStep(context, text, language);
+  }
+
+  if (isRoleGameRecurrenceConfigSession(context)) {
+    return handleRoleGameRecurrenceConfigStep(context, text, language);
   }
 
   if (isRoleGameListSession(context) && text === texts.nextPage) {
@@ -269,6 +289,35 @@ export async function handleTelegramRoleGameCallback(context: TelegramRoleGameCo
     return true;
   }
 
+  if (callbackData.startsWith(roleGameCallbackPrefixes.configureRecurrence)) {
+    const gameId = parseCallbackEntityId(callbackData, roleGameCallbackPrefixes.configureRecurrence);
+    if (gameId === null) {
+      await context.reply(createTelegramI18n(language).roleGames.notFound, buildRoleGameHomeKeyboard(language));
+      return true;
+    }
+    const game = await findVisibleRoleGameDetail(context, gameId);
+    if (!game) {
+      await context.reply(createTelegramI18n(language).roleGames.notFound, buildRoleGameHomeKeyboard(language));
+      return true;
+    }
+    const repository = resolveRepository(context);
+    const actorMember = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+    if (!canConfigureRoleGameRecurrence(context, game, actorMember)) {
+      await context.reply(createTelegramI18n(language).roleGames.permissionDenied, buildRoleGameHomeKeyboard(language));
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: roleGameRecurrenceConfigFlowKey,
+      stepKey: 'interval',
+      data: {
+        gameId,
+        existingFutureSessions: await countFutureRoleGameSessions(context, game.id),
+      },
+    });
+    await context.reply(createTelegramI18n(language).roleGames.promptRecurrenceIntervalWeeks, buildRoleGameCreateStepKeyboard({ language }));
+    return true;
+  }
+
   if (
     callbackData.startsWith(roleGameCallbackPrefixes.acceptRequest) ||
     callbackData.startsWith(roleGameCallbackPrefixes.rejectRequest)
@@ -378,17 +427,62 @@ async function handleRoleGameCreateStep(
         manual_review: texts.optionManualReview,
         auto_until_full: texts.optionAutoUntilFull,
       });
-      return advanceRoleGameCreate(context, language, 'scheduling-mode', draft, texts.promptSchedulingMode, [[
-        { text: texts.optionManualScheduling, semanticRole: 'primary' },
-      ]]);
+      const schedulingOptions = draft.type === 'campaign'
+        ? [
+          { text: texts.optionManualScheduling, semanticRole: 'primary' as const },
+          { text: texts.optionRecurringScheduling, semanticRole: 'primary' as const },
+        ]
+        : [{ text: texts.optionManualScheduling, semanticRole: 'primary' as const }];
+      return advanceRoleGameCreate(context, language, 'scheduling-mode', draft, texts.promptSchedulingMode, [schedulingOptions]);
     }
     if (step === 'scheduling-mode') {
       draft.schedulingMode = parseCreateOption(text, {
         manual: texts.optionManualScheduling,
+        recurring: texts.optionRecurringScheduling,
       });
+      if (draft.schedulingMode === 'recurring') {
+        return advanceRoleGameCreate(context, language, 'recurrence-interval', draft, texts.promptRecurrenceIntervalWeeks);
+      }
       if (draft.type === 'one_shot') {
         return advanceRoleGameCreate(context, language, 'initial-session-date', draft, texts.promptInitialSessionDate);
       }
+      await context.runtime.session.advance({ stepKey: 'confirm', data: draft });
+      await context.reply(`${texts.promptConfirmCreate}\n\n${formatRoleGameCreateSummary(draft, language)}`, {
+        ...buildRoleGameCreateConfirmationKeyboard(language),
+        parseMode: 'HTML',
+      });
+      return true;
+    }
+    if (step === 'recurrence-interval') {
+      draft.recurrenceRule = {
+        intervalWeeks: parseBoundedInteger(text, 1, 8),
+        weekday: 0,
+        time: '18:00',
+      };
+      return advanceRoleGameCreate(context, language, 'recurrence-weekday', draft, texts.promptRecurrenceWeekday);
+    }
+    if (step === 'recurrence-weekday') {
+      if (!draft.recurrenceRule) {
+        throw new Error('missing recurrence rule');
+      }
+      draft.recurrenceRule = {
+        ...draft.recurrenceRule,
+        weekday: parseWeekday(text),
+      };
+      return advanceRoleGameCreate(context, language, 'recurrence-time', draft, texts.promptRecurrenceTime);
+    }
+    if (step === 'recurrence-time') {
+      if (!draft.recurrenceRule) {
+        throw new Error('missing recurrence rule');
+      }
+      draft.recurrenceRule = {
+        ...draft.recurrenceRule,
+        time: parseTimeValue(text),
+      };
+      return advanceRoleGameCreate(context, language, 'recurrence-window', draft, texts.promptRecurrenceWindowCount);
+    }
+    if (step === 'recurrence-window') {
+      draft.recurrenceWindowCount = parseBoundedInteger(text, 1, 12);
       await context.runtime.session.advance({ stepKey: 'confirm', data: draft });
       await context.reply(`${texts.promptConfirmCreate}\n\n${formatRoleGameCreateSummary(draft, language)}`, {
         ...buildRoleGameCreateConfirmationKeyboard(language),
@@ -439,7 +533,7 @@ async function handleRoleGameCreateStep(
         autoAddConfirmedPlayers: draft.autoAddConfirmedPlayers ?? true,
         allowPlayerManualScheduling: draft.allowPlayerManualScheduling ?? false,
         schedulingMode: draft.schedulingMode ?? 'manual',
-        recurrenceRule: null,
+        recurrenceRule: draft.recurrenceRule ?? null,
         recurrenceWindowCount: draft.recurrenceWindowCount ?? 0,
       });
       const initialSession = draft.type === 'one_shot' && draft.initialSessionDate && draft.initialSessionTime
@@ -524,6 +618,91 @@ async function handleRoleGameManualSessionStep(
       });
       await context.runtime.session.cancel();
       await context.reply(`${texts.sessionScheduled}\n\n${formatRoleGameScheduleEventLink(sessionResult.event.id, sessionResult.event.startsAt)}`, {
+        ...buildRoleGameHomeKeyboard(language),
+        parseMode: 'HTML',
+      });
+      return true;
+    }
+  } catch {
+    await context.reply(texts.invalidCreateValue, buildRoleGameCreateStepKeyboard({ language }));
+    return true;
+  }
+
+  await context.reply(texts.invalidCreateValue, buildRoleGameCreateStepKeyboard({ language }));
+  return true;
+}
+
+async function handleRoleGameRecurrenceConfigStep(
+  context: TelegramRoleGameContext,
+  text: string,
+  language: BotLanguage,
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (!session || session.flowKey !== roleGameRecurrenceConfigFlowKey) {
+    return false;
+  }
+  const texts = createTelegramI18n(language).roleGames;
+  const draft = { ...(session.data as RoleGameRecurrenceConfigDraft) };
+  const step = session.stepKey as RoleGameRecurrenceConfigStep;
+
+  try {
+    if (step === 'interval') {
+      draft.intervalWeeks = parseBoundedInteger(text, 1, 8);
+      await context.runtime.session.advance({ stepKey: 'weekday', data: draft });
+      await context.reply(texts.promptRecurrenceWeekday, buildRoleGameCreateStepKeyboard({ language }));
+      return true;
+    }
+    if (step === 'weekday') {
+      draft.weekday = parseWeekday(text);
+      await context.runtime.session.advance({ stepKey: 'time', data: draft });
+      await context.reply(texts.promptRecurrenceTime, buildRoleGameCreateStepKeyboard({ language }));
+      return true;
+    }
+    if (step === 'time') {
+      draft.time = parseTimeValue(text);
+      await context.runtime.session.advance({ stepKey: 'window', data: draft });
+      await context.reply(texts.promptRecurrenceWindowCount, buildRoleGameCreateStepKeyboard({ language }));
+      return true;
+    }
+    if (step === 'window') {
+      draft.windowCount = parseBoundedInteger(text, 1, 12);
+      await context.runtime.session.advance({ stepKey: 'confirm', data: draft });
+      const confirmation = draft.existingFutureSessions && draft.existingFutureSessions > 0
+        ? texts.promptConfirmRecurrenceWithExistingSessions
+        : texts.promptConfirmCreate;
+      await context.reply(`${confirmation}\n\n${formatRoleGameRecurrenceSummary(draft)}`, {
+        ...buildRoleGameCreateConfirmationKeyboard(language),
+        parseMode: 'HTML',
+      });
+      return true;
+    }
+    if (step === 'confirm' && text === texts.confirmCreate) {
+      const gameId = requireDraftValue(draft.gameId);
+      const repository = resolveRepository(context);
+      const game = await repository.findGameById(gameId);
+      if (!game) {
+        await context.runtime.session.cancel();
+        await context.reply(texts.notFound, buildRoleGameHomeKeyboard(language));
+        return true;
+      }
+      const actorMember = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+      if (!canConfigureRoleGameRecurrence(context, game, actorMember)) {
+        await context.runtime.session.cancel();
+        await context.reply(texts.permissionDenied, buildRoleGameHomeKeyboard(language));
+        return true;
+      }
+      const updated = await repository.updateGame({
+        gameId,
+        schedulingMode: 'recurring',
+        recurrenceRule: {
+          intervalWeeks: requireDraftValue(draft.intervalWeeks),
+          weekday: requireDraftValue(draft.weekday),
+          time: requireDraftValue(draft.time),
+        },
+        recurrenceWindowCount: requireDraftValue(draft.windowCount),
+      });
+      await context.runtime.session.cancel();
+      await context.reply(`${texts.recurrenceSaved}\n\n${formatRoleGameDetailMessage({ game: updated, language })}`, {
         ...buildRoleGameHomeKeyboard(language),
         parseMode: 'HTML',
       });
@@ -732,6 +911,7 @@ async function replyWithRoleGameDetail(
   };
   const canManageRequests = canManageRoleGameOperationally(actor, game, actorMember);
   const canScheduleSession = canScheduleManualRoleGameSession(context, game, actorMember);
+  const canConfigureRecurrence = canConfigureRoleGameRecurrence(context, game, actorMember);
   const requestMemberIds = canManageRequests
     ? members.filter((member) => member.role === 'player' && member.status === 'requested').map((member) => member.id)
     : [];
@@ -747,6 +927,7 @@ async function replyWithRoleGameDetail(
       gameId: game.id,
       canRequestSeat,
       canScheduleSession,
+      canConfigureRecurrence,
       requestMemberIds,
       language,
     }),
@@ -803,11 +984,18 @@ function isRoleGameManualSessionSession(context: TelegramRoleGameContext): boole
   return context.runtime.session.current?.flowKey === roleGameManualSessionFlowKey;
 }
 
+function isRoleGameRecurrenceConfigSession(context: TelegramRoleGameContext): boolean {
+  return context.runtime.session.current?.flowKey === roleGameRecurrenceConfigFlowKey;
+}
+
 function canScheduleManualRoleGameSession(
   context: TelegramRoleGameContext,
   game: RoleGameRecord,
   actorMember: RoleGameMemberRecord | null,
 ): boolean {
+  if (game.type !== 'campaign' || game.status !== 'active' || game.schedulingMode !== 'manual') {
+    return false;
+  }
   const actor = {
     telegramUserId: context.runtime.actor.telegramUserId,
     isAdmin: context.runtime.actor.isAdmin,
@@ -821,6 +1009,32 @@ function canScheduleManualRoleGameSession(
     actorMember.status === 'confirmed';
 }
 
+function canConfigureRoleGameRecurrence(
+  context: TelegramRoleGameContext,
+  game: RoleGameRecord,
+  actorMember: RoleGameMemberRecord | null,
+): boolean {
+  if (game.type !== 'campaign' || game.status !== 'active') {
+    return false;
+  }
+  return canManageRoleGameOperationally(
+    {
+      telegramUserId: context.runtime.actor.telegramUserId,
+      isAdmin: context.runtime.actor.isAdmin,
+      isApproved: context.runtime.actor.isApproved,
+    },
+    game,
+    actorMember,
+  );
+}
+
+async function countFutureRoleGameSessions(context: TelegramRoleGameContext, gameId: number): Promise<number> {
+  const now = new Date().toISOString();
+  const links = await resolveRepository(context).listSessionLinks(gameId);
+  const events = await Promise.all(links.map((link) => resolveScheduleRepository(context).findEventById(link.scheduleEventId)));
+  return events.filter((event) => event && event.lifecycleStatus !== 'cancelled' && event.startsAt > now).length;
+}
+
 function parseCreateOption<T extends string>(text: string, options: Record<T, string>): T {
   const normalizedText = normalizeOptionText(text);
   const found = Object.entries(options).find(([, label]) => normalizeOptionText(label as string) === normalizedText);
@@ -832,6 +1046,56 @@ function parseCreateOption<T extends string>(text: string, options: Record<T, st
 
 function normalizeOptionText(value: string): string {
   return value.trim().toLocaleLowerCase('es');
+}
+
+function parseBoundedInteger(text: string, min: number, max: number): number {
+  const value = Number(text.trim());
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error('invalid integer');
+  }
+  return value;
+}
+
+function parseWeekday(text: string): RoleGameRecurrenceRule['weekday'] {
+  const normalized = normalizeOptionText(text);
+  const weekdays: Record<string, RoleGameRecurrenceRule['weekday']> = {
+    domingo: 0,
+    diumenge: 0,
+    sunday: 0,
+    lunes: 1,
+    dilluns: 1,
+    monday: 1,
+    martes: 2,
+    dimarts: 2,
+    tuesday: 2,
+    miercoles: 3,
+    miércoles: 3,
+    dimecres: 3,
+    wednesday: 3,
+    jueves: 4,
+    dijous: 4,
+    thursday: 4,
+    viernes: 5,
+    divendres: 5,
+    friday: 5,
+    sabado: 6,
+    sábado: 6,
+    dissabte: 6,
+    saturday: 6,
+  };
+  const weekday = weekdays[normalized];
+  if (weekday === undefined) {
+    throw new Error('invalid weekday');
+  }
+  return weekday;
+}
+
+function parseTimeValue(text: string): string {
+  const parsed = parseTime(text);
+  if (parsed instanceof Error) {
+    throw parsed;
+  }
+  return parsed;
 }
 
 function requireDraftValue<T>(value: T | undefined): T {
@@ -862,7 +1126,7 @@ function formatRoleGameCreateSummary(draft: RoleGameCreateDraft, language: BotLa
     autoAddConfirmedPlayers: draft.autoAddConfirmedPlayers ?? true,
     allowPlayerManualScheduling: draft.allowPlayerManualScheduling ?? false,
     schedulingMode: draft.schedulingMode ?? 'manual',
-    recurrenceRule: null,
+    recurrenceRule: draft.recurrenceRule ?? null,
     recurrenceWindowCount: draft.recurrenceWindowCount ?? 0,
     createdByTelegramUserId: 0,
     createdAt: '',
@@ -870,6 +1134,14 @@ function formatRoleGameCreateSummary(draft: RoleGameCreateDraft, language: BotLa
     closedAt: null,
   };
   return formatRoleGameDetailMessage({ game, language });
+}
+
+function formatRoleGameRecurrenceSummary(draft: RoleGameRecurrenceConfigDraft): string {
+  return [
+    `Cada ${escapeHtml(String(requireDraftValue(draft.intervalWeeks)))} semana(s).`,
+    `Día ${escapeHtml(String(requireDraftValue(draft.weekday)))} a las ${escapeHtml(requireDraftValue(draft.time))}.`,
+    `Ventana: ${escapeHtml(String(requireDraftValue(draft.windowCount)))} sesiones futuras.`,
+  ].join('\n');
 }
 
 function resolveRepository(context: TelegramRoleGameContext): RoleGameRepository {
