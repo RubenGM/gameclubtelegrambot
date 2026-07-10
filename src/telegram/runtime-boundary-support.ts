@@ -794,7 +794,7 @@ function resolveMessageThreadId(message: unknown): number | undefined {
   return typeof candidate === 'number' ? candidate : undefined;
 }
 
-function resolveReplyToBotMessageContext(
+export function resolveReplyToBotMessageContext(
   message: unknown,
   botUsername: string | undefined,
 ): { messageId?: number; text?: string } | null {
@@ -803,6 +803,9 @@ function resolveReplyToBotMessageContext(
   }
 
   const maybeMessage = message as Record<string, unknown>;
+  if (maybeMessage.quote !== undefined || maybeMessage.external_reply !== undefined || maybeMessage.externalReply !== undefined) {
+    return null;
+  }
   const replyToMessage = maybeMessage.reply_to_message ?? maybeMessage.replyToMessage;
   if (!replyToMessage || typeof replyToMessage !== 'object') {
     return null;

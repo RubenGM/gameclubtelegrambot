@@ -28,11 +28,14 @@ La feature se activa por estas vías:
 - Botón privado `Preguntar al bot`, que abre una sesión de conversación.
 - Fallback privado configurable para mensajes que no hayan sido manejados por
   otros flujos.
-- Menciones al bot en grupos o topics.
+- Menciones al bot en grupos o topics, únicamente cuando `@username` aparece al
+  principio del mensaje, después de espacios iniciales.
 - Replies a mensajes del bot en grupos o privado.
 
-En grupos y topics sólo se responden lecturas cuando hay mención explícita al
-bot o el usuario responde a un mensaje suyo. Las escrituras pedidas desde grupo
+En grupos y topics sólo se responden lecturas cuando hay una mención explícita al
+principio del mensaje o el usuario responde realmente a un mensaje suyo. Las
+quotes, las menciones escritas dentro de una frase y los mensajes informativos
+como `para usar el bot tenéis que escribir a @cawa_bot` se ignoran. Las escrituras pedidas desde grupo
 no se ejecutan allí: el bot debe pedir al usuario que repita o continúe en
 privado.
 
