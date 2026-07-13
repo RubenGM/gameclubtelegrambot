@@ -7,6 +7,7 @@ import {
   type RoleGameRecord,
 } from '../role-games/role-game-catalog.js';
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
+import { formatTimestamp } from './schedule-presentation.js';
 import { formatTelegramUserLink } from './telegram-user-links.js';
 
 const activeStatuses = new Set<RoleGameMemberRecord['status']>(['requested', 'waitlisted', 'confirmed', 'invited']);
@@ -45,7 +46,7 @@ export function listRoleGameMemberActions({
   }
   const actions = memberManagementActionsFor(member);
   if (canManageRoleGame(actor, game, actorMembership)) {
-    return actions;
+    return actions.filter((action) => action !== 'promote' || actor.telegramUserId !== member.telegramUserId);
   }
   if (canManageRoleGameOperationally(actor, game, actorMembership) && member.status === 'requested') {
     return actions;
@@ -156,6 +157,7 @@ export function formatRoleGameParticipantDetail({
   return [
     `<b>${escapeHtml(texts.participantDetailHeader)}</b>`,
     formatParticipantRow(item, texts).replace(/^- /, ''),
+    `${escapeHtml(texts.participantRelevantDate)}: ${escapeHtml(formatTimestamp(item.member.updatedAt))}`,
   ].join('\n');
 }
 
@@ -179,10 +181,11 @@ function participantRank(member: RoleGameMemberRecord, kind: RoleGameParticipant
   }
   if (member.status === 'requested') return 0;
   if (member.status === 'waitlisted') return 1;
-  if (member.status === 'confirmed' && member.role === 'coorganizer') return 2;
-  if (member.status === 'confirmed') return 3;
-  if (member.status === 'invited') return 4;
-  return 5;
+  if (member.status === 'confirmed' && member.role === 'primary_gm') return 2;
+  if (member.status === 'confirmed' && member.role === 'coorganizer') return 3;
+  if (member.status === 'confirmed' && member.role === 'player') return 4;
+  if (member.status === 'invited') return 5;
+  return 6;
 }
 
 function participantGroupDefinitions(
@@ -199,8 +202,9 @@ function participantGroupDefinitions(
   return [
     { heading: texts.participantRequests, matches: (item: RoleGameParticipantListItem) => item.member.status === 'requested' },
     { heading: texts.participantWaitlist, matches: (item: RoleGameParticipantListItem) => item.member.status === 'waitlisted' },
+    { heading: texts.participantPrimaryGm, matches: (item: RoleGameParticipantListItem) => item.member.status === 'confirmed' && item.member.role === 'primary_gm' },
     { heading: texts.participantCoorganizers, matches: (item: RoleGameParticipantListItem) => item.member.status === 'confirmed' && item.member.role === 'coorganizer' },
-    { heading: texts.participantConfirmedPlayers, matches: (item: RoleGameParticipantListItem) => item.member.status === 'confirmed' && item.member.role !== 'coorganizer' },
+    { heading: texts.participantConfirmedPlayers, matches: (item: RoleGameParticipantListItem) => item.member.status === 'confirmed' && item.member.role === 'player' },
     { heading: texts.participantInvited, matches: (item: RoleGameParticipantListItem) => item.member.status === 'invited' },
   ];
 }

@@ -1,6 +1,7 @@
 import {
   canManageRoleGameOperationally,
   canManageRoleGame,
+  canRequestRoleGameSeat,
   canViewRoleGame,
   canViewRoleGameMaterial,
   createRoleGame,
@@ -9,7 +10,6 @@ import {
   recordRoleGameMaterialDelivery,
   requestRoleGameSeat,
   revealRoleGameMaterial,
-  resolveRoleGameSeatRequest,
   type RoleGameAcceptanceMode,
   type RoleGameEntryMode,
   type RoleGameMaterialDeliveryMode,
@@ -30,7 +30,7 @@ import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalo
 import type { MembershipAccessRepository } from '../membership/access-flow.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { createManualRoleGameSession, createRoleGameScheduleSession } from '../role-games/role-game-scheduler.js';
-import type { ScheduleRepository } from '../schedule/schedule-catalog.js';
+import type { ScheduleEventRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import {
   createStorageEntry,
@@ -1019,32 +1019,27 @@ async function handleRoleGameRequestDecision(
     isAdmin: context.runtime.actor.isAdmin,
     isApproved: context.runtime.actor.isApproved,
   };
-  if (!canManageRoleGameOperationally(actor, game, actorMember)) {
-    await context.reply(texts.permissionDenied, buildRoleGameHomeKeyboard(language));
-    return true;
-  }
-
+  const action: RoleGameMemberManagementAction = status === 'confirmed' ? 'confirm' : 'reject';
+  let updated: RoleGameMemberRecord;
   try {
-    await resolveRoleGameSeatRequest({
+    updated = await manageRoleGameMember({
       repository,
-      memberId,
-      status,
-      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actor,
+      game,
+      actorMembership: actorMember,
+      member,
+      action,
     });
-  } catch {
-    await context.reply(texts.notFound, buildRoleGameHomeKeyboard(language));
+  } catch (error) {
+    await replyWithRoleGameDetail(context, game, language, roleGameParticipantActionErrorMessage(error, texts));
     return true;
   }
-  const updatedGame = await repository.findGameById(game.id);
-  await context.reply(
-    [
-      status === 'confirmed' ? texts.requestAccepted : texts.requestRejected,
-      updatedGame ? formatRoleGameDetailMessage({ game: updatedGame, language }) : null,
-    ].filter((line): line is string => Boolean(line)).join('\n\n'),
-    {
-    ...buildRoleGameHomeKeyboard(language),
-    parseMode: 'HTML',
-    },
+  await notifyRoleGameMemberChange(context, { game, member: updated, action, language });
+  await replyWithRoleGameDetail(
+    context,
+    game,
+    language,
+    status === 'confirmed' ? texts.requestAccepted : texts.requestRejected,
   );
   return true;
 }
@@ -1103,14 +1098,13 @@ async function replyWithRoleGameInvitation(
     await context.reply(texts.notFound, buildRoleGameHomeKeyboard(language));
     return true;
   }
-  const actorMember = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
-  if (!canManageCurrentRoleGame(context, game, actorMember)) {
+  const dashboardAccess = await loadRoleGameDashboardAccess(context, game);
+  if (!canManageCurrentRoleGame(context, game, dashboardAccess.actorMember)) {
     await context.reply(texts.permissionDenied, buildRoleGameHomeKeyboard(language));
     return true;
   }
 
-  const members = await repository.listMembers(game.id);
-  const confirmedPlayers = members.filter((member) => member.role === 'player' && member.status === 'confirmed').length;
+  const confirmedPlayers = dashboardAccess.members.filter((member) => member.role === 'player' && member.status === 'confirmed').length;
   const url = escapeHtml(buildTelegramStartUrl(`${roleGameStartPayloadPrefix}${game.id}`));
   await context.runtime.session.start({
     flowKey: 'role-game-detail',
@@ -1126,7 +1120,7 @@ async function replyWithRoleGameInvitation(
     texts.inviteLinkInstructions,
     `<a href="${url}">role_game_${game.id}</a>`,
   ].join('\n'), {
-    ...await buildRoleGameDashboardOptions(context, game, language),
+    ...buildRoleGameDashboardOptions(context, game, language, dashboardAccess),
     parseMode: 'HTML',
   });
   return true;
@@ -1554,6 +1548,10 @@ async function replyWithRoleGameDetail(
   language: BotLanguage,
   prefixMessage?: string,
 ): Promise<void> {
+  const [dashboardAccess, nextSession] = await Promise.all([
+    loadRoleGameDashboardAccess(context, game),
+    findNearestFutureRoleGameSession(context, game.id),
+  ]);
   await context.runtime.session.start({
     flowKey: 'role-game-detail',
     stepKey: 'dashboard',
@@ -1562,42 +1560,104 @@ async function replyWithRoleGameDetail(
   await context.reply([
     prefixMessage,
     formatRoleGameDetailMessage({ game, language }),
+    formatRoleGameDashboardSummary({ game, dashboardAccess, nextSession, language }),
   ].filter((message): message is string => Boolean(message)).join('\n\n'), {
-    ...await buildRoleGameDashboardOptions(context, game, language),
+    ...buildRoleGameDashboardOptions(context, game, language, dashboardAccess),
     parseMode: 'HTML',
   });
 }
 
-async function buildRoleGameDashboardOptions(
+interface RoleGameDashboardAccess {
+  actorMember: RoleGameMemberRecord | null;
+  members: RoleGameMemberRecord[];
+}
+
+async function loadRoleGameDashboardAccess(
+  context: TelegramRoleGameContext,
+  game: RoleGameRecord,
+): Promise<RoleGameDashboardAccess> {
+  const repository = resolveRepository(context);
+  const [actorMember, members] = await Promise.all([
+    repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId),
+    repository.listMembers(game.id),
+  ]);
+  return { actorMember, members };
+}
+
+function buildRoleGameDashboardOptions(
   context: TelegramRoleGameContext,
   game: RoleGameRecord,
   language: BotLanguage,
+  { actorMember, members }: RoleGameDashboardAccess,
 ) {
-  const repository = resolveRepository(context);
-  const actorMember = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
-  const members = await repository.listMembers(game.id);
   const actor = {
     telegramUserId: context.runtime.actor.telegramUserId,
     isAdmin: context.runtime.actor.isAdmin,
     isApproved: context.runtime.actor.isApproved,
   };
   const canManageParticipants = canManageRoleGameOperationally(actor, game, actorMember);
-  const canRequestSeat =
-    game.status === 'active' &&
-    game.entryMode === 'request' &&
-    !canManageParticipants &&
-    !(actorMember && ['invited', 'requested', 'confirmed', 'waitlisted'].includes(actorMember.status));
   return buildRoleGameDashboardKeyboard({
     canManageParticipants,
     canSchedule: canScheduleManualRoleGameSession(context, game, actorMember),
     canManageMaterials: canManageParticipants,
     canConfigure: canConfigureRoleGameRecurrence(context, game, actorMember),
-    canRequestSeat,
+    canRequestSeat: canRequestRoleGameSeat(actor, game, actorMember),
     pendingRequestCount: canManageParticipants
       ? members.filter((member) => member.role === 'player' && member.status === 'requested').length
       : 0,
     language,
   });
+}
+
+async function findNearestFutureRoleGameSession(
+  context: TelegramRoleGameContext,
+  gameId: number,
+): Promise<ScheduleEventRecord | null> {
+  const links = await resolveRepository(context).listSessionLinks(gameId);
+  if (links.length === 0) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  const linkedEventIds = new Set(links.map((link) => link.scheduleEventId));
+  const events = await resolveScheduleRepository(context).listEvents({
+    includeCancelled: false,
+    startsAtFrom: now,
+  });
+  return events
+    .filter((event) => linkedEventIds.has(event.id) && event.startsAt > now)
+    .sort((left, right) => left.startsAt.localeCompare(right.startsAt))[0] ?? null;
+}
+
+function formatRoleGameDashboardSummary({
+  game,
+  dashboardAccess,
+  nextSession,
+  language,
+}: {
+  game: RoleGameRecord;
+  dashboardAccess: RoleGameDashboardAccess;
+  nextSession: ScheduleEventRecord | null;
+  language: BotLanguage;
+}): string {
+  const texts = createTelegramI18n(language).roleGames;
+  const confirmedPlayers = dashboardAccess.members.filter(
+    (member) => member.role === 'player' && member.status === 'confirmed',
+  ).length;
+  const pendingRequests = dashboardAccess.members.filter(
+    (member) => member.role === 'player' && member.status === 'requested',
+  ).length;
+  return [
+    texts.currentPlayersSummary
+      .replace('{confirmed}', String(confirmedPlayers))
+      .replace('{capacity}', String(game.capacity)),
+    texts.pendingRequestsSummary.replace('{count}', String(pendingRequests)),
+    nextSession
+      ? texts.nextSessionSummary.replace(
+        '{session}',
+        formatRoleGameScheduleEventLink(nextSession.id, nextSession.startsAt),
+      )
+      : texts.noUpcomingSession,
+  ].join('\n');
 }
 
 async function handleRoleGameDetailText(
@@ -2134,20 +2194,32 @@ async function requestRoleGameSeatAndReply(
   context: TelegramRoleGameContext,
   { language, gameId }: { language: BotLanguage; gameId: number },
 ): Promise<boolean> {
-  const member = await requestRoleGameSeat({
-    repository: resolveRepository(context),
-    gameId,
-    telegramUserId: context.runtime.actor.telegramUserId,
-    actor: {
+  const texts = createTelegramI18n(language).roleGames;
+  let member: RoleGameMemberRecord;
+  try {
+    member = await requestRoleGameSeat({
+      repository: resolveRepository(context),
+      gameId,
       telegramUserId: context.runtime.actor.telegramUserId,
-      isAdmin: context.runtime.actor.isAdmin,
-      isApproved: context.runtime.actor.isApproved,
-    },
-  });
+      actor: {
+        telegramUserId: context.runtime.actor.telegramUserId,
+        isAdmin: context.runtime.actor.isAdmin,
+        isApproved: context.runtime.actor.isApproved,
+      },
+    });
+  } catch {
+    const currentGame = await findVisibleRoleGameDetail(context, gameId);
+    if (currentGame) {
+      await replyWithRoleGameDetail(context, currentGame, language, texts.seatRequestUnavailable);
+    } else {
+      await context.reply(texts.permissionDenied, buildRoleGameHomeKeyboard(language));
+    }
+    return true;
+  }
   const game = await findVisibleRoleGameDetail(context, gameId);
   const message = member.status === 'confirmed'
-    ? createTelegramI18n(language).roleGames.seatConfirmed
-    : createTelegramI18n(language).roleGames.seatRequested;
+    ? texts.seatConfirmed
+    : texts.seatRequested;
   if (game) {
     await replyWithRoleGameDetail(context, game, language, message);
     return true;

@@ -144,6 +144,69 @@ test('role game detail uses a persistent section keyboard without inline buttons
   assert.equal(getCurrentSession(context)?.flowKey, 'role-game-detail');
 });
 
+test('role game dashboard shows occupancy, pending requests, and the nearest future linked Agenda session', async () => {
+  const game = sampleRoleGame({ id: 310, capacity: 5, primaryGmTelegramUserId: 42 });
+  const members = [
+    sampleRoleGameMember({ id: 3101, roleGameId: game.id, telegramUserId: 101, role: 'player', status: 'confirmed' }),
+    sampleRoleGameMember({ id: 3102, roleGameId: game.id, telegramUserId: 102, role: 'player', status: 'confirmed' }),
+    sampleRoleGameMember({ id: 3103, roleGameId: game.id, telegramUserId: 103, role: 'player', status: 'requested' }),
+    sampleRoleGameMember({ id: 3104, roleGameId: game.id, telegramUserId: 104, role: 'coorganizer', status: 'confirmed' }),
+  ];
+  const cancelled = sampleScheduleEvent({ id: 401, startsAt: '2099-01-10T18:00:00.000Z', lifecycleStatus: 'cancelled' });
+  const nearest = sampleScheduleEvent({ id: 402, startsAt: '2099-01-15T18:00:00.000Z' });
+  const later = sampleScheduleEvent({ id: 403, startsAt: '2099-02-15T18:00:00.000Z' });
+  const baseScheduleRepository = createFakeScheduleRepository({ events: [cancelled, nearest, later] });
+  let listEventCalls = 0;
+  let findEventCalls = 0;
+  const scheduleRepository: ScheduleRepository = {
+    ...baseScheduleRepository,
+    listEvents: async (input) => {
+      listEventCalls += 1;
+      return baseScheduleRepository.listEvents(input);
+    },
+    findEventById: async (eventId) => {
+      findEventCalls += 1;
+      return baseScheduleRepository.findEventById(eventId);
+    },
+  };
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      visibleGames: [game],
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, members]]),
+      sessionLinksByGameId: new Map([[game.id, [cancelled, nearest, later].map((event, index) => sampleSessionLink({
+        id: index + 1,
+        roleGameId: game.id,
+        scheduleEventId: event.id,
+      }))]]),
+    }),
+    scheduleRepository,
+  });
+
+  await handleTelegramRoleGameStartText(context);
+
+  assert.match(lastReply(context).message, /Jugadores actuales: 2\/5/);
+  assert.match(lastReply(context).message, /Solicitudes pendientes: 1/);
+  assert.match(lastReply(context).message, /Próxima sesión: .*schedule_event_402/);
+  assert.doesNotMatch(lastReply(context).message, /schedule_event_401|schedule_event_403/);
+  assert.equal(listEventCalls, 1);
+  assert.equal(findEventCalls, 0);
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Participantes · 1 pendientes'));
+});
+
+test('role game dashboard shows a localized no-session state', async () => {
+  const game = sampleRoleGame({ id: 3105 });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({ visibleGames: [game], gamesById: [game] }),
+  });
+
+  await handleTelegramRoleGameStartText(context);
+
+  assert.match(lastReply(context).message, /No hay próximas sesiones programadas/);
+});
+
 test('role game participants button renders an identity-aware active list from the pending dashboard label', async () => {
   const game = sampleRoleGame({ id: 311, primaryGmTelegramUserId: 42 });
   const members = [
@@ -824,6 +887,43 @@ test('handleTelegramRoleGameStartText opens public external one-shot links for u
   assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Solicitar plaza'));
 });
 
+test('role game dashboard hides seat requests from external visitors to public campaigns', async () => {
+  const game = sampleRoleGame({
+    id: 241,
+    type: 'campaign',
+    visibility: 'public',
+    publicJoinPolicy: 'members_and_external',
+  });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game] }),
+    actor: { telegramUserId: 100, isApproved: false, status: 'pending' },
+  });
+
+  await handleTelegramRoleGameStartText(context);
+
+  assert.match(lastReply(context).message, /Partida de prueba/);
+  assert.ok(!lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Solicitar plaza'));
+});
+
+test('role game dashboard lets approved members request members-only one-shot seats', async () => {
+  const game = sampleRoleGame({
+    id: 242,
+    type: 'one_shot',
+    visibility: 'public',
+    publicJoinPolicy: 'members_only',
+  });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game] }),
+    actor: { telegramUserId: 100, isApproved: true, status: 'approved' },
+  });
+
+  await handleTelegramRoleGameStartText(context);
+
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Solicitar plaza'));
+});
+
 test('handleTelegramRoleGameCallback lets unapproved external users request public one-shot seats without approving membership', async () => {
   const game = sampleRoleGame({
     id: 25,
@@ -893,6 +993,29 @@ test('handleTelegramRoleGameText lets unapproved external users request public o
   assert.equal(requestedExternal, true);
   assert.equal(context.runtime.actor.status, 'pending');
   assert.match(lastReply(context).message, /Plaza confirmada/);
+});
+
+test('stale request-seat input recovers locally and rerenders the dashboard', async () => {
+  const game = sampleRoleGame({ id: 252, visibility: 'public' });
+  const membersByGameId = new Map<number, RoleGameMemberRecord[]>([[game.id, []]]);
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game], membersByGameId }),
+    actor: { telegramUserId: 100, isApproved: true, status: 'approved' },
+  });
+
+  await handleTelegramRoleGameStartText(context);
+  membersByGameId.set(game.id, [sampleRoleGameMember({
+    id: 2521,
+    roleGameId: game.id,
+    telegramUserId: 100,
+    status: 'confirmed',
+  })]);
+  assert.equal(await sendRoleGameText(context, 'Solicitar plaza'), true);
+
+  assert.match(lastReply(context).message, /La solicitud de plaza ya no está disponible/);
+  assert.equal(getCurrentSession(context)?.data?.view, 'dashboard');
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Volver a mis partidas'));
 });
 
 test('role game callback prefix registry retains all legacy adapters', () => {
@@ -1098,6 +1221,7 @@ test('handleTelegramRoleGameCallback auto-confirms seat requests while capacity 
   const context = createRoleGameTestContext({
     messageText: '',
     callbackData: 'role_game:request:70',
+    actor: { telegramUserId: 100 },
     roleGameRepository: createFakeRoleGameRepository({
       gamesById: [game],
       onRequestSeat: async (input) => {
@@ -1125,6 +1249,7 @@ test('handleTelegramRoleGameCallback creates manual review requests', async () =
   const context = createRoleGameTestContext({
     messageText: '',
     callbackData: 'role_game:request:71',
+    actor: { telegramUserId: 100 },
     roleGameRepository: createFakeRoleGameRepository({
       gamesById: [game],
       onRequestSeat: async (input) => {
@@ -1146,46 +1271,53 @@ test('handleTelegramRoleGameCallback creates manual review requests', async () =
   assert.match(lastReply(context).message, /solicitud enviada/i);
 });
 
-test('handleTelegramRoleGameCallback lets managers accept and reject requests', async () => {
+test('legacy request callbacks use hardened management, notify participants, and render the persistent dashboard', async () => {
   const game = sampleRoleGame({ id: 72, primaryGmTelegramUserId: 42 });
-  const requested = sampleRoleGameMember({ id: 10, roleGameId: game.id, telegramUserId: 100, status: 'requested' });
-  const statuses: string[] = [];
+  const accepted = sampleRoleGameMember({ id: 10, roleGameId: game.id, telegramUserId: 100, status: 'requested' });
+  const rejected = sampleRoleGameMember({ id: 11, roleGameId: game.id, telegramUserId: 101, status: 'requested' });
+  const membersByGameId = new Map([[game.id, [accepted, rejected]]]);
+  const notifications: Array<{ telegramUserId: number; message: string }> = [];
   const context = createRoleGameTestContext({
     messageText: '',
     callbackData: 'role_game:accept:10',
     roleGameRepository: createFakeRoleGameRepository({
       gamesById: [game],
-      membersByGameId: new Map([[game.id, [requested]]]),
-      onSetMemberStatus: async (input) => {
-        statuses.push(input.status);
-        return { ...requested, status: input.status };
-      },
+      membersByGameId,
     }),
+    onSendPrivateMessage: async (telegramUserId, message) => {
+      notifications.push({ telegramUserId, message });
+    },
   });
 
   assert.equal(await handleTelegramRoleGameCallback(context), true);
-  assert.deepEqual(statuses, ['confirmed']);
+  assert.equal((await context.roleGameRepository.findMemberById(accepted.id))?.status, 'confirmed');
   assert.match(lastReply(context).message, /Solicitud aceptada/i);
 
-  context.callbackData = 'role_game:reject:10';
+  context.callbackData = 'role_game:reject:11';
   assert.equal(await handleTelegramRoleGameCallback(context), true);
-  assert.deepEqual(statuses, ['confirmed', 'rejected']);
+  assert.equal((await context.roleGameRepository.findMemberById(rejected.id))?.status, 'rejected');
   assert.match(lastReply(context).message, /Solicitud rechazada/i);
+  assert.deepEqual(notifications, [
+    { telegramUserId: 100, message: 'Tu plaza en Partida de prueba se ha confirmado.' },
+    { telegramUserId: 101, message: 'Tu solicitud para Partida de prueba ha sido rechazada.' },
+  ]);
+  assert.equal(getCurrentSession(context)?.data?.view, 'dashboard');
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button).startsWith('Participantes')));
 });
 
 test('handleTelegramRoleGameCallback blocks non-managers from accepting requests', async () => {
   const game = sampleRoleGame({ id: 73, primaryGmTelegramUserId: 99 });
   const requested = sampleRoleGameMember({ id: 11, roleGameId: game.id, telegramUserId: 100, status: 'requested' });
-  let setCalls = 0;
+  let confirmCalls = 0;
   const context = createRoleGameTestContext({
     messageText: '',
     callbackData: 'role_game:accept:11',
     roleGameRepository: createFakeRoleGameRepository({
       gamesById: [game],
       membersByGameId: new Map([[game.id, [requested]]]),
-      onSetMemberStatus: async (input) => {
-        setCalls += 1;
-        return { ...requested, status: input.status };
+      onConfirmMemberSeat: async () => {
+        confirmCalls += 1;
+        return { ...requested, status: 'confirmed' };
       },
     }),
   });
@@ -1193,7 +1325,7 @@ test('handleTelegramRoleGameCallback blocks non-managers from accepting requests
   const handled = await handleTelegramRoleGameCallback(context);
 
   assert.equal(handled, true);
-  assert.equal(setCalls, 0);
+  assert.equal(confirmCalls, 0);
   assert.match(lastReply(context).message, /No tienes permisos/);
 });
 
@@ -1367,18 +1499,15 @@ test('handleTelegramRoleGameCallback does not accept when the game is full', asy
     roleGameRepository: createFakeRoleGameRepository({
       gamesById: [game],
       membersByGameId: new Map([[game.id, [confirmed, requested]]]),
-      onSetMemberStatus: async (input) => {
-        setCalls += 1;
-        return { ...requested, status: input.status };
-      },
     }),
   });
 
   const handled = await handleTelegramRoleGameCallback(context);
 
   assert.equal(handled, true);
-  assert.equal(setCalls, 0);
-  assert.match(lastReply(context).message, /No se ha encontrado/);
+  assert.equal((await context.roleGameRepository.findMemberById(requested.id))?.status, 'requested');
+  assert.match(lastReply(context).message, /ya está completa/i);
+  assert.equal(getCurrentSession(context)?.data?.view, 'dashboard');
 });
 
 test('handleTelegramRoleGameCallback starts gm-only material upload for managers', async () => {
@@ -1807,7 +1936,7 @@ test('handleTelegramRoleGameCallback reports partial material delivery failures'
   assert.match(lastReply(context).message, /Fallos: 1/);
 });
 
-test('handleTelegramRoleGameCallback ignores stale accept callbacks for non-requested members', async () => {
+test('handleTelegramRoleGameCallback recovers stale request callbacks on the persistent dashboard', async () => {
   const game = sampleRoleGame({ id: 75, primaryGmTelegramUserId: 42 });
   const confirmed = sampleRoleGameMember({ id: 14, roleGameId: game.id, telegramUserId: 100, status: 'confirmed' });
   let setCalls = 0;
@@ -1828,7 +1957,9 @@ test('handleTelegramRoleGameCallback ignores stale accept callbacks for non-requ
 
   assert.equal(handled, true);
   assert.equal(setCalls, 0);
-  assert.match(lastReply(context).message, /No se ha encontrado/);
+  assert.match(lastReply(context).message, /ha cambiado/i);
+  assert.equal(getCurrentSession(context)?.data?.view, 'dashboard');
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button).startsWith('Participantes')));
 });
 
 function createRoleGameTestContext({
@@ -2021,11 +2152,7 @@ function createFakeRoleGameRepository({
   }) => Promise<RoleGameMemberRecord>;
   onConfirmMemberSeat?: (input: Parameters<RoleGameRepository['confirmMemberSeat']>[0]) => Promise<RoleGameMemberRecord>;
   onSetMemberRole?: (input: Parameters<RoleGameRepository['setMemberRole']>[0]) => Promise<RoleGameMemberRecord>;
-  onSetMemberStatus?: (input: {
-    memberId: number;
-    status: RoleGameMemberRecord['status'];
-    actorTelegramUserId: number;
-  }) => Promise<RoleGameMemberRecord>;
+  onSetMemberStatus?: (input: Parameters<RoleGameRepository['setMemberStatus']>[0]) => Promise<RoleGameMemberRecord>;
   onListMembers?: (gameId: number) => Promise<RoleGameMemberRecord[]>;
   onCreateMaterial?: (input: CreateRoleGameMaterialInput) => Promise<RoleGameMaterialRecord>;
   onUpdateMaterialVisibility?: (input: Parameters<RoleGameRepository['updateMaterialVisibility']>[0]) => Promise<RoleGameMaterialRecord>;
@@ -2116,19 +2243,56 @@ function createFakeRoleGameRepository({
       if (onConfirmMemberSeat) {
         return onConfirmMemberSeat(input);
       }
-      return updateFakeRoleGameMember(membersByGameId, input.memberId, (member) => ({ ...member, status: 'confirmed' }));
+      return updateFakeRoleGameMember(membersByGameId, input.memberId, (member) => {
+        if (member.role !== 'player' || !input.expectedStatuses.includes(member.status as 'requested' | 'invited' | 'waitlisted')) {
+          throw new Error(`Role game member ${input.memberId} has stale status`);
+        }
+        const game = gamesById.find((candidate) => candidate.id === member.roleGameId);
+        if (!game) {
+          throw new Error(`Role game ${member.roleGameId} not found`);
+        }
+        const confirmedPlayers = (membersByGameId.get(game.id) ?? []).filter(
+          (candidate) => candidate.role === 'player' && candidate.status === 'confirmed',
+        ).length;
+        if (confirmedPlayers >= game.capacity) {
+          throw new Error(`Role game ${game.id} is full`);
+        }
+        return { ...member, status: 'confirmed' };
+      });
     },
     setMemberRole: async (input) => {
       if (onSetMemberRole) {
         return onSetMemberRole(input);
       }
-      return updateFakeRoleGameMember(membersByGameId, input.memberId, (member) => ({ ...member, role: input.role }));
+      return updateFakeRoleGameMember(membersByGameId, input.memberId, (member) => {
+        if (member.status !== input.expectedStatus || member.role !== input.expectedRole) {
+          throw new Error(`Role game member ${input.memberId} has stale status`);
+        }
+        if (input.role === 'player' && member.role !== 'player') {
+          const game = gamesById.find((candidate) => candidate.id === member.roleGameId);
+          if (!game) {
+            throw new Error(`Role game ${member.roleGameId} not found`);
+          }
+          const confirmedPlayers = (membersByGameId.get(game.id) ?? []).filter(
+            (candidate) => candidate.role === 'player' && candidate.status === 'confirmed',
+          ).length;
+          if (confirmedPlayers >= game.capacity) {
+            throw new Error(`Role game ${game.id} is full`);
+          }
+        }
+        return { ...member, role: input.role };
+      });
     },
     setMemberStatus: async (input) => {
       if (onSetMemberStatus) {
         return onSetMemberStatus(input);
       }
-      return updateFakeRoleGameMember(membersByGameId, input.memberId, (member) => ({ ...member, status: input.status }));
+      return updateFakeRoleGameMember(membersByGameId, input.memberId, (member) => {
+        if (member.status !== input.expectedStatus || member.role !== input.expectedRole) {
+          throw new Error(`Role game member ${input.memberId} has stale status`);
+        }
+        return { ...member, status: input.status };
+      });
     },
     createdSessionLinks,
   } as FakeRoleGameRepository;
@@ -2186,7 +2350,10 @@ function createFakeScheduleRepository({
     },
     findEventById: async (eventId) => events.get(eventId) ?? null,
     listEvents: async (input) =>
-      Array.from(events.values()).filter((event) => input.includeCancelled || event.lifecycleStatus !== 'cancelled'),
+      Array.from(events.values()).filter((event) =>
+        (input.includeCancelled || event.lifecycleStatus !== 'cancelled') &&
+        (!input.startsAtFrom || event.startsAt >= input.startsAtFrom) &&
+        (!input.startsAtTo || event.startsAt <= input.startsAtTo)),
     updateEvent: async () => {
       throw new Error('not implemented in this test');
     },

@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-07-09.
+Última revisión: 2026-07-13.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -118,7 +118,7 @@ Implementado:
 - Comandos `/rol` y `/role_games` para abrir el menu de Rol.
 - Home con `Mis partidas`, `Partidas visibles`, `Crear partida` y `Cancelar` con rol danger.
 - Listas read-only de partidas propias y visibles desde `RoleGameRepository`, con paginacion estilo Telegram y deep links `role_game_<id>` al detalle.
-- El detalle de partida funciona como portada con teclado persistente y submenús de Participantes, Sesiones, Materiales, Invitar y Configurar, sin depender de acciones inline bajo el mensaje.
+- El detalle de partida funciona como portada con teclado persistente, resume ocupación, solicitudes pendientes y la sesión futura enlazada más próxima (o su ausencia), y ofrece los submenús de Participantes, Sesiones, Materiales, Invitar y Configurar sin depender de acciones inline bajo el mensaje.
 - `Crear partida` inicia un flujo guiado cancelable para crear la partida base con tipo, titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion y modo de programacion.
 - `Editar partida` inicia un flujo guiado cancelable para cambiar titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion, programacion manual por jugadores, publicacion Agenda por defecto y estado.
 - `Invitar jugadores` genera un enlace `role_game_<id>` compartible con resumen de plazas confirmadas sin aprobar automaticamente membresias.
@@ -127,12 +127,12 @@ Implementado:
 - Las campañas pueden configurarse como recurrentes desde la creacion o desde el detalle con `Configurar recurrencia`, indicando intervalo semanal, dia, hora y ventana de sesiones futuras.
 - El worker de recurrencias arranca junto al servicio y mantiene la ventana futura de campañas recurrentes creando eventos Agenda enlazados en `role_game_sessions`; las sesiones canceladas enlazadas no se recrean.
 - Las sesiones de rol reutilizan Agenda: crean eventos con `createScheduleEvent`, enlazan `role_game_sessions`, apuntan automaticamente a jugadores confirmados hasta la capacidad disponible cuando la partida lo configura y enlazan el recibo a `schedule_event_<id>`.
-- GM principal y admins gestionan solicitudes, listas de espera, invitaciones, jugadores y coorganizadores; los coorganizadores sólo conservan la resolución operativa de solicitudes.
-- Participantes activos e historial separado se muestran con identidad visible, estados y paginación de teclado.
-- Los one-shots publicos con politica `members_and_external` se pueden abrir desde `/start role_game_<id>` por usuarios no aprobados y permiten solicitar plaza externa sin aprobar automaticamente la membresia del usuario.
+- GM principal y admins gestionan solicitudes, listas de espera, invitaciones, jugadores y coorganizadores; los coorganizadores sólo conservan la resolución operativa de solicitudes. Los cambios de estado o rol comparan el estado de origen y cualquier transición que ocupe una plaza confirma capacidad de forma atómica.
+- Participantes activos e historial separado se muestran con identidad visible, rol del GM principal, estado, fecha relevante y paginación de teclado; nadie puede promocionarse a sí mismo.
+- La solicitud de plaza comparte la misma validación de capacidad entre visibilidad y ejecución. Los one-shots públicos con política `members_and_external` se pueden abrir desde `/start role_game_<id>` por usuarios no aprobados y permiten solicitar plaza externa sin aprobar automáticamente la membresía del usuario.
 - Infraestructura Storage para handouts internos con proposito `role_game_handouts`, oculto de Storage normal, `/storage`, busquedas, web/TUI Storage y busquedas LLM.
 - Los managers pueden subir material desde la ficha de partida; el bot copia el adjunto a Storage interno con progreso editable, crea `role_game_materials` como `gm_only` y devuelve enlace `role_material_<id>` sin exponer `storage_entry_<id>`.
-- `Materiales` lista handouts subidos desde Rol con paginacion inline cuando corresponde, enlazando solo `role_material_<id>` y sin abrir acceso a Storage.
+- `Materiales` lista handouts subidos desde Rol con paginación mediante teclado de respuesta persistente cuando corresponde, enlazando sólo `role_material_<id>` y sin abrir acceso a Storage.
 - Los handouts pueden enviarse sólo esta vez, enviarse y revelarse o revelarse sin envio; el bot copia los adjuntos almacenados a jugadores confirmados, registra `role_game_material_deliveries`, resume fallos parciales y aplica permisos de Rol a `role_material_<id>`.
 
 ## Asistente LLM de órdenes naturales

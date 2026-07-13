@@ -4,10 +4,42 @@ import assert from 'node:assert/strict';
 import {
   buildRoleGameParticipantButtonMap,
   buildRoleGameParticipantPage,
+  formatRoleGameParticipantDetail,
   formatRoleGameParticipantList,
+  listRoleGameMemberActions,
   type RoleGameParticipantListItem,
 } from './role-game-participants.js';
-import type { RoleGameMemberRecord } from '../role-games/role-game-catalog.js';
+import type { RoleGameMemberRecord, RoleGameRecord } from '../role-games/role-game-catalog.js';
+
+function sampleRoleGame(): RoleGameRecord {
+  return {
+    id: 1,
+    type: 'campaign',
+    status: 'active',
+    title: 'Partida de prueba',
+    system: 'Dungeons & Dragons',
+    description: 'Una partida lista para jugar.',
+    visibility: 'members',
+    publicJoinPolicy: 'members_only',
+    entryMode: 'request',
+    acceptanceMode: 'manual_review',
+    capacity: 5,
+    primaryGmTelegramUserId: 42,
+    defaultDurationMinutes: 180,
+    defaultTableId: null,
+    defaultAttendanceMode: 'closed',
+    defaultIsPublicScheduleEvent: false,
+    autoAddConfirmedPlayers: true,
+    allowPlayerManualScheduling: false,
+    schedulingMode: 'manual',
+    recurrenceRule: null,
+    recurrenceWindowCount: 0,
+    createdByTelegramUserId: 42,
+    createdAt: '2026-07-09T10:00:00.000Z',
+    updatedAt: '2026-07-09T10:00:00.000Z',
+    closedAt: null,
+  };
+}
 
 function participant({
   memberId,
@@ -122,4 +154,42 @@ test('participant presentation falls back to the supplied localized identity and
   assert.match(message, /<a href="https:\/\/t\.me\/ana_rpg">Ana \(@ana_rpg\)<\/a>/);
   assert.match(message, /Solicitudes pendientes/);
   assert.match(message, /Jugadores confirmados/);
+});
+
+test('participant actions hide self-promotion even from a global admin', () => {
+  const game = sampleRoleGame();
+  const member = participant({
+    memberId: 8,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+    displayName: 'Admin',
+  }).member;
+
+  assert.deepEqual(listRoleGameMemberActions({
+    actor: { telegramUserId: 100, isAdmin: true, isApproved: true },
+    game,
+    actorMembership: member,
+    member,
+  }), ['remove']);
+});
+
+test('participant presentation gives the primary GM a separate group and shows a relevant date in detail', () => {
+  const primaryGm = participant({
+    memberId: 1,
+    telegramUserId: 42,
+    role: 'primary_gm',
+    status: 'confirmed',
+    displayName: 'Máster principal',
+  });
+  primaryGm.member.updatedAt = '2026-07-13T10:00:00.000Z';
+  const player = participant({ memberId: 2, role: 'player', status: 'confirmed', displayName: 'Jugadora' });
+  const page = buildRoleGameParticipantPage({ items: [primaryGm, player], kind: 'active', requestedPage: 1, language: 'es' });
+  const list = formatRoleGameParticipantList({ page, title: 'Partida', kind: 'active', language: 'es' });
+  const detail = formatRoleGameParticipantDetail({ item: primaryGm, language: 'es' });
+
+  assert.match(list, /<b>Máster principal<\/b>\n- .*Máster principal/);
+  const confirmedPlayersSection = list.split('<b>Jugadores confirmados</b>')[1] ?? '';
+  assert.doesNotMatch(confirmedPlayersSection, /Máster principal/);
+  assert.match(detail, /Fecha relevante: .*13\/07\/2026/);
 });

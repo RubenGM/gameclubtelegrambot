@@ -426,7 +426,11 @@ export function createDatabaseRoleGameRepository({
             requestedByTelegramUserId: input.actorTelegramUserId,
             updatedAt: new Date(),
           })
-          .where(and(eq(roleGameMembers.id, member.id), eq(roleGameMembers.status, member.status)))
+          .where(and(
+            eq(roleGameMembers.id, member.id),
+            eq(roleGameMembers.status, member.status),
+            eq(roleGameMembers.role, 'player'),
+          ))
           .returning();
         const updated = rows[0];
         if (!updated) {
@@ -436,28 +440,72 @@ export function createDatabaseRoleGameRepository({
       });
     },
     async setMemberRole(input) {
-      const rows = await database
-        .update(roleGameMembers)
-        .set({
-          role: input.role,
-          requestedByTelegramUserId: input.actorTelegramUserId,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
+      return database.transaction(async (tx) => {
+        const lockedMembers = await tx
+          .select()
+          .from(roleGameMembers)
+          .where(eq(roleGameMembers.id, input.memberId))
+          .limit(1)
+          .for('update');
+        const member = lockedMembers[0];
+        if (
+          !member ||
+          member.status !== input.expectedStatus ||
+          member.role !== input.expectedRole ||
+          member.role === 'primary_gm'
+        ) {
+          throw new Error(`Role game member ${input.memberId} has stale status`);
+        }
+
+        if (input.role === 'player' && member.role !== 'player') {
+          const lockedGames = await tx
+            .select()
+            .from(roleGames)
+            .where(eq(roleGames.id, member.roleGameId))
+            .limit(1)
+            .for('update');
+          const game = lockedGames[0];
+          if (!game) {
+            throw new Error(`Role game ${member.roleGameId} not found`);
+          }
+          const confirmedRows = await tx
+            .select({ count: count() })
+            .from(roleGameMembers)
+            .where(and(
+              eq(roleGameMembers.roleGameId, game.id),
+              eq(roleGameMembers.role, 'player'),
+              eq(roleGameMembers.status, 'confirmed'),
+            ));
+          if (Number(confirmedRows[0]?.count ?? 0) >= game.capacity) {
+            throw new Error(`Role game ${game.id} is full`);
+          }
+        }
+
+        const rows = await tx
+          .update(roleGameMembers)
+          .set({
+            role: input.role,
+            requestedByTelegramUserId: input.actorTelegramUserId,
+            updatedAt: new Date(),
+          })
+          .where(and(
             eq(roleGameMembers.id, input.memberId),
-            eq(roleGameMembers.status, 'confirmed'),
+            eq(roleGameMembers.status, input.expectedStatus),
+            eq(roleGameMembers.role, input.expectedRole),
             ne(roleGameMembers.role, 'primary_gm'),
-          ),
-        )
-        .returning();
-      const updated = rows[0];
-      if (!updated) {
-        throw new Error(`Role game member ${input.memberId} has stale status`);
-      }
-      return mapRoleGameMemberRow(updated);
+          ))
+          .returning();
+        const updated = rows[0];
+        if (!updated) {
+          throw new Error(`Role game member ${input.memberId} has stale status`);
+        }
+        return mapRoleGameMemberRow(updated);
+      });
     },
     async setMemberStatus(input) {
+      if (input.status === 'confirmed' && input.expectedRole === 'player' && input.expectedStatus !== 'confirmed') {
+        throw new Error('Confirmed player seats must use confirmMemberSeat');
+      }
       const updatedAt = new Date();
       const rows = await database
         .update(roleGameMembers)
@@ -466,11 +514,15 @@ export function createDatabaseRoleGameRepository({
           requestedByTelegramUserId: input.actorTelegramUserId,
           updatedAt,
         })
-        .where(eq(roleGameMembers.id, input.memberId))
+        .where(and(
+          eq(roleGameMembers.id, input.memberId),
+          eq(roleGameMembers.status, input.expectedStatus),
+          eq(roleGameMembers.role, input.expectedRole),
+        ))
         .returning();
       const row = rows[0];
       if (!row) {
-        throw new Error(`Role game member ${input.memberId} not found`);
+        throw new Error(`Role game member ${input.memberId} has stale status`);
       }
       return mapRoleGameMemberRow(row);
     },

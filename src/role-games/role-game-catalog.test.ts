@@ -8,6 +8,7 @@ import {
   revealRoleGameMaterial,
   canManageRoleGame,
   canManageRoleGameOperationally,
+  canRequestRoleGameSeat,
   canViewRoleGame,
   createRoleGame,
   manageRoleGameMember,
@@ -90,6 +91,22 @@ test('canViewRoleGame follows visibility and membership boundaries', () => {
     ),
     true,
   );
+});
+
+test('canRequestRoleGameSeat applies approval, game type, visibility, join policy, and membership state', () => {
+  const approved = { telegramUserId: 100, isAdmin: false, isApproved: true };
+  const external = { telegramUserId: 100, isAdmin: false, isApproved: false };
+  const publicCampaign = sampleGame({ type: 'campaign', visibility: 'public', publicJoinPolicy: 'members_and_external' });
+  const membersOnlyOneShot = sampleGame({ type: 'one_shot', visibility: 'public', publicJoinPolicy: 'members_only' });
+  const externalOneShot = sampleGame({ type: 'one_shot', visibility: 'public', publicJoinPolicy: 'members_and_external' });
+  const confirmed = sampleMember({ telegramUserId: 100, status: 'confirmed' });
+
+  assert.equal(canRequestRoleGameSeat(approved, publicCampaign, null), true);
+  assert.equal(canRequestRoleGameSeat(external, publicCampaign, null), false);
+  assert.equal(canRequestRoleGameSeat(approved, membersOnlyOneShot, null), true);
+  assert.equal(canRequestRoleGameSeat(external, membersOnlyOneShot, null), false);
+  assert.equal(canRequestRoleGameSeat(external, externalOneShot, null), true);
+  assert.equal(canRequestRoleGameSeat(approved, externalOneShot, confirmed), false);
 });
 
 test('requestRoleGameSeat auto-confirms while capacity remains', async () => {
@@ -251,7 +268,7 @@ test('requestRoleGameSeat rejects non-approved actors for member-only games', as
       telegramUserId: 100,
       actor: { telegramUserId: 100, isAdmin: false, isApproved: false },
     }),
-    /not visible/,
+    /cannot request a seat/,
   );
 });
 
@@ -272,7 +289,7 @@ test('requestRoleGameSeat requires public external access for unapproved actors'
       telegramUserId: 100,
       actor: { telegramUserId: 100, isAdmin: false, isApproved: false },
     }),
-    /does not accept external players/,
+    /cannot request a seat/,
   );
 });
 
@@ -308,7 +325,7 @@ test('requestRoleGameSeat accepts only public one-shots for external actors', as
       telegramUserId: 101,
       actor: { telegramUserId: 101, isAdmin: false, isApproved: false },
     }),
-    /does not accept external players/,
+    /cannot request a seat/,
   );
 });
 
@@ -364,6 +381,35 @@ test('setRoleGameMemberStatus normalizes and delegates status changes', async ()
   });
 
   assert.equal(updated.status, 'confirmed');
+});
+
+test('setRoleGameMemberStatus enforces capacity when confirming a player seat', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const game = await repository.createGame(sampleCreateInput({ capacity: 1 }));
+  const requested = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+  await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 101,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+
+  await assert.rejects(setRoleGameMemberStatus({
+    repository,
+    memberId: requested.id,
+    status: 'confirmed',
+    actorTelegramUserId: 42,
+  }), /full/i);
+  assert.equal((await repository.findMemberById(requested.id))?.status, 'requested');
 });
 
 test('manageRoleGameMember applies every allowed participant transition', async () => {
@@ -460,6 +506,8 @@ test('manageRoleGameMember reloads actor membership before a coorganizer rejects
   await repository.setMemberStatus({
     memberId: staleCoorganizer.id,
     status: 'removed',
+    expectedStatus: 'confirmed',
+    expectedRole: 'coorganizer',
     actorTelegramUserId: 42,
   });
 
@@ -567,6 +615,32 @@ test('manageRoleGameMember prevents coorganizers from changing roles, removing p
   );
 });
 
+test('manageRoleGameMember rejects self-promotion even for a global admin', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const game = await repository.createGame(sampleCreateInput());
+  const adminPlayer = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+
+  await assert.rejects(
+    manageRoleGameMember({
+      repository,
+      actor: { telegramUserId: 100, isAdmin: true, isApproved: true },
+      game,
+      actorMembership: adminPlayer,
+      member: adminPlayer,
+      action: 'promote',
+    }),
+    /cannot promote themselves/i,
+  );
+  assert.equal((await repository.findMemberById(adminPlayer.id))?.role, 'player');
+});
+
 test('manageRoleGameMember protects primary GMs and validates the current member state', async () => {
   const repository = createMemoryRoleGameRepository();
   const game = await repository.createGame(sampleCreateInput({ capacity: 1 }));
@@ -593,7 +667,7 @@ test('manageRoleGameMember protects primary GMs and validates the current member
     isExternal: false,
     requestedByTelegramUserId: 100,
   });
-  await repository.createMember({
+  const occupyingPlayer = await repository.createMember({
     roleGameId: game.id,
     telegramUserId: 101,
     role: 'player',
@@ -613,7 +687,18 @@ test('manageRoleGameMember protects primary GMs and validates the current member
     }),
     /full/i,
   );
-  await repository.setMemberStatus({ memberId: requested.id, status: 'confirmed', actorTelegramUserId: 42 });
+  await repository.setMemberStatus({
+    memberId: occupyingPlayer.id,
+    status: 'removed',
+    expectedStatus: 'confirmed',
+    expectedRole: 'player',
+    actorTelegramUserId: 42,
+  });
+  await repository.confirmMemberSeat({
+    memberId: requested.id,
+    expectedStatuses: ['requested'],
+    actorTelegramUserId: 42,
+  });
   await assert.rejects(
     manageRoleGameMember({
       repository,
@@ -951,8 +1036,11 @@ function createMemoryRoleGameRepository(): RoleGameRepository {
     },
     async setMemberStatus(input) {
       const existing = members.get(input.memberId);
-      if (!existing) {
-        throw new Error(`Role game member ${input.memberId} not found`);
+      if (!existing || existing.status !== input.expectedStatus || existing.role !== input.expectedRole) {
+        throw new Error(`Role game member ${input.memberId} has stale status`);
+      }
+      if (input.status === 'confirmed' && input.expectedRole === 'player' && input.expectedStatus !== 'confirmed') {
+        throw new Error('Confirmed player seats must use confirmMemberSeat');
       }
       const next: RoleGameMemberRecord = {
         ...existing,
@@ -992,8 +1080,25 @@ function createMemoryRoleGameRepository(): RoleGameRepository {
     },
     async setMemberRole(input) {
       const existing = members.get(input.memberId);
-      if (!existing || existing.status !== 'confirmed' || existing.role === 'primary_gm') {
+      if (
+        !existing ||
+        existing.status !== input.expectedStatus ||
+        existing.role !== input.expectedRole ||
+        existing.role === 'primary_gm'
+      ) {
         throw new Error(`Role game member ${input.memberId} has stale status`);
+      }
+      if (input.role === 'player' && existing.role !== 'player') {
+        const game = games.get(existing.roleGameId);
+        if (!game) {
+          throw new Error(`Role game ${existing.roleGameId} not found`);
+        }
+        const confirmedPlayers = Array.from(members.values()).filter(
+          (member) => member.roleGameId === game.id && member.role === 'player' && member.status === 'confirmed',
+        ).length;
+        if (confirmedPlayers >= game.capacity) {
+          throw new Error(`Role game ${game.id} is full`);
+        }
       }
       const updated: RoleGameMemberRecord = {
         ...existing,

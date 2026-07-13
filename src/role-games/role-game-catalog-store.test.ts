@@ -215,6 +215,8 @@ test('database role game repository changes only confirmed non-primary roles', a
   const promoted = await repository.setMemberRole({
     memberId: player.id,
     role: 'coorganizer',
+    expectedRole: 'player',
+    expectedStatus: 'confirmed',
     actorTelegramUserId: 42,
   });
   assert.equal(promoted.role, 'coorganizer');
@@ -222,6 +224,8 @@ test('database role game repository changes only confirmed non-primary roles', a
     repository.setMemberRole({
       memberId: primaryGm.id,
       role: 'player',
+      expectedRole: 'primary_gm',
+      expectedStatus: 'confirmed',
       actorTelegramUserId: 42,
     }),
     /stale status/i,
@@ -230,12 +234,137 @@ test('database role game repository changes only confirmed non-primary roles', a
     repository.setMemberRole({
       memberId: unconfirmed.id,
       role: 'coorganizer',
+      expectedRole: 'player',
+      expectedStatus: 'confirmed',
       actorTelegramUserId: 42,
     }),
     /stale status/i,
   );
   assert.equal((await repository.findMemberById(primaryGm.id))?.role, 'primary_gm');
   assert.equal((await repository.findMemberById(unconfirmed.id))?.role, 'player');
+});
+
+test('database role game repository rejects a demotion when confirmed player capacity is full', async (t) => {
+  const { database, seedUser, cleanup, steps } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+  seedUser(101, 'Coorganizadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput({ capacity: 1 }));
+  await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+  const coorganizer = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 101,
+    role: 'coorganizer',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+  steps.length = 0;
+
+  await assert.rejects(
+    repository.setMemberRole({
+      memberId: coorganizer.id,
+      role: 'player',
+      expectedRole: 'coorganizer',
+      expectedStatus: 'confirmed',
+      actorTelegramUserId: 42,
+    }),
+    /full/i,
+  );
+
+  assert.equal((await repository.findMemberById(coorganizer.id))?.role, 'coorganizer');
+  const memberLockIndex = steps.indexOf('select:role_game_members:for_update');
+  const gameLockIndex = steps.indexOf('select:role_games:for_update');
+  const countIndex = steps.indexOf('count:confirmed_players');
+  assert.notEqual(memberLockIndex, -1);
+  assert.notEqual(gameLockIndex, -1);
+  assert.notEqual(countIndex, -1);
+  assert.ok(memberLockIndex < gameLockIndex);
+  assert.ok(gameLockIndex < countIndex);
+});
+
+test('database role game repository compares expected source status and role before writes', async (t) => {
+  const { database, seedUser, cleanup } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput());
+  const player = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+
+  await assert.rejects(
+    repository.setMemberStatus({
+      memberId: player.id,
+      status: 'removed',
+      expectedStatus: 'requested',
+      expectedRole: 'player',
+      actorTelegramUserId: 42,
+    }),
+    /stale status/i,
+  );
+  await assert.rejects(
+    repository.setMemberRole({
+      memberId: player.id,
+      role: 'coorganizer',
+      expectedRole: 'coorganizer',
+      expectedStatus: 'confirmed',
+      actorTelegramUserId: 42,
+    }),
+    /stale status/i,
+  );
+
+  assert.deepEqual(
+    {
+      role: (await repository.findMemberById(player.id))?.role,
+      status: (await repository.findMemberById(player.id))?.status,
+    },
+    { role: 'player', status: 'confirmed' },
+  );
+});
+
+test('database role game repository rejects direct status writes that would create a confirmed seat', async (t) => {
+  const { database, seedUser, cleanup } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput());
+  const requested = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+
+  await assert.rejects(repository.setMemberStatus({
+    memberId: requested.id,
+    status: 'confirmed',
+    expectedStatus: 'requested',
+    expectedRole: 'player',
+    actorTelegramUserId: 42,
+  }), /confirmMemberSeat/);
+  assert.equal((await repository.findMemberById(requested.id))?.status, 'requested');
 });
 
 test('database role game repository updates game metadata and lists visible games for an actor', async (t) => {
