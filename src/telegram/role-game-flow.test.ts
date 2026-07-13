@@ -1378,6 +1378,12 @@ function createFakeRoleGameRepository({
       }
       throw new Error('not implemented in this test');
     },
+    confirmMemberSeat: async () => {
+      throw new Error('not implemented in this test');
+    },
+    setMemberRole: async () => {
+      throw new Error('not implemented in this test');
+    },
     setMemberStatus: async (input) => {
       if (onSetMemberStatus) {
         return onSetMemberStatus(input);

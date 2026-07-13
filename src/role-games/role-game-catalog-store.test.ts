@@ -114,6 +114,110 @@ test('database role game repository requestSeat keeps manual-review requests pen
   assert.equal(member.status, 'requested');
 });
 
+test('database role game repository confirms a seat atomically after locking its member and game', async (t) => {
+  const { database, seedUser, cleanup, steps } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput({ capacity: 2 }));
+  const requested = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+  steps.length = 0;
+
+  const confirmed = await repository.confirmMemberSeat({
+    memberId: requested.id,
+    actorTelegramUserId: 42,
+    expectedStatuses: ['requested'],
+  });
+
+  assert.equal(confirmed.status, 'confirmed');
+  assert.equal(confirmed.requestedByTelegramUserId, 42);
+  const memberLockIndex = steps.indexOf('select:role_game_members:for_update');
+  const gameLockIndex = steps.indexOf('select:role_games:for_update');
+  const countIndex = steps.indexOf('count:confirmed_players');
+  const updateIndex = steps.indexOf('update:role_game_members');
+  assert.notEqual(memberLockIndex, -1);
+  assert.notEqual(gameLockIndex, -1);
+  assert.notEqual(countIndex, -1);
+  assert.notEqual(updateIndex, -1);
+  assert.ok(memberLockIndex < gameLockIndex);
+  assert.ok(gameLockIndex < countIndex);
+  assert.ok(countIndex < updateIndex);
+});
+
+test('database role game repository leaves a stale member row unchanged', async (t) => {
+  const { database, seedUser, cleanup, steps } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput());
+  const confirmed = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+  steps.length = 0;
+
+  await assert.rejects(
+    repository.confirmMemberSeat({
+      memberId: confirmed.id,
+      actorTelegramUserId: 42,
+      expectedStatuses: ['requested'],
+    }),
+    /stale status/i,
+  );
+
+  assert.equal((await repository.findMemberById(confirmed.id))?.status, 'confirmed');
+  assert.equal(steps.includes('update:role_game_members'), false);
+});
+
+test('database role game repository changes only confirmed non-primary roles', async (t) => {
+  const { database, seedUser, cleanup, setMemberUpdatesEnabled } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput());
+  const player = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+
+  const promoted = await repository.setMemberRole({
+    memberId: player.id,
+    role: 'coorganizer',
+    actorTelegramUserId: 42,
+  });
+  assert.equal(promoted.role, 'coorganizer');
+  setMemberUpdatesEnabled(false);
+  await assert.rejects(
+    repository.setMemberRole({
+      memberId: game.id,
+      role: 'player',
+      actorTelegramUserId: 42,
+    }),
+    /stale status/i,
+  );
+});
+
 test('database role game repository updates game metadata and lists visible games for an actor', async (t) => {
   const { database, seedUser, cleanup } = createRoleGameStoreFixture();
   t.after(cleanup);
@@ -336,7 +440,7 @@ test('database role game repository creates materials, reveals visibility and re
   assert.equal(delivery.deliveryMode, 'send_and_reveal');
 });
 
-function createCampaignInput(): CreateRoleGameInput {
+function createCampaignInput(overrides: Partial<CreateRoleGameInput> = {}): CreateRoleGameInput {
   return {
     type: 'campaign',
     title: 'Masks of Nyarlathotep',
@@ -358,6 +462,7 @@ function createCampaignInput(): CreateRoleGameInput {
     recurrenceRule: null,
     recurrenceWindowCount: 0,
     createdByTelegramUserId: 42,
+    ...overrides,
   };
 }
 
@@ -374,6 +479,7 @@ function createRoleGameStoreFixture() {
   let nextSessionLinkId = 1;
   let nextMaterialId = 1;
   let nextDeliveryId = 1;
+  let memberUpdatesEnabled = true;
   const now = new Date('2026-07-09T10:00:00.000Z');
 
   const seedUser = (telegramUserId: number, _displayName: string) => {
@@ -502,7 +608,11 @@ function createRoleGameStoreFixture() {
               return [row];
             }
             if ((table as unknown) === roleGameMembersTable) {
-              const row = members.find((member) => member.telegramUserId === values.telegramUserId) ?? members.at(-1);
+              steps.push('update:role_game_members');
+              if (!memberUpdatesEnabled) {
+                return [];
+              }
+              const row = members.at(-1);
               if (!row) {
                 return [];
               }
@@ -552,7 +662,13 @@ function createRoleGameStoreFixture() {
                 });
               }
               return {
-                limit: async () => [],
+                limit: () => ({
+                  for: async (lockMode: string) => {
+                    assert.equal(lockMode, 'update');
+                    steps.push('select:role_game_members:for_update');
+                    return members.slice(-1);
+                  },
+                }),
                 orderBy: async () => members,
               };
             },
@@ -643,5 +759,8 @@ function createRoleGameStoreFixture() {
     },
     steps,
     memberRows: members,
+    setMemberUpdatesEnabled: (enabled: boolean) => {
+      memberUpdatesEnabled = enabled;
+    },
   };
 }
