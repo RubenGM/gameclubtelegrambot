@@ -74,6 +74,109 @@ export function buildRoleGameCreateConfirmationKeyboard(language: BotLanguage = 
   ]);
 }
 
+export function buildRoleGameDashboardKeyboard({
+  canManageParticipants = false,
+  canSchedule = false,
+  canManageMaterials = false,
+  canConfigure = false,
+  canRequestSeat = false,
+  pendingRequestCount = 0,
+  language = 'ca',
+}: {
+  canManageParticipants?: boolean;
+  canSchedule?: boolean;
+  canManageMaterials?: boolean;
+  canConfigure?: boolean;
+  canRequestSeat?: boolean;
+  pendingRequestCount?: number;
+  language?: BotLanguage;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  const rows: TelegramReplyButton[][] = [];
+  if (canManageParticipants) {
+    rows.push([primaryButton(pendingRequestCount > 0
+      ? texts.participantsPending.replace('{count}', String(pendingRequestCount))
+      : texts.participants)]);
+  }
+  const sections: TelegramReplyButton[] = [canSchedule ? successButton(texts.sessions) : primaryButton(texts.sessions)];
+  if (canManageMaterials) {
+    sections.push(primaryButton(texts.materials));
+  }
+  rows.push(sections);
+  const management: TelegramReplyButton[] = [];
+  if (canManageParticipants) {
+    management.push(successButton(texts.invite));
+  }
+  if (canConfigure) {
+    management.push(primaryButton(texts.configuration));
+  }
+  if (management.length > 0) {
+    rows.push(management);
+  }
+  if (canRequestSeat) {
+    rows.push([successButton(texts.requestSeat)]);
+  }
+  rows.push([navigationButton(texts.backToMyGames)]);
+  return buildRoleGameReplyKeyboard(language, rows);
+}
+
+export function buildRoleGameSessionsKeyboard({
+  canSchedule = false,
+  language = 'ca',
+}: {
+  canSchedule?: boolean;
+  language?: BotLanguage;
+} = {}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    ...(canSchedule ? [[successButton(texts.scheduleNextSession)]] : []),
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
+export function buildRoleGameMaterialsKeyboard({
+  canUpload = false,
+  hasPreviousPage = false,
+  hasNextPage = false,
+  language = 'ca',
+}: {
+  canUpload?: boolean;
+  hasPreviousPage?: boolean;
+  hasNextPage?: boolean;
+  language?: BotLanguage;
+} = {}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  const navigation: TelegramReplyButton[] = [];
+  if (hasPreviousPage) {
+    navigation.push(navigationButton(texts.previousPage));
+  }
+  if (hasNextPage) {
+    navigation.push(navigationButton(texts.nextPage));
+  }
+  return buildRoleGameReplyKeyboard(language, [
+    ...(canUpload ? [[primaryButton(texts.uploadMaterial)]] : []),
+    ...(navigation.length > 0 ? [navigation] : []),
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
+export function buildRoleGameConfigurationKeyboard({
+  canEdit = false,
+  canConfigureRecurrence = false,
+  language = 'ca',
+}: {
+  canEdit?: boolean;
+  canConfigureRecurrence?: boolean;
+  language?: BotLanguage;
+} = {}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    ...(canEdit ? [[primaryButton(texts.editGame)]] : []),
+    ...(canConfigureRecurrence ? [[primaryButton(texts.configureRecurrence)]] : []),
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
 export function buildRoleGameDetailInlineKeyboard({
   gameId,
   requestMemberIds = [],

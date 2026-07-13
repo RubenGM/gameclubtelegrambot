@@ -120,7 +120,7 @@ test('handleTelegramRoleGameStartText opens role game details from a deep link',
   assert.equal(lastReply(context).options?.parseMode, 'HTML');
 });
 
-test('handleTelegramRoleGameStartText shows manager actions as visible inline buttons', async () => {
+test('role game detail uses a persistent section keyboard without inline buttons', async () => {
   const game = sampleRoleGame({ id: 31, primaryGmTelegramUserId: 42, allowPlayerManualScheduling: true });
   const context = createRoleGameTestContext({
     messageText: '/start role_game_31',
@@ -130,15 +130,157 @@ test('handleTelegramRoleGameStartText shows manager actions as visible inline bu
   const handled = await handleTelegramRoleGameStartText(context);
 
   assert.equal(handled, true);
-  assert.equal(lastReply(context).options?.replyKeyboard, undefined);
-  assert.deepEqual(lastReply(context).options?.inlineKeyboard?.flat().map((button) => button.text), [
-    'Configurar recurrencia',
-    'Programar siguiente sesión',
-    'Editar partida',
-    'Invitar jugadores',
-    'Subir material',
-    'Materiales',
+  assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Participantes'],
+    ['Sesiones', 'Materiales'],
+    ['Invitar', 'Configurar'],
+    ['Volver a mis partidas'],
+    ['Inicio', 'Ayuda'],
   ]);
+  assert.deepEqual(getCurrentSession(context)?.data, { gameId: game.id, view: 'dashboard' });
+  assert.equal(getCurrentSession(context)?.flowKey, 'role-game-detail');
+});
+
+test('role game dashboard limits a confirmed player to sessions they may schedule', async () => {
+  const game = sampleRoleGame({ id: 32, allowPlayerManualScheduling: true });
+  const player = sampleRoleGameMember({
+    id: 320,
+    roleGameId: game.id,
+    telegramUserId: 99,
+    role: 'player',
+    status: 'confirmed',
+  });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, [player]]]),
+    }),
+    actor: { telegramUserId: player.telegramUserId },
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Sesiones'],
+    ['Volver a mis partidas'],
+    ['Inicio', 'Ayuda'],
+  ]);
+});
+
+test('role game dashboard lets a visible visitor request a seat with a reply button', async () => {
+  const game = sampleRoleGame({ id: 33, visibility: 'members' });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game] }),
+    actor: { telegramUserId: 99 },
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+
+  assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Sesiones'],
+    ['Solicitar plaza'],
+    ['Volver a mis partidas'],
+    ['Inicio', 'Ayuda'],
+  ]);
+});
+
+test('role game dashboard keeps coorganizer operations and hides full configuration', async () => {
+  const game = sampleRoleGame({ id: 34, primaryGmTelegramUserId: 42 });
+  const coorganizer = sampleRoleGameMember({
+    id: 340,
+    roleGameId: game.id,
+    telegramUserId: 77,
+    role: 'coorganizer',
+    status: 'confirmed',
+  });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, [coorganizer]]]),
+    }),
+    actor: { telegramUserId: coorganizer.telegramUserId },
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Participantes'],
+    ['Sesiones', 'Materiales'],
+    ['Invitar', 'Configurar'],
+    ['Volver a mis partidas'],
+    ['Inicio', 'Ayuda'],
+  ]);
+
+  await sendRoleGameText(context, 'Configurar');
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Configurar recurrencia'],
+    ['Volver a la partida'],
+    ['Inicio', 'Ayuda'],
+  ]);
+});
+
+test('role game sessions hide manual scheduling for recurring campaigns', async () => {
+  const game = sampleRoleGame({
+    id: 341,
+    schedulingMode: 'recurring',
+    recurrenceRule: { intervalWeeks: 2, weekday: 4, time: '19:00' },
+    recurrenceWindowCount: 4,
+  });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game] }),
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  await sendRoleGameText(context, 'Sesiones');
+
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Volver a la partida'],
+    ['Inicio', 'Ayuda'],
+  ]);
+});
+
+test('role game sections render sessions and materials through persistent keyboards', async () => {
+  const game = sampleRoleGame({ id: 35 });
+  const sessionLink = sampleSessionLink({ roleGameId: game.id, scheduleEventId: 350 });
+  const material = sampleRoleGameMaterial({ id: 351, roleGameId: game.id, title: 'Mapa de campaña' });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      sessionLinksByGameId: new Map([[game.id, [sessionLink]]]),
+      materialsById: [material],
+    }),
+    scheduleRepository: createFakeScheduleRepository({
+      events: [sampleScheduleEvent({ id: sessionLink.scheduleEventId })],
+    }),
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  await sendRoleGameText(context, 'Sesiones');
+  assert.match(lastReply(context).message, /Agenda/);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Programar siguiente sesión'],
+    ['Volver a la partida'],
+    ['Inicio', 'Ayuda'],
+  ]);
+
+  await sendRoleGameText(context, 'Volver a la partida');
+  await sendRoleGameText(context, 'Materiales');
+  assert.match(lastReply(context).message, /role_material_351/);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Subir material'],
+    ['Volver a la partida'],
+    ['Inicio', 'Ayuda'],
+  ]);
+
+  await sendRoleGameText(context, 'Subir material');
+  assert.equal(getCurrentSession(context)?.flowKey, 'role-game-material-upload');
+  assert.match(lastReply(context).message, /Envía el archivo o imagen/);
 });
 
 test('handleTelegramRoleGameStartText blocks member-only deep links for unapproved actors', async () => {
@@ -174,7 +316,8 @@ test('handleTelegramRoleGameStartText opens public external one-shot links for u
 
   assert.equal(handled, true);
   assert.match(lastReply(context).message, /Jornada abierta/);
-  assert.match(lastReply(context).options?.inlineKeyboard?.flat().map((button) => button.text).join(' ') ?? '', /Solicitar plaza/);
+  assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Solicitar plaza'));
 });
 
 test('handleTelegramRoleGameCallback lets unapproved external users request public one-shot seats without approving membership', async () => {
@@ -724,7 +867,7 @@ test('handleTelegramRoleGameCallback returns a manager invitation link', async (
   assert.equal(lastReply(context).options?.parseMode, 'HTML');
 });
 
-test('handleTelegramRoleGameCallback starts guided editing for managers', async () => {
+test('handleTelegramRoleGameCallback adapts old edit callbacks to the configuration section', async () => {
   const game = sampleRoleGame({ id: 34, title: 'Título viejo', primaryGmTelegramUserId: 42 });
   let updatedGame: RoleGameRecord | null = null;
   const context = createRoleGameTestContext({
@@ -740,10 +883,15 @@ test('handleTelegramRoleGameCallback starts guided editing for managers', async 
   });
 
   assert.equal(await handleTelegramRoleGameCallback(context), true);
-  assert.equal(getCurrentSession(context)?.flowKey, 'role-game-edit');
-  assert.match(lastReply(context).message, /Qué quieres editar/);
-  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Título', 'Sistema']);
+  assert.equal(getCurrentSession(context)?.flowKey, 'role-game-detail');
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Editar partida'],
+    ['Configurar recurrencia'],
+    ['Volver a la partida'],
+    ['Inicio', 'Ayuda'],
+  ]);
 
+  await sendRoleGameText(context, 'Editar partida');
   await sendRoleGameText(context, 'Título');
   assert.match(lastReply(context).message, /nuevo título/i);
 
@@ -755,7 +903,7 @@ test('handleTelegramRoleGameCallback starts guided editing for managers', async 
   assert.match(lastReply(context).message, /Título nuevo/);
 });
 
-test('handleTelegramRoleGameCallback blocks coorganizers from editing full game configuration', async () => {
+test('handleTelegramRoleGameCallback keeps full editing hidden from coorganizers', async () => {
   const game = sampleRoleGame({ id: 35, primaryGmTelegramUserId: 42 });
   const coorganizer = sampleRoleGameMember({
     id: 20,
@@ -777,8 +925,12 @@ test('handleTelegramRoleGameCallback blocks coorganizers from editing full game 
   const handled = await handleTelegramRoleGameCallback(context);
 
   assert.equal(handled, true);
-  assert.equal(getCurrentSession(context), null);
-  assert.match(lastReply(context).message, /No tienes permisos/);
+  assert.equal(getCurrentSession(context)?.flowKey, 'role-game-detail');
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Configurar recurrencia'],
+    ['Volver a la partida'],
+    ['Inicio', 'Ayuda'],
+  ]);
 });
 
 test('handleTelegramRoleGameText keeps edit option buttons after invalid option values', async () => {
@@ -794,6 +946,7 @@ test('handleTelegramRoleGameText keeps edit option buttons after invalid option 
 
   assert.equal(await handleTelegramRoleGameCallback(context), true);
   delete context.callbackData;
+  await sendRoleGameText(context, 'Editar partida');
   await sendRoleGameText(context, 'Visibilidad');
   await sendRoleGameText(context, 'cualquier cosa');
 
@@ -851,7 +1004,8 @@ test('handleTelegramRoleGameCallback paginates uploaded materials for managers',
   assert.match(lastReply(context).message, /Material 6/);
   assert.doesNotMatch(lastReply(context).message, /Material 1/);
   assert.match(lastReply(context).message, /Mostrando 6-6 de 6\. Página 2\/2\./);
-  assert.deepEqual(lastReply(context).options?.inlineKeyboard?.at(1)?.map((button) => button.text), ['Anterior']);
+  assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(1)?.map(buttonText), ['Anterior']);
 });
 
 test('handleTelegramRoleGameMessage stores uploaded material in hidden Storage and creates gm-only material', async () => {
