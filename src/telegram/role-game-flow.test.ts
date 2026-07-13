@@ -6,6 +6,7 @@ import {
   handleTelegramRoleGameMessage,
   handleTelegramRoleGameStartText,
   handleTelegramRoleGameText,
+  roleGameCallbackPrefixes,
 } from './role-game-flow.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type {
@@ -140,6 +141,39 @@ test('role game detail uses a persistent section keyboard without inline buttons
   ]);
   assert.deepEqual(getCurrentSession(context)?.data, { gameId: game.id, view: 'dashboard' });
   assert.equal(getCurrentSession(context)?.flowKey, 'role-game-detail');
+});
+
+test('role game participants button renders a grouped overview with dashboard return', async () => {
+  const game = sampleRoleGame({ id: 311, primaryGmTelegramUserId: 42 });
+  const members = [
+    sampleRoleGameMember({ id: 3111, roleGameId: game.id, telegramUserId: 101, role: 'player', status: 'requested' }),
+    sampleRoleGameMember({ id: 3112, roleGameId: game.id, telegramUserId: 102, role: 'player', status: 'waitlisted' }),
+    sampleRoleGameMember({ id: 3113, roleGameId: game.id, telegramUserId: 103, role: 'coorganizer', status: 'confirmed' }),
+    sampleRoleGameMember({ id: 3114, roleGameId: game.id, telegramUserId: 104, role: 'player', status: 'confirmed' }),
+    sampleRoleGameMember({ id: 3115, roleGameId: game.id, telegramUserId: 105, role: 'player', status: 'invited' }),
+  ];
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, members]]),
+    }),
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  await sendRoleGameText(context, 'Participantes · 1 pendientes');
+
+  assert.match(lastReply(context).message, /Participantes de Partida de prueba/);
+  assert.match(lastReply(context).message, /Solicitudes pendientes: 1/);
+  assert.match(lastReply(context).message, /En espera: 1/);
+  assert.match(lastReply(context).message, /Coorganizadores: 1/);
+  assert.match(lastReply(context).message, /Jugadores confirmados: 1/);
+  assert.match(lastReply(context).message, /Invitados: 1/);
+  assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Volver a la partida'],
+    ['Inicio', 'Ayuda'],
+  ]);
 });
 
 test('role game dashboard limits a confirmed player to sessions they may schedule', async () => {
@@ -354,6 +388,59 @@ test('handleTelegramRoleGameCallback lets unapproved external users request publ
   assert.equal(requestedExternal, true);
   assert.equal(context.runtime.actor.status, 'pending');
   assert.match(lastReply(context).message, /Plaza confirmada/);
+});
+
+test('handleTelegramRoleGameText lets unapproved external users request public one-shot seats from the reply keyboard', async () => {
+  const game = sampleRoleGame({
+    id: 251,
+    type: 'one_shot',
+    visibility: 'public',
+    publicJoinPolicy: 'members_and_external',
+    acceptanceMode: 'auto_until_full',
+  });
+  let requestedExternal: boolean | null = null;
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, []]]),
+      onRequestSeat: async (input) => {
+        requestedExternal = input.isExternal;
+        return sampleRoleGameMember({
+          roleGameId: game.id,
+          telegramUserId: input.telegramUserId,
+          status: 'confirmed',
+          isExternal: input.isExternal,
+        });
+      },
+    }),
+    actor: { telegramUserId: 100, isApproved: false, status: 'pending' },
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  await sendRoleGameText(context, 'Solicitar plaza');
+
+  assert.equal(requestedExternal, true);
+  assert.equal(context.runtime.actor.status, 'pending');
+  assert.match(lastReply(context).message, /Plaza confirmada/);
+});
+
+test('role game callback prefix registry retains all legacy adapters', () => {
+  assert.deepEqual(roleGameCallbackPrefixes, {
+    detail: 'role_game:detail:',
+    listMine: 'role_game:list:mine:',
+    listVisible: 'role_game:list:visible:',
+    requestSeat: 'role_game:request:',
+    acceptRequest: 'role_game:accept:',
+    rejectRequest: 'role_game:reject:',
+    scheduleSession: 'role_game:schedule:',
+    configureRecurrence: 'role_game:configure_recurrence:',
+    materialUpload: 'role_game:material_upload:',
+    materials: 'role_game:materials:',
+    edit: 'role_game:edit:',
+    invite: 'role_game:invite:',
+    material: 'role_game:material:',
+  });
 });
 
 test('handleTelegramRoleGameCallback blocks fabricated private-game details for non-members', async () => {

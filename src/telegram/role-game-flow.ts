@@ -58,6 +58,7 @@ import {
   buildRoleGameListKeyboard,
   buildRoleGameMaterialInlineKeyboard,
   buildRoleGameMaterialsKeyboard,
+  buildRoleGameParticipantsOverviewKeyboard,
   buildRoleGameSessionsKeyboard,
   roleGameCallbackPrefixes,
 } from './role-game-keyboards.js';
@@ -1595,6 +1596,9 @@ async function handleRoleGameDetailText(
   if (text === texts.sessions) {
     return replyWithRoleGameSessions(context, { language, game });
   }
+  if (await isRoleGameParticipantsButtonText(context, game, text, language)) {
+    return replyWithRoleGameParticipantsOverview(context, { language, game });
+  }
   if (text === texts.materials) {
     return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: 1 });
   }
@@ -1626,6 +1630,49 @@ async function handleRoleGameDetailText(
     return startRoleGameRecurrenceConfiguration(context, { language, gameId: game.id });
   }
   return false;
+}
+
+async function isRoleGameParticipantsButtonText(
+  context: TelegramRoleGameContext,
+  game: RoleGameRecord,
+  text: string,
+  language: BotLanguage,
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).roleGames;
+  if (text === texts.participants) {
+    return true;
+  }
+  const members = await resolveRepository(context).listMembers(game.id);
+  const pendingRequestCount = members.filter((member) => member.role === 'player' && member.status === 'requested').length;
+  return text === texts.participantsPending.replace('{count}', String(pendingRequestCount));
+}
+
+async function replyWithRoleGameParticipantsOverview(
+  context: TelegramRoleGameContext,
+  { language, game }: { language: BotLanguage; game: RoleGameRecord },
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).roleGames;
+  const repository = resolveRepository(context);
+  const actorMember = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+  if (!canManageCurrentRoleGame(context, game, actorMember)) {
+    await context.reply(texts.permissionDenied, buildRoleGameHomeKeyboard(language));
+    return true;
+  }
+  const members = await repository.listMembers(game.id);
+  const count = (role: RoleGameMemberRecord['role'], status: RoleGameMemberRecord['status']) =>
+    members.filter((member) => member.role === role && member.status === status).length;
+  await context.reply([
+    `<b>${escapeHtml(texts.participantsHeader.replace('{title}', game.title))}</b>`,
+    `${texts.participantRequests}: ${count('player', 'requested')}`,
+    `${texts.participantWaitlist}: ${count('player', 'waitlisted')}`,
+    `${texts.participantCoorganizers}: ${count('coorganizer', 'confirmed')}`,
+    `${texts.participantConfirmedPlayers}: ${count('player', 'confirmed')}`,
+    `${texts.participantInvited}: ${count('player', 'invited')}`,
+  ].join('\n'), {
+    ...buildRoleGameParticipantsOverviewKeyboard(language),
+    parseMode: 'HTML',
+  });
+  return true;
 }
 
 async function replyWithRoleGameSessions(

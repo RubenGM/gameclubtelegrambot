@@ -134,6 +134,13 @@ export function buildRoleGameSessionsKeyboard({
   ]);
 }
 
+export function buildRoleGameParticipantsOverviewKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
 export function buildRoleGameMaterialsKeyboard({
   canUpload = false,
   hasPreviousPage = false,
