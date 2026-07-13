@@ -185,13 +185,16 @@ test('database role game repository leaves a stale member row unchanged', async 
 });
 
 test('database role game repository changes only confirmed non-primary roles', async (t) => {
-  const { database, seedUser, cleanup, setMemberUpdatesEnabled } = createRoleGameStoreFixture();
+  const { database, seedUser, cleanup } = createRoleGameStoreFixture();
   t.after(cleanup);
   seedUser(42, 'Máster');
   seedUser(100, 'Investigadora');
+  seedUser(101, 'Ocultista');
 
   const repository = createDatabaseRoleGameRepository({ database: database as never });
   const game = await repository.createGame(createCampaignInput());
+  const primaryGm = await repository.findMemberByTelegramUserId(game.id, 42);
+  assert.ok(primaryGm);
   const player = await repository.createMember({
     roleGameId: game.id,
     telegramUserId: 100,
@@ -200,6 +203,14 @@ test('database role game repository changes only confirmed non-primary roles', a
     isExternal: false,
     requestedByTelegramUserId: 42,
   });
+  const unconfirmed = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 101,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 101,
+  });
 
   const promoted = await repository.setMemberRole({
     memberId: player.id,
@@ -207,15 +218,24 @@ test('database role game repository changes only confirmed non-primary roles', a
     actorTelegramUserId: 42,
   });
   assert.equal(promoted.role, 'coorganizer');
-  setMemberUpdatesEnabled(false);
   await assert.rejects(
     repository.setMemberRole({
-      memberId: game.id,
+      memberId: primaryGm.id,
       role: 'player',
       actorTelegramUserId: 42,
     }),
     /stale status/i,
   );
+  await assert.rejects(
+    repository.setMemberRole({
+      memberId: unconfirmed.id,
+      role: 'coorganizer',
+      actorTelegramUserId: 42,
+    }),
+    /stale status/i,
+  );
+  assert.equal((await repository.findMemberById(primaryGm.id))?.role, 'primary_gm');
+  assert.equal((await repository.findMemberById(unconfirmed.id))?.role, 'player');
 });
 
 test('database role game repository updates game metadata and lists visible games for an actor', async (t) => {
@@ -479,7 +499,6 @@ function createRoleGameStoreFixture() {
   let nextSessionLinkId = 1;
   let nextMaterialId = 1;
   let nextDeliveryId = 1;
-  let memberUpdatesEnabled = true;
   const now = new Date('2026-07-09T10:00:00.000Z');
 
   const seedUser = (telegramUserId: number, _displayName: string) => {
@@ -597,7 +616,7 @@ function createRoleGameStoreFixture() {
     }),
     update: (table: { [key: string]: unknown }) => ({
       set: (values: Record<string, unknown>) => ({
-        where: () => ({
+        where: (condition: unknown) => ({
           returning: async () => {
             if ((table as unknown) === roleGamesTable) {
               const row = games[0];
@@ -609,10 +628,7 @@ function createRoleGameStoreFixture() {
             }
             if ((table as unknown) === roleGameMembersTable) {
               steps.push('update:role_game_members');
-              if (!memberUpdatesEnabled) {
-                return [];
-              }
-              const row = members.at(-1);
+              const row = members.find((member) => matchesMemberWhere(condition, member));
               if (!row) {
                 return [];
               }
@@ -650,7 +666,7 @@ function createRoleGameStoreFixture() {
 
         if ((table as unknown) === roleGameMembersTable) {
           return {
-            where: () => {
+            where: (condition: unknown) => {
               if (selection) {
                 return Promise.resolve([
                   {
@@ -666,10 +682,10 @@ function createRoleGameStoreFixture() {
                   for: async (lockMode: string) => {
                     assert.equal(lockMode, 'update');
                     steps.push('select:role_game_members:for_update');
-                    return members.slice(-1);
+                    return members.filter((member) => matchesMemberWhere(condition, member));
                   },
                 }),
-                orderBy: async () => members,
+                orderBy: async () => members.filter((member) => matchesMemberWhere(condition, member)),
               };
             },
           };
@@ -717,9 +733,9 @@ function createRoleGameStoreFixture() {
         }
         if ((table as unknown) === roleGameMembersTable) {
           return {
-            where: () => ({
-              limit: async () => members.slice(-1),
-              orderBy: async () => members,
+            where: (condition: unknown) => ({
+              limit: async () => members.filter((member) => matchesMemberWhere(condition, member)),
+              orderBy: async () => members.filter((member) => matchesMemberWhere(condition, member)),
             }),
             orderBy: async () => members,
           };
@@ -759,8 +775,53 @@ function createRoleGameStoreFixture() {
     },
     steps,
     memberRows: members,
-    setMemberUpdatesEnabled: (enabled: boolean) => {
-      memberUpdatesEnabled = enabled;
-    },
   };
+}
+
+function matchesMemberWhere(condition: unknown, member: Record<string, unknown>): boolean {
+  const comparisons = collectSqlComparisons(condition);
+  return comparisons.length > 0 && comparisons.every(({ column, operator, value }) => {
+    const memberValue = member[column === 'role_game_id' ? 'roleGameId' : column === 'telegram_user_id' ? 'telegramUserId' : column];
+    return operator === '=' ? memberValue === value : memberValue !== value;
+  });
+}
+
+function collectSqlComparisons(value: unknown): Array<{ column: string; operator: '=' | '<>'; value: unknown }> {
+  if (!isSqlObject(value) || !Array.isArray(value.queryChunks)) {
+    return [];
+  }
+  const chunks = value.queryChunks;
+  const column = chunks.find(hasSqlName);
+  const operator = chunks
+    .filter(hasSqlArrayValue)
+    .map((chunk) => chunk.value[0])
+    .find((candidate): candidate is ' = ' | ' <> ' => candidate === ' = ' || candidate === ' <> ');
+  const parameter = chunks.find(hasSqlParameterValue);
+  const comparison =
+    column && operator && parameter
+      ? [{ column: column.name, operator: operator.trim() as '=' | '<>', value: parameter.value }]
+      : [];
+  return [...comparison, ...chunks.flatMap(collectSqlComparisons)];
+}
+
+interface SqlObject {
+  queryChunks?: unknown[];
+  name?: unknown;
+  value?: unknown;
+}
+
+function isSqlObject(value: unknown): value is SqlObject {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasSqlName(value: unknown): value is SqlObject & { name: string } {
+  return isSqlObject(value) && typeof value.name === 'string';
+}
+
+function hasSqlArrayValue(value: unknown): value is SqlObject & { value: unknown[] } {
+  return isSqlObject(value) && Array.isArray(value.value);
+}
+
+function hasSqlParameterValue(value: unknown): value is SqlObject & { value: unknown } {
+  return isSqlObject(value) && 'value' in value && !Array.isArray(value.value);
 }

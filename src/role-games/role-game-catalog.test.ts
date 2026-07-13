@@ -438,6 +438,45 @@ test('manageRoleGameMember lets coorganizers accept or reject requested players 
   }
 });
 
+test('manageRoleGameMember reloads actor membership before a coorganizer rejects a request', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const game = await repository.createGame(sampleCreateInput());
+  const staleCoorganizer = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 77,
+    role: 'coorganizer',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+  const requested = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+  await repository.setMemberStatus({
+    memberId: staleCoorganizer.id,
+    status: 'removed',
+    actorTelegramUserId: 42,
+  });
+
+  await assert.rejects(
+    manageRoleGameMember({
+      repository,
+      actor: { telegramUserId: 77, isAdmin: false, isApproved: true },
+      game,
+      actorMembership: staleCoorganizer,
+      member: requested,
+      action: 'reject',
+    }),
+    /permission/i,
+  );
+  assert.equal((await repository.findMemberById(requested.id))?.status, 'requested');
+});
+
 test('manageRoleGameMember rejects disallowed status transitions', async () => {
   const rejectedTransitions = [
     { action: 'reject', status: 'invited', role: 'player' },

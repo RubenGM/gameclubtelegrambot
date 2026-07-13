@@ -364,8 +364,8 @@ export async function manageRoleGameMember({
   }
 
   const normalizedActor: RoleGameActor = { ...actor, telegramUserId: actorTelegramUserId };
-  const currentActorMembership =
-    actorMembership?.roleGameId === currentGame.id && actorMembership.telegramUserId === actorTelegramUserId ? actorMembership : null;
+  void actorMembership;
+  const currentActorMembership = await repository.findMemberByTelegramUserId(currentGame.id, actorTelegramUserId);
   const hasFullManagement = canManageRoleGame(normalizedActor, currentGame, currentActorMembership);
   const hasOperationalManagement = canManageRoleGameOperationally(normalizedActor, currentGame, currentActorMembership);
 
