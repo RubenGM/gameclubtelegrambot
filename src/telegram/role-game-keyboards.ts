@@ -134,7 +134,36 @@ export function buildRoleGameSessionsKeyboard({
   ]);
 }
 
-export function buildRoleGameParticipantsOverviewKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+export function buildRoleGameParticipantsKeyboard({
+  memberButtons,
+  kind,
+  hasPreviousPage = false,
+  hasNextPage = false,
+  language = 'ca',
+}: {
+  memberButtons: Record<string, number>;
+  kind: 'active' | 'history';
+  hasPreviousPage?: boolean;
+  hasNextPage?: boolean;
+  language?: BotLanguage;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  const navigation: TelegramReplyButton[] = [];
+  if (hasPreviousPage) {
+    navigation.push(navigationButton(texts.previousPage));
+  }
+  if (hasNextPage) {
+    navigation.push(navigationButton(texts.nextPage));
+  }
+  return buildRoleGameReplyKeyboard(language, [
+    ...Object.keys(memberButtons).map((label) => [primaryButton(label)]),
+    ...(navigation.length > 0 ? [navigation] : []),
+    [navigationButton(kind === 'active' ? texts.participantsHistory : texts.currentParticipants)],
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
+export function buildRoleGameParticipantDetailKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).roleGames;
   return buildRoleGameReplyKeyboard(language, [
     [navigationButton(texts.backToGame)],

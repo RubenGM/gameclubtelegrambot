@@ -13,6 +13,7 @@ import {
   type RoleGameEntryMode,
   type RoleGameMaterialDeliveryMode,
   type RoleGameMaterialRecord,
+  type RoleGameMemberManagementAction,
   type RoleGameMemberRecord,
   type RoleGamePublicJoinPolicy,
   type RoleGameRecurrenceRule,
@@ -25,6 +26,8 @@ import {
   type UpdateRoleGameInput,
 } from '../role-games/role-game-catalog.js';
 import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalog-store.js';
+import type { MembershipAccessRepository } from '../membership/access-flow.js';
+import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { createManualRoleGameSession, createRoleGameScheduleSession } from '../role-games/role-game-scheduler.js';
 import type { ScheduleRepository } from '../schedule/schedule-catalog.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
@@ -58,7 +61,8 @@ import {
   buildRoleGameListKeyboard,
   buildRoleGameMaterialInlineKeyboard,
   buildRoleGameMaterialsKeyboard,
-  buildRoleGameParticipantsOverviewKeyboard,
+  buildRoleGameParticipantDetailKeyboard,
+  buildRoleGameParticipantsKeyboard,
   buildRoleGameSessionsKeyboard,
   roleGameCallbackPrefixes,
 } from './role-game-keyboards.js';
@@ -70,6 +74,14 @@ import {
   formatRoleGameListMessage,
   roleGameListPageSize,
 } from './role-game-presentation.js';
+import {
+  buildRoleGameParticipantButtonMap,
+  buildRoleGameParticipantPage,
+  formatRoleGameParticipantDetail,
+  formatRoleGameParticipantList,
+  type RoleGameParticipantListItem,
+  type RoleGameParticipantListKind,
+} from './role-game-participants.js';
 import type { TelegramReplyButton } from './runtime-boundary.js';
 
 const roleGameListFlowKey = 'role-games-list';
@@ -165,8 +177,20 @@ interface RoleGameDetailSessionData {
   page?: number;
 }
 
+interface RoleGameParticipantsSessionData {
+  gameId: number;
+  view: 'participants' | 'history' | 'participant-detail' | 'confirm-action';
+  page: number;
+  memberButtons: Record<string, number>;
+  selectedMemberId?: number;
+  pendingAction?: RoleGameMemberManagementAction;
+}
+
+type RoleGameDetailSessionState = RoleGameDetailSessionData | RoleGameParticipantsSessionData;
+
 export type TelegramRoleGameContext = TelegramCommandHandlerContext & {
   roleGameRepository?: RoleGameRepository;
+  membershipRepository?: MembershipAccessRepository;
   scheduleRepository?: ScheduleRepository;
   storageRepository?: StorageCategoryRepository;
 };
@@ -1573,7 +1597,7 @@ async function handleRoleGameDetailText(
   language: BotLanguage,
 ): Promise<boolean> {
   const session = context.runtime.session.current;
-  const data = session?.data as Partial<RoleGameDetailSessionData> | undefined;
+  const data = session?.data as Partial<RoleGameDetailSessionState> | undefined;
   if (!data || typeof data.gameId !== 'number' || !Number.isSafeInteger(data.gameId) || data.gameId <= 0 || !data.view) {
     return false;
   }
@@ -1593,11 +1617,40 @@ async function handleRoleGameDetailText(
     await replyWithRoleGameDetail(context, game, language);
     return true;
   }
+  if (data.view === 'participants' || data.view === 'history') {
+    const kind: RoleGameParticipantListKind = data.view === 'participants' ? 'active' : 'history';
+    const currentPage = data.page ?? 1;
+    if (text === texts.previousPage) {
+      return replyWithRoleGameParticipants(context, { language, game, kind, page: currentPage - 1 });
+    }
+    if (text === texts.nextPage) {
+      return replyWithRoleGameParticipants(context, { language, game, kind, page: currentPage + 1 });
+    }
+    if (kind === 'active' && text === texts.participantsHistory) {
+      return replyWithRoleGameParticipants(context, { language, game, kind: 'history', page: 1 });
+    }
+    if (kind === 'history' && text === texts.currentParticipants) {
+      return replyWithRoleGameParticipants(context, { language, game, kind: 'active', page: 1 });
+    }
+    if (data.memberButtons && Object.hasOwn(data.memberButtons, text)) {
+      const memberId = data.memberButtons[text];
+      if (typeof memberId === 'number') {
+        return replyWithRoleGameParticipantDetail(context, {
+          language,
+          game,
+          kind,
+          page: currentPage,
+          memberButtons: data.memberButtons,
+          memberId,
+        });
+      }
+    }
+  }
   if (text === texts.sessions) {
     return replyWithRoleGameSessions(context, { language, game });
   }
   if (await isRoleGameParticipantsButtonText(context, game, text, language)) {
-    return replyWithRoleGameParticipantsOverview(context, { language, game });
+    return replyWithRoleGameParticipants(context, { language, game, kind: 'active', page: 1 });
   }
   if (text === texts.materials) {
     return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: 1 });
@@ -1647,9 +1700,19 @@ async function isRoleGameParticipantsButtonText(
   return text === texts.participantsPending.replace('{count}', String(pendingRequestCount));
 }
 
-async function replyWithRoleGameParticipantsOverview(
+async function replyWithRoleGameParticipants(
   context: TelegramRoleGameContext,
-  { language, game }: { language: BotLanguage; game: RoleGameRecord },
+  {
+    language,
+    game,
+    kind,
+    page,
+  }: {
+    language: BotLanguage;
+    game: RoleGameRecord;
+    kind: RoleGameParticipantListKind;
+    page: number;
+  },
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).roleGames;
   const repository = resolveRepository(context);
@@ -1658,18 +1721,93 @@ async function replyWithRoleGameParticipantsOverview(
     await context.reply(texts.permissionDenied, buildRoleGameHomeKeyboard(language));
     return true;
   }
-  const members = await repository.listMembers(game.id);
-  const count = (role: RoleGameMemberRecord['role'], status: RoleGameMemberRecord['status']) =>
-    members.filter((member) => member.role === role && member.status === status).length;
-  await context.reply([
-    `<b>${escapeHtml(texts.participantsHeader.replace('{title}', game.title))}</b>`,
-    `${texts.participantRequests}: ${count('player', 'requested')}`,
-    `${texts.participantWaitlist}: ${count('player', 'waitlisted')}`,
-    `${texts.participantCoorganizers}: ${count('coorganizer', 'confirmed')}`,
-    `${texts.participantConfirmedPlayers}: ${count('player', 'confirmed')}`,
-    `${texts.participantInvited}: ${count('player', 'invited')}`,
-  ].join('\n'), {
-    ...buildRoleGameParticipantsOverviewKeyboard(language),
+  const participants = await resolveRoleGameParticipantListItems(context, await repository.listMembers(game.id), language);
+  const participantPage = buildRoleGameParticipantPage({
+    items: participants,
+    kind,
+    requestedPage: page,
+    language,
+  });
+  const memberButtons = Object.fromEntries(buildRoleGameParticipantButtonMap(participantPage.items, {
+    reservedLabels: roleGameParticipantReservedButtonLabels(language, kind),
+  }));
+  await context.runtime.session.start({
+    flowKey: 'role-game-detail',
+    stepKey: kind,
+    data: {
+      gameId: game.id,
+      view: kind === 'active' ? 'participants' : 'history',
+      page: participantPage.page,
+      memberButtons,
+    } satisfies RoleGameParticipantsSessionData,
+  });
+  await context.reply(formatRoleGameParticipantList({
+    page: participantPage,
+    title: game.title,
+    kind,
+    language,
+  }), {
+    ...buildRoleGameParticipantsKeyboard({
+      memberButtons,
+      kind,
+      hasPreviousPage: participantPage.page > 1,
+      hasNextPage: participantPage.page < participantPage.pages,
+      language,
+    }),
+    parseMode: 'HTML',
+  });
+  return true;
+}
+
+async function replyWithRoleGameParticipantDetail(
+  context: TelegramRoleGameContext,
+  {
+    language,
+    game,
+    kind,
+    page,
+    memberButtons,
+    memberId,
+  }: {
+    language: BotLanguage;
+    game: RoleGameRecord;
+    kind: RoleGameParticipantListKind;
+    page: number;
+    memberButtons: Record<string, number>;
+    memberId: number;
+  },
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).roleGames;
+  const repository = resolveRepository(context);
+  const actorMember = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+  if (!canManageCurrentRoleGame(context, game, actorMember)) {
+    await context.reply(texts.permissionDenied, buildRoleGameHomeKeyboard(language));
+    return true;
+  }
+  const member = await repository.findMemberById(memberId);
+  const allowedStatuses = kind === 'active'
+    ? new Set<RoleGameMemberRecord['status']>(['requested', 'waitlisted', 'confirmed', 'invited'])
+    : new Set<RoleGameMemberRecord['status']>(['left', 'removed', 'rejected']);
+  if (!member || member.roleGameId !== game.id || !allowedStatuses.has(member.status)) {
+    return replyWithRoleGameParticipants(context, { language, game, kind, page });
+  }
+  const [participant] = await resolveRoleGameParticipantListItems(context, [member], language);
+  if (!participant) {
+    return replyWithRoleGameParticipants(context, { language, game, kind, page });
+  }
+  await context.runtime.session.start({
+    flowKey: 'role-game-detail',
+    stepKey: 'participant-detail',
+    data: {
+      gameId: game.id,
+      view: 'participant-detail',
+      page,
+      memberButtons,
+      selectedMemberId: member.id,
+    } satisfies RoleGameParticipantsSessionData,
+  });
+  await context.reply(formatRoleGameParticipantDetail({ item: participant, language }), {
+    ...buildRoleGameParticipantDetailKeyboard(language),
     parseMode: 'HTML',
   });
   return true;
@@ -2293,6 +2431,45 @@ function resolveRepository(context: TelegramRoleGameContext): RoleGameRepository
   return context.roleGameRepository ?? createDatabaseRoleGameRepository({
     database: context.runtime.services.database.db,
   });
+}
+
+function resolveMembershipRepository(context: TelegramRoleGameContext): MembershipAccessRepository {
+  return context.membershipRepository ?? createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+}
+
+async function resolveRoleGameParticipantListItems(
+  context: TelegramRoleGameContext,
+  members: RoleGameMemberRecord[],
+  language: BotLanguage,
+): Promise<RoleGameParticipantListItem[]> {
+  const membershipRepository = resolveMembershipRepository(context);
+  return Promise.all(members.map(async (member) => {
+    const user = await membershipRepository.findUserByTelegramUserId(member.telegramUserId);
+    return {
+      member,
+      displayName: user?.displayName ?? formatRoleGameParticipantFallbackName(language, member.telegramUserId),
+      username: user?.username ?? null,
+    };
+  }));
+}
+
+function formatRoleGameParticipantFallbackName(language: BotLanguage, telegramUserId: number): string {
+  const label = language === 'ca' ? 'Usuari' : language === 'en' ? 'User' : 'Usuario';
+  return `${label} ${telegramUserId}`;
+}
+
+function roleGameParticipantReservedButtonLabels(language: BotLanguage, kind: RoleGameParticipantListKind): string[] {
+  const i18n = createTelegramI18n(language);
+  return [
+    i18n.roleGames.previousPage,
+    i18n.roleGames.nextPage,
+    kind === 'active' ? i18n.roleGames.participantsHistory : i18n.roleGames.currentParticipants,
+    i18n.roleGames.backToGame,
+    i18n.actionMenu.start,
+    i18n.actionMenu.help,
+  ];
 }
 
 function resolveScheduleRepository(context: TelegramRoleGameContext): ScheduleRepository {

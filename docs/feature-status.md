@@ -128,6 +128,7 @@ Implementado:
 - El worker de recurrencias arranca junto al servicio y mantiene la ventana futura de campañas recurrentes creando eventos Agenda enlazados en `role_game_sessions`; las sesiones canceladas enlazadas no se recrean.
 - Las sesiones de rol reutilizan Agenda: crean eventos con `createScheduleEvent`, enlazan `role_game_sessions`, apuntan automaticamente a jugadores confirmados hasta la capacidad disponible cuando la partida lo configura y enlazan el recibo a `schedule_event_<id>`.
 - Los detalles muestran `Solicitar plaza` cuando corresponde y los managers operativos pueden aceptar o rechazar solicitudes con botones inline diferenciados por rol semantico.
+- `Participantes` abre una lista privada paginada de solicitudes, espera, coorganizadores, jugadores e invitados con identidad resuelta desde membresías, enlaces de username cuando existen y fallback localizado; `Historial` separa las bajas, expulsiones y rechazos. Los botones de persona sólo resuelven las etiquetas de la página renderizada y abren una ficha de sólo lectura, dejando las acciones de gestión para su confirmación específica.
 - Los one-shots publicos con politica `members_and_external` se pueden abrir desde `/start role_game_<id>` por usuarios no aprobados y permiten solicitar plaza externa sin aprobar automaticamente la membresia del usuario.
 - Infraestructura Storage para handouts internos con proposito `role_game_handouts`, oculto de Storage normal, `/storage`, busquedas, web/TUI Storage y busquedas LLM.
 - Los managers pueden subir material desde la ficha de partida; el bot copia el adjunto a Storage interno con progreso editable, crea `role_game_materials` como `gm_only` y devuelve enlace `role_material_<id>` sin exponer `storage_entry_<id>`.
@@ -488,7 +489,7 @@ Pendiente:
 | Catalogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Prestamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
 | Compras conjuntas | `src/telegram/group-purchase-flow.test.ts`, `src/group-purchases/*.test.ts` |
-| Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
+| Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/telegram/role-game-participants.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Avisos | `src/telegram/notice-flow.test.ts`, `src/notices/*.test.ts`, `src/news/news-group-store.test.ts` |
 | Storage | `src/telegram/storage-flow.test.ts`, `src/storage/*.test.ts` |
 | Noticias | `src/telegram/news-group-flow.test.ts`, `src/news/news-group-store.test.ts`, `src/telegram/runtime-boundary.test.ts` |

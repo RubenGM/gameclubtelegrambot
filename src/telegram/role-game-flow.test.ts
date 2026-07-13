@@ -32,6 +32,7 @@ import type {
   StorageEntryDetailRecord,
   StorageEntryMessageInput,
 } from '../storage/storage-catalog.js';
+import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import type { TelegramReplyKeyboardButton } from './runtime-boundary.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
@@ -143,7 +144,7 @@ test('role game detail uses a persistent section keyboard without inline buttons
   assert.equal(getCurrentSession(context)?.flowKey, 'role-game-detail');
 });
 
-test('role game participants button renders a grouped overview with dashboard return', async () => {
+test('role game participants button renders an identity-aware active list from the pending dashboard label', async () => {
   const game = sampleRoleGame({ id: 311, primaryGmTelegramUserId: 42 });
   const members = [
     sampleRoleGameMember({ id: 3111, roleGameId: game.id, telegramUserId: 101, role: 'player', status: 'requested' }),
@@ -158,22 +159,180 @@ test('role game participants button renders a grouped overview with dashboard re
       gamesById: [game],
       membersByGameId: new Map([[game.id, members]]),
     }),
+    membershipRepository: createFakeMembershipRepository([
+      sampleMembershipUser({ telegramUserId: 101, displayName: 'Solicitud', username: 'solicitud_rpg' }),
+      sampleMembershipUser({ telegramUserId: 102, displayName: 'Espera' }),
+      sampleMembershipUser({ telegramUserId: 103, displayName: 'Coorg' }),
+      sampleMembershipUser({ telegramUserId: 104, displayName: 'Jugadora' }),
+      sampleMembershipUser({ telegramUserId: 105, displayName: 'Invitada' }),
+    ]),
   });
 
   assert.equal(await handleTelegramRoleGameStartText(context), true);
   await sendRoleGameText(context, 'Participantes · 1 pendientes');
 
   assert.match(lastReply(context).message, /Participantes de Partida de prueba/);
-  assert.match(lastReply(context).message, /Solicitudes pendientes: 1/);
-  assert.match(lastReply(context).message, /En espera: 1/);
-  assert.match(lastReply(context).message, /Coorganizadores: 1/);
-  assert.match(lastReply(context).message, /Jugadores confirmados: 1/);
-  assert.match(lastReply(context).message, /Invitados: 1/);
+  assert.match(lastReply(context).message, /<a href="https:\/\/t\.me\/solicitud_rpg">Solicitud \(@solicitud_rpg\)<\/a>/);
+  assert.match(lastReply(context).message, /Solicitudes pendientes/);
+  assert.match(lastReply(context).message, /En espera/);
+  assert.match(lastReply(context).message, /Coorganizadores/);
+  assert.match(lastReply(context).message, /Jugadores confirmados/);
+  assert.match(lastReply(context).message, /Invitados/);
   assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Solicitud'],
+    ['Espera'],
+    ['Coorg'],
+    ['Jugadora'],
+    ['Invitada'],
+    ['Historial'],
     ['Volver a la partida'],
     ['Inicio', 'Ayuda'],
   ]);
+  assert.deepEqual(getCurrentSession(context)?.data, {
+    gameId: game.id,
+    view: 'participants',
+    page: 1,
+    memberButtons: {
+      Solicitud: 3111,
+      Espera: 3112,
+      Coorg: 3113,
+      Jugadora: 3114,
+      Invitada: 3115,
+    },
+  });
+});
+
+test('role game dashboard keeps the plain Participantes label when there are zero pending requests', async () => {
+  const game = sampleRoleGame({ id: 312, primaryGmTelegramUserId: 42 });
+  const members = [sampleRoleGameMember({ id: 3121, roleGameId: game.id, telegramUserId: 101, status: 'confirmed' })];
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, members]]),
+    }),
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Participantes']);
+
+  assert.equal(await sendRoleGameText(context, 'Participantes'), true);
+  assert.match(lastReply(context).message, /Usuario 101/);
+  assert.equal(getCurrentSession(context)?.data?.view, 'participants');
+});
+
+test('role game participant pages clamp after active members disappear and only render valid navigation', async () => {
+  const game = sampleRoleGame({ id: 313, primaryGmTelegramUserId: 42 });
+  const members = Array.from({ length: 7 }, (_, index) => sampleRoleGameMember({
+    id: 3130 + index,
+    roleGameId: game.id,
+    telegramUserId: 110 + index,
+    status: 'confirmed',
+  }));
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, members]]),
+    }),
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  await sendRoleGameText(context, 'Participantes');
+  assert.match(lastReply(context).message, /Mostrando 1-6 de 7\. Página 1\/2\./);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(6)?.map(buttonText), ['Siguiente']);
+
+  await sendRoleGameText(context, 'Siguiente');
+  assert.match(lastReply(context).message, /Mostrando 7-7 de 7\. Página 2\/2\./);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(1)?.map(buttonText), ['Anterior']);
+
+  members.pop();
+  await sendRoleGameText(context, 'Siguiente');
+  assert.doesNotMatch(lastReply(context).message, /Página/);
+  assert.equal(getCurrentSession(context)?.data?.page, 1);
+  assert.ok(!lastReply(context).options?.replyKeyboard?.flat().some((button) => ['Anterior', 'Siguiente'].includes(buttonText(button))));
+});
+
+test('role game history is paginated separately and excludes active participants', async () => {
+  const game = sampleRoleGame({ id: 314, primaryGmTelegramUserId: 42 });
+  const members = [
+    sampleRoleGameMember({ id: 3141, roleGameId: game.id, telegramUserId: 101, status: 'confirmed' }),
+    sampleRoleGameMember({ id: 3142, roleGameId: game.id, telegramUserId: 102, status: 'left' }),
+    sampleRoleGameMember({ id: 3143, roleGameId: game.id, telegramUserId: 103, status: 'removed' }),
+    sampleRoleGameMember({ id: 3144, roleGameId: game.id, telegramUserId: 104, status: 'rejected' }),
+  ];
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, members]]),
+    }),
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  await sendRoleGameText(context, 'Participantes');
+  await sendRoleGameText(context, 'Historial');
+
+  assert.match(lastReply(context).message, /Han salido/);
+  assert.match(lastReply(context).message, /Expulsados/);
+  assert.match(lastReply(context).message, /Rechazados/);
+  assert.doesNotMatch(lastReply(context).message, /Usuario 101/);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
+    ['Usuario 102'],
+    ['Usuario 103'],
+    ['Usuario 104'],
+    ['Participantes actuales'],
+    ['Volver a la partida'],
+    ['Inicio', 'Ayuda'],
+  ]);
+  assert.equal(getCurrentSession(context)?.data?.view, 'history');
+});
+
+test('role game participant list rejects forged labels outside the current member button map', async () => {
+  const game = sampleRoleGame({ id: 315, primaryGmTelegramUserId: 42 });
+  const members = [sampleRoleGameMember({ id: 3151, roleGameId: game.id, telegramUserId: 101, status: 'confirmed' })];
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, members]]),
+    }),
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  await sendRoleGameText(context, 'Participantes');
+  const replyCount = context.replies.length;
+
+  assert.equal(await sendRoleGameText(context, 'Persona forjada'), false);
+  assert.equal(context.replies.length, replyCount);
+  assert.equal(getCurrentSession(context)?.data?.selectedMemberId, undefined);
+});
+
+test('role game participant list selects only a rendered member button for the read-only detail view', async () => {
+  const game = sampleRoleGame({ id: 316, primaryGmTelegramUserId: 42 });
+  const member = sampleRoleGameMember({ id: 3161, roleGameId: game.id, telegramUserId: 101, status: 'confirmed' });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, [member]]]),
+    }),
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  await sendRoleGameText(context, 'Participantes');
+
+  assert.equal(await sendRoleGameText(context, 'Usuario 101'), true);
+  assert.match(lastReply(context).message, /Participante/);
+  assert.match(lastReply(context).message, /Usuario 101/);
+  assert.deepEqual(getCurrentSession(context)?.data, {
+    gameId: game.id,
+    view: 'participant-detail',
+    page: 1,
+    memberButtons: { 'Usuario 101': member.id },
+    selectedMemberId: member.id,
+  });
 });
 
 test('role game dashboard limits a confirmed player to sessions they may schedule', async () => {
@@ -1367,6 +1526,7 @@ function createRoleGameTestContext({
   roleGameRepository = createFakeRoleGameRepository(),
   scheduleRepository = createFakeScheduleRepository(),
   storageRepository,
+  membershipRepository = createFakeMembershipRepository(),
   session = {},
   actor = {},
   onSendPrivateMessage,
@@ -1377,6 +1537,7 @@ function createRoleGameTestContext({
   roleGameRepository?: RoleGameRepository;
   scheduleRepository?: ScheduleRepository;
   storageRepository?: StorageCategoryRepository;
+  membershipRepository?: MembershipAccessRepository;
   session?: {
     current?: TelegramCommandHandlerContext['runtime']['session']['current'];
   };
@@ -1387,6 +1548,7 @@ function createRoleGameTestContext({
   roleGameRepository: RoleGameRepository;
   scheduleRepository: ScheduleRepository;
   storageRepository?: StorageCategoryRepository;
+  membershipRepository?: MembershipAccessRepository;
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
 } {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
@@ -1426,6 +1588,7 @@ function createRoleGameTestContext({
     roleGameRepository,
     scheduleRepository,
     ...(storageRepository ? { storageRepository } : {}),
+    ...(membershipRepository ? { membershipRepository } : {}),
     replies,
     reply: async (message: string, options?: TelegramReplyOptions) => {
       replies.push(options ? { message, options } : { message });
@@ -1459,6 +1622,7 @@ function createRoleGameTestContext({
     roleGameRepository: RoleGameRepository;
     scheduleRepository: ScheduleRepository;
     storageRepository?: StorageCategoryRepository;
+    membershipRepository?: MembershipAccessRepository;
     replies: Array<{ message: string; options?: TelegramReplyOptions }>;
   };
 }
@@ -1862,6 +2026,24 @@ function sampleRoleGameMember(overrides: Partial<RoleGameMemberRecord> = {}): Ro
     updatedAt: '2026-07-09T10:00:00.000Z',
     ...overrides,
   };
+}
+
+function sampleMembershipUser(overrides: Partial<MembershipUserRecord> = {}): MembershipUserRecord {
+  return {
+    telegramUserId: 101,
+    username: null,
+    displayName: 'Usuario 101',
+    status: 'approved',
+    isAdmin: false,
+    ...overrides,
+  };
+}
+
+function createFakeMembershipRepository(users: MembershipUserRecord[] = []): MembershipAccessRepository {
+  const usersByTelegramId = new Map(users.map((user) => [user.telegramUserId, user]));
+  return {
+    findUserByTelegramUserId: async (telegramUserId) => usersByTelegramId.get(telegramUserId) ?? null,
+  } as MembershipAccessRepository;
 }
 
 function sampleSessionLink(overrides: Partial<RoleGameSessionRecord> = {}): RoleGameSessionRecord {
