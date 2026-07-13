@@ -924,6 +924,45 @@ test('role game dashboard lets approved members request members-only one-shot se
   assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Solicitar plaza'));
 });
 
+test('historical role game members cannot request again or receive a false success receipt', async (t) => {
+  for (const [index, status] of (['left', 'removed', 'rejected'] as const).entries()) {
+    await t.test(status, async () => {
+      const game = sampleRoleGame({ id: 243 + index, visibility: 'public' });
+      const historicalMember = sampleRoleGameMember({
+        id: 2431 + index,
+        roleGameId: game.id,
+        telegramUserId: 100,
+        status,
+      });
+      let requestCalls = 0;
+      const context = createRoleGameTestContext({
+        messageText: `/start role_game_${game.id}`,
+        roleGameRepository: createFakeRoleGameRepository({
+          gamesById: [game],
+          membersByGameId: new Map([[game.id, [historicalMember]]]),
+          onRequestSeat: async () => {
+            requestCalls += 1;
+            return historicalMember;
+          },
+        }),
+        actor: { telegramUserId: 100, isApproved: true, status: 'approved' },
+      });
+
+      await handleTelegramRoleGameStartText(context);
+      const dashboardHasRequestButton = lastReply(context).options?.replyKeyboard?.flat()
+        .some((button) => buttonText(button) === 'Solicitar plaza') ?? false;
+      assert.equal(await sendRoleGameText(context, 'Solicitar plaza'), true);
+
+      assert.equal(dashboardHasRequestButton, false);
+      assert.equal(requestCalls, 0);
+      assert.match(lastReply(context).message, /La solicitud de plaza ya no está disponible/);
+      assert.doesNotMatch(lastReply(context).message, /Plaza confirmada|Solicitud enviada/);
+      assert.equal((await context.roleGameRepository.findMemberById(historicalMember.id))?.status, status);
+      assert.equal(getCurrentSession(context)?.data?.view, 'dashboard');
+    });
+  }
+});
+
 test('handleTelegramRoleGameCallback lets unapproved external users request public one-shot seats without approving membership', async () => {
   const game = sampleRoleGame({
     id: 25,

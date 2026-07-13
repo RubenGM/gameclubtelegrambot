@@ -590,7 +590,7 @@ export function canRequestRoleGameSeat(
     game.entryMode !== 'request' ||
     actor.isAdmin ||
     game.primaryGmTelegramUserId === actor.telegramUserId ||
-    (membership !== null && isActiveMemberStatus(membership.status)) ||
+    membership !== null ||
     !canViewRoleGame(actor, game, membership)
   ) {
     return false;

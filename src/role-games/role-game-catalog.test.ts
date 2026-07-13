@@ -107,6 +107,11 @@ test('canRequestRoleGameSeat applies approval, game type, visibility, join polic
   assert.equal(canRequestRoleGameSeat(external, membersOnlyOneShot, null), false);
   assert.equal(canRequestRoleGameSeat(external, externalOneShot, null), true);
   assert.equal(canRequestRoleGameSeat(approved, externalOneShot, confirmed), false);
+  for (const status of ['left', 'removed', 'rejected'] as const) {
+    const historicalMember = sampleMember({ telegramUserId: 100, status });
+    assert.equal(canRequestRoleGameSeat(approved, publicCampaign, historicalMember), false, status);
+    assert.equal(canRequestRoleGameSeat(external, externalOneShot, historicalMember), false, status);
+  }
 });
 
 test('requestRoleGameSeat auto-confirms while capacity remains', async () => {
@@ -327,6 +332,36 @@ test('requestRoleGameSeat accepts only public one-shots for external actors', as
     }),
     /cannot request a seat/,
   );
+});
+
+test('requestRoleGameSeat rejects historical memberships without reactivating them', async (t) => {
+  for (const status of ['left', 'removed', 'rejected'] as const) {
+    await t.test(status, async () => {
+      const repository = createMemoryRoleGameRepository();
+      const game = await repository.createGame(sampleCreateInput({ visibility: 'public' }));
+      const historicalMember = await repository.createMember({
+        roleGameId: game.id,
+        telegramUserId: 100,
+        role: 'player',
+        status,
+        isExternal: false,
+        requestedByTelegramUserId: 42,
+      });
+
+      await assert.rejects(requestRoleGameSeat({
+        repository,
+        gameId: game.id,
+        telegramUserId: 100,
+        actor: { telegramUserId: 100, isAdmin: false, isApproved: true },
+      }), /cannot request a seat/i);
+
+      assert.equal((await repository.findMemberById(historicalMember.id))?.status, status);
+      assert.equal(
+        (await repository.listMembers(game.id)).filter((member) => member.telegramUserId === 100).length,
+        1,
+      );
+    });
+  }
 });
 
 test('requestRoleGameSeat delegates seat allocation to one repository operation', async () => {
@@ -1005,8 +1040,8 @@ function createMemoryRoleGameRepository(): RoleGameRepository {
         Array.from(members.values()).find(
           (member) => member.roleGameId === input.roleGameId && member.telegramUserId === input.telegramUserId,
         ) ?? null;
-      if (existing && ['invited', 'requested', 'confirmed', 'waitlisted'].includes(existing.status)) {
-        return existing;
+      if (existing) {
+        throw new Error(`Telegram user ${input.telegramUserId} already has a membership in role game ${input.roleGameId}`);
       }
       const game = games.get(input.roleGameId);
       if (!game) {

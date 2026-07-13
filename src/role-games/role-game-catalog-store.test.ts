@@ -114,6 +114,39 @@ test('database role game repository requestSeat keeps manual-review requests pen
   assert.equal(member.status, 'requested');
 });
 
+test('database role game repository requestSeat rejects every historical membership without inserting', async (t) => {
+  const { database, seedUser, cleanup, steps } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput());
+  const historicalMembers = [];
+  for (const [index, status] of (['left', 'removed', 'rejected'] as const).entries()) {
+    const telegramUserId = 100 + index;
+    seedUser(telegramUserId, `Histórico ${status}`);
+    historicalMembers.push(await repository.createMember({
+      roleGameId: game.id,
+      telegramUserId,
+      role: 'player',
+      status,
+      isExternal: false,
+      requestedByTelegramUserId: 42,
+    }));
+  }
+  steps.length = 0;
+
+  for (const member of historicalMembers) {
+    await assert.rejects(repository.requestSeat({
+      roleGameId: game.id,
+      telegramUserId: member.telegramUserId,
+      actorTelegramUserId: member.telegramUserId,
+      isExternal: false,
+    }), /already has a membership/i);
+    assert.equal((await repository.findMemberById(member.id))?.status, member.status);
+  }
+  assert.equal(steps.includes('insert:role_game_members'), false);
+});
+
 test('database role game repository confirms a seat atomically after locking its member and game', async (t) => {
   const { database, seedUser, cleanup, steps } = createRoleGameStoreFixture();
   t.after(cleanup);

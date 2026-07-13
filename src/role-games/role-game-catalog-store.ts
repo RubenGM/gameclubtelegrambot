@@ -351,7 +351,7 @@ export function createDatabaseRoleGameRepository({
           existingMembers.filter((member) => member.roleGameId === input.roleGameId && member.telegramUserId === input.telegramUserId),
         );
         if (existing) {
-          return mapRoleGameMemberRow(existing);
+          throw new Error(`Telegram user ${input.telegramUserId} already has a membership in role game ${input.roleGameId}`);
         }
 
         const status = await resolveRequestedSeatStatus({
