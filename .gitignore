@@ -13,6 +13,8 @@ backups/
 data/llm-model-tests/
 *.backup
 gameclub-backup-*.zip
+.superpowers/
+.worktrees/
 
 # Local Telegram Bot API setup artifacts and secrets.
 # Production uses /var/lib/gameclubtelegrambot/telegram-bot-api and
