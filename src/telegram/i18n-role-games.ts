@@ -1,3 +1,5 @@
+import type { RoleGameMemberManagementAction } from '../role-games/role-game-catalog.js';
+
 export const roleGameTexts = {
   ca: {
     menuTitle: 'Rol',
@@ -79,6 +81,16 @@ export const roleGameTexts = {
     participantStatusLeft: 'ha marxat',
     participantStatusRemoved: 'expulsat',
     participantStatusRejected: 'rebutjat',
+    participantActionConfirm: 'Confirmar',
+    participantActionReject: 'Rebutjar',
+    participantActionRemove: 'Eliminar',
+    participantActionCancelInvitation: 'Cancel·lar invitació',
+    participantActionPromote: 'Fer coorganitzador',
+    participantActionDemote: 'Treure coorganitzador',
+    participantActionCancel: 'Cancel·lar acció',
+    participantActionPrompt: 'Confirma l’acció «{action}».',
+    participantActionStale: 'Aquest participant ha canviat. He actualitzat la llista.',
+    participantActionFull: 'La partida ja és completa. He actualitzat la llista.',
     noParticipantsForView: 'No hi ha participants en aquesta vista.',
     participantListFooter: 'Mostrant {from}-{to} de {total}. Pàgina {page}/{pages}.',
     sessions: 'Sessions',
@@ -244,6 +256,16 @@ export const roleGameTexts = {
     participantStatusLeft: 'ha salido',
     participantStatusRemoved: 'expulsado',
     participantStatusRejected: 'rechazado',
+    participantActionConfirm: 'Confirmar',
+    participantActionReject: 'Rechazar',
+    participantActionRemove: 'Eliminar',
+    participantActionCancelInvitation: 'Cancelar invitación',
+    participantActionPromote: 'Hacer coorganizador',
+    participantActionDemote: 'Quitar coorganizador',
+    participantActionCancel: 'Cancelar acción',
+    participantActionPrompt: 'Confirma la acción «{action}».',
+    participantActionStale: 'Este participante ha cambiado. He actualizado la lista.',
+    participantActionFull: 'La partida ya está completa. He actualizado la lista.',
     noParticipantsForView: 'No hay participantes en esta vista.',
     participantListFooter: 'Mostrando {from}-{to} de {total}. Página {page}/{pages}.',
     sessions: 'Sesiones',
@@ -409,6 +431,16 @@ export const roleGameTexts = {
     participantStatusLeft: 'left',
     participantStatusRemoved: 'removed',
     participantStatusRejected: 'rejected',
+    participantActionConfirm: 'Confirm',
+    participantActionReject: 'Reject',
+    participantActionRemove: 'Remove',
+    participantActionCancelInvitation: 'Cancel invitation',
+    participantActionPromote: 'Make coorganizer',
+    participantActionDemote: 'Remove coorganizer',
+    participantActionCancel: 'Cancel action',
+    participantActionPrompt: 'Confirm the “{action}” action.',
+    participantActionStale: 'This participant changed. I have refreshed the list.',
+    participantActionFull: 'This game is already full. I have refreshed the list.',
     noParticipantsForView: 'There are no participants in this view.',
     participantListFooter: 'Showing {from}-{to} of {total}. Page {page}/{pages}.',
     sessions: 'Sessions',
@@ -495,3 +527,42 @@ export const roleGameTexts = {
     optionRecurringScheduling: 'Recurring',
   },
 } as const;
+
+export function formatRoleGameMemberChangeNotification({
+  game,
+  action,
+  language,
+}: {
+  game: { title: string };
+  action: RoleGameMemberManagementAction;
+  language: keyof typeof roleGameTexts;
+}): string {
+  const title = game.title;
+  const messages = {
+    ca: {
+      confirm: `La teva plaça a ${title} ha estat confirmada.`,
+      reject: `La teva sol·licitud per a ${title} ha estat rebutjada.`,
+      remove: `Ja no participes a ${title}.`,
+      cancel_invitation: `La teva invitació a ${title} s’ha cancel·lat.`,
+      promote: `Ara ets coorganitzador de ${title}.`,
+      demote: `Ja no ets coorganitzador de ${title}.`,
+    },
+    es: {
+      confirm: `Tu plaza en ${title} se ha confirmado.`,
+      reject: `Tu solicitud para ${title} ha sido rechazada.`,
+      remove: `Ya no participas en ${title}.`,
+      cancel_invitation: `Tu invitación a ${title} se ha cancelado.`,
+      promote: `Ahora eres coorganizador de ${title}.`,
+      demote: `Ya no eres coorganizador de ${title}.`,
+    },
+    en: {
+      confirm: `Your seat in ${title} has been confirmed.`,
+      reject: `Your request for ${title} has been rejected.`,
+      remove: `You are no longer participating in ${title}.`,
+      cancel_invitation: `Your invitation to ${title} has been cancelled.`,
+      promote: `You are now a coorganizer of ${title}.`,
+      demote: `You are no longer a coorganizer of ${title}.`,
+    },
+  } as const;
+  return messages[language][action];
+}

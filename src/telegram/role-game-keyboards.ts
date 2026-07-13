@@ -1,4 +1,5 @@
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
+import type { RoleGameMemberManagementAction } from '../role-games/role-game-catalog.js';
 import type { TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 
 export const roleGameCallbackPrefixes = {
@@ -163,9 +164,25 @@ export function buildRoleGameParticipantsKeyboard({
   ]);
 }
 
-export function buildRoleGameParticipantDetailKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+export function buildRoleGameParticipantDetailKeyboard({
+  actions = [],
+  language = 'ca',
+}: {
+  actions?: RoleGameMemberManagementAction[];
+  language?: BotLanguage;
+} = {}): TelegramReplyOptions {
   const texts = createTelegramI18n(language).roleGames;
   return buildRoleGameReplyKeyboard(language, [
+    ...(actions.length > 0 ? [actions.map((action) => roleGameParticipantActionButton(texts, action))] : []),
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
+export function buildRoleGameParticipantActionConfirmationKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [successButton(texts.participantActionConfirm)],
+    [dangerButton(texts.participantActionCancel)],
     [navigationButton(texts.backToGame)],
   ]);
 }
@@ -327,4 +344,21 @@ function navigationButton(text: string): TelegramReplyButton {
 
 function helpButton(text: string): TelegramReplyButton {
   return { text, semanticRole: 'help' };
+}
+
+function roleGameParticipantActionButton(
+  texts: ReturnType<typeof createTelegramI18n>['roleGames'],
+  action: RoleGameMemberManagementAction,
+): TelegramReplyButton {
+  const label = {
+    confirm: texts.participantActionConfirm,
+    reject: texts.participantActionReject,
+    remove: texts.participantActionRemove,
+    cancel_invitation: texts.participantActionCancelInvitation,
+    promote: texts.participantActionPromote,
+    demote: texts.participantActionDemote,
+  }[action];
+  return action === 'remove' || action === 'reject' || action === 'cancel_invitation'
+    ? dangerButton(label)
+    : successButton(label);
 }

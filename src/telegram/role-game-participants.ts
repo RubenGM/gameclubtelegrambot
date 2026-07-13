@@ -1,4 +1,11 @@
-import type { RoleGameMemberRecord } from '../role-games/role-game-catalog.js';
+import {
+  canManageRoleGame,
+  canManageRoleGameOperationally,
+  type RoleGameActor,
+  type RoleGameMemberManagementAction,
+  type RoleGameMemberRecord,
+  type RoleGameRecord,
+} from '../role-games/role-game-catalog.js';
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import { formatTelegramUserLink } from './telegram-user-links.js';
 
@@ -20,6 +27,30 @@ export interface RoleGameParticipantPage {
   total: number;
   from: number;
   to: number;
+}
+
+export function listRoleGameMemberActions({
+  actor,
+  game,
+  actorMembership,
+  member,
+}: {
+  actor: RoleGameActor;
+  game: RoleGameRecord;
+  actorMembership: RoleGameMemberRecord | null;
+  member: RoleGameMemberRecord;
+}): RoleGameMemberManagementAction[] {
+  if (member.roleGameId !== game.id || member.role === 'primary_gm' || historyStatuses.has(member.status)) {
+    return [];
+  }
+  const actions = memberManagementActionsFor(member);
+  if (canManageRoleGame(actor, game, actorMembership)) {
+    return actions;
+  }
+  if (canManageRoleGameOperationally(actor, game, actorMembership) && member.status === 'requested') {
+    return actions;
+  }
+  return [];
 }
 
 export function buildRoleGameParticipantPage({
@@ -217,4 +248,13 @@ function escapeHtml(value: string): string {
     '"': '&quot;',
     "'": '&#39;',
   })[character] ?? character);
+}
+
+function memberManagementActionsFor(member: RoleGameMemberRecord): RoleGameMemberManagementAction[] {
+  if (member.status === 'requested') return ['confirm', 'reject'];
+  if (member.status === 'waitlisted') return ['confirm', 'remove'];
+  if (member.status === 'invited') return ['confirm', 'cancel_invitation'];
+  if (member.status === 'confirmed' && member.role === 'player') return ['promote', 'remove'];
+  if (member.status === 'confirmed' && member.role === 'coorganizer') return ['demote', 'remove'];
+  return [];
 }
