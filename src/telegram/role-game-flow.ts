@@ -181,6 +181,7 @@ interface RoleGameParticipantsSessionData {
   gameId: number;
   view: 'participants' | 'history' | 'participant-detail' | 'confirm-action';
   page: number;
+  total: number;
   memberButtons: Record<string, number>;
   selectedMemberId?: number;
   pendingAction?: RoleGameMemberManagementAction;
@@ -1635,11 +1636,15 @@ async function handleRoleGameDetailText(
     if (data.memberButtons && Object.hasOwn(data.memberButtons, text)) {
       const memberId = data.memberButtons[text];
       if (typeof memberId === 'number') {
+        if (typeof data.total !== 'number') {
+          return replyWithRoleGameParticipants(context, { language, game, kind, page: currentPage });
+        }
         return replyWithRoleGameParticipantDetail(context, {
           language,
           game,
           kind,
           page: currentPage,
+          total: data.total,
           memberButtons: data.memberButtons,
           memberId,
         });
@@ -1738,6 +1743,7 @@ async function replyWithRoleGameParticipants(
       gameId: game.id,
       view: kind === 'active' ? 'participants' : 'history',
       page: participantPage.page,
+      total: participantPage.total,
       memberButtons,
     } satisfies RoleGameParticipantsSessionData,
   });
@@ -1766,6 +1772,7 @@ async function replyWithRoleGameParticipantDetail(
     game,
     kind,
     page,
+    total,
     memberButtons,
     memberId,
   }: {
@@ -1773,6 +1780,7 @@ async function replyWithRoleGameParticipantDetail(
     game: RoleGameRecord;
     kind: RoleGameParticipantListKind;
     page: number;
+    total: number;
     memberButtons: Record<string, number>;
     memberId: number;
   },
@@ -1802,6 +1810,7 @@ async function replyWithRoleGameParticipantDetail(
       gameId: game.id,
       view: 'participant-detail',
       page,
+      total,
       memberButtons,
       selectedMemberId: member.id,
     } satisfies RoleGameParticipantsSessionData,

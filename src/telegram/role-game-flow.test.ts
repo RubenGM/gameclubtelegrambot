@@ -193,6 +193,7 @@ test('role game participants button renders an identity-aware active list from t
     gameId: game.id,
     view: 'participants',
     page: 1,
+    total: 5,
     memberButtons: {
       Solicitud: 3111,
       Espera: 3112,
@@ -287,6 +288,7 @@ test('role game history is paginated separately and excludes active participants
     ['Inicio', 'Ayuda'],
   ]);
   assert.equal(getCurrentSession(context)?.data?.view, 'history');
+  assert.equal(getCurrentSession(context)?.data?.total, 3);
 });
 
 test('role game participant list rejects forged labels outside the current member button map', async () => {
@@ -330,6 +332,7 @@ test('role game participant list selects only a rendered member button for the r
     gameId: game.id,
     view: 'participant-detail',
     page: 1,
+    total: 1,
     memberButtons: { 'Usuario 101': member.id },
     selectedMemberId: member.id,
   });
