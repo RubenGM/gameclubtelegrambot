@@ -513,10 +513,12 @@ test('primary GM can demote a confirmed coorganizer', async () => {
 test('notification failure does not roll back a confirmed participant change', async () => {
   const game = sampleRoleGame({ id: 325, primaryGmTelegramUserId: 42 });
   const requested = sampleRoleGameMember({ id: 3251, roleGameId: game.id, telegramUserId: 101, status: 'requested' });
+  const warnings: Array<{ bindings: object; message: string }> = [];
   const context = createRoleGameTestContext({
     messageText: `/start role_game_${game.id}`,
     roleGameRepository: createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, [requested]]]) }),
     onSendPrivateMessage: async () => { throw new Error('Forbidden'); },
+    onWarning: (bindings, message) => warnings.push({ bindings, message }),
   });
 
   await openRoleGameParticipant(context, 'Usuario 101');
@@ -525,6 +527,123 @@ test('notification failure does not roll back a confirmed participant change', a
 
   assert.equal((await context.roleGameRepository.findMemberById(requested.id))?.status, 'confirmed');
   assert.equal(getCurrentSession(context)?.data?.view, 'participants');
+  assert.deepEqual(warnings, [{
+    bindings: {
+      gameId: game.id,
+      memberId: requested.id,
+      recipientTelegramUserId: requested.telegramUserId,
+      action: 'confirm',
+      error: 'Forbidden',
+    },
+    message: 'role-game.participant-notification.failed',
+  }]);
+});
+
+test('clears the pending participant action before refreshed-list reconstruction can fail', async () => {
+  const game = sampleRoleGame({ id: 326, primaryGmTelegramUserId: 42 });
+  const requested = sampleRoleGameMember({ id: 3261, roleGameId: game.id, telegramUserId: 101, status: 'requested' });
+  const membersByGameId = new Map([[game.id, [requested]]]);
+  let failListReconstruction = false;
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId,
+      onListMembers: async (gameId) => {
+        if (failListReconstruction) {
+          throw new Error('participant list reconstruction failed');
+        }
+        return membersByGameId.get(gameId) ?? [];
+      },
+    }),
+  });
+
+  await openRoleGameParticipant(context, 'Usuario 101');
+  await sendRoleGameText(context, 'Confirmar');
+  failListReconstruction = true;
+
+  await assert.rejects(sendRoleGameText(context, 'Confirmar'), /participant list reconstruction failed/);
+  assert.equal((await context.roleGameRepository.findMemberById(requested.id))?.status, 'confirmed');
+  assert.notEqual(getCurrentSession(context)?.data?.view, 'confirm-action');
+  assert.equal(getCurrentSession(context)?.data?.pendingAction, undefined);
+});
+
+test('coorganizer can confirm a requested participant after confirmation', async () => {
+  const game = sampleRoleGame({ id: 327, primaryGmTelegramUserId: 42 });
+  const coorganizer = sampleRoleGameMember({ id: 3270, roleGameId: game.id, telegramUserId: 99, role: 'coorganizer', status: 'confirmed' });
+  const requested = sampleRoleGameMember({ id: 3271, roleGameId: game.id, telegramUserId: 101, status: 'requested' });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    actor: { telegramUserId: coorganizer.telegramUserId },
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, [coorganizer, requested]]]) }),
+  });
+
+  await openRoleGameParticipant(context, 'Usuario 101');
+  await sendRoleGameText(context, 'Confirmar');
+  await sendRoleGameText(context, 'Confirmar');
+
+  assert.equal((await context.roleGameRepository.findMemberById(requested.id))?.status, 'confirmed');
+});
+
+test('primary GM can confirm an invited participant after confirmation', async () => {
+  const game = sampleRoleGame({ id: 328, primaryGmTelegramUserId: 42 });
+  const invited = sampleRoleGameMember({ id: 3281, roleGameId: game.id, telegramUserId: 101, status: 'invited' });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, [invited]]]) }),
+  });
+
+  await openRoleGameParticipant(context, 'Usuario 101');
+  await sendRoleGameText(context, 'Confirmar');
+  await sendRoleGameText(context, 'Confirmar');
+
+  assert.equal((await context.roleGameRepository.findMemberById(invited.id))?.status, 'confirmed');
+});
+
+test('primary GM can confirm a waitlisted participant after confirmation', async () => {
+  const game = sampleRoleGame({ id: 329, primaryGmTelegramUserId: 42 });
+  const waitlisted = sampleRoleGameMember({ id: 3291, roleGameId: game.id, telegramUserId: 101, status: 'waitlisted' });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, [waitlisted]]]) }),
+  });
+
+  await openRoleGameParticipant(context, 'Usuario 101');
+  await sendRoleGameText(context, 'Confirmar');
+  await sendRoleGameText(context, 'Confirmar');
+
+  assert.equal((await context.roleGameRepository.findMemberById(waitlisted.id))?.status, 'confirmed');
+});
+
+test('primary GM can remove a confirmed coorganizer after confirmation', async () => {
+  const game = sampleRoleGame({ id: 330, primaryGmTelegramUserId: 42 });
+  const coorganizer = sampleRoleGameMember({ id: 3301, roleGameId: game.id, telegramUserId: 101, role: 'coorganizer', status: 'confirmed' });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, [coorganizer]]]) }),
+  });
+
+  await openRoleGameParticipant(context, 'Usuario 101');
+  await sendRoleGameText(context, 'Eliminar');
+  await sendRoleGameText(context, 'Confirmar');
+
+  assert.equal((await context.roleGameRepository.findMemberById(coorganizer.id))?.status, 'removed');
+});
+
+test('admin can cancel an invitation beyond promotion', async () => {
+  const game = sampleRoleGame({ id: 331, primaryGmTelegramUserId: 42 });
+  const invited = sampleRoleGameMember({ id: 3311, roleGameId: game.id, telegramUserId: 101, status: 'invited' });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    actor: { telegramUserId: 7, isAdmin: true },
+    roleGameRepository: createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, [invited]]]) }),
+  });
+
+  await openRoleGameParticipant(context, 'Usuario 101');
+  await sendRoleGameText(context, 'Cancelar invitación');
+  await sendRoleGameText(context, 'Confirmar');
+
+  assert.equal((await context.roleGameRepository.findMemberById(invited.id))?.status, 'removed');
 });
 
 test('role game dashboard limits a confirmed player to sessions they may schedule', async () => {
@@ -1723,6 +1842,7 @@ function createRoleGameTestContext({
   actor = {},
   onSendPrivateMessage,
   onCopyMessage,
+  onWarning,
 }: {
   messageText: string;
   callbackData?: string;
@@ -1736,6 +1856,7 @@ function createRoleGameTestContext({
   actor?: Partial<TelegramCommandHandlerContext['runtime']['actor']>;
   onSendPrivateMessage?: (telegramUserId: number, message: string) => Promise<void>;
   onCopyMessage?: (input: { fromChatId: number; messageId: number; toChatId: number }) => Promise<{ messageId: number }>;
+  onWarning?: (bindings: object, message: string) => void;
 }): TelegramCommandHandlerContext & {
   roleGameRepository: RoleGameRepository;
   scheduleRepository: ScheduleRepository;
@@ -1802,7 +1923,7 @@ function createRoleGameTestContext({
       chat: { kind: 'private', chatId: 1 },
       services: { database: { pool: undefined as never, db: {}, close: async () => {} } },
       session: runtimeSession,
-      logger: { warn: () => {} },
+      logger: { warn: onWarning ?? (() => {}) },
       bot: {
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
@@ -1879,6 +2000,7 @@ function createFakeRoleGameRepository({
   onConfirmMemberSeat,
   onSetMemberRole,
   onSetMemberStatus,
+  onListMembers,
   onCreateMaterial,
   onUpdateMaterialVisibility,
   onCreateMaterialDelivery,
@@ -1904,6 +2026,7 @@ function createFakeRoleGameRepository({
     status: RoleGameMemberRecord['status'];
     actorTelegramUserId: number;
   }) => Promise<RoleGameMemberRecord>;
+  onListMembers?: (gameId: number) => Promise<RoleGameMemberRecord[]>;
   onCreateMaterial?: (input: CreateRoleGameMaterialInput) => Promise<RoleGameMaterialRecord>;
   onUpdateMaterialVisibility?: (input: Parameters<RoleGameRepository['updateMaterialVisibility']>[0]) => Promise<RoleGameMaterialRecord>;
   onCreateMaterialDelivery?: (input: CreateRoleGameMaterialDeliveryInput) => Promise<RoleGameMaterialDeliveryRecord>;
@@ -1942,7 +2065,7 @@ function createFakeRoleGameRepository({
       }
       return null;
     },
-    listMembers: async (gameId) => membersByGameId.get(gameId) ?? [],
+    listMembers: async (gameId) => onListMembers ? onListMembers(gameId) : membersByGameId.get(gameId) ?? [],
     countConfirmedPlayers: async (gameId) =>
       (membersByGameId.get(gameId) ?? []).filter((member) => member.role === 'player' && member.status === 'confirmed').length,
     createMember: async () => {

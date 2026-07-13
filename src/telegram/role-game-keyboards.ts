@@ -1,5 +1,6 @@
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import type { RoleGameMemberManagementAction } from '../role-games/role-game-catalog.js';
+import { roleGameMemberActionLabel } from './i18n-role-games.js';
 import type { TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 
 export const roleGameCallbackPrefixes = {
@@ -173,7 +174,7 @@ export function buildRoleGameParticipantDetailKeyboard({
 } = {}): TelegramReplyOptions {
   const texts = createTelegramI18n(language).roleGames;
   return buildRoleGameReplyKeyboard(language, [
-    ...(actions.length > 0 ? [actions.map((action) => roleGameParticipantActionButton(texts, action))] : []),
+    ...(actions.length > 0 ? [actions.map((action) => roleGameParticipantActionButton(action, language))] : []),
     [navigationButton(texts.backToGame)],
   ]);
 }
@@ -347,17 +348,10 @@ function helpButton(text: string): TelegramReplyButton {
 }
 
 function roleGameParticipantActionButton(
-  texts: ReturnType<typeof createTelegramI18n>['roleGames'],
   action: RoleGameMemberManagementAction,
+  language: BotLanguage,
 ): TelegramReplyButton {
-  const label = {
-    confirm: texts.participantActionConfirm,
-    reject: texts.participantActionReject,
-    remove: texts.participantActionRemove,
-    cancel_invitation: texts.participantActionCancelInvitation,
-    promote: texts.participantActionPromote,
-    demote: texts.participantActionDemote,
-  }[action];
+  const label = roleGameMemberActionLabel(action, language);
   return action === 'remove' || action === 'reject' || action === 'cancel_invitation'
     ? dangerButton(label)
     : successButton(label);

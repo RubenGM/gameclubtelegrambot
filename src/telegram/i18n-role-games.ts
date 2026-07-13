@@ -528,6 +528,30 @@ export const roleGameTexts = {
   },
 } as const;
 
+export const roleGameMemberManagementActions = [
+  'confirm',
+  'reject',
+  'remove',
+  'cancel_invitation',
+  'promote',
+  'demote',
+] as const satisfies readonly RoleGameMemberManagementAction[];
+
+export function roleGameMemberActionLabel(
+  action: RoleGameMemberManagementAction,
+  language: keyof typeof roleGameTexts,
+): string {
+  const texts = roleGameTexts[language];
+  return {
+    confirm: texts.participantActionConfirm,
+    reject: texts.participantActionReject,
+    remove: texts.participantActionRemove,
+    cancel_invitation: texts.participantActionCancelInvitation,
+    promote: texts.participantActionPromote,
+    demote: texts.participantActionDemote,
+  }[action];
+}
+
 export function formatRoleGameMemberChangeNotification({
   game,
   action,

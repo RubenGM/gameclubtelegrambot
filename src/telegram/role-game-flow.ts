@@ -85,7 +85,11 @@ import {
   type RoleGameParticipantListItem,
   type RoleGameParticipantListKind,
 } from './role-game-participants.js';
-import { formatRoleGameMemberChangeNotification } from './i18n-role-games.js';
+import {
+  formatRoleGameMemberChangeNotification,
+  roleGameMemberActionLabel,
+  roleGameMemberManagementActions,
+} from './i18n-role-games.js';
 import type { TelegramReplyButton } from './runtime-boundary.js';
 
 const roleGameListFlowKey = 'role-games-list';
@@ -1956,6 +1960,17 @@ async function executeRoleGameParticipantAction(
       member,
       action,
     });
+    await context.runtime.session.start({
+      flowKey: 'role-game-detail',
+      stepKey: 'participants',
+      data: {
+        gameId: game.id,
+        view: 'participants',
+        page,
+        total: 0,
+        memberButtons: {},
+      } satisfies RoleGameParticipantsSessionData,
+    });
     await notifyRoleGameMemberChange(context, { game, member: updated, action, language });
   } catch (error) {
     return recoverRoleGameParticipantAction(context, {
@@ -2013,32 +2028,34 @@ async function notifyRoleGameMemberChange(
       action,
       error: error instanceof Error ? error.message : String(error),
     };
-    if (context.runtime.logger?.warn) {
-      context.runtime.logger.warn(bindings, 'Role game participant notification failed');
-    } else {
-      context.runtime.logger?.error(bindings, 'Role game participant notification failed');
-    }
+    emitRoleGameParticipantNotificationWarning(context, bindings);
   }
+}
+
+function emitRoleGameParticipantNotificationWarning(
+  context: TelegramRoleGameContext,
+  bindings: {
+    gameId: number;
+    memberId: number;
+    recipientTelegramUserId: number;
+    action: RoleGameMemberManagementAction;
+    error: string;
+  },
+): void {
+  const message = 'role-game.participant-notification.failed';
+  if (context.runtime.logger?.warn) {
+    context.runtime.logger.warn(bindings, message);
+    return;
+  }
+  console.warn(JSON.stringify({ level: 'warn', ...bindings, msg: message }));
 }
 
 function findRoleGameMemberActionByText(
   text: string,
   language: BotLanguage,
 ): RoleGameMemberManagementAction | null {
-  const actions: RoleGameMemberManagementAction[] = ['confirm', 'reject', 'remove', 'cancel_invitation', 'promote', 'demote'];
+  const actions: RoleGameMemberManagementAction[] = [...roleGameMemberManagementActions];
   return actions.find((action) => roleGameMemberActionLabel(action, language) === text) ?? null;
-}
-
-function roleGameMemberActionLabel(action: RoleGameMemberManagementAction, language: BotLanguage): string {
-  const texts = createTelegramI18n(language).roleGames;
-  return {
-    confirm: texts.participantActionConfirm,
-    reject: texts.participantActionReject,
-    remove: texts.participantActionRemove,
-    cancel_invitation: texts.participantActionCancelInvitation,
-    promote: texts.participantActionPromote,
-    demote: texts.participantActionDemote,
-  }[action];
 }
 
 function roleGameParticipantActionErrorMessage(
