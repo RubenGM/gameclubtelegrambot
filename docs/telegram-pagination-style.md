@@ -32,6 +32,11 @@ Telegram. Léela antes de añadir o cambiar vistas paginadas.
 
 ## Controles
 
+- Los elementos de una lista cuya función sea abrir su detalle deben ser enlaces
+  HTML clicables en el cuerpo del mensaje. Esta es la norma general para los
+  flujos lista → detalle.
+- Reserva los botones del teclado para acciones, navegación y paginación. No
+  repitas como botones los elementos que ya aparecen enlazados en la lista.
 - Usa botones de reply keyboard para paginar cuando el flujo ya use teclado
   privado persistente o navegación por texto.
 - Usa botones inline callback cuando el flujo ya esté basado en callbacks y los

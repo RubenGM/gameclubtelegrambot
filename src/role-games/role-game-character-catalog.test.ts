@@ -15,6 +15,7 @@ import {
   normalizeRoleGameCharacterDraft,
   requestRoleGameCharacter,
   removeRoleGameCharacterAttachment,
+  setRoleGameCharacterPortrait,
   replaceRoleGameCharacterAttachmentStorageEntry,
   updateRoleGameCharacterAttachmentVisibility,
   updateRoleGameCharacter,
@@ -434,6 +435,7 @@ test('character owner can add, privatize, replace, and remove an attachment', as
       attachment = sampleAttachment({
         characterId: input.characterId,
         internalStorageEntryId: input.internalStorageEntryId,
+        kind: input.kind,
         visibility: input.visibility,
       });
       return attachment;
@@ -484,6 +486,43 @@ test('character owner can add, privatize, replace, and remove an attachment', as
   });
   assert.equal(removed.internalStorageEntryId, 31);
   assert.notEqual(removed.removedAt, null);
+});
+
+test('character portrait is created once and later replaces the linked storage entry', async () => {
+  const game = sampleGame();
+  const owner = sampleMember();
+  const character = sampleCharacter({ assignedMemberId: owner.id });
+  let portrait: RoleGameCharacterAttachmentRecord | null = null;
+  const characterRepository = characterRepositoryStub({
+    async findCharacterById() { return character; },
+    async findPortrait() { return portrait; },
+    async createAttachment(input) {
+      portrait = sampleAttachment({
+        characterId: input.characterId,
+        internalStorageEntryId: input.internalStorageEntryId,
+        kind: input.kind,
+        visibility: input.visibility,
+      });
+      return portrait;
+    },
+    async replaceAttachmentStorageEntry(input) {
+      assert.ok(portrait);
+      portrait = { ...portrait, internalStorageEntryId: input.internalStorageEntryId };
+      return portrait;
+    },
+  });
+  const repositories = {
+    roleGameRepository: roleGameRepositoryStub({ game, members: [owner] }),
+    characterRepository,
+  };
+
+  const created = await setRoleGameCharacterPortrait({ ...repositories, actor: sampleActor(), characterId: character.id, internalStorageEntryId: 40 });
+  assert.equal(created.portrait.kind, 'portrait');
+  assert.equal(created.previousStorageEntryId, null);
+
+  const replaced = await setRoleGameCharacterPortrait({ ...repositories, actor: sampleActor(), characterId: character.id, internalStorageEntryId: 41 });
+  assert.equal(replaced.portrait.internalStorageEntryId, 41);
+  assert.equal(replaced.previousStorageEntryId, 40);
 });
 
 test('another confirmed member cannot mutate someone else character attachment', async () => {
@@ -578,6 +617,7 @@ function sampleAttachment(
     id: 20,
     characterId: 12,
     internalStorageEntryId: 30,
+    kind: 'attachment',
     visibility: 'players',
     uploadedByTelegramUserId: 100,
     createdAt: '2026-07-14T10:00:00.000Z',
@@ -637,6 +677,9 @@ function characterRepositoryStub(
       throw new Error('Unexpected createAttachment');
     },
     async findAttachmentById() {
+      return null;
+    },
+    async findPortrait() {
       return null;
     },
     async listAttachments() {

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  buildRoleGameCharacterButtonMap,
   buildVisibleRoleGameCharacterPage,
   handleTelegramRoleGameCharacterStartText,
   handleTelegramRoleGameCharacterText,
@@ -12,7 +11,7 @@ import {
   roleGameCharacterPageSize,
   type TelegramRoleGameCharacterContext,
 } from './role-game-character-flow.js';
-import type { RoleGameCharacterRecord, RoleGameCharacterRepository } from '../role-games/role-game-character-catalog.js';
+import type { RoleGameCharacterAttachmentRecord, RoleGameCharacterRecord, RoleGameCharacterRepository } from '../role-games/role-game-character-catalog.js';
 import type { RoleGameMemberRecord, RoleGameRecord, RoleGameRepository } from '../role-games/role-game-catalog.js';
 
 function character(id: number, overrides: Partial<RoleGameCharacterRecord> = {}): RoleGameCharacterRecord {
@@ -42,22 +41,6 @@ test('character pages contain six visible records and clamp stale pages', () => 
   assert.equal(result.page, 2);
   assert.deepEqual(result.items.map((item) => item.id), [7]);
   assert.equal(result.total, 7);
-});
-
-test('duplicate character names use session-safe labels', () => {
-  const result = buildRoleGameCharacterButtonMap([
-    character(2, { name: 'Nyra' }),
-    character(1, { name: 'Nyra' }),
-    character(3, { name: 'Orin' }),
-  ], []);
-  assert.deepEqual(result, { 'Nyra · #2': 2, 'Nyra · #1': 1, Orin: 3 });
-  assert.equal((result as Record<string, number>)['Nyra'], undefined);
-});
-
-test('reserved labels and fabricated buttons cannot select a character', () => {
-  const result = buildRoleGameCharacterButtonMap([character(4, { name: 'Anterior' })], ['Anterior']);
-  assert.deepEqual(result, { 'Anterior · #4': 4 });
-  assert.equal((result as Record<string, number>)['Personaje inventado'], undefined);
 });
 
 test('character deep links only accept positive integer ids', () => {
@@ -101,7 +84,7 @@ function fakeRoleRepository(members: RoleGameMemberRecord[]): RoleGameRepository
   } as unknown as RoleGameRepository;
 }
 
-function fakeCharacterRepository(initial: RoleGameCharacterRecord[] = []): RoleGameCharacterRepository {
+function fakeCharacterRepository(initial: RoleGameCharacterRecord[] = [], portrait: RoleGameCharacterAttachmentRecord | null = null): RoleGameCharacterRepository {
   const characters = [...initial];
   return {
     createCharacter: async (input: Parameters<RoleGameCharacterRepository['createCharacter']>[0]) => {
@@ -112,6 +95,7 @@ function fakeCharacterRepository(initial: RoleGameCharacterRecord[] = []): RoleG
     findCharacterById: async (id: number) => characters.find((item) => item.id === id) ?? null,
     listCharacters: async () => [...characters],
     listAttachments: async () => [],
+    findPortrait: async (characterId: number) => portrait?.characterId === characterId ? portrait : null,
     listClaimRequests: async () => [],
   } as unknown as RoleGameCharacterRepository;
 }
@@ -121,25 +105,37 @@ function context({
   telegramUserId,
   members,
   characters,
+  portrait,
   isAdmin = false,
 }: {
   text: string;
   telegramUserId: number;
   members: RoleGameMemberRecord[];
   characters?: RoleGameCharacterRecord[];
+  portrait?: RoleGameCharacterAttachmentRecord | null;
   isAdmin?: boolean;
-}): TelegramRoleGameCharacterContext & { replies: Array<{ message: string; options?: { replyKeyboard?: Array<Array<{ text: string }>> } }> } {
+}): TelegramRoleGameCharacterContext & { replies: Array<{ message: string; options?: { replyKeyboard?: Array<Array<{ text: string }>>; parseMode?: string } }>; copies: Array<{ fromChatId: number; messageId: number; toChatId: number }>; events: string[] } {
   let current: { flowKey: string; stepKey: string; data: Record<string, unknown> } | null = null;
-  const replies: Array<{ message: string; options?: { replyKeyboard?: Array<Array<{ text: string }>> } }> = [];
+  const replies: Array<{ message: string; options?: { replyKeyboard?: Array<Array<{ text: string }>>; parseMode?: string } }> = [];
+  const copies: Array<{ fromChatId: number; messageId: number; toChatId: number }> = [];
+  const events: string[] = [];
   const result = {
     messageText: text,
-    reply: async (message: string, options?: object) => { replies.push({ message, ...(options ? { options } : {}) } as never); },
+    reply: async (message: string, options?: object) => { events.push('detail'); replies.push({ message, ...(options ? { options } : {}) } as never); },
     replies,
+    copies,
+    events,
     roleGameRepository: fakeRoleRepository(members),
-    characterRepository: fakeCharacterRepository(characters),
+    characterRepository: fakeCharacterRepository(characters, portrait),
+    storageRepository: {
+      getEntryDetail: async (entryId: number) => entryId === portrait?.internalStorageEntryId ? ({ messages: [{ storageChatId: -1007, storageMessageId: 88 }] } as never) : null,
+    } as never,
     membershipRepository: { findUserByTelegramUserId: async (id: number) => ({ telegramUserId: id, displayName: `User ${id}`, username: null }) },
     runtime: {
-      bot: { language: 'es', publicName: 'Bot', clubName: 'Club', sendPrivateMessage: async () => undefined },
+      bot: {
+        language: 'es', publicName: 'Bot', clubName: 'Club', sendPrivateMessage: async () => undefined,
+        copyMessage: async (input: { fromChatId: number; messageId: number; toChatId: number }) => { events.push('portrait'); copies.push(input); return { messageId: 99 }; },
+      },
       chat: { kind: 'private', chatId: telegramUserId },
       actor: { telegramUserId, isAdmin, isApproved: true, isBlocked: false },
       session: {
@@ -162,6 +158,7 @@ test('confirmed players and operational GMs get the character section with role-
   const player = member(1, 100);
   const playerContext = context({ text: 'Personajes', telegramUserId: 100, members: [player] });
   assert.equal(await openRoleGameCharacters(playerContext, game.id, 'es'), true);
+  assert.match(playerContext.replies.at(-1)?.message ?? '', /Mis personajes/);
   assert.ok(buttonLabels(playerContext).includes('Mis personajes'));
   assert.ok(!buttonLabels(playerContext).includes('Solicitudes de personaje'));
 
@@ -178,6 +175,33 @@ test('visitors and historical members cannot open the character section', async 
   assert.equal(await openRoleGameCharacters(context({ text: 'Personajes', telegramUserId: 102, members: [] }), game.id, 'es'), false);
 });
 
+test('every character list renders detail links in the message and keeps characters out of the reply keyboard', async () => {
+  const player = member(7, 106);
+  const assigned = character(21, { assignedMemberId: player.id, name: '<Strahd & compañía>' });
+  const free = character(22, { assignedMemberId: null, name: 'Ireena' });
+
+  for (const view of ['Mis personajes', 'Personajes de la campaña', 'Personajes sin asignar']) {
+    const ctx = context({ text: view, telegramUserId: player.telegramUserId, members: [player], characters: [assigned, free] });
+    await openRoleGameCharacters(ctx, game.id, 'es');
+    assert.equal(await handleTelegramRoleGameCharacterText(ctx), true);
+
+    const reply = ctx.replies.at(-1);
+    assert.equal(reply?.options?.parseMode, 'HTML');
+    assert.doesNotMatch(buttonLabels(ctx).join('\n'), /Strahd|Ireena/);
+    assert.ok(buttonLabels(ctx).includes('Volver a la partida'));
+
+    if (view !== 'Personajes sin asignar') {
+      assert.match(
+        reply?.message ?? '',
+        /<a href="https:\/\/t\.me\/[^\"]+\?start=role_character_21"><b>&lt;Strahd &amp; compañía&gt;<\/b><\/a>/,
+      );
+    }
+    if (view !== 'Mis personajes') {
+      assert.match(reply?.message ?? '', /start=role_character_22"><b>Ireena<\/b><\/a> · Sin asignar/);
+    }
+  }
+});
+
 test('a player creation wizard always assigns the new character to that confirmed member', async () => {
   const player = member(4, 103);
   const ctx = context({ text: 'Crear personaje', telegramUserId: 103, members: [player] });
@@ -187,9 +211,24 @@ test('a player creation wizard always assigns the new character to that confirme
   ctx.messageText = 'Omitir'; await handleTelegramRoleGameCharacterText(ctx);
   ctx.messageText = 'Omitir'; await handleTelegramRoleGameCharacterText(ctx);
   ctx.messageText = 'jugadores'; await handleTelegramRoleGameCharacterText(ctx);
+  assert.match(ctx.replies.at(-1)?.message ?? '', /foto o un documento de imagen/);
+  ctx.messageText = 'Sin retrato'; await handleTelegramRoleGameCharacterText(ctx);
   ctx.messageText = 'Crear personaje'; await handleTelegramRoleGameCharacterText(ctx);
   assert.match(ctx.replies.at(-1)?.message ?? '', /Nyra/);
   assert.match(ctx.replies.at(-1)?.message ?? '', /User 103/);
+});
+
+test('character edit offers portrait upload as an editable field', async () => {
+  const owner = member(9, 108);
+  const editable = character(24, { assignedMemberId: owner.id, name: 'Ireena' });
+  const ctx = context({ text: '/start role_character_24', telegramUserId: owner.telegramUserId, members: [owner], characters: [editable] });
+  await handleTelegramRoleGameCharacterStartText(ctx);
+  ctx.messageText = 'Editar personaje';
+  assert.equal(await handleTelegramRoleGameCharacterText(ctx), true);
+  assert.ok(buttonLabels(ctx).includes('Añadir o cambiar retrato'));
+  ctx.messageText = 'Añadir o cambiar retrato';
+  assert.equal(await handleTelegramRoleGameCharacterText(ctx), true);
+  assert.match(ctx.replies.at(-1)?.message ?? '', /foto o un documento de imagen/);
 });
 
 test('private character deep links use a non-disclosing unavailable response for other players', async () => {
@@ -200,4 +239,26 @@ test('private character deep links use a non-disclosing unavailable response for
   assert.equal(await handleTelegramRoleGameCharacterStartText(ctx), true);
   assert.doesNotMatch(ctx.replies.at(-1)?.message ?? '', /Secret/);
   assert.match(ctx.replies.at(-1)?.message ?? '', /no está disponible/);
+});
+
+test('character detail sends the stored portrait immediately after the detail message', async () => {
+  const owner = member(8, 107);
+  const portraitCharacter = character(23, { assignedMemberId: owner.id, name: 'Strahd' });
+  const storedPortrait: RoleGameCharacterAttachmentRecord = {
+    id: 70,
+    characterId: portraitCharacter.id,
+    internalStorageEntryId: 71,
+    kind: 'portrait',
+    visibility: 'players',
+    uploadedByTelegramUserId: owner.telegramUserId,
+    createdAt: game.createdAt,
+    updatedAt: game.updatedAt,
+    removedAt: null,
+    removedByTelegramUserId: null,
+  };
+  const ctx = context({ text: '/start role_character_23', telegramUserId: owner.telegramUserId, members: [owner], characters: [portraitCharacter], portrait: storedPortrait });
+
+  assert.equal(await handleTelegramRoleGameCharacterStartText(ctx), true);
+  assert.deepEqual(ctx.events.slice(-2), ['detail', 'portrait']);
+  assert.deepEqual(ctx.copies, [{ fromChatId: -1007, messageId: 88, toChatId: owner.telegramUserId }]);
 });

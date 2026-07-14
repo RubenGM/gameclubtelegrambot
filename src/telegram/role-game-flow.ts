@@ -314,8 +314,7 @@ export async function handleTelegramRoleGameText(context: TelegramRoleGameContex
 
   if (matchesRoleGameEntry(text, language)) {
     await context.runtime.session.cancel();
-    await context.reply(texts.menuIntro, buildRoleGameHomeKeyboard(language));
-    return true;
+    return replyWithRoleGameList(context, { kind: 'mine', page: 1, language });
   }
 
   if (text === texts.myGames) {

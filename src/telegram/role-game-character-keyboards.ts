@@ -34,12 +34,14 @@ export function buildRoleGameCharacterMenuKeyboard({
 
 export function buildRoleGameCharacterListKeyboard({
   language,
-  characterButtons,
+  canManage = false,
+  selectionButtons = {},
   hasPreviousPage,
   hasNextPage,
 }: {
   language: BotLanguage;
-  characterButtons: Record<string, number>;
+  canManage?: boolean;
+  selectionButtons?: Record<string, number>;
   hasPreviousPage: boolean;
   hasNextPage: boolean;
 }): TelegramReplyOptions {
@@ -48,9 +50,13 @@ export function buildRoleGameCharacterListKeyboard({
   if (hasPreviousPage) pagination.push(navigation(t.previousPage));
   if (hasNextPage) pagination.push(navigation(t.nextPage));
   return keyboard(language, [
-    ...Object.keys(characterButtons).map((label) => [primary(label)]),
+    ...Object.keys(selectionButtons).map((label) => [primary(label)]),
     ...(pagination.length ? [pagination] : []),
-    [navigation(t.backToCharacters)],
+    [primary(t.myCharacters), primary(t.campaignCharacters)],
+    [primary(t.unassignedCharacters)],
+    [success(t.createCharacter)],
+    ...(canManage ? [[primary(t.characterClaims), primary(t.assignCharacter)]] : []),
+    [navigation(t.backToGame)],
   ]);
 }
 

@@ -444,6 +444,7 @@ export const roleGameCharacterAttachments = pgTable(
     internalStorageEntryId: bigint('internal_storage_entry_id', { mode: 'number' })
       .notNull()
       .references(() => storageEntries.id),
+    kind: varchar('kind', { length: 16 }).default('attachment').notNull(),
     visibility: varchar('visibility', { length: 16 }).notNull(),
     uploadedByTelegramUserId: bigint('uploaded_by_telegram_user_id', { mode: 'number' })
       .notNull()
@@ -461,6 +462,9 @@ export const roleGameCharacterAttachments = pgTable(
     activeCharacterLookup: index('role_game_character_attachments_active_character_idx')
       .on(table.characterId)
       .where(sql`${table.removedAt} is null`),
+    oneActivePortrait: uniqueIndex('role_game_character_attachments_one_active_portrait_idx')
+      .on(table.characterId)
+      .where(sql`${table.kind} = 'portrait' and ${table.removedAt} is null`),
   }),
 );
 

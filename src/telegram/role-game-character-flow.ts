@@ -11,8 +11,10 @@ import {
   createRoleGameCharacter,
   rejectRoleGameCharacterClaim,
   removeRoleGameCharacterAttachment,
+  removeRoleGameCharacterPortrait,
   replaceRoleGameCharacterAttachmentStorageEntry,
   requestRoleGameCharacter,
+  setRoleGameCharacterPortrait,
   transferRoleGameCharacter,
   unassignRoleGameCharacter,
   updateRoleGameCharacterAttachmentVisibility,
@@ -41,6 +43,7 @@ import { internalRoleGameHandoutPurpose } from '../storage/storage-internal-purp
 import { createDatabaseAppMetadataSessionStorage, type AppMetadataSessionStorage } from './conversation-session-store.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
 import { escapeHtml } from './schedule-presentation.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 import {
   buildRoleGameCharacterActionConfirmKeyboard,
   buildRoleGameCharacterAttachmentDetailKeyboard,
@@ -48,7 +51,6 @@ import {
   buildRoleGameCharacterConfirmKeyboard,
   buildRoleGameCharacterDetailKeyboard,
   buildRoleGameCharacterListKeyboard,
-  buildRoleGameCharacterMenuKeyboard,
   buildRoleGameCharacterStepKeyboard,
 } from './role-game-character-keyboards.js';
 
@@ -61,7 +63,7 @@ const roleGameHandoutCategoryName = 'Handouts de rol';
 
 type CharacterListView = 'mine' | 'campaign' | 'unassigned';
 type CharacterAction = 'request' | 'cancel-request' | 'abandon' | 'unassign' | 'assign' | 'transfer' | 'approve' | 'reject' | 'remove-attachment';
-type CharacterCreateStep = 'owner' | 'name' | 'description' | 'url' | 'visibility' | 'confirm';
+type CharacterCreateStep = 'owner' | 'name' | 'description' | 'url' | 'visibility' | 'portrait' | 'confirm';
 type CharacterEditField = 'name' | 'description' | 'url' | 'visibility';
 
 interface RoleGameCharacterDraft {
@@ -75,10 +77,9 @@ interface RoleGameCharacterDraft {
 
 interface RoleGameCharacterSessionData {
   gameId: number;
-  view: 'menu' | CharacterListView | 'detail' | 'claims' | 'claim-detail' | 'members' | 'create' | 'edit' | 'confirm-action' | 'attachments' | 'attachment-detail' | 'attachment-upload';
+  view: 'menu' | CharacterListView | 'detail' | 'claims' | 'claim-detail' | 'members' | 'create' | 'edit' | 'confirm-action' | 'attachments' | 'attachment-detail' | 'attachment-upload' | 'portrait-upload';
   page: number;
   total: number;
-  characterButtons: Record<string, number>;
   attachmentButtons: Record<string, number>;
   memberButtons?: Record<string, number>;
   claimButtons?: Record<string, number>;
@@ -118,19 +119,6 @@ export function buildVisibleRoleGameCharacterPage({
   return { items: characters.slice(offset, offset + roleGameCharacterPageSize), page: clamped, pages, total };
 }
 
-export function buildRoleGameCharacterButtonMap(
-  characters: RoleGameCharacterRecord[],
-  reservedLabels: string[],
-): Record<string, number> {
-  const counts = new Map<string, number>();
-  for (const character of characters) counts.set(character.name, (counts.get(character.name) ?? 0) + 1);
-  const reserved = new Set(reservedLabels);
-  return Object.fromEntries(characters.map((character) => {
-    const ambiguous = (counts.get(character.name) ?? 0) > 1 || reserved.has(character.name);
-    return [ambiguous ? `${character.name} · #${character.id}` : character.name, character.id];
-  }));
-}
-
 export function parseRoleGameCharacterStartPayload(text: string | undefined): number | null {
   const normalized = text?.trim();
   if (!normalized) return null;
@@ -156,17 +144,7 @@ export async function openRoleGameCharacters(
 ): Promise<boolean> {
   const access = await loadGameAccess(context, gameId);
   if (!access || (!access.canManage && access.member?.status !== 'confirmed')) return false;
-  await context.runtime.session.start({
-    flowKey: roleGameCharacterFlowKey,
-    stepKey: 'menu',
-    data: { ...emptySession(gameId, 'menu') },
-  });
-  const t = createTelegramI18n(language).roleGames;
-  await context.reply(t.charactersMenuTitle.replace('{title}', access.game.title), buildRoleGameCharacterMenuKeyboard({
-    language,
-    canManage: access.canManage,
-  }));
-  return true;
+  return replyWithCharacterList(context, access, 'mine', 1, language);
 }
 
 export async function handleTelegramRoleGameCharacterStartText(
@@ -223,6 +201,7 @@ export async function handleTelegramRoleGameCharacterText(
   if (data.view === 'detail') return handleDetailText(context, access, data, text, language);
   if (data.view === 'create') return handleCreateText(context, access, data, text, language);
   if (data.view === 'edit') return handleEditText(context, access, data, text, language);
+  if (data.view === 'portrait-upload') return handlePortraitText(context, access, data, text, language);
   if (data.view === 'members') return handleMemberSelection(context, access, data, text, language);
   if (data.view === 'claims' || data.view === 'claim-detail') return handleClaimsText(context, access, data, text, language);
   if (data.view === 'confirm-action') return handleConfirmedAction(context, access, data, text, language);
@@ -237,10 +216,45 @@ export async function handleTelegramRoleGameCharacterMessage(
 ): Promise<boolean> {
   if (!isRoleGameCharacterSession(context) || context.runtime.chat.kind !== 'private' || context.runtime.actor.isBlocked) return false;
   const data = readSession(context);
-  if (!data || data.view !== 'attachment-upload' || !data.selectedCharacterId || !data.uploadMode) return false;
+  if (!data) return false;
   const media = context.messageMedia;
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const t = createTelegramI18n(language).roleGames;
+  if (data.view === 'create' && data.createStep === 'portrait' && data.draft) {
+    if (!media || !isSupportedRoleGameCharacterPortrait(media)) {
+      await context.reply(t.characterPortraitInvalid, buildRoleGameCharacterStepKeyboard({ language, rows: [[{ text: t.skipCharacterPortrait, semanticRole: 'navigation' }]] }));
+      return true;
+    }
+    try {
+      const entryId = await copyCharacterAttachmentToStorage(context, data.gameId, media, 'portrait');
+      await context.runtime.session.start({ flowKey: roleGameCharacterFlowKey, stepKey: 'confirm', data: { ...data, createStep: 'confirm', pendingStorageEntryId: entryId } });
+      await context.reply(`${formatDraft(data.draft, t)}\n${escapeHtml(t.characterPortrait)}: ✓`, buildRoleGameCharacterConfirmKeyboard(language));
+    } catch (error) {
+      context.runtime.logger?.warn?.({ error }, 'role_game.character.portrait.copy.failed');
+      await context.reply(t.characterAttachmentStorageError, buildRoleGameCharacterStepKeyboard({ language, rows: [[{ text: t.skipCharacterPortrait, semanticRole: 'navigation' }]] }));
+    }
+    return true;
+  }
+  if (data.view === 'portrait-upload' && data.selectedCharacterId) {
+    if (!media || !isSupportedRoleGameCharacterPortrait(media)) {
+      await context.reply(t.characterPortraitInvalid, buildRoleGameCharacterStepKeyboard({ language, rows: [[{ text: t.backToCharacter, semanticRole: 'navigation' }]] }));
+      return true;
+    }
+    const loaded = await loadVisibleCharacter(context, data.selectedCharacterId);
+    if (!loaded || !canEditRoleGameCharacter(actor(context), loaded.access.game, loaded.access.member, loaded.character)) return replyUnavailable(context, language);
+    let entryId: number | null = null;
+    try {
+      entryId = await copyCharacterAttachmentToStorage(context, loaded.access.game.id, media, 'portrait');
+      const result = await setRoleGameCharacterPortrait({ roleGameRepository: roleRepository(context), characterRepository: characterRepository(context), actor: actor(context), characterId: loaded.character.id, internalStorageEntryId: entryId });
+      if (result.previousStorageEntryId) await cleanupStorageEntry(context, result.previousStorageEntryId);
+      return replyWithCharacterDetail(context, loaded, language, t.characterPortraitSaved);
+    } catch (error) {
+      if (entryId) await cleanupStorageEntry(context, entryId);
+      context.runtime.logger?.warn?.({ error }, 'role_game.character.portrait.link.failed');
+      return replyWithCharacterDetail(context, loaded, language, t.characterAttachmentStorageError);
+    }
+  }
+  if (data.view !== 'attachment-upload' || !data.selectedCharacterId || !data.uploadMode) return false;
   if (!media || !isSupportedRoleGameCharacterAttachmentKind(media.attachmentKind)) {
     await context.reply(t.promptCharacterAttachment, buildRoleGameCharacterStepKeyboard({ language }));
     return true;
@@ -339,16 +353,18 @@ async function replyWithCharacterList(
   if (view === 'mine') characters = characters.filter((item) => item.assignedMemberId === access.member?.id);
   if (view === 'unassigned') characters = characters.filter((item) => item.assignedMemberId === null);
   const result = buildVisibleRoleGameCharacterPage({ characters, page });
-  const reserved = characterReservedLabels(language);
-  const characterButtons = buildRoleGameCharacterButtonMap(result.items, reserved);
   await context.runtime.session.start({
     flowKey: roleGameCharacterFlowKey,
     stepKey: view,
-    data: { ...emptySession(access.game.id, view), page: result.page, total: result.total, characterButtons },
+    data: { ...emptySession(access.game.id, view), page: result.page, total: result.total },
   });
   const t = createTelegramI18n(language).roleGames;
   const header = view === 'mine' ? t.myCharacters : view === 'campaign' ? t.campaignCharacters : t.unassignedCharacters;
-  const lines = result.items.map((item) => `• ${escapeHtml(item.name)}${item.assignedMemberId === null ? ` · ${escapeHtml(t.characterUnassigned)}` : ''}`);
+  const lines = result.items.map((item) => {
+    const url = escapeHtml(buildTelegramStartUrl(`${roleGameCharacterStartPayloadPrefix}${item.id}`));
+    const link = `<a href="${url}"><b>${escapeHtml(item.name)}</b></a>`;
+    return `• ${link}${item.assignedMemberId === null ? ` · ${escapeHtml(t.characterUnassigned)}` : ''}`;
+  });
   const footer = t.characterListFooter
     .replace('{from}', String(result.total === 0 ? 0 : (result.page - 1) * roleGameCharacterPageSize + 1))
     .replace('{to}', String(Math.min(result.page * roleGameCharacterPageSize, result.total)))
@@ -356,7 +372,7 @@ async function replyWithCharacterList(
   await context.reply([`<b>${escapeHtml(header)}</b>`, lines.length ? lines.join('\n') : escapeHtml(t.noCharacters), footer].join('\n\n'), {
     ...buildRoleGameCharacterListKeyboard({
       language,
-      characterButtons,
+      canManage: access.canManage,
       hasPreviousPage: result.page > 1,
       hasNextPage: result.page < result.pages,
     }),
@@ -376,11 +392,7 @@ async function handleListText(
   const view = data.view as CharacterListView;
   if (text === t.previousPage) return replyWithCharacterList(context, access, view, data.page - 1, language);
   if (text === t.nextPage) return replyWithCharacterList(context, access, view, data.page + 1, language);
-  const id = data.characterButtons[text];
-  if (!id) return false;
-  const loaded = await loadVisibleCharacter(context, id);
-  if (!loaded || loaded.access.game.id !== access.game.id) return replyWithCharacterList(context, access, view, data.page, language);
-  return replyWithCharacterDetail(context, loaded, language);
+  return handleMenuText(context, access, text, language);
 }
 
 async function loadVisibleCharacter(context: TelegramRoleGameCharacterContext, characterId: number): Promise<{ character: RoleGameCharacterRecord; access: GameAccess } | null> {
@@ -398,7 +410,10 @@ async function replyWithCharacterDetail(
   prefix?: string,
 ): Promise<boolean> {
   const { character, access } = loaded;
-  const attachments = await characterRepository(context).listAttachments(character.id);
+  const [attachments, portrait] = await Promise.all([
+    characterRepository(context).listAttachments(character.id),
+    characterRepository(context).findPortrait(character.id),
+  ]);
   const visibleAttachments = attachments.filter((attachment) =>
     canViewRoleGameCharacterAttachment(actor(context), access.game, access.member, character, attachment));
   const ownClaim = access.member ? (await characterRepository(context).listClaimRequests({
@@ -441,6 +456,7 @@ async function replyWithCharacterDetail(
     }),
     parseMode: 'HTML',
   });
+  if (portrait) await sendStoredCharacterMedia(context, portrait.internalStorageEntryId, character.id, 'portrait');
   return true;
 }
 
@@ -454,7 +470,9 @@ async function handleDetailText(context: TelegramRoleGameCharacterContext, acces
     await context.runtime.session.start({ flowKey: roleGameCharacterFlowKey, stepKey: 'edit', data: { ...emptySession(access.game.id, 'edit'), selectedCharacterId: character.id } });
     await context.reply(t.editCharacter, buildRoleGameCharacterStepKeyboard({ language, rows: [[
       { text: t.characterEditName, semanticRole: 'primary' }, { text: t.characterEditDescription, semanticRole: 'primary' },
-    ], [{ text: t.characterEditUrl, semanticRole: 'primary' }, { text: t.characterEditVisibility, semanticRole: 'primary' }]] }));
+    ], [{ text: t.characterEditUrl, semanticRole: 'primary' }, { text: t.characterEditVisibility, semanticRole: 'primary' }], [
+      { text: t.characterEditPortrait, semanticRole: 'primary' },
+    ]] }));
     return true;
   }
   if (text === t.manageCharacterAttachments) {
@@ -625,13 +643,26 @@ async function handleCreateText(context: TelegramRoleGameCharacterContext, acces
     const visibility: RoleGameCharacterVisibility | null = text === t.characterVisibilityPlayers ? 'players' : text === t.characterVisibilityPrivate ? 'private' : null;
     if (!visibility) return false;
     const next = { ...draft, visibility };
-    await context.runtime.session.start({ flowKey: roleGameCharacterFlowKey, stepKey: 'confirm', data: { ...emptySession(access.game.id, 'create'), createStep: 'confirm', draft: next } });
-    await context.reply(formatDraft(next, t), buildRoleGameCharacterConfirmKeyboard(language));
+    await context.runtime.session.start({ flowKey: roleGameCharacterFlowKey, stepKey: 'portrait', data: { ...emptySession(access.game.id, 'create'), createStep: 'portrait', draft: next } });
+    await context.reply(t.promptCharacterPortrait, buildRoleGameCharacterStepKeyboard({ language, rows: [[{ text: t.skipCharacterPortrait, semanticRole: 'navigation' }]] }));
+    return true;
+  }
+  if (data.createStep === 'portrait' && text === t.skipCharacterPortrait) {
+    await context.runtime.session.start({ flowKey: roleGameCharacterFlowKey, stepKey: 'confirm', data: { ...data, createStep: 'confirm' } });
+    await context.reply(formatDraft(draft, t), buildRoleGameCharacterConfirmKeyboard(language));
     return true;
   }
   if (data.createStep === 'confirm' && text === t.confirmCreateCharacter && draft.name && draft.visibility) {
     try {
       const character = await createRoleGameCharacter({ roleGameRepository: roleRepository(context), characterRepository: characterRepository(context), actor: actor(context), gameId: access.game.id, assignedMemberId: draft.assignedMemberId, draft: { name: draft.name, description: draft.description ?? null, externalUrl: draft.externalUrl ?? null, visibility: draft.visibility } });
+      if (data.pendingStorageEntryId) {
+        try {
+          await setRoleGameCharacterPortrait({ roleGameRepository: roleRepository(context), characterRepository: characterRepository(context), actor: actor(context), characterId: character.id, internalStorageEntryId: data.pendingStorageEntryId });
+        } catch (error) {
+          await cleanupStorageEntry(context, data.pendingStorageEntryId);
+          context.runtime.logger?.warn?.({ error, characterId: character.id }, 'role_game.character.portrait.link.failed');
+        }
+      }
       const loaded = await loadVisibleCharacter(context, character.id);
       return loaded ? replyWithCharacterDetail(context, loaded, language, t.characterSaved) : replyUnavailable(context, language);
     } catch {
@@ -671,6 +702,7 @@ async function handleEditText(context: TelegramRoleGameCharacterContext, access:
   const loaded = await loadVisibleCharacter(context, data.selectedCharacterId);
   if (!loaded || !canEditRoleGameCharacter(actor(context), access.game, access.member, loaded.character)) return replyUnavailable(context, language);
   const t = createTelegramI18n(language).roleGames;
+  if (!data.editField && text === t.characterEditPortrait) return startPortraitUpload(context, loaded, language);
   if (text === t.characterActionCancelled) return replyWithCharacterDetail(context, loaded, language, t.characterActionCancelled);
   if (data.editField && data.draft && text === t.confirmCharacterAction) {
     try {
@@ -721,6 +753,40 @@ async function handleEditText(context: TelegramRoleGameCharacterContext, access:
   return true;
 }
 
+async function startPortraitUpload(
+  context: TelegramRoleGameCharacterContext,
+  loaded: { character: RoleGameCharacterRecord; access: GameAccess },
+  language: BotLanguage,
+): Promise<boolean> {
+  const portrait = await characterRepository(context).findPortrait(loaded.character.id);
+  const t = createTelegramI18n(language).roleGames;
+  const rows = [
+    ...(portrait ? [[{ text: t.removeCharacterPortrait, semanticRole: 'danger' as const }]] : []),
+    [{ text: t.backToCharacter, semanticRole: 'navigation' as const }],
+  ];
+  await context.runtime.session.start({ flowKey: roleGameCharacterFlowKey, stepKey: 'portrait-upload', data: { ...emptySession(loaded.access.game.id, 'portrait-upload'), selectedCharacterId: loaded.character.id } });
+  await context.reply(t.promptCharacterPortrait, buildRoleGameCharacterStepKeyboard({ language, rows }));
+  return true;
+}
+
+async function handlePortraitText(
+  context: TelegramRoleGameCharacterContext,
+  access: GameAccess,
+  data: RoleGameCharacterSessionData,
+  text: string,
+  language: BotLanguage,
+): Promise<boolean> {
+  if (!data.selectedCharacterId) return false;
+  const loaded = await loadVisibleCharacter(context, data.selectedCharacterId);
+  if (!loaded || loaded.access.game.id !== access.game.id || !canEditRoleGameCharacter(actor(context), access.game, access.member, loaded.character)) return replyUnavailable(context, language);
+  const t = createTelegramI18n(language).roleGames;
+  if (text === t.backToCharacter) return replyWithCharacterDetail(context, loaded, language);
+  if (text !== t.removeCharacterPortrait) return false;
+  const removed = await removeRoleGameCharacterPortrait({ roleGameRepository: roleRepository(context), characterRepository: characterRepository(context), actor: actor(context), characterId: loaded.character.id });
+  if (removed) await cleanupStorageEntry(context, removed.internalStorageEntryId);
+  return replyWithCharacterDetail(context, loaded, language, t.characterPortraitRemoved);
+}
+
 async function replyWithMemberSelection(context: TelegramRoleGameCharacterContext, access: GameAccess, characterId: number, action: 'assign' | 'transfer', language: BotLanguage, requestedPage = 1): Promise<boolean> {
   const current = action === 'transfer' ? await characterRepository(context).findCharacterById(characterId) : null;
   const members = access.members.filter((member) => member.status === 'confirmed' && member.id !== current?.assignedMemberId);
@@ -762,7 +828,7 @@ async function replyWithClaims(context: TelegramRoleGameCharacterContext, access
   }
   await context.runtime.session.start({ flowKey: roleGameCharacterFlowKey, stepKey: 'claims', data: { ...emptySession(access.game.id, 'claims'), page: result.page, total: result.total, claimButtons: labels } });
   const t = createTelegramI18n(language).roleGames;
-  await context.reply(result.total ? `<b>${escapeHtml(t.characterClaims)}</b>\n\n${Object.keys(labels).map((label) => `• ${escapeHtml(label)}`).join('\n')}` : t.characterNoClaims, buildRoleGameCharacterListKeyboard({ language, characterButtons: labels, hasPreviousPage: result.page > 1, hasNextPage: result.page < result.pages }));
+  await context.reply(result.total ? `<b>${escapeHtml(t.characterClaims)}</b>\n\n${Object.keys(labels).map((label) => `• ${escapeHtml(label)}`).join('\n')}` : t.characterNoClaims, buildRoleGameCharacterListKeyboard({ language, canManage: true, selectionButtons: labels, hasPreviousPage: result.page > 1, hasNextPage: result.page < result.pages }));
   return true;
 }
 
@@ -901,7 +967,7 @@ async function notifyCharacterChange(
 }
 
 function emptySession(gameId: number, view: RoleGameCharacterSessionData['view']): RoleGameCharacterSessionData {
-  return { gameId, view, page: 1, total: 0, characterButtons: {}, attachmentButtons: {} };
+  return { gameId, view, page: 1, total: 0, attachmentButtons: {} };
 }
 
 function readSession(context: TelegramRoleGameCharacterContext): RoleGameCharacterSessionData | null {
@@ -969,6 +1035,7 @@ async function copyCharacterAttachmentToStorage(
   context: TelegramRoleGameCharacterContext,
   gameId: number,
   media: NonNullable<TelegramCommandHandlerContext['messageMedia']>,
+  purpose: 'attachment' | 'portrait' = 'attachment',
 ): Promise<number> {
   const category = await ensureHandoutCategory(context);
   if (!category || !context.runtime.bot.copyMessage) throw new Error('Role game handout storage is not configured');
@@ -985,7 +1052,7 @@ async function copyCharacterAttachmentToStorage(
       createdByTelegramUserId: context.runtime.actor.telegramUserId,
       sourceKind: 'dm_copy',
       description: media.caption ?? media.originalFileName ?? null,
-      tags: ['rol', `partida-${gameId}`, 'personaje'],
+      tags: ['rol', `partida-${gameId}`, 'personaje', ...(purpose === 'portrait' ? ['retrato'] : [])],
       messages: [{
         storageChatId: category.storageChatId,
         storageMessageId: copied.messageId,
@@ -1011,6 +1078,29 @@ async function copyCharacterAttachmentToStorage(
       }
     }
     throw error;
+  }
+}
+
+function isSupportedRoleGameCharacterPortrait(media: NonNullable<TelegramCommandHandlerContext['messageMedia']>): boolean {
+  return media.attachmentKind === 'photo'
+    || (media.attachmentKind === 'document' && Boolean(media.mimeType?.toLowerCase().startsWith('image/')));
+}
+
+async function sendStoredCharacterMedia(
+  context: TelegramRoleGameCharacterContext,
+  storageEntryId: number,
+  characterId: number,
+  kind: 'portrait' | 'attachment',
+): Promise<void> {
+  if (!context.runtime.bot.copyMessage) return;
+  try {
+    const detail = await storageRepository(context).getEntryDetail(storageEntryId);
+    if (!detail) return;
+    for (const message of detail.messages) {
+      await context.runtime.bot.copyMessage({ fromChatId: message.storageChatId, messageId: message.storageMessageId, toChatId: context.runtime.actor.telegramUserId });
+    }
+  } catch (error) {
+    context.runtime.logger?.warn?.({ error, characterId, storageEntryId, kind }, 'role_game.character.media.send.failed');
   }
 }
 

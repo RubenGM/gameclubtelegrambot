@@ -127,10 +127,21 @@ export function createDatabaseRoleGameCharacterRepository({
       return rows[0] ? mapAttachmentRow(rows[0]) : null;
     },
 
+    async findPortrait(characterId) {
+      const rows = await database.select().from(roleGameCharacterAttachments)
+        .where(and(
+          eq(roleGameCharacterAttachments.characterId, characterId),
+          eq(roleGameCharacterAttachments.kind, 'portrait'),
+          isNull(roleGameCharacterAttachments.removedAt),
+        )).limit(1);
+      return rows[0] ? mapAttachmentRow(rows[0]) : null;
+    },
+
     async listAttachments(characterId) {
       const rows = await database.select().from(roleGameCharacterAttachments)
         .where(and(
           eq(roleGameCharacterAttachments.characterId, characterId),
+          eq(roleGameCharacterAttachments.kind, 'attachment'),
           isNull(roleGameCharacterAttachments.removedAt),
         ))
         .orderBy(desc(roleGameCharacterAttachments.createdAt), desc(roleGameCharacterAttachments.id));
@@ -387,6 +398,7 @@ function mapAttachmentRow(row: AttachmentRow): RoleGameCharacterAttachmentRecord
     id: row.id,
     characterId: row.characterId,
     internalStorageEntryId: row.internalStorageEntryId,
+    kind: row.kind as RoleGameCharacterAttachmentRecord['kind'],
     visibility: row.visibility as RoleGameCharacterAttachmentRecord['visibility'],
     uploadedByTelegramUserId: row.uploadedByTelegramUserId,
     createdAt: row.createdAt.toISOString(),

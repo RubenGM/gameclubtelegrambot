@@ -8,6 +8,7 @@ import {
 
 export type RoleGameCharacterVisibility = 'players' | 'private';
 export type RoleGameCharacterAttachmentVisibility = 'players' | 'private';
+export type RoleGameCharacterAttachmentKind = 'attachment' | 'portrait';
 export type RoleGameCharacterClaimStatus = 'requested' | 'approved' | 'rejected' | 'cancelled';
 
 export interface RoleGameCharacterRecord {
@@ -29,6 +30,7 @@ export interface RoleGameCharacterAttachmentRecord {
   id: number;
   characterId: number;
   internalStorageEntryId: number;
+  kind: RoleGameCharacterAttachmentKind;
   visibility: RoleGameCharacterAttachmentVisibility;
   uploadedByTelegramUserId: number;
   createdAt: string;
@@ -82,10 +84,12 @@ export interface RoleGameCharacterRepository {
   createAttachment(input: {
     characterId: number;
     internalStorageEntryId: number;
+    kind: RoleGameCharacterAttachmentKind;
     visibility: RoleGameCharacterAttachmentVisibility;
     uploadedByTelegramUserId: number;
   }): Promise<RoleGameCharacterAttachmentRecord>;
   findAttachmentById(attachmentId: number): Promise<RoleGameCharacterAttachmentRecord | null>;
+  findPortrait(characterId: number): Promise<RoleGameCharacterAttachmentRecord | null>;
   listAttachments(characterId: number): Promise<RoleGameCharacterAttachmentRecord[]>;
   updateAttachmentVisibility(input: {
     attachmentId: number;
@@ -520,8 +524,73 @@ export async function addRoleGameCharacterAttachment({
   return characterRepository.createAttachment({
     characterId: character.id,
     internalStorageEntryId: normalizeEntityId(internalStorageEntryId, 'storage entry'),
+    kind: 'attachment',
     visibility: normalizeAttachmentVisibility(visibility),
     uploadedByTelegramUserId: actor.telegramUserId,
+  });
+}
+
+export async function setRoleGameCharacterPortrait({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  characterId,
+  internalStorageEntryId,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  characterId: number;
+  internalStorageEntryId: number;
+}): Promise<{ portrait: RoleGameCharacterAttachmentRecord; previousStorageEntryId: number | null }> {
+  const character = await requireEditableCharacter({
+    roleGameRepository,
+    characterRepository,
+    actor,
+    characterId,
+    action: 'set the portrait for',
+  });
+  const storageEntryId = normalizeEntityId(internalStorageEntryId, 'storage entry');
+  const current = await characterRepository.findPortrait(character.id);
+  if (current) {
+    const portrait = await characterRepository.replaceAttachmentStorageEntry({
+      attachmentId: current.id,
+      expectedInternalStorageEntryId: current.internalStorageEntryId,
+      internalStorageEntryId: storageEntryId,
+      actorTelegramUserId: actor.telegramUserId,
+    });
+    return { portrait, previousStorageEntryId: current.internalStorageEntryId };
+  }
+  const portrait = await characterRepository.createAttachment({
+    characterId: character.id,
+    internalStorageEntryId: storageEntryId,
+    kind: 'portrait',
+    visibility: character.visibility,
+    uploadedByTelegramUserId: actor.telegramUserId,
+  });
+  return { portrait, previousStorageEntryId: null };
+}
+
+export async function removeRoleGameCharacterPortrait({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  characterId,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  characterId: number;
+}): Promise<RoleGameCharacterAttachmentRecord | null> {
+  await requireEditableCharacter({
+    roleGameRepository,
+    characterRepository,
+    actor,
+    characterId,
+    action: 'remove the portrait from',
+  });
+  const portrait = await characterRepository.findPortrait(normalizeEntityId(characterId, 'role game character'));
+  if (!portrait) return null;
+  return characterRepository.removeAttachment({
+    attachmentId: portrait.id,
+    expectedRemovedAt: null,
+    actorTelegramUserId: actor.telegramUserId,
   });
 }
 

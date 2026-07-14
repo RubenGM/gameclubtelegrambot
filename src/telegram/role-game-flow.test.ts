@@ -39,12 +39,12 @@ import type { AppMetadataSessionStorage } from './conversation-session-store.js'
 
 type FakeRoleGameRepository = RoleGameRepository & { createdSessionLinks: RoleGameSessionRecord[] };
 
-test('handleTelegramRoleGameText opens the role game home menu', async () => {
+test('handleTelegramRoleGameText opens the user role-game list directly', async () => {
   const context = createRoleGameTestContext({ messageText: '/rol' });
   const handled = await handleTelegramRoleGameText(context);
 
   assert.equal(handled, true);
-  assert.match(lastReply(context).message, /Rol/);
+  assert.match(lastReply(context).message, /No tienes partidas de rol activas/);
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Mis partidas', 'Partidas visibles']);
 });
 

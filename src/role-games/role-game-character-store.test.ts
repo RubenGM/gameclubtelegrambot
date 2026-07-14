@@ -26,6 +26,7 @@ test('role game character tables expose normalized ownership, attachment, and cl
     'unassignedAt',
   ]);
   assert.equal(getTableName(roleGameCharacterAttachments), 'role_game_character_attachments');
+  assert.equal('kind' in getTableColumns(roleGameCharacterAttachments), true);
   assert.equal(getTableName(roleGameCharacterClaimRequests), 'role_game_character_claim_requests');
   assert.equal('characterName' in getTableColumns(roleGameMembers), false);
   assert.equal('playerNote' in getTableColumns(roleGameMembers), true);
