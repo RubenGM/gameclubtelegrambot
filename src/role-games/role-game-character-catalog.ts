@@ -124,6 +124,11 @@ export interface RoleGameCharacterRepository {
     request: RoleGameCharacterClaimRequestRecord;
     character: RoleGameCharacterRecord;
   }>;
+  cancelClaimRequest(input: {
+    requestId: number;
+    expectedStatus: 'requested';
+    requestedByMemberId: number;
+  }): Promise<RoleGameCharacterClaimRequestRecord>;
 }
 
 export interface CharacterAssignmentInput {
@@ -235,6 +240,260 @@ export interface RoleGameCharacterDomainRepositories {
   characterRepository: RoleGameCharacterRepository;
 }
 
+export async function createRoleGameCharacter({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  gameId,
+  assignedMemberId,
+  draft,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  gameId: number;
+  assignedMemberId: number | null;
+  draft: RoleGameCharacterDraft;
+}): Promise<RoleGameCharacterRecord> {
+  const normalizedGameId = normalizeEntityId(gameId, 'role game');
+  const game = await requireGame(roleGameRepository, normalizedGameId);
+  const actorMembership = await roleGameRepository.findMemberByTelegramUserId(
+    normalizedGameId,
+    actor.telegramUserId,
+  );
+  const canManage = canManageRoleGameOperationally(actor, game, actorMembership);
+  let assignedMember: RoleGameMemberRecord | null = null;
+  if (assignedMemberId !== null) {
+    assignedMember = await roleGameRepository.findMemberById(
+      normalizeEntityId(assignedMemberId, 'role game member'),
+    );
+    if (!isConfirmedRoleGameMember(assignedMember, normalizedGameId)) {
+      throw new Error('Character owner must be a confirmed member of the role game');
+    }
+  }
+  if (!canManage) {
+    if (!isConfirmedActorMembership(actor, game, actorMembership)
+      || assignedMember?.id !== actorMembership.id) {
+      throw new Error('Actor does not have permission to create this character');
+    }
+  }
+  const normalizedDraft = normalizeRoleGameCharacterDraft(draft);
+  return characterRepository.createCharacter({
+    roleGameId: normalizedGameId,
+    assignedMemberId: assignedMember?.id ?? null,
+    ...normalizedDraft,
+    createdByTelegramUserId: actor.telegramUserId,
+  });
+}
+
+export async function transferRoleGameCharacter({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  characterId,
+  assignedMemberId,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  characterId: number;
+  assignedMemberId: number;
+}): Promise<RoleGameCharacterRecord> {
+  const character = await requireCharacter(characterRepository, characterId);
+  if (character.assignedMemberId === null) {
+    throw new Error(`Role game character ${character.id} is not currently assigned`);
+  }
+  const game = await requireGame(roleGameRepository, character.roleGameId);
+  const actorMembership = await roleGameRepository.findMemberByTelegramUserId(
+    game.id,
+    actor.telegramUserId,
+  );
+  if (!canManageRoleGameOperationally(actor, game, actorMembership)) {
+    throw new Error('Actor does not have permission to transfer this character');
+  }
+  const assignedMember = await roleGameRepository.findMemberById(
+    normalizeEntityId(assignedMemberId, 'role game member'),
+  );
+  if (!isConfirmedRoleGameMember(assignedMember, game.id)) {
+    throw new Error('Character owner must be a confirmed member of the role game');
+  }
+  return characterRepository.transferCharacter({
+    characterId: character.id,
+    assignedMemberId: assignedMember.id,
+    expectedAssignedMemberId: character.assignedMemberId,
+    actorTelegramUserId: actor.telegramUserId,
+  });
+}
+
+export async function assignRoleGameCharacter({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  characterId,
+  assignedMemberId,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  characterId: number;
+  assignedMemberId: number;
+}): Promise<RoleGameCharacterRecord> {
+  const character = await requireCharacter(characterRepository, characterId);
+  if (character.assignedMemberId !== null) {
+    throw new Error(`Role game character ${character.id} is already assigned`);
+  }
+  const { game } = await requireManagerForCharacter({
+    roleGameRepository,
+    actor,
+    character,
+    action: 'assign',
+  });
+  const assignedMember = await roleGameRepository.findMemberById(
+    normalizeEntityId(assignedMemberId, 'role game member'),
+  );
+  if (!isConfirmedRoleGameMember(assignedMember, game.id)) {
+    throw new Error('Character owner must be a confirmed member of the role game');
+  }
+  return characterRepository.assignCharacter({
+    characterId: character.id,
+    assignedMemberId: assignedMember.id,
+    expectedAssignedMemberId: null,
+    actorTelegramUserId: actor.telegramUserId,
+  });
+}
+
+export async function abandonRoleGameCharacter({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  characterId,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  characterId: number;
+}): Promise<RoleGameCharacterRecord> {
+  const character = await requireCharacter(characterRepository, characterId);
+  const game = await requireGame(roleGameRepository, character.roleGameId);
+  const actorMembership = await roleGameRepository.findMemberByTelegramUserId(game.id, actor.telegramUserId);
+  if (!isConfirmedActorMembership(actor, game, actorMembership)
+    || character.assignedMemberId !== actorMembership.id) {
+    throw new Error('Actor does not have permission to abandon this character');
+  }
+  return characterRepository.unassignCharacter({
+    characterId: character.id,
+    expectedAssignedMemberId: actorMembership.id,
+    actorTelegramUserId: actor.telegramUserId,
+  });
+}
+
+export async function unassignRoleGameCharacter({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  characterId,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  characterId: number;
+}): Promise<RoleGameCharacterRecord> {
+  const character = await requireCharacter(characterRepository, characterId);
+  if (character.assignedMemberId === null) {
+    return character;
+  }
+  await requireManagerForCharacter({
+    roleGameRepository,
+    actor,
+    character,
+    action: 'unassign',
+  });
+  return characterRepository.unassignCharacter({
+    characterId: character.id,
+    expectedAssignedMemberId: character.assignedMemberId,
+    actorTelegramUserId: actor.telegramUserId,
+  });
+}
+
+export async function updateRoleGameCharacter({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  characterId,
+  draft,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  characterId: number;
+  draft: RoleGameCharacterDraft;
+}): Promise<RoleGameCharacterRecord> {
+  const character = await requireCharacter(characterRepository, characterId);
+  const game = await requireGame(roleGameRepository, character.roleGameId);
+  const actorMembership = await roleGameRepository.findMemberByTelegramUserId(game.id, actor.telegramUserId);
+  if (!canEditRoleGameCharacter(actor, game, actorMembership, character)) {
+    throw new Error('Actor does not have permission to edit this character');
+  }
+  const normalized = normalizeRoleGameCharacterDraft(draft);
+  return characterRepository.updateCharacter({
+    characterId: character.id,
+    expectedUpdatedAt: character.updatedAt,
+    ...normalized,
+    actorTelegramUserId: actor.telegramUserId,
+  });
+}
+
+export async function requestRoleGameCharacter({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  characterId,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  characterId: number;
+}): Promise<RoleGameCharacterClaimRequestRecord> {
+  const character = await requireCharacter(characterRepository, characterId);
+  const game = await requireGame(roleGameRepository, character.roleGameId);
+  const actorMembership = await roleGameRepository.findMemberByTelegramUserId(
+    game.id,
+    actor.telegramUserId,
+  );
+  if (!canRequestRoleGameCharacter(actor, game, actorMembership, character) || !actorMembership) {
+    throw new Error('Actor does not have permission to request this character');
+  }
+  return characterRepository.createClaimRequest({
+    characterId: character.id,
+    requestedByMemberId: actorMembership.id,
+  });
+}
+
+export async function cancelRoleGameCharacterRequest({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  requestId,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  requestId: number;
+}): Promise<RoleGameCharacterClaimRequestRecord> {
+  const request = await requireClaim(characterRepository, requestId);
+  if (request.status !== 'requested') {
+    throw new Error(`Role game character claim ${request.id} has stale state`);
+  }
+  const character = await requireCharacter(characterRepository, request.characterId);
+  const game = await requireGame(roleGameRepository, character.roleGameId);
+  const actorMembership = await roleGameRepository.findMemberByTelegramUserId(game.id, actor.telegramUserId);
+  if (!isConfirmedActorMembership(actor, game, actorMembership)
+    || actorMembership.id !== request.requestedByMemberId) {
+    throw new Error('Actor does not have permission to cancel this character request');
+  }
+  return characterRepository.cancelClaimRequest({
+    requestId: request.id,
+    expectedStatus: 'requested',
+    requestedByMemberId: actorMembership.id,
+  });
+}
+
+export async function approveRoleGameCharacterClaim(
+  input: RoleGameCharacterDomainRepositories & { actor: RoleGameActor; requestId: number },
+): Promise<{ request: RoleGameCharacterClaimRequestRecord; character: RoleGameCharacterRecord }> {
+  return resolveRoleGameCharacterClaim({ ...input, status: 'approved' });
+}
+
+export async function rejectRoleGameCharacterClaim(
+  input: RoleGameCharacterDomainRepositories & { actor: RoleGameActor; requestId: number },
+): Promise<{ request: RoleGameCharacterClaimRequestRecord; character: RoleGameCharacterRecord }> {
+  return resolveRoleGameCharacterClaim({ ...input, status: 'rejected' });
+}
+
 function isConfirmedActorMembership(
   actor: RoleGameActor,
   game: RoleGameRecord,
@@ -242,6 +501,100 @@ function isConfirmedActorMembership(
 ): membership is RoleGameMemberRecord {
   return isConfirmedRoleGameMember(membership, game.id)
     && membership.telegramUserId === actor.telegramUserId;
+}
+
+async function requireGame(repository: RoleGameRepository, gameId: number): Promise<RoleGameRecord> {
+  const game = await repository.findGameById(gameId);
+  if (!game) {
+    throw new Error(`Role game ${gameId} not found`);
+  }
+  return game;
+}
+
+async function requireCharacter(
+  repository: RoleGameCharacterRepository,
+  characterId: number,
+): Promise<RoleGameCharacterRecord> {
+  const normalizedCharacterId = normalizeEntityId(characterId, 'role game character');
+  const character = await repository.findCharacterById(normalizedCharacterId);
+  if (!character) {
+    throw new Error(`Role game character ${normalizedCharacterId} not found`);
+  }
+  return character;
+}
+
+async function requireClaim(
+  repository: RoleGameCharacterRepository,
+  requestId: number,
+): Promise<RoleGameCharacterClaimRequestRecord> {
+  const normalizedRequestId = normalizeEntityId(requestId, 'role game character claim');
+  const request = await repository.findClaimRequestById(normalizedRequestId);
+  if (!request) {
+    throw new Error(`Role game character claim ${normalizedRequestId} not found`);
+  }
+  return request;
+}
+
+async function requireManagerForCharacter({
+  roleGameRepository,
+  actor,
+  character,
+  action,
+}: {
+  roleGameRepository: RoleGameRepository;
+  actor: RoleGameActor;
+  character: RoleGameCharacterRecord;
+  action: string;
+}): Promise<{ game: RoleGameRecord; actorMembership: RoleGameMemberRecord | null }> {
+  const game = await requireGame(roleGameRepository, character.roleGameId);
+  const actorMembership = await roleGameRepository.findMemberByTelegramUserId(game.id, actor.telegramUserId);
+  if (!canManageRoleGameOperationally(actor, game, actorMembership)) {
+    throw new Error(`Actor does not have permission to ${action} this character`);
+  }
+  return { game, actorMembership };
+}
+
+async function resolveRoleGameCharacterClaim({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  requestId,
+  status,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  requestId: number;
+  status: 'approved' | 'rejected';
+}): Promise<{ request: RoleGameCharacterClaimRequestRecord; character: RoleGameCharacterRecord }> {
+  const request = await requireClaim(characterRepository, requestId);
+  if (request.status !== 'requested') {
+    throw new Error(`Role game character claim ${request.id} has stale state`);
+  }
+  const character = await requireCharacter(characterRepository, request.characterId);
+  const { game } = await requireManagerForCharacter({
+    roleGameRepository,
+    actor,
+    character,
+    action: status === 'approved' ? 'approve' : 'reject',
+  });
+  if (status === 'approved') {
+    const requester = await roleGameRepository.findMemberById(request.requestedByMemberId);
+    if (!isConfirmedRoleGameMember(requester, game.id)) {
+      throw new Error('Character requester must still be a confirmed member of the role game');
+    }
+  }
+  return characterRepository.resolveClaimRequest({
+    requestId: request.id,
+    status,
+    expectedStatus: 'requested',
+    actorTelegramUserId: actor.telegramUserId,
+  });
+}
+
+function normalizeEntityId(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} id must be a positive integer`);
+  }
+  return value;
 }
 
 function normalizeRequiredText(value: string, label: string, maxLength: number): string {
