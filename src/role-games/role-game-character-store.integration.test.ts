@@ -135,6 +135,38 @@ integrationTest('PostgreSQL transfers ownership atomically and approves only one
     assert.deepEqual(claims.map((claim) => claim.status).sort(), ['approved', 'cancelled']);
     const current = await characterRepository.findCharacterById(character.id);
     assert.ok(current?.assignedMemberId === player.id || current?.assignedMemberId === coorganizer.id);
+
+    const lifecycleCharacter = await characterRepository.createCharacter({
+      roleGameId: game.id,
+      assignedMemberId: player.id,
+      name: 'Lifecycle',
+      description: null,
+      externalUrl: null,
+      visibility: 'private',
+      createdByTelegramUserId: seed.playerTelegramUserId,
+    });
+    await roleGameRepository.setMemberRole({
+      memberId: player.id,
+      role: 'coorganizer',
+      expectedRole: 'player',
+      expectedStatus: 'confirmed',
+      actorTelegramUserId: seed.gmTelegramUserId,
+    });
+    assert.equal(
+      (await characterRepository.findCharacterById(lifecycleCharacter.id))?.assignedMemberId,
+      player.id,
+    );
+    await roleGameRepository.setMemberStatus({
+      memberId: player.id,
+      status: 'removed',
+      expectedStatus: 'confirmed',
+      expectedRole: 'coorganizer',
+      actorTelegramUserId: seed.gmTelegramUserId,
+    });
+    assert.equal(
+      (await characterRepository.findCharacterById(lifecycleCharacter.id))?.assignedMemberId,
+      null,
+    );
   } finally {
     if (gameId !== null) {
       const characterRows = await connection.db

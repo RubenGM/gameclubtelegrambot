@@ -2,6 +2,7 @@ import { and, asc, count, eq, ne } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import {
+  roleGameCharacters,
   roleGameMaterialDeliveries,
   roleGameMaterials,
   roleGameMembers,
@@ -504,25 +505,47 @@ export function createDatabaseRoleGameRepository({
       if (input.status === 'confirmed' && input.expectedRole === 'player' && input.expectedStatus !== 'confirmed') {
         throw new Error('Confirmed player seats must use confirmMemberSeat');
       }
-      const updatedAt = new Date();
-      const rows = await database
-        .update(roleGameMembers)
-        .set({
-          status: input.status,
-          requestedByTelegramUserId: input.actorTelegramUserId,
-          updatedAt,
-        })
-        .where(and(
-          eq(roleGameMembers.id, input.memberId),
-          eq(roleGameMembers.status, input.expectedStatus),
-          eq(roleGameMembers.role, input.expectedRole),
-        ))
-        .returning();
-      const row = rows[0];
-      if (!row) {
-        throw new Error(`Role game member ${input.memberId} has stale status`);
-      }
-      return mapRoleGameMemberRow(row);
+      return database.transaction(async (tx) => {
+        const lockedMembers = await tx
+          .select()
+          .from(roleGameMembers)
+          .where(eq(roleGameMembers.id, input.memberId))
+          .limit(1)
+          .for('update');
+        const member = lockedMembers[0];
+        if (!member || member.status !== input.expectedStatus || member.role !== input.expectedRole) {
+          throw new Error(`Role game member ${input.memberId} has stale status`);
+        }
+        const updatedAt = new Date();
+        if (member.status === 'confirmed' && (input.status === 'left' || input.status === 'removed')) {
+          await tx
+            .update(roleGameCharacters)
+            .set({
+              assignedMemberId: null,
+              unassignedAt: updatedAt,
+              updatedAt,
+            })
+            .where(eq(roleGameCharacters.assignedMemberId, member.id));
+        }
+        const rows = await tx
+          .update(roleGameMembers)
+          .set({
+            status: input.status,
+            requestedByTelegramUserId: input.actorTelegramUserId,
+            updatedAt,
+          })
+          .where(and(
+            eq(roleGameMembers.id, input.memberId),
+            eq(roleGameMembers.status, input.expectedStatus),
+            eq(roleGameMembers.role, input.expectedRole),
+          ))
+          .returning();
+        const row = rows[0];
+        if (!row) {
+          throw new Error(`Role game member ${input.memberId} has stale status`);
+        }
+        return mapRoleGameMemberRow(row);
+      });
     },
   };
 }
