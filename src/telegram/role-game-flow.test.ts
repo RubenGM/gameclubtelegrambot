@@ -35,6 +35,7 @@ import type {
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import type { TelegramReplyKeyboardButton } from './runtime-boundary.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 
 type FakeRoleGameRepository = RoleGameRepository & { createdSessionLinks: RoleGameSessionRecord[] };
 
@@ -1733,10 +1734,11 @@ test('handleTelegramRoleGameCallback paginates uploaded materials for managers',
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(1)?.map(buttonText), ['Anterior']);
 });
 
-test('handleTelegramRoleGameMessage stores uploaded material in hidden Storage and creates gm-only material', async () => {
+test('role game material upload collects a pack, asks for its name, and stores one named material', async () => {
   const game = sampleRoleGame({ id: 90, primaryGmTelegramUserId: 42 });
   const createdMaterials: CreateRoleGameMaterialInput[] = [];
   const storageRepository = createFakeStorageRepository();
+  const copiedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }> = [];
   const context = createRoleGameTestContext({
     messageText: '',
     roleGameRepository: createFakeRoleGameRepository({
@@ -1748,6 +1750,10 @@ test('handleTelegramRoleGameMessage stores uploaded material in hidden Storage a
       },
     }),
     storageRepository,
+    onCopyMessage: async (input) => {
+      copiedMessages.push(input);
+      return { messageId: 900 + copiedMessages.length };
+    },
     session: {
       current: {
         key: 'telegram.session:1:42',
@@ -1772,17 +1778,183 @@ test('handleTelegramRoleGameMessage stores uploaded material in hidden Storage a
     messageId: 77,
   };
 
-  const handled = await handleTelegramRoleGameMessage(context);
+  assert.equal(await handleTelegramRoleGameMessage(context), true);
+  assert.equal(createdMaterials.length, 0);
+  assert.equal(storageRepository.createdEntries.length, 0);
+  assert.equal(getCurrentSession(context)?.stepKey, 'attachments');
+  assert.equal((getCurrentSession(context)?.data.messages as unknown[])?.length, 1);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Añadir más archivos', 'Terminar adjuntos']);
 
-  assert.equal(handled, true);
-  assert.equal(getCurrentSession(context), null);
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'file-image',
+    fileUniqueId: 'unique-image',
+    caption: null,
+    originalFileName: null,
+    mimeType: 'image/jpeg',
+    fileSizeBytes: 512,
+    mediaGroupId: 'album-1',
+    messageId: 78,
+  };
+  assert.equal(await handleTelegramRoleGameMessage(context), true);
+  assert.equal((getCurrentSession(context)?.data.messages as unknown[])?.length, 2);
+
+  delete context.messageMedia;
+  context.messageText = 'Terminar adjuntos';
+  assert.equal(await handleTelegramRoleGameText(context), true);
+  assert.equal(getCurrentSession(context)?.stepKey, 'name');
+  assert.match(lastReply(context).message, /nombre.*material/i);
+
+  context.messageText = 'Mapa del templo';
+  assert.equal(await handleTelegramRoleGameText(context), true);
+
+  assert.equal(getCurrentSession(context)?.flowKey, 'role-game-detail');
+  assert.deepEqual(getCurrentSession(context)?.data, { gameId: game.id, view: 'materials', page: 1 });
   assert.equal(storageRepository.createdEntries[0]?.categoryId, 8);
-  assert.equal(storageRepository.createdEntries[0]?.messages[0]?.storageChatId, -1008);
+  assert.equal(storageRepository.createdEntries[0]?.messages.length, 2);
+  assert.deepEqual(copiedMessages.map((message) => message.messageId), [77, 78]);
+  assert.equal(createdMaterials[0]?.title, 'Mapa del templo');
   assert.equal(createdMaterials[0]?.visibility, 'gm_only');
   assert.equal(createdMaterials[0]?.internalStorageEntryId, 1);
   assert.match(lastReply(context).message, /Material guardado/);
   assert.match(lastReply(context).message, /role_material_5/);
   assert.doesNotMatch(lastReply(context).message, /storage_entry_/);
+
+  assert.equal(await sendRoleGameText(context, 'Volver a la partida'), true);
+  assert.equal(getCurrentSession(context)?.data.view, 'dashboard');
+  assert.match(lastReply(context).message, /Partida de prueba/);
+});
+
+test('role game material detail sends every attachment and uses a persistent manager keyboard', async () => {
+  const game = sampleRoleGame({ id: 92, primaryGmTelegramUserId: 42 });
+  const material = sampleRoleGameMaterial({ id: 8, roleGameId: game.id, internalStorageEntryId: 1, title: 'Pack visual' });
+  const storageRepository = createFakeStorageRepository();
+  await storageRepository.createEntry({
+    categoryId: 8,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Pack visual',
+    tags: ['rol'],
+    messages: [
+      {
+        storageChatId: -1008,
+        storageMessageId: 901,
+        storageThreadId: 18,
+        attachmentKind: 'photo',
+        sortOrder: 0,
+      },
+      {
+        storageChatId: -1008,
+        storageMessageId: 902,
+        storageThreadId: 18,
+        attachmentKind: 'document',
+        sortOrder: 1,
+      },
+    ],
+  });
+  const copiedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }> = [];
+  const context = createRoleGameTestContext({
+    messageText: '/start role_material_8',
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      materialsById: [material],
+    }),
+    storageRepository,
+    onCopyMessage: async (input) => {
+      copiedMessages.push(input);
+      return { messageId: 1000 + copiedMessages.length };
+    },
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+
+  assert.deepEqual(copiedMessages.map((message) => message.messageId), [901, 902]);
+  assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.slice(0, 3).map((row) => row.map(buttonText)), [
+    ['Enviar a jugadores'],
+    ['Enviar y revelar'],
+    ['Revelar sin enviar'],
+  ]);
+  assert.equal(getCurrentSession(context)?.data.materialId, 8);
+
+  context.messageText = 'Enviar a jugadores';
+  assert.equal(await handleTelegramRoleGameText(context), true);
+  assert.match(lastReply(context).message, /0\/0/);
+  assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Enviar a jugadores']);
+});
+
+test('finishing a named upload provisions the missing handout category and continues the upload', async () => {
+  const game = sampleRoleGame({ id: 91, primaryGmTelegramUserId: 42 });
+  const createdMaterials: CreateRoleGameMaterialInput[] = [];
+  const storageRepository = createFakeStorageRepository({ includeHandoutCategory: false });
+  const storageDefaultChatStore = createMemoryMetadataStore({
+    'storage.default_chat': JSON.stringify({
+      chatId: -100555,
+      chatTitle: 'Storage Club',
+      updatedAt: '2026-07-14T08:00:00.000Z',
+    }),
+  });
+  const createdTopics: Array<{ chatId: number; name: string }> = [];
+  const context = createRoleGameTestContext({
+    messageText: '',
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, []]]),
+      onCreateMaterial: async (input) => {
+        createdMaterials.push(input);
+        return sampleRoleGameMaterial({ ...input, id: 6 });
+      },
+    }),
+    storageRepository,
+    storageDefaultChatStore,
+    onCreateForumTopic: async (input) => {
+      createdTopics.push(input);
+      return { chatId: input.chatId, name: input.name, messageThreadId: 31 };
+    },
+    session: {
+      current: {
+        key: 'telegram.session:1:42',
+        flowKey: 'role-game-material-upload',
+        stepKey: 'media',
+        data: { gameId: game.id },
+        createdAt: '2026-07-14T08:00:00.000Z',
+        updatedAt: '2026-07-14T08:00:00.000Z',
+        expiresAt: '2026-07-14T09:00:00.000Z',
+      },
+    },
+  });
+  context.messageMedia = {
+    attachmentKind: 'document',
+    fileId: 'file-guide',
+    fileUniqueId: 'unique-guide',
+    caption: 'Guía de la campaña',
+    originalFileName: 'guia.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 2048,
+    mediaGroupId: null,
+    messageId: 78,
+  };
+
+  assert.equal(await handleTelegramRoleGameMessage(context), true);
+  assert.deepEqual(createdTopics, []);
+
+  context.messageText = 'Terminar adjuntos';
+  assert.equal(await handleTelegramRoleGameText(context), true);
+  context.messageText = 'Guía para jugadores';
+  const handled = await handleTelegramRoleGameText(context);
+
+  assert.equal(handled, true);
+  assert.deepEqual(createdTopics, [{ chatId: -100555, name: 'Handouts de rol' }]);
+  assert.equal(storageRepository.createdCategories[0]?.categoryPurpose, 'role_game_handouts');
+  assert.equal(storageRepository.createdCategories[0]?.storageChatId, -100555);
+  assert.equal(storageRepository.createdCategories[0]?.storageThreadId, 31);
+  assert.equal(storageRepository.createdEntries[0]?.categoryId, storageRepository.createdCategories[0]?.id);
+  assert.equal(storageRepository.createdEntries[0]?.messages.length, 1);
+  assert.equal(createdMaterials[0]?.visibility, 'gm_only');
+  assert.equal(getCurrentSession(context)?.flowKey, 'role-game-detail');
+  assert.deepEqual(getCurrentSession(context)?.data, { gameId: game.id, view: 'materials', page: 1 });
+  assert.match(lastReply(context).message, /Material guardado/);
 });
 
 test('handleTelegramRoleGameStartText hides gm-only role material from confirmed players', async () => {
@@ -1808,7 +1980,10 @@ test('handleTelegramRoleGameStartText hides gm-only role material from confirmed
 
 test('handleTelegramRoleGameStartText shows gm-only role material to the GM with role_material deep link only', async () => {
   const game = sampleRoleGame({ id: 91, primaryGmTelegramUserId: 42 });
-  const material = sampleRoleGameMaterial({ id: 6, roleGameId: game.id, internalStorageEntryId: 44, visibility: 'gm_only', title: 'Mapa secreto' });
+  const storageRepository = createFakeStorageRepository();
+  const storedEntry = await createStoredRoleGameMaterialEntry(storageRepository);
+  const material = sampleRoleGameMaterial({ id: 6, roleGameId: game.id, internalStorageEntryId: storedEntry.entry.id, visibility: 'gm_only', title: 'Mapa secreto' });
+  const copiedMessages: number[] = [];
   const context = createRoleGameTestContext({
     messageText: '/start role_material_6',
     roleGameRepository: createFakeRoleGameRepository({
@@ -1816,6 +1991,11 @@ test('handleTelegramRoleGameStartText shows gm-only role material to the GM with
       membersByGameId: new Map([[game.id, []]]),
       materialsById: [material],
     }),
+    storageRepository,
+    onCopyMessage: async ({ messageId }) => {
+      copiedMessages.push(messageId);
+      return { messageId: 1000 + copiedMessages.length };
+    },
   });
 
   const handled = await handleTelegramRoleGameStartText(context);
@@ -1823,7 +2003,9 @@ test('handleTelegramRoleGameStartText shows gm-only role material to the GM with
   assert.equal(handled, true);
   assert.match(lastReply(context).message, /Mapa secreto/);
   assert.match(lastReply(context).message, /role_material_6/);
-  assert.doesNotMatch(lastReply(context).message, /storage_entry_44/);
+  assert.doesNotMatch(lastReply(context).message, /storage_entry_/);
+  assert.deepEqual(copiedMessages, [900]);
+  assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
 });
 
 test('handleTelegramRoleGameCallback sends material only this time without revealing it', async () => {
@@ -2007,11 +2189,13 @@ function createRoleGameTestContext({
   roleGameRepository = createFakeRoleGameRepository(),
   scheduleRepository = createFakeScheduleRepository(),
   storageRepository,
+  storageDefaultChatStore,
   membershipRepository = createFakeMembershipRepository(),
   session = {},
   actor = {},
   onSendPrivateMessage,
   onCopyMessage,
+  onCreateForumTopic,
   onWarning,
 }: {
   messageText: string;
@@ -2019,6 +2203,7 @@ function createRoleGameTestContext({
   roleGameRepository?: RoleGameRepository;
   scheduleRepository?: ScheduleRepository;
   storageRepository?: StorageCategoryRepository;
+  storageDefaultChatStore?: AppMetadataSessionStorage;
   membershipRepository?: MembershipAccessRepository;
   session?: {
     current?: TelegramCommandHandlerContext['runtime']['session']['current'];
@@ -2026,6 +2211,7 @@ function createRoleGameTestContext({
   actor?: Partial<TelegramCommandHandlerContext['runtime']['actor']>;
   onSendPrivateMessage?: (telegramUserId: number, message: string) => Promise<void>;
   onCopyMessage?: (input: { fromChatId: number; messageId: number; toChatId: number }) => Promise<{ messageId: number }>;
+  onCreateForumTopic?: (input: { chatId: number; name: string }) => Promise<{ chatId: number; name: string; messageThreadId: number }>;
   onWarning?: (bindings: object, message: string) => void;
 }): TelegramCommandHandlerContext & {
   roleGameRepository: RoleGameRepository;
@@ -2071,6 +2257,7 @@ function createRoleGameTestContext({
     roleGameRepository,
     scheduleRepository,
     ...(storageRepository ? { storageRepository } : {}),
+    ...(storageDefaultChatStore ? { storageDefaultChatStore } : {}),
     ...(membershipRepository ? { membershipRepository } : {}),
     replies,
     reply: async (message: string, options?: TelegramReplyOptions) => {
@@ -2100,6 +2287,7 @@ function createRoleGameTestContext({
         language: 'es',
         sendPrivateMessage: onSendPrivateMessage ?? (async () => {}),
         copyMessage: onCopyMessage ?? (async () => ({ messageId: 900 })),
+        ...(onCreateForumTopic ? { createForumTopic: onCreateForumTopic } : {}),
       },
     },
   } as unknown as TelegramCommandHandlerContext & {
@@ -2421,13 +2609,18 @@ function createFakeScheduleRepository({
 }
 
 type FakeStorageRepository = StorageCategoryRepository & {
+  createdCategories: StorageCategoryRecord[];
   createdEntries: Array<{
     categoryId: number;
     messages: StorageEntryMessageInput[];
   }>;
 };
 
-function createFakeStorageRepository(): FakeStorageRepository {
+function createFakeStorageRepository({
+  includeHandoutCategory = true,
+}: {
+  includeHandoutCategory?: boolean;
+} = {}): FakeStorageRepository {
   const category: StorageCategoryRecord = {
     id: 8,
     slug: 'role-handouts',
@@ -2443,11 +2636,25 @@ function createFakeStorageRepository(): FakeStorageRepository {
     archivedAt: null,
   };
   const entries = new Map<number, StorageEntryDetailRecord>();
+  const categories = new Map<number, StorageCategoryRecord>(includeHandoutCategory ? [[category.id, category]] : []);
+  const createdCategories: StorageCategoryRecord[] = [];
   const createdEntries: FakeStorageRepository['createdEntries'] = [];
   return {
+    createdCategories,
     createdEntries,
-    createCategory: async () => {
-      throw new Error('not implemented in this test');
+    createCategory: async (input) => {
+      const created: StorageCategoryRecord = {
+        id: Math.max(0, ...categories.keys()) + 1,
+        ...input,
+        categoryPurpose: input.categoryPurpose ?? 'user_uploads',
+        lifecycleStatus: 'active',
+        createdAt: '2026-07-14T08:00:00.000Z',
+        updatedAt: '2026-07-14T08:00:00.000Z',
+        archivedAt: null,
+      };
+      categories.set(created.id, created);
+      createdCategories.push(created);
+      return created;
     },
     updateCategoryLifecycleStatus: async () => {
       throw new Error('not implemented in this test');
@@ -2458,9 +2665,9 @@ function createFakeStorageRepository(): FakeStorageRepository {
     updateCategoryParent: async () => {
       throw new Error('not implemented in this test');
     },
-    findCategoryById: async (categoryId) => (categoryId === category.id ? category : null),
+    findCategoryById: async (categoryId) => categories.get(categoryId) ?? null,
     findCategoryByStorageThread: async () => null,
-    listAllCategoriesForInternalUse: async () => [category],
+    listAllCategoriesForInternalUse: async () => Array.from(categories.values()),
     listCategories: async () => [],
     createEntry: async (input) => {
       createdEntries.push({ categoryId: input.categoryId, messages: input.messages });
@@ -2516,6 +2723,20 @@ function createFakeStorageRepository(): FakeStorageRepository {
     getEntryDetail: async (entryId) => entries.get(entryId) ?? null,
     listEntryDetailsByCategory: async () => [],
     searchEntryDetails: async () => [],
+  };
+}
+
+function createMemoryMetadataStore(initial: Record<string, string> = {}): AppMetadataSessionStorage {
+  const values = new Map(Object.entries(initial));
+  return {
+    get: async (key) => values.get(key) ?? null,
+    set: async (key, value) => {
+      values.set(key, value);
+    },
+    delete: async (key) => values.delete(key),
+    listByPrefix: async (prefix) => Array.from(values.entries())
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value })),
   };
 }
 

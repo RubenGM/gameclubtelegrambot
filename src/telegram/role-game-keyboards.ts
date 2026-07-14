@@ -214,6 +214,46 @@ export function buildRoleGameMaterialsKeyboard({
   ]);
 }
 
+export function buildRoleGameMaterialUploadKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [primaryButton(texts.addMoreMaterialAttachments), successButton(texts.finishMaterialAttachments)],
+    [dangerButton(texts.cancel)],
+  ]);
+}
+
+export function buildRoleGameMaterialNameKeyboard({
+  suggestedName,
+  language = 'ca',
+}: {
+  suggestedName: string;
+  language?: BotLanguage;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [successButton(texts.useSuggestedMaterialName.replace('{name}', suggestedName))],
+    [dangerButton(texts.cancel)],
+  ]);
+}
+
+export function buildRoleGameMaterialDetailKeyboard({
+  canManage = false,
+  language = 'ca',
+}: {
+  canManage?: boolean;
+  language?: BotLanguage;
+} = {}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    ...(canManage ? [
+      [primaryButton(texts.sendMaterialOnly)],
+      [successButton(texts.sendAndRevealMaterial)],
+      [successButton(texts.revealMaterialOnly)],
+    ] : []),
+    [navigationButton(texts.backToMaterials)],
+  ]);
+}
+
 export function buildRoleGameConfigurationKeyboard({
   canEdit = false,
   canConfigureRecurrence = false,
