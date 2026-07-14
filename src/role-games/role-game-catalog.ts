@@ -67,7 +67,6 @@ export interface RoleGameMemberRecord {
   role: RoleGameMemberRole;
   status: RoleGameMemberStatus;
   isExternal: boolean;
-  characterName: string | null;
   playerNote: string | null;
   requestedByTelegramUserId: number | null;
   createdAt: string;
@@ -138,7 +137,6 @@ export interface CreateRoleGameMemberInput {
   role: RoleGameMemberRole;
   status: RoleGameMemberStatus;
   isExternal: boolean;
-  characterName?: string | null;
   playerNote?: string | null;
   requestedByTelegramUserId: number | null;
 }

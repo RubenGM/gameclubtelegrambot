@@ -64,7 +64,6 @@ function participant({
       role,
       status,
       isExternal: false,
-      characterName: null,
       playerNote: null,
       requestedByTelegramUserId: null,
       createdAt: '2026-07-13T10:00:00.000Z',

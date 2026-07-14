@@ -169,7 +169,6 @@ export function createDatabaseRoleGameRepository({
           role: input.role,
           status: input.status,
           isExternal: input.isExternal,
-          characterName: input.characterName ?? null,
           playerNote: input.playerNote ?? null,
           requestedByTelegramUserId: input.requestedByTelegramUserId,
           updatedAt: new Date(),
@@ -225,7 +224,6 @@ export function createDatabaseRoleGameRepository({
           role: input.role,
           status: input.status,
           isExternal: input.isExternal,
-          characterName: input.characterName ?? null,
           playerNote: input.playerNote ?? null,
           requestedByTelegramUserId: input.requestedByTelegramUserId,
         })
@@ -703,7 +701,6 @@ function mapRoleGameMemberRow(row: RoleGameMemberRow): RoleGameMemberRecord {
     role: row.role as RoleGameMemberRecord['role'],
     status: row.status as RoleGameMemberRecord['status'],
     isExternal: row.isExternal,
-    characterName: row.characterName,
     playerNote: row.playerNote,
     requestedByTelegramUserId: row.requestedByTelegramUserId,
     createdAt: row.createdAt.toISOString(),

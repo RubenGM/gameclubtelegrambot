@@ -427,7 +427,6 @@ test('database role game repository updates game metadata and lists visible game
     role: 'player',
     status: 'confirmed',
     isExternal: false,
-    characterName: 'Irene',
     playerNote: 'Prefiere investigación',
     requestedByTelegramUserId: 100,
   });
@@ -473,7 +472,6 @@ test('database role game repository upserts members and lists games for a user',
     role: 'player',
     status: 'requested',
     isExternal: false,
-    characterName: null,
     playerNote: null,
     requestedByTelegramUserId: 100,
   });
@@ -483,7 +481,6 @@ test('database role game repository upserts members and lists games for a user',
     role: 'player',
     status: 'confirmed',
     isExternal: false,
-    characterName: 'Dra. West',
     playerNote: 'Disponible viernes',
     requestedByTelegramUserId: 42,
   });
@@ -494,7 +491,7 @@ test('database role game repository upserts members and lists games for a user',
 
   assert.equal(updated.id, created.id);
   assert.equal(found?.status, 'confirmed');
-  assert.equal(found?.characterName, 'Dra. West');
+  assert.equal(found?.playerNote, 'Disponible viernes');
   assert.equal(foundByAlias?.id, updated.id);
   assert.deepEqual(
     members.map((member) => member.telegramUserId),
@@ -523,7 +520,6 @@ test('database role game repository prefers active membership over later history
     role: 'player',
     status: 'confirmed',
     isExternal: false,
-    characterName: 'Dra. West',
     playerNote: null,
     requestedByTelegramUserId: 42,
   });
@@ -533,7 +529,6 @@ test('database role game repository prefers active membership over later history
     role: 'player',
     status: 'left',
     isExternal: false,
-    characterName: null,
     playerNote: null,
     requestedByTelegramUserId: 100,
   });
@@ -707,7 +702,6 @@ function createRoleGameStoreFixture() {
             returning: async () => {
               const row = {
                 id: nextMemberId++,
-                characterName: null,
                 playerNote: null,
                 createdAt: now,
                 updatedAt: now,

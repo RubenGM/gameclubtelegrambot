@@ -2803,7 +2803,6 @@ function sampleRoleGameMember(overrides: Partial<RoleGameMemberRecord> = {}): Ro
     role: 'player',
     status: 'requested',
     isExternal: false,
-    characterName: null,
     playerNote: null,
     requestedByTelegramUserId: 42,
     createdAt: '2026-07-09T10:00:00.000Z',

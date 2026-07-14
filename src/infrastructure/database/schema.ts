@@ -389,7 +389,6 @@ export const roleGameMembers = pgTable(
     role: varchar('role', { length: 16 }).notNull(),
     status: varchar('status', { length: 16 }).notNull(),
     isExternal: boolean('is_external').notNull().default(false),
-    characterName: varchar('character_name', { length: 120 }),
     playerNote: text('player_note'),
     requestedByTelegramUserId: bigint('requested_by_telegram_user_id', { mode: 'number' }).references(() => users.telegramUserId),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -404,6 +403,91 @@ export const roleGameMembers = pgTable(
     oneActiveUserMembership: uniqueIndex('role_game_members_one_active_user_membership')
       .on(table.roleGameId, table.telegramUserId)
       .where(sql`${table.status} in ('invited', 'requested', 'confirmed', 'waitlisted')`),
+  }),
+);
+
+export const roleGameCharacters = pgTable(
+  'role_game_characters',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    roleGameId: bigint('role_game_id', { mode: 'number' })
+      .notNull()
+      .references(() => roleGames.id),
+    assignedMemberId: bigint('assigned_member_id', { mode: 'number' })
+      .references(() => roleGameMembers.id, { onDelete: 'set null' }),
+    name: varchar('name', { length: 120 }).notNull(),
+    description: text('description'),
+    externalUrl: varchar('external_url', { length: 2048 }),
+    visibility: varchar('visibility', { length: 16 }).notNull(),
+    createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    assignedAt: timestamp('assigned_at', { withTimezone: true }),
+    unassignedAt: timestamp('unassigned_at', { withTimezone: true }),
+  },
+  (table) => ({
+    roleGameLookup: index('role_game_characters_role_game_id_idx').on(table.roleGameId),
+    assignedMemberLookup: index('role_game_characters_assigned_member_id_idx').on(table.assignedMemberId),
+    visibilityLookup: index('role_game_characters_visibility_idx').on(table.visibility),
+  }),
+);
+
+export const roleGameCharacterAttachments = pgTable(
+  'role_game_character_attachments',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    characterId: bigint('character_id', { mode: 'number' })
+      .notNull()
+      .references(() => roleGameCharacters.id),
+    internalStorageEntryId: bigint('internal_storage_entry_id', { mode: 'number' })
+      .notNull()
+      .references(() => storageEntries.id),
+    visibility: varchar('visibility', { length: 16 }).notNull(),
+    uploadedByTelegramUserId: bigint('uploaded_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    removedAt: timestamp('removed_at', { withTimezone: true }),
+    removedByTelegramUserId: bigint('removed_by_telegram_user_id', { mode: 'number' })
+      .references(() => users.telegramUserId),
+  },
+  (table) => ({
+    characterLookup: index('role_game_character_attachments_character_id_idx').on(table.characterId),
+    storageEntryLookup: uniqueIndex('role_game_character_attachments_storage_entry_id_idx')
+      .on(table.internalStorageEntryId),
+    activeCharacterLookup: index('role_game_character_attachments_active_character_idx')
+      .on(table.characterId)
+      .where(sql`${table.removedAt} is null`),
+  }),
+);
+
+export const roleGameCharacterClaimRequests = pgTable(
+  'role_game_character_claim_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    characterId: bigint('character_id', { mode: 'number' })
+      .notNull()
+      .references(() => roleGameCharacters.id),
+    requestedByMemberId: bigint('requested_by_member_id', { mode: 'number' })
+      .notNull()
+      .references(() => roleGameMembers.id),
+    status: varchar('status', { length: 16 }).notNull().default('requested'),
+    resolvedByTelegramUserId: bigint('resolved_by_telegram_user_id', { mode: 'number' })
+      .references(() => users.telegramUserId),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (table) => ({
+    characterLookup: index('role_game_character_claims_character_id_idx').on(table.characterId),
+    requestedByMemberLookup: index('role_game_character_claims_member_id_idx').on(table.requestedByMemberId),
+    statusLookup: index('role_game_character_claims_status_idx').on(table.status),
+    onePendingRequestPerMember: uniqueIndex('role_game_character_claims_one_pending_idx')
+      .on(table.characterId, table.requestedByMemberId)
+      .where(sql`${table.status} = 'requested'`),
   }),
 );
 
