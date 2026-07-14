@@ -15,6 +15,7 @@ import type {
   CreateRoleGameInput,
   CreateRoleGameSessionLinkInput,
   RoleGameMaterialDeliveryRecord,
+  RoleGameMaterialCategoryRecord,
   RoleGameMaterialRecord,
   RoleGameMemberRecord,
   RoleGameRecord,
@@ -460,7 +461,12 @@ test('admin has full participant management without a membership', async () => {
     roleGameRepository: createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, [player]]]) }),
   });
 
-  await openRoleGameParticipant(context, 'Usuario 101');
+  await handleTelegramRoleGameStartText(context);
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Abrir como administrador'));
+  assert.ok(!lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Participantes'));
+  await sendRoleGameText(context, 'Abrir como administrador');
+  await sendRoleGameText(context, 'Participantes');
+  await sendRoleGameText(context, 'Usuario 101');
   await sendRoleGameText(context, 'Hacer coorganizador');
   await sendRoleGameText(context, 'Confirmar');
 
@@ -703,7 +709,10 @@ test('admin can cancel an invitation beyond promotion', async () => {
     roleGameRepository: createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, [invited]]]) }),
   });
 
-  await openRoleGameParticipant(context, 'Usuario 101');
+  await handleTelegramRoleGameStartText(context);
+  await sendRoleGameText(context, 'Abrir como administrador');
+  await sendRoleGameText(context, 'Participantes');
+  await sendRoleGameText(context, 'Usuario 101');
   await sendRoleGameText(context, 'Cancelar invitación');
   await sendRoleGameText(context, 'Confirmar');
 
@@ -842,6 +851,7 @@ test('role game sections render sessions and materials through persistent keyboa
   assert.match(lastReply(context).message, /role_material_351/);
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
     ['Subir material'],
+    ['Crear categoría de material'],
     ['Volver a la partida'],
     ['Inicio', 'Ayuda'],
   ]);
@@ -886,6 +896,60 @@ test('handleTelegramRoleGameStartText opens public external one-shot links for u
   assert.match(lastReply(context).message, /Jornada abierta/);
   assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
   assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Solicitar plaza'));
+});
+
+test('global admin can request a player seat in a private invite-only game', async () => {
+  const game = sampleRoleGame({
+    id: 240,
+    type: 'one_shot',
+    visibility: 'private',
+    entryMode: 'invite_only',
+    acceptanceMode: 'manual_review',
+    primaryGmTelegramUserId: 99,
+  });
+  let requested = false;
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      onRequestSeat: async (input) => {
+        requested = true;
+        return sampleRoleGameMember({
+          id: 2400,
+          roleGameId: input.roleGameId,
+          telegramUserId: input.telegramUserId,
+          role: 'player',
+          status: 'requested',
+          isExternal: input.isExternal,
+        });
+      },
+    }),
+    actor: { telegramUserId: 100, isAdmin: true, isApproved: true },
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  const normalButtons = lastReply(context).options?.replyKeyboard?.flat().map(buttonText) ?? [];
+  assert.ok(normalButtons.includes('Solicitar plaza'));
+  assert.ok(normalButtons.includes('Abrir como administrador'));
+  assert.ok(!normalButtons.includes('Participantes'));
+  assert.ok(!normalButtons.includes('Materiales'));
+  assert.ok(!normalButtons.includes('Invitar'));
+
+  await sendRoleGameText(context, 'Abrir como administrador');
+  const adminButtons = lastReply(context).options?.replyKeyboard?.flat().map(buttonText) ?? [];
+  assert.match(lastReply(context).message, /Modo administrador temporal/);
+  assert.ok(adminButtons.includes('Participantes'));
+  assert.ok(adminButtons.includes('Materiales'));
+  assert.ok(adminButtons.includes('Salir del modo administrador'));
+  assert.ok(!adminButtons.includes('Solicitar plaza'));
+
+  await sendRoleGameText(context, 'Salir del modo administrador');
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().map(buttonText).includes('Solicitar plaza'));
+
+  await sendRoleGameText(context, 'Solicitar plaza');
+
+  assert.equal(requested, true);
+  assert.match(lastReply(context).message, /Solicitud enviada/);
 });
 
 test('role game dashboard hides seat requests from external visitors to public campaigns', async () => {
@@ -1613,6 +1677,8 @@ test('handleTelegramRoleGameCallback adapts old edit callbacks to the configurat
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
     ['Editar partida'],
     ['Configurar recurrencia'],
+    ['Cancelar partida'],
+    ['Eliminar partida'],
     ['Volver a la partida'],
     ['Inicio', 'Ayuda'],
   ]);
@@ -1627,6 +1693,100 @@ test('handleTelegramRoleGameCallback adapts old edit callbacks to the configurat
   assert.equal(getCurrentSession(context), null);
   assert.match(lastReply(context).message, /Partida actualizada/);
   assert.match(lastReply(context).message, /Título nuevo/);
+});
+
+test('primary GM can cancel a campaign from configuration after explicit confirmation', async () => {
+  const game = sampleRoleGame({ id: 340, title: 'Campaña terminada', primaryGmTelegramUserId: 42 });
+  const repository = createFakeRoleGameRepository({
+    gamesById: [game],
+    userGames: [game],
+    onUpdateGame: async (input) => {
+      Object.assign(game, input, { id: game.id });
+      return game;
+    },
+  });
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: `role_game:edit:${game.id}`,
+    roleGameRepository: repository,
+  });
+
+  assert.equal(await handleTelegramRoleGameCallback(context), true);
+  delete context.callbackData;
+  await sendRoleGameText(context, 'Cancelar partida');
+  assert.equal(game.status, 'active');
+  assert.match(lastReply(context).message, /¿Quieres cancelar definitivamente «Campaña terminada»\?/);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Confirmar cancelación']);
+
+  await sendRoleGameText(context, 'Confirmar cancelación');
+
+  assert.equal(game.status, 'cancelled');
+  assert.ok(game.closedAt);
+  assert.equal(context.replies.at(-2)?.message, 'Partida cancelada.');
+  assert.match(lastReply(context).message, /No tienes partidas de rol activas/);
+});
+
+test('primary GM can permanently delete a one-shot after typing its exact title and confirming', async () => {
+  const game = sampleRoleGame({
+    id: 3410,
+    title: 'One-shot de prueba',
+    type: 'one_shot',
+    primaryGmTelegramUserId: 42,
+  });
+  const repository = createFakeRoleGameRepository({ gamesById: [game], userGames: [game] });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: repository,
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().map(buttonText).includes('Configurar'));
+
+  await sendRoleGameText(context, 'Configurar');
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().map(buttonText).includes('Eliminar partida'));
+  await sendRoleGameText(context, 'Eliminar partida');
+  assert.match(lastReply(context).message, /escribe exactamente el título/i);
+
+  await sendRoleGameText(context, 'Título incorrecto');
+  assert.ok(await repository.findGameById(game.id));
+  assert.match(lastReply(context).message, /no coincide/i);
+
+  await sendRoleGameText(context, game.title);
+  assert.ok(await repository.findGameById(game.id));
+  assert.match(lastReply(context).message, /Esta acción no se puede deshacer/);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Confirmar eliminación definitiva']);
+
+  await sendRoleGameText(context, 'Confirmar eliminación definitiva');
+
+  assert.equal(await repository.findGameById(game.id), null);
+  assert.equal(context.replies.at(-2)?.message, 'Partida eliminada definitivamente.');
+  assert.match(lastReply(context).message, /No tienes partidas de rol activas/);
+});
+
+test('global admin can permanently delete a game after opening temporary admin mode', async () => {
+  const game = sampleRoleGame({
+    id: 3411,
+    title: 'Campaña administrativa de prueba',
+    visibility: 'private',
+    primaryGmTelegramUserId: 42,
+  });
+  const repository = createFakeRoleGameRepository({ gamesById: [game] });
+  const context = createRoleGameTestContext({
+    messageText: `/start role_game_${game.id}`,
+    roleGameRepository: repository,
+    actor: { telegramUserId: 7, isAdmin: true },
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  assert.ok(!lastReply(context).options?.replyKeyboard?.flat().map(buttonText).includes('Configurar'));
+  await sendRoleGameText(context, 'Abrir como administrador');
+  await sendRoleGameText(context, 'Configurar');
+  await sendRoleGameText(context, 'Eliminar partida');
+  await sendRoleGameText(context, game.title);
+  await sendRoleGameText(context, 'Confirmar eliminación definitiva');
+
+  assert.equal(await repository.findGameById(game.id), null);
+  assert.equal(context.replies.at(-2)?.message, 'Partida eliminada definitivamente.');
 });
 
 test('handleTelegramRoleGameCallback keeps full editing hidden from coorganizers', async () => {
@@ -1731,7 +1891,46 @@ test('handleTelegramRoleGameCallback paginates uploaded materials for managers',
   assert.doesNotMatch(lastReply(context).message, /Material 1/);
   assert.match(lastReply(context).message, /Mostrando 6-6 de 6\. Página 2\/2\./);
   assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
-  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(1)?.map(buttonText), ['Anterior']);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(2)?.map(buttonText), ['Anterior']);
+});
+
+test('role game handout categories support nested navigation, creation, and recursive reveal', async () => {
+  const game = sampleRoleGame({ id: 138, primaryGmTelegramUserId: 42 });
+  const root = sampleRoleGameMaterialCategory({ id: 1, roleGameId: game.id, name: 'Mundo' });
+  const child = sampleRoleGameMaterialCategory({ id: 2, roleGameId: game.id, parentCategoryId: root.id, name: 'PNJ' });
+  const materials = [
+    sampleRoleGameMaterial({ id: 20, roleGameId: game.id, categoryId: root.id, title: 'Historia' }),
+    sampleRoleGameMaterial({ id: 21, roleGameId: game.id, categoryId: child.id, title: 'Ireena' }),
+  ];
+  const revealed: number[] = [];
+  const repository = createFakeRoleGameRepository({
+    gamesById: [game],
+    materialCategories: [root, child],
+    materialsById: materials,
+    onUpdateMaterialVisibility: async (input) => {
+      revealed.push(input.materialId);
+      const material = materials.find((item) => item.id === input.materialId)!;
+      return { ...material, visibility: input.visibility, deliveryState: input.deliveryState };
+    },
+  });
+  const context = createRoleGameTestContext({
+    messageText: '/start role_material_category_1',
+    roleGameRepository: repository,
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(context), true);
+  assert.match(lastReply(context).message, /Mundo/);
+  assert.match(lastReply(context).message, /role_material_category_2/);
+  assert.match(lastReply(context).message, /Historia/);
+  assert.doesNotMatch(lastReply(context).message, /Ireena/);
+
+  await sendRoleGameText(context, 'Crear categoría de material');
+  await sendRoleGameText(context, 'Secretos');
+  assert.match(lastReply(context).message, /Secretos/);
+
+  await sendRoleGameText(context, 'Revelar toda la categoría');
+  assert.deepEqual(revealed.sort((left, right) => left - right), [20, 21]);
+  assert.match(context.replies.at(-2)?.message ?? '', /2 materiales/);
 });
 
 test('role game material upload collects a pack, asks for its name, and stores one named material', async () => {
@@ -1809,7 +2008,7 @@ test('role game material upload collects a pack, asks for its name, and stores o
   assert.equal(await handleTelegramRoleGameText(context), true);
 
   assert.equal(getCurrentSession(context)?.flowKey, 'role-game-detail');
-  assert.deepEqual(getCurrentSession(context)?.data, { gameId: game.id, view: 'materials', page: 1 });
+  assert.deepEqual(getCurrentSession(context)?.data, { gameId: game.id, view: 'materials', page: 1, materialCategoryId: null });
   assert.equal(storageRepository.createdEntries[0]?.categoryId, 8);
   assert.equal(storageRepository.createdEntries[0]?.messages.length, 2);
   assert.deepEqual(copiedMessages.map((message) => message.messageId), [77, 78]);
@@ -1853,12 +2052,15 @@ test('role game material detail sends every attachment and uses a persistent man
     ],
   });
   const copiedMessages: Array<{ fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }> = [];
+  const category = sampleRoleGameMaterialCategory({ id: 14, roleGameId: game.id, name: 'Mapas' });
+  const roleGameRepository = createFakeRoleGameRepository({
+    gamesById: [game],
+    materialCategories: [category],
+    materialsById: [material],
+  });
   const context = createRoleGameTestContext({
     messageText: '/start role_material_8',
-    roleGameRepository: createFakeRoleGameRepository({
-      gamesById: [game],
-      materialsById: [material],
-    }),
+    roleGameRepository,
     storageRepository,
     onCopyMessage: async (input) => {
       copiedMessages.push(input);
@@ -1870,18 +2072,39 @@ test('role game material detail sends every attachment and uses a persistent man
 
   assert.deepEqual(copiedMessages.map((message) => message.messageId), [901, 902]);
   assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
-  assert.deepEqual(lastReply(context).options?.replyKeyboard?.slice(0, 3).map((row) => row.map(buttonText)), [
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.slice(0, 4).map((row) => row.map(buttonText)), [
+    ['Mover a categoría'],
     ['Enviar a jugadores'],
     ['Enviar y revelar'],
     ['Revelar sin enviar'],
   ]);
   assert.equal(getCurrentSession(context)?.data.materialId, 8);
 
+  context.messageText = 'Mover a categoría';
+  assert.equal(await handleTelegramRoleGameText(context), true);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.slice(0, 2).map((row) => row.map(buttonText)), [
+    ['Sin categoría'],
+    ['Mapas'],
+  ]);
+  context.messageText = 'Mapas';
+  assert.equal(await handleTelegramRoleGameText(context), true);
+  assert.equal((await roleGameRepository.findMaterialById(8))?.categoryId, category.id);
+
   context.messageText = 'Enviar a jugadores';
   assert.equal(await handleTelegramRoleGameText(context), true);
   assert.match(lastReply(context).message, /0\/0/);
   assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
-  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Enviar a jugadores']);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Mover a categoría']);
+
+  context.messageText = 'Eliminar material';
+  assert.equal(await handleTelegramRoleGameText(context), true);
+  assert.match(lastReply(context).message, /¿Eliminar definitivamente «Pack visual»\?/);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Confirmar eliminación']);
+  context.messageText = 'Confirmar eliminación';
+  assert.equal(await handleTelegramRoleGameText(context), true);
+  assert.equal(await roleGameRepository.findMaterialById(material.id), null);
+  assert.equal(context.replies.at(-2)?.message, 'Material eliminado.');
+  assert.doesNotMatch(lastReply(context).message, /Pack visual/);
 });
 
 test('finishing a named upload provisions the missing handout category and continues the upload', async () => {
@@ -1953,7 +2176,7 @@ test('finishing a named upload provisions the missing handout category and conti
   assert.equal(storageRepository.createdEntries[0]?.messages.length, 1);
   assert.equal(createdMaterials[0]?.visibility, 'gm_only');
   assert.equal(getCurrentSession(context)?.flowKey, 'role-game-detail');
-  assert.deepEqual(getCurrentSession(context)?.data, { gameId: game.id, view: 'materials', page: 1 });
+  assert.deepEqual(getCurrentSession(context)?.data, { gameId: game.id, view: 'materials', page: 1, materialCategoryId: null });
   assert.match(lastReply(context).message, /Material guardado/);
 });
 
@@ -2352,6 +2575,7 @@ function createFakeRoleGameRepository({
   membersByGameId = new Map<number, RoleGameMemberRecord[]>(),
   sessionLinksByGameId = new Map<number, RoleGameSessionRecord[]>(),
   materialsById = [],
+  materialCategories = [],
   onCreateGame,
   onUpdateGame,
   onRequestSeat,
@@ -2369,6 +2593,7 @@ function createFakeRoleGameRepository({
   membersByGameId?: Map<number, RoleGameMemberRecord[]>;
   sessionLinksByGameId?: Map<number, RoleGameSessionRecord[]>;
   materialsById?: RoleGameMaterialRecord[];
+  materialCategories?: RoleGameMaterialCategoryRecord[];
   onCreateGame?: (input: CreateRoleGameInput) => Promise<RoleGameRecord>;
   onUpdateGame?: (input: Parameters<RoleGameRepository['updateGame']>[0]) => Promise<RoleGameRecord>;
   onRequestSeat?: (input: {
@@ -2387,6 +2612,7 @@ function createFakeRoleGameRepository({
 } = {}): FakeRoleGameRepository {
   const createdSessionLinks: RoleGameSessionRecord[] = Array.from(sessionLinksByGameId.values()).flat();
   const materials = new Map<number, RoleGameMaterialRecord>(materialsById.map((material) => [material.id, material]));
+  const categories = new Map<number, RoleGameMaterialCategoryRecord>(materialCategories.map((category) => [category.id, category]));
   return {
     createGame: async (input) => {
       if (onCreateGame) {
@@ -2446,6 +2672,53 @@ function createFakeRoleGameRepository({
       Array.from(materials.values())
         .filter((material) => material.roleGameId === gameId)
         .sort((left, right) => left.id - right.id),
+    createMaterialCategory: async (input) => {
+      const created: RoleGameMaterialCategoryRecord = {
+        id: Math.max(0, ...categories.keys()) + 1,
+        ...input,
+        createdAt: '2026-07-09T10:00:00.000Z',
+        updatedAt: '2026-07-09T10:00:00.000Z',
+      };
+      categories.set(created.id, created);
+      return created;
+    },
+    findMaterialCategoryById: async (categoryId) => categories.get(categoryId) ?? null,
+    listMaterialCategories: async (gameId) => Array.from(categories.values()).filter((category) => category.roleGameId === gameId),
+    moveMaterialToCategory: async (input) => {
+      const material = materials.get(input.materialId);
+      if (!material) throw new Error('Role game material not found');
+      const category = input.categoryId === null ? null : categories.get(input.categoryId);
+      if (category && category.roleGameId !== material.roleGameId) throw new Error('Material category does not belong to the role game');
+      if (input.categoryId !== null && !category) throw new Error('Material category not found');
+      const updated = { ...material, categoryId: input.categoryId };
+      materials.set(updated.id, updated);
+      return updated;
+    },
+    deleteMaterial: async (input) => {
+      const material = materials.get(input.materialId);
+      if (!material || material.roleGameId !== input.roleGameId) throw new Error('Role game material not found');
+      materials.delete(material.id);
+      return material;
+    },
+    deleteGame: async (input) => {
+      const game = gamesById.find((candidate) => candidate.id === input.gameId);
+      if (!game) throw new Error('Role game not found');
+      for (const collection of new Set([gamesById, visibleGames, userGames])) {
+        const index = collection.findIndex((candidate) => candidate.id === game.id);
+        if (index >= 0) collection.splice(index, 1);
+      }
+      membersByGameId.delete(game.id);
+      for (let index = createdSessionLinks.length - 1; index >= 0; index -= 1) {
+        if (createdSessionLinks[index]?.roleGameId === game.id) createdSessionLinks.splice(index, 1);
+      }
+      for (const material of materials.values()) {
+        if (material.roleGameId === game.id) materials.delete(material.id);
+      }
+      for (const category of categories.values()) {
+        if (category.roleGameId === game.id) categories.delete(category.id);
+      }
+      return game;
+    },
     updateMaterialVisibility: async (input) => {
       if (onUpdateMaterialVisibility) {
         const updated = await onUpdateMaterialVisibility(input);
@@ -2855,6 +3128,19 @@ function sampleRoleGameMaterial(overrides: Partial<RoleGameMaterialRecord> = {})
     createdAt: '2026-07-09T10:00:00.000Z',
     updatedAt: '2026-07-09T10:00:00.000Z',
     revealedAt: null,
+    ...overrides,
+  };
+}
+
+function sampleRoleGameMaterialCategory(overrides: Partial<RoleGameMaterialCategoryRecord> = {}): RoleGameMaterialCategoryRecord {
+  return {
+    id: 1,
+    roleGameId: 1,
+    parentCategoryId: null,
+    name: 'Categoría',
+    createdByTelegramUserId: 42,
+    createdAt: '2026-07-09T10:00:00.000Z',
+    updatedAt: '2026-07-09T10:00:00.000Z',
     ...overrides,
   };
 }

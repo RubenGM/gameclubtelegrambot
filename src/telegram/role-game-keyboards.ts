@@ -83,6 +83,8 @@ export function buildRoleGameDashboardKeyboard({
   canManageMaterials = false,
   canConfigure = false,
   canRequestSeat = false,
+  canOpenAsAdmin = false,
+  canExitAdminMode = false,
   pendingRequestCount = 0,
   language = 'ca',
 }: {
@@ -92,6 +94,8 @@ export function buildRoleGameDashboardKeyboard({
   canManageMaterials?: boolean;
   canConfigure?: boolean;
   canRequestSeat?: boolean;
+  canOpenAsAdmin?: boolean;
+  canExitAdminMode?: boolean;
   pendingRequestCount?: number;
   language?: BotLanguage;
 }): TelegramReplyOptions {
@@ -122,6 +126,12 @@ export function buildRoleGameDashboardKeyboard({
   }
   if (canRequestSeat) {
     rows.push([successButton(texts.requestSeat)]);
+  }
+  if (canOpenAsAdmin) {
+    rows.push([primaryButton(texts.openAsAdmin)]);
+  }
+  if (canExitAdminMode) {
+    rows.push([navigationButton(texts.exitAdminMode)]);
   }
   rows.push([navigationButton(texts.backToMyGames)]);
   return buildRoleGameReplyKeyboard(language, rows);
@@ -195,11 +205,15 @@ export function buildRoleGameParticipantActionConfirmationKeyboard(language: Bot
 
 export function buildRoleGameMaterialsKeyboard({
   canUpload = false,
+  canManageCategory = false,
+  inCategory = false,
   hasPreviousPage = false,
   hasNextPage = false,
   language = 'ca',
 }: {
   canUpload?: boolean;
+  canManageCategory?: boolean;
+  inCategory?: boolean;
   hasPreviousPage?: boolean;
   hasNextPage?: boolean;
   language?: BotLanguage;
@@ -214,8 +228,14 @@ export function buildRoleGameMaterialsKeyboard({
   }
   return buildRoleGameReplyKeyboard(language, [
     ...(canUpload ? [[primaryButton(texts.uploadMaterial)]] : []),
+    ...(canManageCategory ? [[primaryButton(texts.createMaterialCategory)]] : []),
+    ...(canManageCategory && inCategory ? [
+      [primaryButton(texts.sendMaterialCategoryOnly)],
+      [successButton(texts.sendAndRevealMaterialCategory)],
+      [successButton(texts.revealMaterialCategoryOnly)],
+    ] : []),
     ...(navigation.length > 0 ? [navigation] : []),
-    [navigationButton(texts.backToGame)],
+    [navigationButton(inCategory ? texts.backToParentMaterialCategory : texts.backToGame)],
   ]);
 }
 
@@ -251,9 +271,11 @@ export function buildRoleGameMaterialDetailKeyboard({
   const texts = createTelegramI18n(language).roleGames;
   return buildRoleGameReplyKeyboard(language, [
     ...(canManage ? [
+      [primaryButton(texts.moveMaterialToCategory)],
       [primaryButton(texts.sendMaterialOnly)],
       [successButton(texts.sendAndRevealMaterial)],
       [successButton(texts.revealMaterialOnly)],
+      [dangerButton(texts.deleteMaterial)],
     ] : []),
     [navigationButton(texts.backToMaterials)],
   ]);
@@ -262,16 +284,22 @@ export function buildRoleGameMaterialDetailKeyboard({
 export function buildRoleGameConfigurationKeyboard({
   canEdit = false,
   canConfigureRecurrence = false,
+  canCancel = false,
+  canDelete = false,
   language = 'ca',
 }: {
   canEdit?: boolean;
   canConfigureRecurrence?: boolean;
+  canCancel?: boolean;
+  canDelete?: boolean;
   language?: BotLanguage;
 } = {}): TelegramReplyOptions {
   const texts = createTelegramI18n(language).roleGames;
   return buildRoleGameReplyKeyboard(language, [
     ...(canEdit ? [[primaryButton(texts.editGame)]] : []),
     ...(canConfigureRecurrence ? [[primaryButton(texts.configureRecurrence)]] : []),
+    ...(canCancel ? [[dangerButton(texts.cancelGame)]] : []),
+    ...(canDelete ? [[dangerButton(texts.deleteGame)]] : []),
     [navigationButton(texts.backToGame)],
   ]);
 }

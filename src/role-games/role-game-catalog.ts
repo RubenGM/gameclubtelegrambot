@@ -86,6 +86,7 @@ export interface RoleGameSessionRecord {
 export interface RoleGameMaterialRecord {
   id: number;
   roleGameId: number;
+  categoryId?: number | null;
   internalStorageEntryId: number;
   title: string;
   description: string | null;
@@ -95,6 +96,16 @@ export interface RoleGameMaterialRecord {
   createdAt: string;
   updatedAt: string;
   revealedAt: string | null;
+}
+
+export interface RoleGameMaterialCategoryRecord {
+  id: number;
+  roleGameId: number;
+  parentCategoryId: number | null;
+  name: string;
+  createdByTelegramUserId: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RoleGameMaterialDeliveryRecord {
@@ -181,6 +192,7 @@ export interface CreateRoleGameSessionLinkInput {
 
 export interface CreateRoleGameMaterialInput {
   roleGameId: number;
+  categoryId?: number | null;
   internalStorageEntryId: number;
   title: string;
   description: string | null;
@@ -223,6 +235,12 @@ export interface RoleGameRepository {
   createMaterial(input: CreateRoleGameMaterialInput): Promise<RoleGameMaterialRecord>;
   findMaterialById(materialId: number): Promise<RoleGameMaterialRecord | null>;
   listMaterials(gameId: number): Promise<RoleGameMaterialRecord[]>;
+  createMaterialCategory?(input: { roleGameId: number; parentCategoryId: number | null; name: string; createdByTelegramUserId: number }): Promise<RoleGameMaterialCategoryRecord>;
+  findMaterialCategoryById?(categoryId: number): Promise<RoleGameMaterialCategoryRecord | null>;
+  listMaterialCategories?(gameId: number): Promise<RoleGameMaterialCategoryRecord[]>;
+  moveMaterialToCategory?(input: { materialId: number; categoryId: number | null }): Promise<RoleGameMaterialRecord>;
+  deleteMaterial?(input: { materialId: number; roleGameId: number; deletedByTelegramUserId: number }): Promise<RoleGameMaterialRecord>;
+  deleteGame?(input: { gameId: number; deletedByTelegramUserId: number }): Promise<RoleGameRecord>;
   updateMaterialVisibility(input: UpdateRoleGameMaterialVisibilityInput): Promise<RoleGameMaterialRecord>;
   createMaterialDelivery(input: CreateRoleGameMaterialDeliveryInput): Promise<RoleGameMaterialDeliveryRecord>;
   requestSeat(input: {
@@ -283,7 +301,7 @@ export async function requestRoleGameSeat({
   if (game.status !== 'active') {
     throw new Error(`Role game ${normalizedGameId} is not active`);
   }
-  if (game.entryMode !== 'request') {
+  if (game.entryMode !== 'request' && !normalizedActor.isAdmin) {
     throw new Error(`Role game ${normalizedGameId} does not accept seat requests`);
   }
   const existing = await repository.findMemberByTelegramUserId(normalizedGameId, normalizedTelegramUserId);
@@ -523,11 +541,34 @@ export async function createRoleGameMaterial({
   return repository.createMaterial({
     ...input,
     roleGameId: normalizeEntityId(input.roleGameId, 'role game'),
+    categoryId: input.categoryId == null ? null : normalizeEntityId(input.categoryId, 'material category'),
     internalStorageEntryId: normalizeEntityId(input.internalStorageEntryId, 'storage entry'),
     title: normalizeText(input.title, 'material title', 1, 255),
     description: normalizeOptionalText(input.description),
     uploadedByTelegramUserId: normalizeTelegramUserId(input.uploadedByTelegramUserId, 'uploader'),
     deliveryState: input.deliveryState ?? 'not_sent',
+  });
+}
+
+export async function createRoleGameMaterialCategory({
+  repository,
+  roleGameId,
+  parentCategoryId,
+  name,
+  createdByTelegramUserId,
+}: {
+  repository: RoleGameRepository;
+  roleGameId: number;
+  parentCategoryId: number | null;
+  name: string;
+  createdByTelegramUserId: number;
+}): Promise<RoleGameMaterialCategoryRecord> {
+  if (!repository.createMaterialCategory) throw new Error('Material categories are not supported');
+  return repository.createMaterialCategory({
+    roleGameId: normalizeEntityId(roleGameId, 'role game'),
+    parentCategoryId: parentCategoryId == null ? null : normalizeEntityId(parentCategoryId, 'parent category'),
+    name: normalizeText(name, 'material category name', 1, 120),
+    createdByTelegramUserId: normalizeTelegramUserId(createdByTelegramUserId, 'creator'),
   });
 }
 
@@ -585,12 +626,16 @@ export function canRequestRoleGameSeat(
 ): boolean {
   if (
     game.status !== 'active' ||
-    game.entryMode !== 'request' ||
-    actor.isAdmin ||
     game.primaryGmTelegramUserId === actor.telegramUserId ||
     membership !== null ||
     !canViewRoleGame(actor, game, membership)
   ) {
+    return false;
+  }
+  if (actor.isAdmin) {
+    return true;
+  }
+  if (game.entryMode !== 'request') {
     return false;
   }
   if (actor.isApproved === true) {

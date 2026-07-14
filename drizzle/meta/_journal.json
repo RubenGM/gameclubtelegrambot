@@ -288,6 +288,13 @@
       "when": 1784020834600,
       "tag": "0040_milky_luminals",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1784028150808,
+      "tag": "0041_lyrical_scarecrow",
+      "breakpoints": true
     }
   ]
 }

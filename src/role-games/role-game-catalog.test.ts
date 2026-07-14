@@ -96,6 +96,7 @@ test('canViewRoleGame follows visibility and membership boundaries', () => {
 test('canRequestRoleGameSeat applies approval, game type, visibility, join policy, and membership state', () => {
   const approved = { telegramUserId: 100, isAdmin: false, isApproved: true };
   const external = { telegramUserId: 100, isAdmin: false, isApproved: false };
+  const admin = { telegramUserId: 100, isAdmin: true, isApproved: true };
   const publicCampaign = sampleGame({ type: 'campaign', visibility: 'public', publicJoinPolicy: 'members_and_external' });
   const membersOnlyOneShot = sampleGame({ type: 'one_shot', visibility: 'public', publicJoinPolicy: 'members_only' });
   const externalOneShot = sampleGame({ type: 'one_shot', visibility: 'public', publicJoinPolicy: 'members_and_external' });
@@ -107,11 +108,32 @@ test('canRequestRoleGameSeat applies approval, game type, visibility, join polic
   assert.equal(canRequestRoleGameSeat(external, membersOnlyOneShot, null), false);
   assert.equal(canRequestRoleGameSeat(external, externalOneShot, null), true);
   assert.equal(canRequestRoleGameSeat(approved, externalOneShot, confirmed), false);
+  assert.equal(canRequestRoleGameSeat(admin, sampleGame({ visibility: 'private', entryMode: 'invite_only' }), null), true);
   for (const status of ['left', 'removed', 'rejected'] as const) {
     const historicalMember = sampleMember({ telegramUserId: 100, status });
     assert.equal(canRequestRoleGameSeat(approved, publicCampaign, historicalMember), false, status);
     assert.equal(canRequestRoleGameSeat(external, externalOneShot, historicalMember), false, status);
   }
+});
+
+test('requestRoleGameSeat lets a global admin request an invite-only private game without bypassing review', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const game = await repository.createGame(sampleCreateInput({
+    visibility: 'private',
+    entryMode: 'invite_only',
+    acceptanceMode: 'manual_review',
+  }));
+
+  const member = await requestRoleGameSeat({
+    repository,
+    gameId: game.id,
+    telegramUserId: 100,
+    actor: { telegramUserId: 100, isAdmin: true, isApproved: true },
+  });
+
+  assert.equal(member.role, 'player');
+  assert.equal(member.status, 'requested');
+  assert.equal(member.isExternal, false);
 });
 
 test('requestRoleGameSeat auto-confirms while capacity remains', async () => {

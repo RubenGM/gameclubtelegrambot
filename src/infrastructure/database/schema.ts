@@ -518,6 +518,29 @@ export const roleGameSessions = pgTable(
   }),
 );
 
+export const roleGameMaterialCategories = pgTable(
+  'role_game_material_categories',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    roleGameId: bigint('role_game_id', { mode: 'number' })
+      .notNull()
+      .references(() => roleGames.id, { onDelete: 'cascade' }),
+    parentCategoryId: bigint('parent_category_id', { mode: 'number' })
+      .references((): AnyPgColumn => roleGameMaterialCategories.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 120 }).notNull(),
+    createdByTelegramUserId: bigint('created_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    roleGameLookup: index('role_game_material_categories_role_game_id_idx').on(table.roleGameId),
+    parentLookup: index('role_game_material_categories_parent_category_id_idx').on(table.parentCategoryId),
+    uniqueSiblingName: uniqueIndex('role_game_material_categories_sibling_name_unique').on(table.roleGameId, table.parentCategoryId, table.name),
+  }),
+);
+
 export const roleGameMaterials = pgTable(
   'role_game_materials',
   {
@@ -525,6 +548,8 @@ export const roleGameMaterials = pgTable(
     roleGameId: bigint('role_game_id', { mode: 'number' })
       .notNull()
       .references(() => roleGames.id),
+    categoryId: bigint('category_id', { mode: 'number' })
+      .references(() => roleGameMaterialCategories.id, { onDelete: 'set null' }),
     internalStorageEntryId: bigint('internal_storage_entry_id', { mode: 'number' })
       .notNull()
       .references(() => storageEntries.id),
@@ -541,6 +566,7 @@ export const roleGameMaterials = pgTable(
   },
   (table) => ({
     roleGameLookup: index('role_game_materials_role_game_id_idx').on(table.roleGameId),
+    categoryLookup: index('role_game_materials_category_id_idx').on(table.categoryId),
     internalStorageEntryLookup: uniqueIndex('role_game_materials_internal_storage_entry_id_idx').on(table.internalStorageEntryId),
   }),
 );

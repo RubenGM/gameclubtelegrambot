@@ -1,19 +1,25 @@
-import { and, asc, count, eq, ne } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, ne } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import {
   roleGameCharacters,
+  roleGameCharacterAttachments,
+  roleGameCharacterClaimRequests,
+  roleGameMaterialCategories,
   roleGameMaterialDeliveries,
   roleGameMaterials,
   roleGameMembers,
   roleGames,
   roleGameSessions,
+  scheduleEvents,
+  storageEntries,
 } from '../infrastructure/database/schema.js';
 import type {
   CreateRoleGameMemberInput,
   RoleGameMemberRecord,
   RoleGameMemberStatus,
   RoleGameMaterialDeliveryRecord,
+  RoleGameMaterialCategoryRecord,
   RoleGameMaterialRecord,
   RoleGameRecord,
   RoleGameRecurrenceRule,
@@ -27,6 +33,7 @@ type RoleGameRow = typeof roleGames.$inferSelect;
 type RoleGameMemberRow = typeof roleGameMembers.$inferSelect;
 type RoleGameSessionRow = typeof roleGameSessions.$inferSelect;
 type RoleGameMaterialRow = typeof roleGameMaterials.$inferSelect;
+type RoleGameMaterialCategoryRow = typeof roleGameMaterialCategories.$inferSelect;
 type RoleGameMaterialDeliveryRow = typeof roleGameMaterialDeliveries.$inferSelect;
 
 const activeMemberStatuses = ['invited', 'requested', 'confirmed', 'waitlisted'] as const;
@@ -265,6 +272,7 @@ export function createDatabaseRoleGameRepository({
         .insert(roleGameMaterials)
         .values({
           roleGameId: input.roleGameId,
+          categoryId: input.categoryId ?? null,
           internalStorageEntryId: input.internalStorageEntryId,
           title: input.title,
           description: input.description,
@@ -291,6 +299,135 @@ export function createDatabaseRoleGameRepository({
         .where(eq(roleGameMaterials.roleGameId, gameId))
         .orderBy(asc(roleGameMaterials.createdAt), asc(roleGameMaterials.id));
       return rows.filter((row) => row.roleGameId === gameId).map(mapRoleGameMaterialRow);
+    },
+    async createMaterialCategory(input) {
+      if (input.parentCategoryId !== null) {
+        const parent = await database.select().from(roleGameMaterialCategories)
+          .where(and(eq(roleGameMaterialCategories.id, input.parentCategoryId), eq(roleGameMaterialCategories.roleGameId, input.roleGameId))).limit(1);
+        if (!parent[0]) throw new Error('Parent material category does not belong to the role game');
+      }
+      const rows = await database.insert(roleGameMaterialCategories).values(input).returning();
+      if (!rows[0]) throw new Error('Role game material category insert did not return a row');
+      return mapRoleGameMaterialCategoryRow(rows[0]);
+    },
+    async findMaterialCategoryById(categoryId) {
+      const rows = await database.select().from(roleGameMaterialCategories)
+        .where(eq(roleGameMaterialCategories.id, categoryId)).limit(1);
+      return rows[0] ? mapRoleGameMaterialCategoryRow(rows[0]) : null;
+    },
+    async listMaterialCategories(gameId) {
+      const rows = await database.select().from(roleGameMaterialCategories)
+        .where(eq(roleGameMaterialCategories.roleGameId, gameId))
+        .orderBy(asc(roleGameMaterialCategories.name), asc(roleGameMaterialCategories.id));
+      return rows.map(mapRoleGameMaterialCategoryRow);
+    },
+    async moveMaterialToCategory(input) {
+      const materialRows = await database.select().from(roleGameMaterials)
+        .where(eq(roleGameMaterials.id, input.materialId)).limit(1);
+      const material = materialRows[0];
+      if (!material) throw new Error(`Role game material ${input.materialId} not found`);
+      if (input.categoryId !== null) {
+        const categoryRows = await database.select().from(roleGameMaterialCategories)
+          .where(and(eq(roleGameMaterialCategories.id, input.categoryId), eq(roleGameMaterialCategories.roleGameId, material.roleGameId))).limit(1);
+        if (!categoryRows[0]) throw new Error('Material category does not belong to the role game');
+      }
+      const rows = await database.update(roleGameMaterials).set({ categoryId: input.categoryId, updatedAt: new Date() })
+        .where(eq(roleGameMaterials.id, material.id)).returning();
+      if (!rows[0]) throw new Error(`Role game material ${input.materialId} not found`);
+      return mapRoleGameMaterialRow(rows[0]);
+    },
+    async deleteMaterial(input) {
+      return database.transaction(async (tx) => {
+        const materialRows = await tx.select().from(roleGameMaterials)
+          .where(and(eq(roleGameMaterials.id, input.materialId), eq(roleGameMaterials.roleGameId, input.roleGameId))).limit(1);
+        const material = materialRows[0];
+        if (!material) throw new Error(`Role game material ${input.materialId} not found`);
+        await tx.delete(roleGameMaterialDeliveries).where(eq(roleGameMaterialDeliveries.roleGameMaterialId, material.id));
+        const deletedRows = await tx.delete(roleGameMaterials)
+          .where(and(eq(roleGameMaterials.id, material.id), eq(roleGameMaterials.roleGameId, input.roleGameId))).returning();
+        if (!deletedRows[0]) throw new Error(`Role game material ${input.materialId} not found`);
+        await tx.update(storageEntries).set({
+          lifecycleStatus: 'deleted',
+          deletedAt: new Date(),
+          deletedByTelegramUserId: input.deletedByTelegramUserId,
+          updatedAt: new Date(),
+        }).where(eq(storageEntries.id, material.internalStorageEntryId));
+        return mapRoleGameMaterialRow(deletedRows[0]);
+      });
+    },
+    async deleteGame(input) {
+      return database.transaction(async (tx) => {
+        const gameRows = await tx.select().from(roleGames)
+          .where(eq(roleGames.id, input.gameId)).limit(1);
+        const game = gameRows[0];
+        if (!game) throw new Error(`Role game ${input.gameId} not found`);
+
+        const characterRows = await tx.select({ id: roleGameCharacters.id }).from(roleGameCharacters)
+          .where(eq(roleGameCharacters.roleGameId, game.id));
+        const materialRows = await tx
+          .select({ id: roleGameMaterials.id, storageEntryId: roleGameMaterials.internalStorageEntryId })
+          .from(roleGameMaterials)
+          .where(eq(roleGameMaterials.roleGameId, game.id));
+        const sessionRows = await tx.select({ scheduleEventId: roleGameSessions.scheduleEventId })
+          .from(roleGameSessions)
+          .where(eq(roleGameSessions.roleGameId, game.id));
+        const characterIds = characterRows.map((row) => row.id);
+        const materialIds = materialRows.map((row) => row.id);
+        const scheduleEventIds = sessionRows.map((row) => row.scheduleEventId);
+        const attachmentRows = characterIds.length > 0
+          ? await tx.select({ storageEntryId: roleGameCharacterAttachments.internalStorageEntryId })
+            .from(roleGameCharacterAttachments)
+            .where(inArray(roleGameCharacterAttachments.characterId, characterIds))
+          : [];
+
+        if (characterIds.length > 0) {
+          await tx.delete(roleGameCharacterClaimRequests)
+            .where(inArray(roleGameCharacterClaimRequests.characterId, characterIds));
+          await tx.delete(roleGameCharacterAttachments)
+            .where(inArray(roleGameCharacterAttachments.characterId, characterIds));
+        }
+        if (materialIds.length > 0) {
+          await tx.delete(roleGameMaterialDeliveries)
+            .where(inArray(roleGameMaterialDeliveries.roleGameMaterialId, materialIds));
+        }
+        await tx.delete(roleGameMaterials).where(eq(roleGameMaterials.roleGameId, game.id));
+        await tx.delete(roleGameCharacters).where(eq(roleGameCharacters.roleGameId, game.id));
+        await tx.delete(roleGameSessions).where(eq(roleGameSessions.roleGameId, game.id));
+        await tx.delete(roleGameMembers).where(eq(roleGameMembers.roleGameId, game.id));
+        await tx.delete(roleGameMaterialCategories).where(eq(roleGameMaterialCategories.roleGameId, game.id));
+
+        if (scheduleEventIds.length > 0) {
+          const now = new Date();
+          await tx.update(scheduleEvents).set({
+            lifecycleStatus: 'cancelled',
+            cancelledAt: now,
+            cancelledByTelegramUserId: input.deletedByTelegramUserId,
+            cancellationReason: `Partida de rol eliminada: ${game.title}`,
+            updatedAt: now,
+          }).where(and(
+            inArray(scheduleEvents.id, scheduleEventIds),
+            eq(scheduleEvents.lifecycleStatus, 'scheduled'),
+          ));
+        }
+
+        const storageEntryIds = [
+          ...materialRows.map((row) => row.storageEntryId),
+          ...attachmentRows.map((row) => row.storageEntryId),
+        ];
+        if (storageEntryIds.length > 0) {
+          const now = new Date();
+          await tx.update(storageEntries).set({
+            lifecycleStatus: 'deleted',
+            deletedAt: now,
+            deletedByTelegramUserId: input.deletedByTelegramUserId,
+            updatedAt: now,
+          }).where(inArray(storageEntries.id, storageEntryIds));
+        }
+
+        const deletedRows = await tx.delete(roleGames).where(eq(roleGames.id, game.id)).returning();
+        if (!deletedRows[0]) throw new Error(`Role game ${input.gameId} not found`);
+        return mapRoleGameRow(deletedRows[0]);
+      });
     },
     async updateMaterialVisibility(input) {
       const now = new Date();
@@ -691,6 +828,7 @@ function mapRoleGameMaterialRow(row: RoleGameMaterialRow): RoleGameMaterialRecor
   return {
     id: row.id,
     roleGameId: row.roleGameId,
+    categoryId: row.categoryId,
     internalStorageEntryId: row.internalStorageEntryId,
     title: row.title,
     description: row.description,
@@ -700,6 +838,18 @@ function mapRoleGameMaterialRow(row: RoleGameMaterialRow): RoleGameMaterialRecor
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     revealedAt: row.revealedAt?.toISOString() ?? null,
+  };
+}
+
+function mapRoleGameMaterialCategoryRow(row: RoleGameMaterialCategoryRow): RoleGameMaterialCategoryRecord {
+  return {
+    id: row.id,
+    roleGameId: row.roleGameId,
+    parentCategoryId: row.parentCategoryId,
+    name: row.name,
+    createdByTelegramUserId: row.createdByTelegramUserId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 

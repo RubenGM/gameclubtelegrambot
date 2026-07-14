@@ -6,6 +6,7 @@ import {
   canViewRoleGameMaterial,
   createRoleGame,
   createRoleGameMaterial,
+  createRoleGameMaterialCategory,
   manageRoleGameMember,
   recordRoleGameMaterialDelivery,
   requestRoleGameSeat,
@@ -13,6 +14,7 @@ import {
   type RoleGameAcceptanceMode,
   type RoleGameEntryMode,
   type RoleGameMaterialDeliveryMode,
+  type RoleGameMaterialCategoryRecord,
   type RoleGameMaterialRecord,
   type RoleGameMemberManagementAction,
   type RoleGameMemberRecord,
@@ -116,6 +118,7 @@ const roleGameMaterialUploadFlowKey = 'role-game-material-upload';
 const roleGameEditFlowKey = 'role-game-edit';
 const roleGameStartPayloadPrefix = 'role_game_';
 const roleGameMaterialStartPayloadPrefix = 'role_material_';
+const roleGameMaterialCategoryStartPayloadPrefix = 'role_material_category_';
 const roleGameMaterialsPageSize = 5;
 const storageDefaultChatMetadataKey = 'storage.default_chat';
 const roleGameHandoutCategorySlug = 'role-handouts';
@@ -200,9 +203,12 @@ interface RoleGameEditDraft {
 
 interface RoleGameDetailSessionData {
   gameId: number;
-  view: 'dashboard' | 'sessions' | 'materials' | 'configuration' | 'material-detail';
+  view: 'dashboard' | 'sessions' | 'materials' | 'configuration' | 'cancel-game-confirm' | 'delete-game-title' | 'delete-game-confirm' | 'material-detail' | 'material-category-create' | 'material-move' | 'material-delete-confirm';
   page?: number;
   materialId?: number;
+  materialCategoryId?: number | null;
+  materialCategoryButtons?: Record<string, number | null>;
+  adminMode?: boolean;
 }
 
 interface RoleGameMaterialDraftMessage {
@@ -364,6 +370,21 @@ export async function handleTelegramRoleGameStartText(context: TelegramRoleGameC
   if (await handleTelegramRoleGameCharacterStartText(context)) {
     return true;
   }
+  const materialCategoryId = parseStartPayload(context.messageText, roleGameMaterialCategoryStartPayloadPrefix);
+  if (materialCategoryId !== null && context.runtime.chat.kind === 'private') {
+    const repository = resolveRepository(context);
+    const category = repository.findMaterialCategoryById ? await repository.findMaterialCategoryById(materialCategoryId) : null;
+    if (!category) {
+      await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).roleGames.notFound);
+      return true;
+    }
+    return replyWithRoleGameMaterials(context, {
+      language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+      gameId: category.roleGameId,
+      page: 1,
+      categoryId: category.id,
+    });
+  }
   const materialId = parseStartPayload(context.messageText, roleGameMaterialStartPayloadPrefix);
   if (materialId !== null && context.runtime.chat.kind === 'private') {
     return replyWithRoleGameMaterial(context, materialId, normalizeBotLanguage(context.runtime.bot.language, 'ca'));
@@ -380,7 +401,6 @@ export async function handleTelegramRoleGameStartText(context: TelegramRoleGameC
     await context.reply(createTelegramI18n(language).roleGames.notFound, buildRoleGameHomeKeyboard(language));
     return true;
   }
-
   await replyWithRoleGameDetail(context, game, language);
   return true;
 }
@@ -1108,9 +1128,11 @@ async function startRoleGameMaterialUpload(
   {
     language,
     gameId,
+    categoryId = null,
   }: {
     language: BotLanguage;
     gameId: number;
+    categoryId?: number | null;
   },
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).roleGames;
@@ -1134,7 +1156,7 @@ async function startRoleGameMaterialUpload(
   await context.runtime.session.start({
     flowKey: roleGameMaterialUploadFlowKey,
     stepKey: 'media',
-    data: { gameId: game.id },
+    data: { gameId: game.id, materialCategoryId: categoryId },
   });
   await context.reply(texts.promptMaterialUpload, buildRoleGameCreateStepKeyboard({ language }));
   return true;
@@ -1191,10 +1213,12 @@ async function replyWithRoleGameMaterials(
     language,
     gameId,
     page,
+    categoryId = null,
   }: {
     language: BotLanguage;
     gameId: number;
     page: number;
+    categoryId?: number | null;
   },
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).roleGames;
@@ -1210,35 +1234,37 @@ async function replyWithRoleGameMaterials(
     return true;
   }
 
-  const materials = await repository.listMaterials(game.id);
-  if (materials.length === 0) {
-    await context.runtime.session.start({
-      flowKey: 'role-game-detail',
-      stepKey: 'materials',
-      data: { gameId: game.id, view: 'materials', page: 1 } satisfies RoleGameDetailSessionData,
-    });
-    await context.reply(`${texts.noMaterials}\n\n${formatRoleGameMaterialUploadShortcut(game.id, language)}`, {
-      ...buildRoleGameMaterialsKeyboard({ canUpload: true, language }),
-      parseMode: 'HTML',
-    });
+  const categories = repository.listMaterialCategories ? await repository.listMaterialCategories(game.id) : [];
+  const currentCategory = categoryId === null ? null : categories.find((category) => category.id === categoryId) ?? null;
+  if (categoryId !== null && !currentCategory) {
+    await context.reply(texts.notFound, buildRoleGameHomeKeyboard(language));
     return true;
   }
-
-  const totalPages = Math.max(1, Math.ceil(materials.length / roleGameMaterialsPageSize));
+  const childCategories = categories.filter((category) => category.parentCategoryId === categoryId);
+  const materials = (await repository.listMaterials(game.id)).filter((material) => (material.categoryId ?? null) === categoryId);
+  const entries: Array<{ kind: 'category'; category: RoleGameMaterialCategoryRecord } | { kind: 'material'; material: RoleGameMaterialRecord }> = [
+    ...childCategories.map((category) => ({ kind: 'category' as const, category })),
+    ...materials.map((material) => ({ kind: 'material' as const, material })),
+  ];
+  const totalPages = Math.max(1, Math.ceil(entries.length / roleGameMaterialsPageSize));
   const clampedPage = Math.min(Math.max(1, page), totalPages);
   const start = (clampedPage - 1) * roleGameMaterialsPageSize;
-  const visibleMaterials = materials.slice(start, start + roleGameMaterialsPageSize);
+  const visibleEntries = entries.slice(start, start + roleGameMaterialsPageSize);
   const lines = [
-    `<b>${escapeHtml(texts.materialsHeader.replace('{title}', game.title))}</b>`,
+    `<b>${escapeHtml(texts.materialsHeader.replace('{title}', game.title))}</b>${currentCategory ? `\n${escapeHtml(formatRoleGameMaterialCategoryPath(currentCategory, categories))}` : ''}`,
     '',
-    ...visibleMaterials.map((material) => formatRoleGameMaterialListRow(material, language)),
+    ...(visibleEntries.length > 0
+      ? visibleEntries.map((entry) => entry.kind === 'category'
+        ? `📁 <a href="${escapeHtml(buildTelegramStartUrl(`${roleGameMaterialCategoryStartPayloadPrefix}${entry.category.id}`))}"><b>${escapeHtml(entry.category.name)}</b></a>`
+        : formatRoleGameMaterialListRow(entry.material, language))
+      : [escapeHtml(currentCategory ? texts.materialCategoryEmpty : texts.noMaterials)]),
   ];
   if (totalPages > 1) {
     lines.push('');
     lines.push(escapeHtml(texts.materialListFooter
       .replace('{from}', String(start + 1))
-      .replace('{to}', String(start + visibleMaterials.length))
-      .replace('{total}', String(materials.length))
+      .replace('{to}', String(start + visibleEntries.length))
+      .replace('{total}', String(entries.length))
       .replace('{page}', String(clampedPage))
       .replace('{pages}', String(totalPages))));
   }
@@ -1246,11 +1272,13 @@ async function replyWithRoleGameMaterials(
   await context.runtime.session.start({
     flowKey: 'role-game-detail',
     stepKey: 'materials',
-    data: { gameId: game.id, view: 'materials', page: clampedPage } satisfies RoleGameDetailSessionData,
+    data: { gameId: game.id, view: 'materials', page: clampedPage, materialCategoryId: categoryId } satisfies RoleGameDetailSessionData,
   });
   await context.reply(lines.join('\n'), {
     ...buildRoleGameMaterialsKeyboard({
       canUpload: true,
+      canManageCategory: true,
+      inCategory: currentCategory !== null,
       hasPreviousPage: clampedPage > 1,
       hasNextPage: clampedPage < totalPages,
       language,
@@ -1358,18 +1386,26 @@ async function handleRoleGameMaterialUploadText(
     );
     return true;
   }
-  return persistRoleGameMaterialDraft(context, { gameId: Number(session.data.gameId), title, messages, language });
+  return persistRoleGameMaterialDraft(context, {
+    gameId: Number(session.data.gameId),
+    categoryId: typeof session.data.materialCategoryId === 'number' ? session.data.materialCategoryId : null,
+    title,
+    messages,
+    language,
+  });
 }
 
 async function persistRoleGameMaterialDraft(
   context: TelegramRoleGameContext,
   {
     gameId,
+    categoryId,
     title,
     messages,
     language,
   }: {
     gameId: number;
+    categoryId: number | null;
     title: string;
     messages: RoleGameMaterialDraftMessage[];
     language: BotLanguage;
@@ -1440,6 +1476,7 @@ async function persistRoleGameMaterialDraft(
   const material = await createRoleGameMaterial({
     repository: roleGameRepository,
     roleGameId: game.id,
+    categoryId,
     internalStorageEntryId: storageEntry.entry.id,
     title,
     description: messages.find((message) => message.caption)?.caption ?? null,
@@ -1449,10 +1486,10 @@ async function persistRoleGameMaterialDraft(
   await context.runtime.session.start({
     flowKey: 'role-game-detail',
     stepKey: 'materials',
-    data: { gameId: game.id, view: 'materials', page: 1 } satisfies RoleGameDetailSessionData,
+    data: { gameId: game.id, view: 'materials', page: 1, materialCategoryId: categoryId } satisfies RoleGameDetailSessionData,
   });
   await progress.complete([texts.materialSaved, formatRoleGameMaterialMessage(material)].join('\n\n'), {
-    ...buildRoleGameMaterialsKeyboard({ canUpload: true, language }),
+    ...buildRoleGameMaterialsKeyboard({ canUpload: true, canManageCategory: true, inCategory: categoryId !== null, language }),
     parseMode: 'HTML',
   });
   return true;
@@ -1495,51 +1532,7 @@ async function handleRoleGameMaterialCallback(
 
   const players = (await repository.listMembers(game.id))
     .filter((member) => member.role === 'player' && member.status === 'confirmed');
-  const storageDetail = deliveryMode === 'reveal_only'
-    ? null
-    : await resolveStorageRepository(context).getEntryDetail(material.internalStorageEntryId);
-  let sent = 0;
-  let failed = 0;
-
-  if (deliveryMode !== 'reveal_only') {
-    for (const player of players) {
-      try {
-        await context.runtime.bot.sendPrivateMessage(
-          player.telegramUserId,
-          formatRoleGameMaterialMessage(material),
-          { parseMode: 'HTML' },
-        );
-        if (storageDetail) {
-          await copyRoleGameMaterialToPrivateChat(context, storageDetail, player.telegramUserId);
-        }
-        sent += 1;
-        await recordRoleGameMaterialDelivery({
-          repository,
-          roleGameMaterialId: material.id,
-          recipientTelegramUserId: player.telegramUserId,
-          sentByTelegramUserId: context.runtime.actor.telegramUserId,
-          deliveryMode,
-          status: 'sent',
-          errorCode: null,
-        });
-      } catch (error) {
-        failed += 1;
-        await recordRoleGameMaterialDelivery({
-          repository,
-          roleGameMaterialId: material.id,
-          recipientTelegramUserId: player.telegramUserId,
-          sentByTelegramUserId: context.runtime.actor.telegramUserId,
-          deliveryMode,
-          status: 'failed',
-          errorCode: error instanceof Error ? error.message : 'send_failed',
-        });
-      }
-    }
-  }
-
-  if (deliveryMode === 'send_and_reveal' || deliveryMode === 'reveal_only') {
-    await revealRoleGameMaterial({ repository, materialId: material.id });
-  }
+  const { sent, failed } = await deliverRoleGameMaterial(context, { repository, material, players, deliveryMode });
 
   if (deliveryMode === 'reveal_only') {
     await context.reply(texts.materialRevealed, buildRoleGameMaterialDetailKeyboard({ canManage: true, language }));
@@ -1554,6 +1547,82 @@ async function handleRoleGameMaterialCallback(
     deliveryMode === 'send_and_reveal' ? texts.materialDeliveryRevealed : null,
   ].filter((line): line is string => Boolean(line)).join('\n'), buildRoleGameMaterialDetailKeyboard({ canManage: true, language }));
   return true;
+}
+
+async function deliverRoleGameMaterial(
+  context: TelegramRoleGameContext,
+  {
+    repository,
+    material,
+    players,
+    deliveryMode,
+  }: {
+    repository: RoleGameRepository;
+    material: RoleGameMaterialRecord;
+    players: RoleGameMemberRecord[];
+    deliveryMode: RoleGameMaterialDeliveryMode;
+  },
+): Promise<{ sent: number; failed: number }> {
+  const storageDetail = deliveryMode === 'reveal_only'
+    ? null
+    : await resolveStorageRepository(context).getEntryDetail(material.internalStorageEntryId);
+  let sent = 0;
+  let failed = 0;
+  if (deliveryMode !== 'reveal_only') {
+    for (const player of players) {
+      try {
+        await context.runtime.bot.sendPrivateMessage(player.telegramUserId, formatRoleGameMaterialMessage(material), { parseMode: 'HTML' });
+        if (storageDetail) await copyRoleGameMaterialToPrivateChat(context, storageDetail, player.telegramUserId);
+        sent += 1;
+        await recordRoleGameMaterialDelivery({ repository, roleGameMaterialId: material.id, recipientTelegramUserId: player.telegramUserId, sentByTelegramUserId: context.runtime.actor.telegramUserId, deliveryMode, status: 'sent', errorCode: null });
+      } catch (error) {
+        failed += 1;
+        await recordRoleGameMaterialDelivery({ repository, roleGameMaterialId: material.id, recipientTelegramUserId: player.telegramUserId, sentByTelegramUserId: context.runtime.actor.telegramUserId, deliveryMode, status: 'failed', errorCode: error instanceof Error ? error.message : 'send_failed' });
+      }
+    }
+  }
+  if (deliveryMode === 'send_and_reveal' || deliveryMode === 'reveal_only') await revealRoleGameMaterial({ repository, materialId: material.id });
+  return { sent, failed };
+}
+
+async function handleRoleGameMaterialCategoryDelivery(
+  context: TelegramRoleGameContext,
+  {
+    game,
+    categoryId,
+    deliveryMode,
+    language,
+  }: {
+    game: RoleGameRecord;
+    categoryId: number;
+    deliveryMode: RoleGameMaterialDeliveryMode;
+    language: BotLanguage;
+  },
+): Promise<boolean> {
+  const repository = resolveRepository(context);
+  const categories = repository.listMaterialCategories ? await repository.listMaterialCategories(game.id) : [];
+  const category = categories.find((item) => item.id === categoryId);
+  if (!category) return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: 1 });
+  const descendantIds = collectRoleGameMaterialCategoryIds(category.id, categories);
+  const materials = (await repository.listMaterials(game.id)).filter((material) => descendantIds.has(material.categoryId ?? -1));
+  const players = (await repository.listMembers(game.id)).filter((member) => member.role === 'player' && member.status === 'confirmed');
+  const texts = createTelegramI18n(language).roleGames;
+  const progress = await startTelegramEditableProgress(context, texts.materialCategoryProgress
+    .replace('{current}', '0').replace('{total}', String(materials.length)).replace('{title}', category.name), {
+    editFailedEvent: 'role-games.material-category.progress-edit.failed',
+  });
+  let sent = 0;
+  let failed = 0;
+  for (const [index, material] of materials.entries()) {
+    await progress.update(texts.materialCategoryProgress
+      .replace('{current}', String(index + 1)).replace('{total}', String(materials.length)).replace('{title}', material.title));
+    const result = await deliverRoleGameMaterial(context, { repository, material, players, deliveryMode });
+    sent += result.sent;
+    failed += result.failed;
+  }
+  await progress.complete(texts.materialCategorySummary
+    .replace('{materials}', String(materials.length)).replace('{sent}', String(sent)).replace('{failed}', String(failed)));
+  return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: 1, categoryId: category.id });
 }
 
 async function replyWithRoleGameListFromSession(
@@ -1628,15 +1697,16 @@ async function replyWithRoleGameList(
 async function listRoleGames(context: TelegramRoleGameContext, kind: RoleGameListKind): Promise<RoleGameRecord[]> {
   const repository = resolveRepository(context);
   if (kind === 'mine') {
-    return repository.listGamesForUser(context.runtime.actor.telegramUserId);
+    return (await repository.listGamesForUser(context.runtime.actor.telegramUserId))
+      .filter((game) => game.status !== 'cancelled' && game.status !== 'closed');
   }
-  return repository.listVisibleGames({
+  return (await repository.listVisibleGames({
     actor: {
       telegramUserId: context.runtime.actor.telegramUserId,
       isAdmin: context.runtime.actor.isAdmin,
       isApproved: context.runtime.actor.isApproved,
     },
-  });
+  })).filter((game) => game.status !== 'cancelled' && game.status !== 'closed');
 }
 
 async function findVisibleRoleGameDetail(context: TelegramRoleGameContext, gameId: number): Promise<RoleGameRecord | null> {
@@ -1715,6 +1785,7 @@ async function replyWithRoleGameDetail(
   game: RoleGameRecord,
   language: BotLanguage,
   prefixMessage?: string,
+  adminMode = false,
 ): Promise<void> {
   const [dashboardAccess, nextSession] = await Promise.all([
     loadRoleGameDashboardAccess(context, game),
@@ -1723,14 +1794,14 @@ async function replyWithRoleGameDetail(
   await context.runtime.session.start({
     flowKey: 'role-game-detail',
     stepKey: 'dashboard',
-    data: { gameId: game.id, view: 'dashboard' } satisfies RoleGameDetailSessionData,
+    data: { gameId: game.id, view: 'dashboard', ...(adminMode ? { adminMode: true } : {}) } satisfies RoleGameDetailSessionData,
   });
   await context.reply([
     prefixMessage,
     formatRoleGameDetailMessage({ game, language }),
     formatRoleGameDashboardSummary({ game, dashboardAccess, nextSession, language }),
   ].filter((message): message is string => Boolean(message)).join('\n\n'), {
-    ...buildRoleGameDashboardOptions(context, game, language, dashboardAccess),
+    ...buildRoleGameDashboardOptions(context, game, language, dashboardAccess, adminMode),
     parseMode: 'HTML',
   });
 }
@@ -1757,20 +1828,29 @@ function buildRoleGameDashboardOptions(
   game: RoleGameRecord,
   language: BotLanguage,
   { actorMember, members }: RoleGameDashboardAccess,
+  adminMode = false,
 ) {
-  const actor = {
+  const realActor = {
     telegramUserId: context.runtime.actor.telegramUserId,
     isAdmin: context.runtime.actor.isAdmin,
     isApproved: context.runtime.actor.isApproved,
   };
+  const isAdminVisitor = realActor.isAdmin &&
+    game.primaryGmTelegramUserId !== realActor.telegramUserId &&
+    actorMember?.status !== 'confirmed';
+  const actor = { ...realActor, isAdmin: realActor.isAdmin && (!isAdminVisitor || adminMode) };
   const canManageParticipants = canManageRoleGameOperationally(actor, game, actorMember);
+  const canFullyManage = canManageRoleGame(actor, game, actorMember);
   return buildRoleGameDashboardKeyboard({
     canManageParticipants,
     canViewCharacters: canManageParticipants || actorMember?.status === 'confirmed',
-    canSchedule: canScheduleManualRoleGameSession(context, game, actorMember),
+    canSchedule: !isAdminVisitor || adminMode ? canScheduleManualRoleGameSession(context, game, actorMember) : false,
     canManageMaterials: canManageParticipants,
-    canConfigure: canConfigureRoleGameRecurrence(context, game, actorMember),
-    canRequestSeat: canRequestRoleGameSeat(actor, game, actorMember),
+    canConfigure: (!isAdminVisitor || adminMode) &&
+      (canFullyManage || canConfigureRoleGameRecurrence(context, game, actorMember)),
+    canRequestSeat: !adminMode && canRequestRoleGameSeat(realActor, game, actorMember),
+    canOpenAsAdmin: isAdminVisitor && !adminMode,
+    canExitAdminMode: isAdminVisitor && adminMode,
     pendingRequestCount: canManageParticipants
       ? members.filter((member) => member.role === 'player' && member.status === 'requested').length
       : 0,
@@ -1847,6 +1927,11 @@ async function handleRoleGameDetailText(
     await context.reply(texts.notFound, buildRoleGameHomeKeyboard(language));
     return true;
   }
+  const currentMembership = await resolveRepository(context).findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+  const adminVisitorInNormalMode = context.runtime.actor.isAdmin &&
+    game.primaryGmTelegramUserId !== context.runtime.actor.telegramUserId &&
+    currentMembership?.status !== 'confirmed' &&
+    (data as Partial<RoleGameDetailSessionData>).adminMode !== true;
   if (text === texts.backToMyGames) {
     await context.runtime.session.cancel();
     return replyWithRoleGameList(context, { kind: 'mine', page: 1, language });
@@ -1855,12 +1940,161 @@ async function handleRoleGameDetailText(
     await replyWithRoleGameDetail(context, game, language);
     return true;
   }
-  if (text === texts.characters) {
+  if (text === texts.characters && !adminVisitorInNormalMode) {
     return openRoleGameCharacters(context, game.id, language);
+  }
+  if (data.view === 'dashboard' && text === texts.openAsAdmin) {
+    const isAdminVisitor = context.runtime.actor.isAdmin &&
+      game.primaryGmTelegramUserId !== context.runtime.actor.telegramUserId &&
+      currentMembership?.status !== 'confirmed';
+    if (!isAdminVisitor) return false;
+    await replyWithRoleGameDetail(context, game, language, texts.adminModeNotice, true);
+    return true;
+  }
+  if (data.view === 'dashboard' && text === texts.exitAdminMode && data.adminMode === true) {
+    await replyWithRoleGameDetail(context, game, language);
+    return true;
+  }
+  if (data.view === 'material-category-create') {
+    const repository = resolveRepository(context);
+    try {
+      await createRoleGameMaterialCategory({
+        repository,
+        roleGameId: game.id,
+        parentCategoryId: data.materialCategoryId ?? null,
+        name: text,
+        createdByTelegramUserId: context.runtime.actor.telegramUserId,
+      });
+      await context.reply(texts.materialCategorySaved);
+    } catch {
+      await context.reply(texts.invalidCreateValue);
+      return true;
+    }
+    return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: 1, categoryId: data.materialCategoryId ?? null });
+  }
+  if (data.view === 'material-move' && typeof data.materialId === 'number' && data.materialCategoryButtons && Object.hasOwn(data.materialCategoryButtons, text)) {
+    const repository = resolveRepository(context);
+    const membership = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+    if (!canManageCurrentRoleGame(context, game, membership) || !repository.moveMaterialToCategory) {
+      await context.reply(texts.permissionDenied);
+      return true;
+    }
+    await repository.moveMaterialToCategory({ materialId: data.materialId, categoryId: data.materialCategoryButtons[text] ?? null });
+    await context.reply(texts.materialMoved);
+    return replyWithRoleGameMaterial(context, data.materialId, language);
+  }
+  if (data.view === 'material-delete-confirm' && typeof data.materialId === 'number') {
+    if (text !== texts.confirmDeleteMaterialAction) return false;
+    const repository = resolveRepository(context);
+    const membership = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+    const material = await repository.findMaterialById(data.materialId);
+    if (!material || material.roleGameId !== game.id || !canManageCurrentRoleGame(context, game, membership) || !repository.deleteMaterial) {
+      await context.reply(texts.permissionDenied);
+      return true;
+    }
+    await repository.deleteMaterial({
+      materialId: material.id,
+      roleGameId: game.id,
+      deletedByTelegramUserId: context.runtime.actor.telegramUserId,
+    });
+    await context.reply(texts.materialDeleted);
+    return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: 1, categoryId: material.categoryId ?? null });
+  }
+  if (data.view === 'cancel-game-confirm') {
+    if (text !== texts.confirmCancelGameAction) return false;
+    const repository = resolveRepository(context);
+    const membership = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+    if (!canFullyManageCurrentRoleGame(context, game, membership) || game.status === 'cancelled' || game.status === 'closed') {
+      await context.reply(texts.permissionDenied);
+      return true;
+    }
+    await repository.updateGame({ gameId: game.id, status: 'cancelled', closedAt: new Date().toISOString() });
+    await context.reply(texts.gameCancelled);
+    return replyWithRoleGameList(context, { kind: 'mine', page: 1, language });
+  }
+  if (data.view === 'delete-game-title') {
+    if (text === texts.cancel) return false;
+    const repository = resolveRepository(context);
+    const membership = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+    if (!canFullyManageCurrentRoleGame(context, game, membership) || !repository.deleteGame) {
+      await context.reply(texts.permissionDenied);
+      return true;
+    }
+    if (text !== game.title) {
+      await context.reply(texts.deleteGameTitleMismatch, buildRoleGameCreateStepKeyboard({ language }));
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: 'role-game-detail',
+      stepKey: 'delete-game-confirm',
+      data: { gameId: game.id, view: 'delete-game-confirm' } satisfies RoleGameDetailSessionData,
+    });
+    await context.reply(texts.confirmDeleteGame.replace('{title}', game.title), buildRoleGameCreateStepKeyboard({
+      language,
+      rows: [[{ text: texts.confirmDeleteGameAction, semanticRole: 'danger' }]],
+    }));
+    return true;
+  }
+  if (data.view === 'delete-game-confirm') {
+    if (text !== texts.confirmDeleteGameAction) return false;
+    const repository = resolveRepository(context);
+    const membership = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+    if (!canFullyManageCurrentRoleGame(context, game, membership) || !repository.deleteGame) {
+      await context.reply(texts.permissionDenied);
+      return true;
+    }
+    await repository.deleteGame({
+      gameId: game.id,
+      deletedByTelegramUserId: context.runtime.actor.telegramUserId,
+    });
+    await context.reply(texts.gameDeleted);
+    return replyWithRoleGameList(context, { kind: 'mine', page: 1, language });
   }
   if (data.view === 'material-detail' && typeof data.materialId === 'number') {
     if (text === texts.backToMaterials) {
       return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: 1 });
+    }
+    if (text === texts.moveMaterialToCategory) {
+      const repository = resolveRepository(context);
+      const membership = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+      if (!canManageCurrentRoleGame(context, game, membership)) {
+        await context.reply(texts.permissionDenied);
+        return true;
+      }
+      const categories = repository.listMaterialCategories ? await repository.listMaterialCategories(game.id) : [];
+      const materialCategoryButtons: Record<string, number | null> = {
+        [texts.materialUncategorizedHeader]: null,
+        ...Object.fromEntries(categories.map((category) => [formatRoleGameMaterialCategoryPath(category, categories), category.id])),
+      };
+      await context.runtime.session.start({
+        flowKey: 'role-game-detail',
+        stepKey: 'material-move',
+        data: { gameId: game.id, view: 'material-move', materialId: data.materialId, materialCategoryButtons } satisfies RoleGameDetailSessionData,
+      });
+      await context.reply(texts.promptMoveMaterialCategory, buildRoleGameCreateStepKeyboard({
+        language,
+        rows: Object.keys(materialCategoryButtons).map((label) => [{ text: label, semanticRole: 'primary' }] as TelegramReplyButton[]),
+      }));
+      return true;
+    }
+    if (text === texts.deleteMaterial) {
+      const repository = resolveRepository(context);
+      const membership = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+      const material = await repository.findMaterialById(data.materialId);
+      if (!material || material.roleGameId !== game.id || !canManageCurrentRoleGame(context, game, membership) || !repository.deleteMaterial) {
+        await context.reply(texts.permissionDenied);
+        return true;
+      }
+      await context.runtime.session.start({
+        flowKey: 'role-game-detail',
+        stepKey: 'material-delete-confirm',
+        data: { gameId: game.id, view: 'material-delete-confirm', materialId: material.id } satisfies RoleGameDetailSessionData,
+      });
+      await context.reply(texts.confirmDeleteMaterial.replace('{title}', material.title), buildRoleGameCreateStepKeyboard({
+        language,
+        rows: [[{ text: texts.confirmDeleteMaterialAction, semanticRole: 'danger' }]],
+      }));
+      return true;
     }
     const deliveryMode = text === texts.sendMaterialOnly
       ? 'send_only'
@@ -1917,29 +2151,53 @@ async function handleRoleGameDetailText(
   if (text === texts.sessions) {
     return replyWithRoleGameSessions(context, { language, game });
   }
-  if (await isRoleGameParticipantsButtonText(context, game, text, language)) {
+  if (!adminVisitorInNormalMode && await isRoleGameParticipantsButtonText(context, game, text, language)) {
     return replyWithRoleGameParticipants(context, { language, game, kind: 'active', page: 1 });
   }
-  if (text === texts.materials) {
+  if (text === texts.materials && !adminVisitorInNormalMode) {
     return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: 1 });
   }
-  if (text === texts.configuration) {
+  if (text === texts.configuration && !adminVisitorInNormalMode) {
     return replyWithRoleGameConfiguration(context, { language, gameId: game.id });
   }
-  if (text === texts.invite) {
+  if (text === texts.invite && !adminVisitorInNormalMode) {
     return replyWithRoleGameInvitation(context, { language, gameId: game.id });
   }
   if (text === texts.requestSeat) {
     return requestRoleGameSeatAndReply(context, { language, gameId: game.id });
   }
   if (data.view === 'materials' && text === texts.uploadMaterial) {
-    return startRoleGameMaterialUpload(context, { language, gameId: game.id });
+    return startRoleGameMaterialUpload(context, { language, gameId: game.id, categoryId: data.materialCategoryId ?? null });
+  }
+  if (data.view === 'materials' && text === texts.createMaterialCategory) {
+    await context.runtime.session.start({
+      flowKey: 'role-game-detail',
+      stepKey: 'material-category-create',
+      data: { gameId: game.id, view: 'material-category-create', materialCategoryId: data.materialCategoryId ?? null } satisfies RoleGameDetailSessionData,
+    });
+    await context.reply(texts.promptMaterialCategoryName, buildRoleGameCreateStepKeyboard({ language }));
+    return true;
+  }
+  if (data.view === 'materials' && text === texts.backToParentMaterialCategory && typeof data.materialCategoryId === 'number') {
+    const repository = resolveRepository(context);
+    const current = repository.findMaterialCategoryById ? await repository.findMaterialCategoryById(data.materialCategoryId) : null;
+    return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: 1, categoryId: current?.parentCategoryId ?? null });
+  }
+  if (data.view === 'materials' && typeof data.materialCategoryId === 'number') {
+    const deliveryMode = text === texts.sendMaterialCategoryOnly
+      ? 'send_only'
+      : text === texts.sendAndRevealMaterialCategory
+        ? 'send_and_reveal'
+        : text === texts.revealMaterialCategoryOnly
+          ? 'reveal_only'
+          : null;
+    if (deliveryMode) return handleRoleGameMaterialCategoryDelivery(context, { game, categoryId: data.materialCategoryId, deliveryMode, language });
   }
   if (data.view === 'materials' && text === texts.previousPage) {
-    return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: Math.max(1, (data.page ?? 1) - 1) });
+    return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: Math.max(1, (data.page ?? 1) - 1), categoryId: data.materialCategoryId ?? null });
   }
   if (data.view === 'materials' && text === texts.nextPage) {
-    return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: (data.page ?? 1) + 1 });
+    return replyWithRoleGameMaterials(context, { language, gameId: game.id, page: (data.page ?? 1) + 1, categoryId: data.materialCategoryId ?? null });
   }
   if (data.view === 'sessions' && text === texts.scheduleNextSession) {
     return startRoleGameManualSession(context, { language, gameId: game.id });
@@ -1949,6 +2207,39 @@ async function handleRoleGameDetailText(
   }
   if (data.view === 'configuration' && text === texts.configureRecurrence) {
     return startRoleGameRecurrenceConfiguration(context, { language, gameId: game.id });
+  }
+  if (data.view === 'configuration' && text === texts.cancelGame) {
+    const repository = resolveRepository(context);
+    const membership = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+    if (!canFullyManageCurrentRoleGame(context, game, membership) || game.status === 'cancelled' || game.status === 'closed') {
+      await context.reply(texts.permissionDenied);
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: 'role-game-detail',
+      stepKey: 'cancel-game-confirm',
+      data: { gameId: game.id, view: 'cancel-game-confirm' } satisfies RoleGameDetailSessionData,
+    });
+    await context.reply(texts.confirmCancelGame.replace('{title}', game.title), buildRoleGameCreateStepKeyboard({
+      language,
+      rows: [[{ text: texts.confirmCancelGameAction, semanticRole: 'danger' }]],
+    }));
+    return true;
+  }
+  if (data.view === 'configuration' && text === texts.deleteGame) {
+    const repository = resolveRepository(context);
+    const membership = await repository.findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+    if (!canFullyManageCurrentRoleGame(context, game, membership) || !repository.deleteGame) {
+      await context.reply(texts.permissionDenied);
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: 'role-game-detail',
+      stepKey: 'delete-game-title',
+      data: { gameId: game.id, view: 'delete-game-title' } satisfies RoleGameDetailSessionData,
+    });
+    await context.reply(texts.promptDeleteGameTitle.replace('{title}', game.title), buildRoleGameCreateStepKeyboard({ language }));
+    return true;
   }
   return false;
 }
@@ -2410,7 +2701,13 @@ async function replyWithRoleGameConfiguration(
     data: { gameId: game.id, view: 'configuration' } satisfies RoleGameDetailSessionData,
   });
   await context.reply(`<b>${escapeHtml(texts.configuration)}</b>`, {
-    ...buildRoleGameConfigurationKeyboard({ canEdit, canConfigureRecurrence, language }),
+    ...buildRoleGameConfigurationKeyboard({
+      canEdit,
+      canConfigureRecurrence,
+      canCancel: canEdit && game.status !== 'cancelled' && game.status !== 'closed',
+      canDelete: canEdit && Boolean(resolveRepository(context).deleteGame),
+      language,
+    }),
     parseMode: 'HTML',
   });
   return true;
@@ -2468,6 +2765,36 @@ function formatRoleGameMaterialListRow(material: RoleGameMaterialRecord, languag
   const texts = createTelegramI18n(language).roleGames;
   const state = material.visibility === 'players' ? texts.materialVisibilityPlayers : texts.materialVisibilityGmOnly;
   return `- <a href="${url}">${escapeHtml(material.title)}</a> · ${escapeHtml(state)}`;
+}
+
+function collectRoleGameMaterialCategoryIds(rootId: number, categories: RoleGameMaterialCategoryRecord[]): Set<number> {
+  const result = new Set<number>([rootId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const category of categories) {
+      if (category.parentCategoryId !== null && result.has(category.parentCategoryId) && !result.has(category.id)) {
+        result.add(category.id);
+        changed = true;
+      }
+    }
+  }
+  return result;
+}
+
+function formatRoleGameMaterialCategoryPath(category: RoleGameMaterialCategoryRecord, categories: RoleGameMaterialCategoryRecord[]): string {
+  const byId = new Map(categories.map((item) => [item.id, item]));
+  const path = [category.name];
+  const visited = new Set<number>([category.id]);
+  let parentId = category.parentCategoryId;
+  while (parentId !== null && !visited.has(parentId)) {
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    path.unshift(parent.name);
+    visited.add(parent.id);
+    parentId = parent.parentCategoryId;
+  }
+  return path.join(' / ');
 }
 
 function formatRoleGameMaterialUploadShortcut(gameId: number, language: BotLanguage): string {

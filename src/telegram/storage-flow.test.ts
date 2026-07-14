@@ -570,6 +570,17 @@ test('handleTelegramStorageText opens the storage submenu from the command entry
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 });
 
+test('handleTelegramStorageText does not claim the role-game material category action', async () => {
+  const { context, replies, getCurrentSession } = createContext(createRepository());
+  context.messageText = 'Crear categoría de material';
+
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, false);
+  assert.equal(getCurrentSession(), null);
+  assert.deepEqual(replies, []);
+});
+
 test('handleTelegramStorageText lists available categories for approved users', async () => {
   const repository = createRepository([
     createCategory({ id: 7, slug: 'manuales', displayName: 'Manuales' }),

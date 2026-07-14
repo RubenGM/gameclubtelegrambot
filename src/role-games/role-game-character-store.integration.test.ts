@@ -63,6 +63,25 @@ integrationTest('PostgreSQL transfers ownership atomically and approves only one
       recurrenceWindowCount: 0,
     });
     gameId = game.id;
+    assert.ok(roleGameRepository.createMaterialCategory);
+    assert.ok(roleGameRepository.listMaterialCategories);
+    const materialCategory = await roleGameRepository.createMaterialCategory({
+      roleGameId: game.id,
+      parentCategoryId: null,
+      name: `Lore ${seed.suffix}`,
+      createdByTelegramUserId: seed.gmTelegramUserId,
+    });
+    const materialSubcategory = await roleGameRepository.createMaterialCategory({
+      roleGameId: game.id,
+      parentCategoryId: materialCategory.id,
+      name: `NPC ${seed.suffix}`,
+      createdByTelegramUserId: seed.gmTelegramUserId,
+    });
+    assert.equal(materialSubcategory.parentCategoryId, materialCategory.id);
+    assert.deepEqual(
+      (await roleGameRepository.listMaterialCategories(game.id)).map((category) => category.id).sort((left, right) => left - right),
+      [materialCategory.id, materialSubcategory.id].sort((left, right) => left - right),
+    );
     const player = await roleGameRepository.createMember({
       roleGameId: game.id,
       telegramUserId: seed.playerTelegramUserId,
@@ -178,6 +197,14 @@ integrationTest('PostgreSQL transfers ownership atomically and approves only one
       (await characterRepository.findCharacterById(lifecycleCharacter.id))?.assignedMemberId,
       null,
     );
+    assert.ok(roleGameRepository.deleteGame);
+    await roleGameRepository.deleteGame({
+      gameId: game.id,
+      deletedByTelegramUserId: seed.gmTelegramUserId,
+    });
+    assert.equal(await roleGameRepository.findGameById(game.id), null);
+    assert.equal(await characterRepository.findCharacterById(character.id), null);
+    gameId = null;
   } finally {
     if (gameId !== null) {
       const characterRows = await connection.db
