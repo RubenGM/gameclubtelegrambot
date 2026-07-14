@@ -94,6 +94,15 @@ import {
   roleGameMemberManagementActions,
 } from './i18n-role-games.js';
 import type { TelegramReplyButton } from './runtime-boundary.js';
+import type { RoleGameCharacterRepository } from '../role-games/role-game-character-catalog.js';
+import { createDatabaseRoleGameCharacterRepository } from '../role-games/role-game-character-store.js';
+import {
+  handleTelegramRoleGameCharacterStartText,
+  handleTelegramRoleGameCharacterMessage,
+  handleTelegramRoleGameCharacterText,
+  isRoleGameCharacterSession,
+  openRoleGameCharacters,
+} from './role-game-character-flow.js';
 import {
   createDatabaseAppMetadataSessionStorage,
   type AppMetadataSessionStorage,
@@ -224,6 +233,7 @@ type RoleGameDetailSessionState = RoleGameDetailSessionData | RoleGameParticipan
 
 export type TelegramRoleGameContext = TelegramCommandHandlerContext & {
   roleGameRepository?: RoleGameRepository;
+  characterRepository?: RoleGameCharacterRepository;
   membershipRepository?: MembershipAccessRepository;
   scheduleRepository?: ScheduleRepository;
   storageRepository?: StorageCategoryRepository;
@@ -244,6 +254,19 @@ export async function handleTelegramRoleGameText(context: TelegramRoleGameContex
 
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).roleGames;
+
+  if (isRoleGameCharacterSession(context)) {
+    const characterSession = context.runtime.session.current?.data as { gameId?: unknown } | undefined;
+    if (text === texts.backToGame && typeof characterSession?.gameId === 'number') {
+      const game = await findVisibleRoleGameDetail(context, characterSession.gameId);
+      if (game) {
+        await replyWithRoleGameDetail(context, game, language);
+        return true;
+      }
+    }
+    const handled = await handleTelegramRoleGameCharacterText(context);
+    if (handled) return true;
+  }
 
   if (isRoleGameDetailSession(context)) {
     const handled = await handleRoleGameDetailText(context, text, language);
@@ -323,6 +346,10 @@ export async function handleTelegramRoleGameText(context: TelegramRoleGameContex
 }
 
 export async function handleTelegramRoleGameMessage(context: TelegramRoleGameContext): Promise<boolean> {
+  if (isRoleGameCharacterSession(context)) {
+    const handled = await handleTelegramRoleGameCharacterMessage(context);
+    if (handled) return true;
+  }
   if (
     context.runtime.chat.kind !== 'private' ||
     !context.runtime.actor.isApproved ||
@@ -335,6 +362,9 @@ export async function handleTelegramRoleGameMessage(context: TelegramRoleGameCon
 }
 
 export async function handleTelegramRoleGameStartText(context: TelegramRoleGameContext): Promise<boolean> {
+  if (await handleTelegramRoleGameCharacterStartText(context)) {
+    return true;
+  }
   const materialId = parseStartPayload(context.messageText, roleGameMaterialStartPayloadPrefix);
   if (materialId !== null && context.runtime.chat.kind === 'private') {
     return replyWithRoleGameMaterial(context, materialId, normalizeBotLanguage(context.runtime.bot.language, 'ca'));
@@ -1737,6 +1767,7 @@ function buildRoleGameDashboardOptions(
   const canManageParticipants = canManageRoleGameOperationally(actor, game, actorMember);
   return buildRoleGameDashboardKeyboard({
     canManageParticipants,
+    canViewCharacters: canManageParticipants || actorMember?.status === 'confirmed',
     canSchedule: canScheduleManualRoleGameSession(context, game, actorMember),
     canManageMaterials: canManageParticipants,
     canConfigure: canConfigureRoleGameRecurrence(context, game, actorMember),
@@ -1824,6 +1855,9 @@ async function handleRoleGameDetailText(
   if (text === texts.backToGame) {
     await replyWithRoleGameDetail(context, game, language);
     return true;
+  }
+  if (text === texts.characters) {
+    return openRoleGameCharacters(context, game.id, language);
   }
   if (data.view === 'material-detail' && typeof data.materialId === 'number') {
     if (text === texts.backToMaterials) {
@@ -2171,6 +2205,15 @@ async function executeRoleGameParticipantAction(
     return recoverRoleGameParticipantAction(context, { game, page, language, message: texts.participantActionStale });
   }
   try {
+    let affectedCharacters: Array<{ name: string }> = [];
+    if (action === 'remove') {
+      try {
+        affectedCharacters = (await resolveCharacterRepository(context).listCharacters(game.id))
+          .filter((character) => character.assignedMemberId === member.id);
+      } catch (error) {
+        context.runtime.logger?.warn?.({ error, gameId: game.id, memberId: member.id }, 'role_game.character.member_removal_lookup.failed');
+      }
+    }
     const updated = await manageRoleGameMember({
       repository,
       actor: context.runtime.actor,
@@ -2191,6 +2234,14 @@ async function executeRoleGameParticipantAction(
       } satisfies RoleGameParticipantsSessionData,
     });
     await notifyRoleGameMemberChange(context, { game, member: updated, action, language });
+    if (affectedCharacters.length > 0) {
+      await notifyRoleGameCharacterRemoval(context, {
+        game,
+        member: updated,
+        characterNames: affectedCharacters.map((character) => character.name),
+        language,
+      });
+    }
   } catch (error) {
     return recoverRoleGameParticipantAction(context, {
       game,
@@ -2200,6 +2251,23 @@ async function executeRoleGameParticipantAction(
     });
   }
   return replyWithRoleGameParticipants(context, { language, game, kind: 'active', page });
+}
+
+async function notifyRoleGameCharacterRemoval(
+  context: TelegramRoleGameContext,
+  { game, member, characterNames, language }: { game: RoleGameRecord; member: RoleGameMemberRecord; characterNames: string[]; language: BotLanguage },
+): Promise<void> {
+  const names = characterNames.join(', ');
+  const message = {
+    ca: `Els teus personatges de ${game.title} han quedat sense assignar: ${names}. Els públics tornen a estar disponibles.`,
+    es: `Tus personajes de ${game.title} han quedado sin asignar: ${names}. Los públicos vuelven a estar disponibles.`,
+    en: `Your characters in ${game.title} are now unassigned: ${names}. Public characters are available again.`,
+  }[language];
+  try {
+    await context.runtime.bot.sendPrivateMessage(member.telegramUserId, message);
+  } catch (error) {
+    context.runtime.logger?.warn?.({ error, gameId: game.id, memberId: member.id }, 'role_game.character.member_removal_notification.failed');
+  }
 }
 
 async function recoverRoleGameParticipantAction(
@@ -2989,6 +3057,12 @@ function isSupportedRoleGameMaterialAttachment(attachmentKind: string): boolean 
 
 function resolveRepository(context: TelegramRoleGameContext): RoleGameRepository {
   return context.roleGameRepository ?? createDatabaseRoleGameRepository({
+    database: context.runtime.services.database.db,
+  });
+}
+
+function resolveCharacterRepository(context: TelegramRoleGameContext): RoleGameCharacterRepository {
+  return context.characterRepository ?? createDatabaseRoleGameCharacterRepository({
     database: context.runtime.services.database.db,
   });
 }

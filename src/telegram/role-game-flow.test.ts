@@ -136,7 +136,7 @@ test('role game detail uses a persistent section keyboard without inline buttons
   assert.equal(lastReply(context).options?.inlineKeyboard, undefined);
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
     ['Participantes'],
-    ['Sesiones', 'Materiales'],
+    ['Sesiones', 'Personajes', 'Materiales'],
     ['Invitar', 'Configurar'],
     ['Volver a mis partidas'],
     ['Inicio', 'Ayuda'],
@@ -731,7 +731,7 @@ test('role game dashboard limits a confirmed player to sessions they may schedul
   assert.equal(await handleTelegramRoleGameStartText(context), true);
 
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
-    ['Sesiones'],
+    ['Sesiones', 'Personajes'],
     ['Volver a mis partidas'],
     ['Inicio', 'Ayuda'],
   ]);
@@ -777,7 +777,7 @@ test('role game dashboard keeps coorganizer operations and hides full configurat
   assert.equal(await handleTelegramRoleGameStartText(context), true);
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.map((row) => row.map(buttonText)), [
     ['Participantes'],
-    ['Sesiones', 'Materiales'],
+    ['Sesiones', 'Personajes', 'Materiales'],
     ['Invitar', 'Configurar'],
     ['Volver a mis partidas'],
     ['Inicio', 'Ayuda'],

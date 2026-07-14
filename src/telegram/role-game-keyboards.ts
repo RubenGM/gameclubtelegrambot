@@ -78,6 +78,7 @@ export function buildRoleGameCreateConfirmationKeyboard(language: BotLanguage = 
 
 export function buildRoleGameDashboardKeyboard({
   canManageParticipants = false,
+  canViewCharacters = false,
   canSchedule = false,
   canManageMaterials = false,
   canConfigure = false,
@@ -86,6 +87,7 @@ export function buildRoleGameDashboardKeyboard({
   language = 'ca',
 }: {
   canManageParticipants?: boolean;
+  canViewCharacters?: boolean;
   canSchedule?: boolean;
   canManageMaterials?: boolean;
   canConfigure?: boolean;
@@ -101,6 +103,9 @@ export function buildRoleGameDashboardKeyboard({
       : texts.participants)]);
   }
   const sections: TelegramReplyButton[] = [canSchedule ? successButton(texts.sessions) : primaryButton(texts.sessions)];
+  if (canViewCharacters) {
+    sections.push(primaryButton(texts.characters));
+  }
   if (canManageMaterials) {
     sections.push(primaryButton(texts.materials));
   }
