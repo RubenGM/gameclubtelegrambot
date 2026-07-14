@@ -1,4 +1,6 @@
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
+import type { RoleGameMemberManagementAction } from '../role-games/role-game-catalog.js';
+import { roleGameMemberActionLabel } from './i18n-role-games.js';
 import type { TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 
 export const roleGameCallbackPrefixes = {
@@ -71,6 +73,201 @@ export function buildRoleGameCreateConfirmationKeyboard(language: BotLanguage = 
   return buildRoleGameReplyKeyboard(language, [
     [successButton(texts.confirmCreate)],
     [dangerButton(texts.cancel)],
+  ]);
+}
+
+export function buildRoleGameDashboardKeyboard({
+  canManageParticipants = false,
+  canSchedule = false,
+  canManageMaterials = false,
+  canConfigure = false,
+  canRequestSeat = false,
+  pendingRequestCount = 0,
+  language = 'ca',
+}: {
+  canManageParticipants?: boolean;
+  canSchedule?: boolean;
+  canManageMaterials?: boolean;
+  canConfigure?: boolean;
+  canRequestSeat?: boolean;
+  pendingRequestCount?: number;
+  language?: BotLanguage;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  const rows: TelegramReplyButton[][] = [];
+  if (canManageParticipants) {
+    rows.push([primaryButton(pendingRequestCount > 0
+      ? texts.participantsPending.replace('{count}', String(pendingRequestCount))
+      : texts.participants)]);
+  }
+  const sections: TelegramReplyButton[] = [canSchedule ? successButton(texts.sessions) : primaryButton(texts.sessions)];
+  if (canManageMaterials) {
+    sections.push(primaryButton(texts.materials));
+  }
+  rows.push(sections);
+  const management: TelegramReplyButton[] = [];
+  if (canManageParticipants) {
+    management.push(successButton(texts.invite));
+  }
+  if (canConfigure) {
+    management.push(primaryButton(texts.configuration));
+  }
+  if (management.length > 0) {
+    rows.push(management);
+  }
+  if (canRequestSeat) {
+    rows.push([successButton(texts.requestSeat)]);
+  }
+  rows.push([navigationButton(texts.backToMyGames)]);
+  return buildRoleGameReplyKeyboard(language, rows);
+}
+
+export function buildRoleGameSessionsKeyboard({
+  canSchedule = false,
+  language = 'ca',
+}: {
+  canSchedule?: boolean;
+  language?: BotLanguage;
+} = {}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    ...(canSchedule ? [[successButton(texts.scheduleNextSession)]] : []),
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
+export function buildRoleGameParticipantsKeyboard({
+  memberButtons,
+  kind,
+  hasPreviousPage = false,
+  hasNextPage = false,
+  language = 'ca',
+}: {
+  memberButtons: Record<string, number>;
+  kind: 'active' | 'history';
+  hasPreviousPage?: boolean;
+  hasNextPage?: boolean;
+  language?: BotLanguage;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  const navigation: TelegramReplyButton[] = [];
+  if (hasPreviousPage) {
+    navigation.push(navigationButton(texts.previousPage));
+  }
+  if (hasNextPage) {
+    navigation.push(navigationButton(texts.nextPage));
+  }
+  return buildRoleGameReplyKeyboard(language, [
+    ...Object.keys(memberButtons).map((label) => [primaryButton(label)]),
+    ...(navigation.length > 0 ? [navigation] : []),
+    [navigationButton(kind === 'active' ? texts.participantsHistory : texts.currentParticipants)],
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
+export function buildRoleGameParticipantDetailKeyboard({
+  actions = [],
+  language = 'ca',
+}: {
+  actions?: RoleGameMemberManagementAction[];
+  language?: BotLanguage;
+} = {}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    ...(actions.length > 0 ? [actions.map((action) => roleGameParticipantActionButton(action, language))] : []),
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
+export function buildRoleGameParticipantActionConfirmationKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [successButton(texts.participantActionConfirm)],
+    [dangerButton(texts.participantActionCancel)],
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
+export function buildRoleGameMaterialsKeyboard({
+  canUpload = false,
+  hasPreviousPage = false,
+  hasNextPage = false,
+  language = 'ca',
+}: {
+  canUpload?: boolean;
+  hasPreviousPage?: boolean;
+  hasNextPage?: boolean;
+  language?: BotLanguage;
+} = {}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  const navigation: TelegramReplyButton[] = [];
+  if (hasPreviousPage) {
+    navigation.push(navigationButton(texts.previousPage));
+  }
+  if (hasNextPage) {
+    navigation.push(navigationButton(texts.nextPage));
+  }
+  return buildRoleGameReplyKeyboard(language, [
+    ...(canUpload ? [[primaryButton(texts.uploadMaterial)]] : []),
+    ...(navigation.length > 0 ? [navigation] : []),
+    [navigationButton(texts.backToGame)],
+  ]);
+}
+
+export function buildRoleGameMaterialUploadKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [primaryButton(texts.addMoreMaterialAttachments), successButton(texts.finishMaterialAttachments)],
+    [dangerButton(texts.cancel)],
+  ]);
+}
+
+export function buildRoleGameMaterialNameKeyboard({
+  suggestedName,
+  language = 'ca',
+}: {
+  suggestedName: string;
+  language?: BotLanguage;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [successButton(texts.useSuggestedMaterialName.replace('{name}', suggestedName))],
+    [dangerButton(texts.cancel)],
+  ]);
+}
+
+export function buildRoleGameMaterialDetailKeyboard({
+  canManage = false,
+  language = 'ca',
+}: {
+  canManage?: boolean;
+  language?: BotLanguage;
+} = {}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    ...(canManage ? [
+      [primaryButton(texts.sendMaterialOnly)],
+      [successButton(texts.sendAndRevealMaterial)],
+      [successButton(texts.revealMaterialOnly)],
+    ] : []),
+    [navigationButton(texts.backToMaterials)],
+  ]);
+}
+
+export function buildRoleGameConfigurationKeyboard({
+  canEdit = false,
+  canConfigureRecurrence = false,
+  language = 'ca',
+}: {
+  canEdit?: boolean;
+  canConfigureRecurrence?: boolean;
+  language?: BotLanguage;
+} = {}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    ...(canEdit ? [[primaryButton(texts.editGame)]] : []),
+    ...(canConfigureRecurrence ? [[primaryButton(texts.configureRecurrence)]] : []),
+    [navigationButton(texts.backToGame)],
   ]);
 }
 
@@ -188,4 +385,14 @@ function navigationButton(text: string): TelegramReplyButton {
 
 function helpButton(text: string): TelegramReplyButton {
   return { text, semanticRole: 'help' };
+}
+
+function roleGameParticipantActionButton(
+  action: RoleGameMemberManagementAction,
+  language: BotLanguage,
+): TelegramReplyButton {
+  const label = roleGameMemberActionLabel(action, language);
+  return action === 'remove' || action === 'reject' || action === 'cancel_invitation'
+    ? dangerButton(label)
+    : successButton(label);
 }

@@ -7,6 +7,13 @@ export type RoleGameAcceptanceMode = 'manual_review' | 'auto_until_full';
 export type RoleGameSchedulingMode = 'manual' | 'recurring';
 export type RoleGameMemberRole = 'primary_gm' | 'coorganizer' | 'player';
 export type RoleGameMemberStatus = 'invited' | 'requested' | 'confirmed' | 'waitlisted' | 'left' | 'removed' | 'rejected';
+export type RoleGameMemberManagementAction =
+  | 'confirm'
+  | 'reject'
+  | 'remove'
+  | 'cancel_invitation'
+  | 'promote'
+  | 'demote';
 export type RoleGameMaterialVisibility = 'players' | 'gm_only';
 export type RoleGameMaterialDeliveryState = 'not_sent' | 'sent' | 'revealed';
 export type RoleGameSessionSource = 'one_shot_initial' | 'manual' | 'recurring';
@@ -226,9 +233,23 @@ export interface RoleGameRepository {
     actorTelegramUserId: number;
     isExternal: boolean;
   }): Promise<RoleGameMemberRecord>;
+  confirmMemberSeat(input: {
+    memberId: number;
+    actorTelegramUserId: number;
+    expectedStatuses: Array<'requested' | 'invited' | 'waitlisted'>;
+  }): Promise<RoleGameMemberRecord>;
+  setMemberRole(input: {
+    memberId: number;
+    role: 'player' | 'coorganizer';
+    expectedRole: RoleGameMemberRole;
+    expectedStatus: 'confirmed';
+    actorTelegramUserId: number;
+  }): Promise<RoleGameMemberRecord>;
   setMemberStatus(input: {
     memberId: number;
     status: RoleGameMemberStatus;
+    expectedStatus: RoleGameMemberStatus;
+    expectedRole: RoleGameMemberRole;
     actorTelegramUserId: number;
   }): Promise<RoleGameMemberRecord>;
 }
@@ -268,27 +289,15 @@ export async function requestRoleGameSeat({
     throw new Error(`Role game ${normalizedGameId} does not accept seat requests`);
   }
   const existing = await repository.findMemberByTelegramUserId(normalizedGameId, normalizedTelegramUserId);
-  if (existing && isActiveMemberStatus(existing.status)) {
-    return existing;
-  }
-
-  if (!canViewRoleGame(normalizedActor, game, existing)) {
-    throw new Error(`Role game ${normalizedGameId} is not visible to this actor`);
-  }
-
-  const isExternal = normalizedActor.isApproved !== true;
-  if (
-    isExternal &&
-    (game.type !== 'one_shot' || game.visibility !== 'public' || game.publicJoinPolicy !== 'members_and_external')
-  ) {
-    throw new Error(`Role game ${normalizedGameId} does not accept external players`);
+  if (!canRequestRoleGameSeat(normalizedActor, game, existing)) {
+    throw new Error(`Actor ${normalizedActor.telegramUserId} cannot request a seat in role game ${normalizedGameId}`);
   }
 
   return repository.requestSeat({
     roleGameId: normalizedGameId,
     telegramUserId: normalizedTelegramUserId,
     actorTelegramUserId: normalizedActor.telegramUserId,
-    isExternal,
+    isExternal: normalizedActor.isApproved !== true,
   });
 }
 
@@ -303,10 +312,150 @@ export async function setRoleGameMemberStatus({
   status: RoleGameMemberStatus;
   actorTelegramUserId: number;
 }): Promise<RoleGameMemberRecord> {
+  const normalizedMemberId = normalizeEntityId(memberId, 'role game member');
+  const member = await repository.findMemberById(normalizedMemberId);
+  if (!member) {
+    throw new Error(`Role game member ${normalizedMemberId} not found`);
+  }
+  if (status === 'confirmed' && member.role === 'player') {
+    if (member.status === 'confirmed') {
+      return member;
+    }
+    if (!isConfirmableRoleGameMemberStatus(member.status)) {
+      throw new Error(`Role game member ${normalizedMemberId} cannot confirm from status ${member.status}`);
+    }
+    return repository.confirmMemberSeat({
+      memberId: normalizedMemberId,
+      actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
+      expectedStatuses: [member.status],
+    });
+  }
   return repository.setMemberStatus({
-    memberId: normalizeEntityId(memberId, 'role game member'),
+    memberId: normalizedMemberId,
     status,
+    expectedStatus: member.status,
+    expectedRole: member.role,
     actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
+  });
+}
+
+export async function manageRoleGameMember({
+  repository,
+  actor,
+  game,
+  actorMembership,
+  member,
+  action,
+}: {
+  repository: RoleGameRepository;
+  actor: RoleGameActor;
+  game: RoleGameRecord;
+  actorMembership: RoleGameMemberRecord | null;
+  member: RoleGameMemberRecord;
+  action: RoleGameMemberManagementAction;
+}): Promise<RoleGameMemberRecord> {
+  const gameId = normalizeEntityId(game.id, 'role game');
+  const memberId = normalizeEntityId(member.id, 'role game member');
+  const actorTelegramUserId = normalizeTelegramUserId(actor.telegramUserId, 'actor');
+  const currentGame = await repository.findGameById(gameId);
+  if (!currentGame) {
+    throw new Error(`Role game ${gameId} not found`);
+  }
+  const currentMember = await repository.findMemberById(memberId);
+  if (!currentMember) {
+    throw new Error(`Role game member ${memberId} not found`);
+  }
+  if (currentMember.roleGameId !== currentGame.id) {
+    throw new Error(`Role game member ${memberId} does not belong to role game ${currentGame.id}`);
+  }
+  if (currentMember.status !== member.status || currentMember.role !== member.role) {
+    throw new Error(`Role game member ${memberId} has stale status`);
+  }
+  if (currentMember.role === 'primary_gm') {
+    throw new Error(`Role game member ${memberId} is the primary GM`);
+  }
+
+  const normalizedActor: RoleGameActor = { ...actor, telegramUserId: actorTelegramUserId };
+  void actorMembership;
+  const currentActorMembership = await repository.findMemberByTelegramUserId(currentGame.id, actorTelegramUserId);
+  const hasFullManagement = canManageRoleGame(normalizedActor, currentGame, currentActorMembership);
+  const hasOperationalManagement = canManageRoleGameOperationally(normalizedActor, currentGame, currentActorMembership);
+
+  if (action === 'confirm' || action === 'reject') {
+    if (!hasOperationalManagement) {
+      throw new Error(`Actor ${actorTelegramUserId} does not have permission to ${action} role game members`);
+    }
+    if (!hasFullManagement && currentMember.status !== 'requested') {
+      throw new Error(`Actor ${actorTelegramUserId} does not have permission to ${action} this role game member`);
+    }
+  } else if (!hasFullManagement) {
+    throw new Error(`Actor ${actorTelegramUserId} does not have permission to ${action} role game members`);
+  }
+
+  if (action === 'confirm') {
+    if (!isConfirmableRoleGameMemberStatus(currentMember.status)) {
+      throw new Error(`Role game member ${memberId} cannot confirm from status ${currentMember.status}`);
+    }
+    return repository.confirmMemberSeat({
+      memberId,
+      actorTelegramUserId,
+      expectedStatuses: [currentMember.status],
+    });
+  }
+  if (action === 'reject') {
+    assertMemberStatus(currentMember, 'requested', action);
+    return repository.setMemberStatus({
+      memberId,
+      status: 'rejected',
+      expectedStatus: currentMember.status,
+      expectedRole: currentMember.role,
+      actorTelegramUserId,
+    });
+  }
+  if (action === 'remove') {
+    if (currentMember.status !== 'waitlisted' && currentMember.status !== 'confirmed') {
+      throw new Error(`Role game member ${memberId} cannot remove from status ${currentMember.status}`);
+    }
+    return repository.setMemberStatus({
+      memberId,
+      status: 'removed',
+      expectedStatus: currentMember.status,
+      expectedRole: currentMember.role,
+      actorTelegramUserId,
+    });
+  }
+  if (action === 'cancel_invitation') {
+    assertMemberStatus(currentMember, 'invited', action);
+    return repository.setMemberStatus({
+      memberId,
+      status: 'removed',
+      expectedStatus: currentMember.status,
+      expectedRole: currentMember.role,
+      actorTelegramUserId,
+    });
+  }
+  if (action === 'promote') {
+    assertMemberStatus(currentMember, 'confirmed', action);
+    assertMemberRole(currentMember, 'player', action);
+    if (currentMember.telegramUserId === actorTelegramUserId) {
+      throw new Error(`Actor ${actorTelegramUserId} cannot promote themselves`);
+    }
+    return repository.setMemberRole({
+      memberId,
+      role: 'coorganizer',
+      expectedRole: currentMember.role,
+      expectedStatus: 'confirmed',
+      actorTelegramUserId,
+    });
+  }
+  assertMemberStatus(currentMember, 'confirmed', action);
+  assertMemberRole(currentMember, 'coorganizer', action);
+  return repository.setMemberRole({
+    memberId,
+    role: 'player',
+    expectedRole: currentMember.role,
+    expectedStatus: 'confirmed',
+    actorTelegramUserId,
   });
 }
 
@@ -329,19 +478,18 @@ export async function resolveRoleGameSeatRequest({
   }
 
   if (status === 'confirmed') {
-    const game = await repository.findGameById(member.roleGameId);
-    if (!game) {
-      throw new Error(`Role game ${member.roleGameId} not found`);
-    }
-    const confirmedPlayers = await repository.countConfirmedPlayers(game.id);
-    if (confirmedPlayers >= game.capacity) {
-      throw new Error(`Role game ${game.id} is full`);
-    }
+    return repository.confirmMemberSeat({
+      memberId: normalizedMemberId,
+      actorTelegramUserId: normalizedActorTelegramUserId,
+      expectedStatuses: ['requested'],
+    });
   }
 
   return repository.setMemberStatus({
     memberId: normalizedMemberId,
     status,
+    expectedStatus: member.status,
+    expectedRole: member.role,
     actorTelegramUserId: normalizedActorTelegramUserId,
   });
 }
@@ -432,6 +580,29 @@ export function canViewRoleGame(
   return false;
 }
 
+export function canRequestRoleGameSeat(
+  actor: RoleGameActor,
+  game: RoleGameRecord,
+  membership: RoleGameMemberRecord | null,
+): boolean {
+  if (
+    game.status !== 'active' ||
+    game.entryMode !== 'request' ||
+    actor.isAdmin ||
+    game.primaryGmTelegramUserId === actor.telegramUserId ||
+    membership !== null ||
+    !canViewRoleGame(actor, game, membership)
+  ) {
+    return false;
+  }
+  if (actor.isApproved === true) {
+    return true;
+  }
+  return game.type === 'one_shot' &&
+    game.visibility === 'public' &&
+    game.publicJoinPolicy === 'members_and_external';
+}
+
 export function canManageRoleGame(
   actor: RoleGameActor,
   game: RoleGameRecord,
@@ -449,6 +620,32 @@ export function canManageRoleGameOperationally(
     return true;
   }
   return membership?.telegramUserId === actor.telegramUserId && membership.role === 'coorganizer' && membership.status === 'confirmed';
+}
+
+function isConfirmableRoleGameMemberStatus(
+  status: RoleGameMemberStatus,
+): status is 'requested' | 'invited' | 'waitlisted' {
+  return status === 'requested' || status === 'invited' || status === 'waitlisted';
+}
+
+function assertMemberStatus(
+  member: RoleGameMemberRecord,
+  expectedStatus: RoleGameMemberStatus,
+  action: RoleGameMemberManagementAction,
+): void {
+  if (member.status !== expectedStatus) {
+    throw new Error(`Role game member ${member.id} cannot ${action} from status ${member.status}`);
+  }
+}
+
+function assertMemberRole(
+  member: RoleGameMemberRecord,
+  expectedRole: RoleGameMemberRole,
+  action: RoleGameMemberManagementAction,
+): void {
+  if (member.role !== expectedRole) {
+    throw new Error(`Role game member ${member.id} cannot ${action} with role ${member.role}`);
+  }
 }
 
 function normalizeCreateRoleGameInput(input: CreateRoleGameInput): CreateRoleGameInput {

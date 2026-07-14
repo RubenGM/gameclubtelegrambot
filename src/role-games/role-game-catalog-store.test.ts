@@ -114,6 +114,292 @@ test('database role game repository requestSeat keeps manual-review requests pen
   assert.equal(member.status, 'requested');
 });
 
+test('database role game repository requestSeat rejects every historical membership without inserting', async (t) => {
+  const { database, seedUser, cleanup, steps } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput());
+  const historicalMembers = [];
+  for (const [index, status] of (['left', 'removed', 'rejected'] as const).entries()) {
+    const telegramUserId = 100 + index;
+    seedUser(telegramUserId, `Histórico ${status}`);
+    historicalMembers.push(await repository.createMember({
+      roleGameId: game.id,
+      telegramUserId,
+      role: 'player',
+      status,
+      isExternal: false,
+      requestedByTelegramUserId: 42,
+    }));
+  }
+  steps.length = 0;
+
+  for (const member of historicalMembers) {
+    await assert.rejects(repository.requestSeat({
+      roleGameId: game.id,
+      telegramUserId: member.telegramUserId,
+      actorTelegramUserId: member.telegramUserId,
+      isExternal: false,
+    }), /already has a membership/i);
+    assert.equal((await repository.findMemberById(member.id))?.status, member.status);
+  }
+  assert.equal(steps.includes('insert:role_game_members'), false);
+});
+
+test('database role game repository confirms a seat atomically after locking its member and game', async (t) => {
+  const { database, seedUser, cleanup, steps } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput({ capacity: 2 }));
+  const requested = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+  steps.length = 0;
+
+  const confirmed = await repository.confirmMemberSeat({
+    memberId: requested.id,
+    actorTelegramUserId: 42,
+    expectedStatuses: ['requested'],
+  });
+
+  assert.equal(confirmed.status, 'confirmed');
+  assert.equal(confirmed.requestedByTelegramUserId, 42);
+  const memberLockIndex = steps.indexOf('select:role_game_members:for_update');
+  const gameLockIndex = steps.indexOf('select:role_games:for_update');
+  const countIndex = steps.indexOf('count:confirmed_players');
+  const updateIndex = steps.indexOf('update:role_game_members');
+  assert.notEqual(memberLockIndex, -1);
+  assert.notEqual(gameLockIndex, -1);
+  assert.notEqual(countIndex, -1);
+  assert.notEqual(updateIndex, -1);
+  assert.ok(memberLockIndex < gameLockIndex);
+  assert.ok(gameLockIndex < countIndex);
+  assert.ok(countIndex < updateIndex);
+});
+
+test('database role game repository leaves a stale member row unchanged', async (t) => {
+  const { database, seedUser, cleanup, steps } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput());
+  const confirmed = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+  steps.length = 0;
+
+  await assert.rejects(
+    repository.confirmMemberSeat({
+      memberId: confirmed.id,
+      actorTelegramUserId: 42,
+      expectedStatuses: ['requested'],
+    }),
+    /stale status/i,
+  );
+
+  assert.equal((await repository.findMemberById(confirmed.id))?.status, 'confirmed');
+  assert.equal(steps.includes('update:role_game_members'), false);
+});
+
+test('database role game repository changes only confirmed non-primary roles', async (t) => {
+  const { database, seedUser, cleanup } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+  seedUser(101, 'Ocultista');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput());
+  const primaryGm = await repository.findMemberByTelegramUserId(game.id, 42);
+  assert.ok(primaryGm);
+  const player = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+  const unconfirmed = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 101,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 101,
+  });
+
+  const promoted = await repository.setMemberRole({
+    memberId: player.id,
+    role: 'coorganizer',
+    expectedRole: 'player',
+    expectedStatus: 'confirmed',
+    actorTelegramUserId: 42,
+  });
+  assert.equal(promoted.role, 'coorganizer');
+  await assert.rejects(
+    repository.setMemberRole({
+      memberId: primaryGm.id,
+      role: 'player',
+      expectedRole: 'primary_gm',
+      expectedStatus: 'confirmed',
+      actorTelegramUserId: 42,
+    }),
+    /stale status/i,
+  );
+  await assert.rejects(
+    repository.setMemberRole({
+      memberId: unconfirmed.id,
+      role: 'coorganizer',
+      expectedRole: 'player',
+      expectedStatus: 'confirmed',
+      actorTelegramUserId: 42,
+    }),
+    /stale status/i,
+  );
+  assert.equal((await repository.findMemberById(primaryGm.id))?.role, 'primary_gm');
+  assert.equal((await repository.findMemberById(unconfirmed.id))?.role, 'player');
+});
+
+test('database role game repository rejects a demotion when confirmed player capacity is full', async (t) => {
+  const { database, seedUser, cleanup, steps } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+  seedUser(101, 'Coorganizadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput({ capacity: 1 }));
+  await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+  const coorganizer = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 101,
+    role: 'coorganizer',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+  steps.length = 0;
+
+  await assert.rejects(
+    repository.setMemberRole({
+      memberId: coorganizer.id,
+      role: 'player',
+      expectedRole: 'coorganizer',
+      expectedStatus: 'confirmed',
+      actorTelegramUserId: 42,
+    }),
+    /full/i,
+  );
+
+  assert.equal((await repository.findMemberById(coorganizer.id))?.role, 'coorganizer');
+  const memberLockIndex = steps.indexOf('select:role_game_members:for_update');
+  const gameLockIndex = steps.indexOf('select:role_games:for_update');
+  const countIndex = steps.indexOf('count:confirmed_players');
+  assert.notEqual(memberLockIndex, -1);
+  assert.notEqual(gameLockIndex, -1);
+  assert.notEqual(countIndex, -1);
+  assert.ok(memberLockIndex < gameLockIndex);
+  assert.ok(gameLockIndex < countIndex);
+});
+
+test('database role game repository compares expected source status and role before writes', async (t) => {
+  const { database, seedUser, cleanup } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput());
+  const player = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+    isExternal: false,
+    requestedByTelegramUserId: 42,
+  });
+
+  await assert.rejects(
+    repository.setMemberStatus({
+      memberId: player.id,
+      status: 'removed',
+      expectedStatus: 'requested',
+      expectedRole: 'player',
+      actorTelegramUserId: 42,
+    }),
+    /stale status/i,
+  );
+  await assert.rejects(
+    repository.setMemberRole({
+      memberId: player.id,
+      role: 'coorganizer',
+      expectedRole: 'coorganizer',
+      expectedStatus: 'confirmed',
+      actorTelegramUserId: 42,
+    }),
+    /stale status/i,
+  );
+
+  assert.deepEqual(
+    {
+      role: (await repository.findMemberById(player.id))?.role,
+      status: (await repository.findMemberById(player.id))?.status,
+    },
+    { role: 'player', status: 'confirmed' },
+  );
+});
+
+test('database role game repository rejects direct status writes that would create a confirmed seat', async (t) => {
+  const { database, seedUser, cleanup } = createRoleGameStoreFixture();
+  t.after(cleanup);
+  seedUser(42, 'Máster');
+  seedUser(100, 'Investigadora');
+
+  const repository = createDatabaseRoleGameRepository({ database: database as never });
+  const game = await repository.createGame(createCampaignInput());
+  const requested = await repository.createMember({
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'requested',
+    isExternal: false,
+    requestedByTelegramUserId: 100,
+  });
+
+  await assert.rejects(repository.setMemberStatus({
+    memberId: requested.id,
+    status: 'confirmed',
+    expectedStatus: 'requested',
+    expectedRole: 'player',
+    actorTelegramUserId: 42,
+  }), /confirmMemberSeat/);
+  assert.equal((await repository.findMemberById(requested.id))?.status, 'requested');
+});
+
 test('database role game repository updates game metadata and lists visible games for an actor', async (t) => {
   const { database, seedUser, cleanup } = createRoleGameStoreFixture();
   t.after(cleanup);
@@ -336,7 +622,7 @@ test('database role game repository creates materials, reveals visibility and re
   assert.equal(delivery.deliveryMode, 'send_and_reveal');
 });
 
-function createCampaignInput(): CreateRoleGameInput {
+function createCampaignInput(overrides: Partial<CreateRoleGameInput> = {}): CreateRoleGameInput {
   return {
     type: 'campaign',
     title: 'Masks of Nyarlathotep',
@@ -358,6 +644,7 @@ function createCampaignInput(): CreateRoleGameInput {
     recurrenceRule: null,
     recurrenceWindowCount: 0,
     createdByTelegramUserId: 42,
+    ...overrides,
   };
 }
 
@@ -491,7 +778,7 @@ function createRoleGameStoreFixture() {
     }),
     update: (table: { [key: string]: unknown }) => ({
       set: (values: Record<string, unknown>) => ({
-        where: () => ({
+        where: (condition: unknown) => ({
           returning: async () => {
             if ((table as unknown) === roleGamesTable) {
               const row = games[0];
@@ -502,7 +789,8 @@ function createRoleGameStoreFixture() {
               return [row];
             }
             if ((table as unknown) === roleGameMembersTable) {
-              const row = members.find((member) => member.telegramUserId === values.telegramUserId) ?? members.at(-1);
+              steps.push('update:role_game_members');
+              const row = members.find((member) => matchesMemberWhere(condition, member));
               if (!row) {
                 return [];
               }
@@ -540,7 +828,7 @@ function createRoleGameStoreFixture() {
 
         if ((table as unknown) === roleGameMembersTable) {
           return {
-            where: () => {
+            where: (condition: unknown) => {
               if (selection) {
                 return Promise.resolve([
                   {
@@ -552,8 +840,14 @@ function createRoleGameStoreFixture() {
                 });
               }
               return {
-                limit: async () => [],
-                orderBy: async () => members,
+                limit: () => ({
+                  for: async (lockMode: string) => {
+                    assert.equal(lockMode, 'update');
+                    steps.push('select:role_game_members:for_update');
+                    return members.filter((member) => matchesMemberWhere(condition, member));
+                  },
+                }),
+                orderBy: async () => members.filter((member) => matchesMemberWhere(condition, member)),
               };
             },
           };
@@ -601,9 +895,9 @@ function createRoleGameStoreFixture() {
         }
         if ((table as unknown) === roleGameMembersTable) {
           return {
-            where: () => ({
-              limit: async () => members.slice(-1),
-              orderBy: async () => members,
+            where: (condition: unknown) => ({
+              limit: async () => members.filter((member) => matchesMemberWhere(condition, member)),
+              orderBy: async () => members.filter((member) => matchesMemberWhere(condition, member)),
             }),
             orderBy: async () => members,
           };
@@ -644,4 +938,52 @@ function createRoleGameStoreFixture() {
     steps,
     memberRows: members,
   };
+}
+
+function matchesMemberWhere(condition: unknown, member: Record<string, unknown>): boolean {
+  const comparisons = collectSqlComparisons(condition);
+  return comparisons.length > 0 && comparisons.every(({ column, operator, value }) => {
+    const memberValue = member[column === 'role_game_id' ? 'roleGameId' : column === 'telegram_user_id' ? 'telegramUserId' : column];
+    return operator === '=' ? memberValue === value : memberValue !== value;
+  });
+}
+
+function collectSqlComparisons(value: unknown): Array<{ column: string; operator: '=' | '<>'; value: unknown }> {
+  if (!isSqlObject(value) || !Array.isArray(value.queryChunks)) {
+    return [];
+  }
+  const chunks = value.queryChunks;
+  const column = chunks.find(hasSqlName);
+  const operator = chunks
+    .filter(hasSqlArrayValue)
+    .map((chunk) => chunk.value[0])
+    .find((candidate): candidate is ' = ' | ' <> ' => candidate === ' = ' || candidate === ' <> ');
+  const parameter = chunks.find(hasSqlParameterValue);
+  const comparison =
+    column && operator && parameter
+      ? [{ column: column.name, operator: operator.trim() as '=' | '<>', value: parameter.value }]
+      : [];
+  return [...comparison, ...chunks.flatMap(collectSqlComparisons)];
+}
+
+interface SqlObject {
+  queryChunks?: unknown[];
+  name?: unknown;
+  value?: unknown;
+}
+
+function isSqlObject(value: unknown): value is SqlObject {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasSqlName(value: unknown): value is SqlObject & { name: string } {
+  return isSqlObject(value) && typeof value.name === 'string';
+}
+
+function hasSqlArrayValue(value: unknown): value is SqlObject & { value: unknown[] } {
+  return isSqlObject(value) && Array.isArray(value.value);
+}
+
+function hasSqlParameterValue(value: unknown): value is SqlObject & { value: unknown } {
+  return isSqlObject(value) && 'value' in value && !Array.isArray(value.value);
 }

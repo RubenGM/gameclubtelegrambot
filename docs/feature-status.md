@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-07-09.
+Última revisión: 2026-07-13.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -15,23 +15,23 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 | Feature                                      | Estado               | Lectura actual                                                                                                                       |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
-| Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, canarios/reintentos Telegram, systemd/tray y backups.           |
-| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname visible, bienvenidas, avisos privados y alta web en `/alta`.     |
-| Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG, Rol y ayuda contextual por sección activa.                                        |
-| Asistente LLM de órdenes naturales           | 🟠 Parcial           | `/ask`, botón privado, fallback privado y menciones iniciales o replies reales en grupos bajo feature flag; lecturas MVP y escrituras confirmadas parciales. |
-| Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
-| Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, actividades públicas abiertas, conflictos, recordatorios y feeds de noticias.             |
-| Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario, avisando impacto con progreso editable.                    |
-| Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y procesos largos con progreso editable. |
-| Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
-| Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `public-events`; `/admin/news` resume feeds activos. |
-| Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
-| Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
-| Rol / partidas de rol                        | 🟢 Operativo         | Crear, editar e invitar a campañas/one-shots, solicitudes, sesiones Agenda, recurrencias y handouts ocultos gestionados desde Rol.       |
-| Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
-| Impresión                                    | 🟢 Operativo         | Botón privado con estados admin Activar/Desactivar/Modo prueba, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial. |
-| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
-| Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
+| Runtime, configuración y despliegue          | 🟢 Operativo        | Base TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, reintentos Telegram, systemd/tray y backups.                           |
+| Acceso, usuarios y admins                    | 🟢 Operativo        | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname, bienvenidas, avisos privados y alta web en `/alta`.            |
+| Idioma, menús y ayuda                        | 🟢 Operativo        | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG, Rol y ayuda contextual por sección activa.                                     |
+| Asistente LLM de órdenes naturales           | 🟠 Parcial          | `/ask`, botón privado, fallback y menciones/replies en grupos bajo flag; lecturas MVP y escrituras confirmadas parciales.             |
+| Mesas                                        | 🟢 Operativo        | Administración de mesas y consulta de tablas activas para socios.                                                                     |
+| Agenda de actividades                        | 🟢 Operativo        | Crear/listar/editar/cancelar, apuntarse/salir, actividades públicas, conflictos, recordatorios y feeds de noticias.                   |
+| Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
+| Catálogo                                     | 🟢 Operativo        | CRUD, familias, búsqueda, media URL/adjunto con Storage, BGG/Open Library/Wikipedia y procesos con progreso editable.                 |
+| Préstamos                                    | 🟢 Operativo        | Flujo principal, recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.                 |
+| Grupos de noticias                           | 🟢 Operativo        | `/news` por categoría para grupo completo o topic, incluido `public-events`; `/admin/news` resume feeds activos.                      |
+| Avisos                                       | 🟢 Operativo        | Socios y admins crean, ven, editan y archivan avisos con formato/adjuntos en destinos `/news avisos`.                                 |
+| Compras conjuntas                            | 🟢 Operativo        | Crear/listar/unirse/confirmar, descripciones, `/news group-purchases`, participantes y recordatorios.                                 |
+| Rol / partidas de rol                        | 🟢 Operativo        | Campañas/one-shots, dashboard por teclado persistente y gestión de participantes, sesiones, recurrencias y packs de handouts.         |
+| Storage / Archivos                           | 🟢 Operativo        | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación web.                     |
+| Impresión                                    | 🟢 Operativo        | Botón privado, estados admin, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial.                          |
+| Backups, operación y panel web               | 🟢 Operativo        | CLI/TUI de backup/restore, gestión Debian, dashboard web, Storage web, bienvenidas, temas y páginas públicas.                         |
+| Analytics / UX                               | 🟡 Técnico parcial  | Reporte/TUI operativo y wrapper OpenCode para leer imágenes; mejoras de analítica avanzada pendientes.                                |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 ```
 
@@ -118,7 +118,7 @@ Implementado:
 - Comandos `/rol` y `/role_games` para abrir el menu de Rol.
 - Home con `Mis partidas`, `Partidas visibles`, `Crear partida` y `Cancelar` con rol danger.
 - Listas read-only de partidas propias y visibles desde `RoleGameRepository`, con paginacion estilo Telegram y deep links `role_game_<id>` al detalle.
-- `/start role_game_<id>` abre el detalle de la partida en privado con acciones inline de gestion visibles para GM/coorganizadores/admins.
+- El detalle de partida funciona como portada con teclado persistente, resume ocupación, solicitudes pendientes y la sesión futura enlazada más próxima (o su ausencia), y ofrece los submenús de Participantes, Sesiones, Materiales, Invitar y Configurar sin depender de acciones inline bajo el mensaje.
 - `Crear partida` inicia un flujo guiado cancelable para crear la partida base con tipo, titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion y modo de programacion.
 - `Editar partida` inicia un flujo guiado cancelable para cambiar titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion, programacion manual por jugadores, publicacion Agenda por defecto y estado.
 - `Invitar jugadores` genera un enlace `role_game_<id>` compartible con resumen de plazas confirmadas sin aprobar automaticamente membresias.
@@ -127,12 +127,13 @@ Implementado:
 - Las campañas pueden configurarse como recurrentes desde la creacion o desde el detalle con `Configurar recurrencia`, indicando intervalo semanal, dia, hora y ventana de sesiones futuras.
 - El worker de recurrencias arranca junto al servicio y mantiene la ventana futura de campañas recurrentes creando eventos Agenda enlazados en `role_game_sessions`; las sesiones canceladas enlazadas no se recrean.
 - Las sesiones de rol reutilizan Agenda: crean eventos con `createScheduleEvent`, enlazan `role_game_sessions`, apuntan automaticamente a jugadores confirmados hasta la capacidad disponible cuando la partida lo configura y enlazan el recibo a `schedule_event_<id>`.
-- Los detalles muestran `Solicitar plaza` cuando corresponde y los managers operativos pueden aceptar o rechazar solicitudes con botones inline diferenciados por rol semantico.
-- Los one-shots publicos con politica `members_and_external` se pueden abrir desde `/start role_game_<id>` por usuarios no aprobados y permiten solicitar plaza externa sin aprobar automaticamente la membresia del usuario.
+- GM principal y admins gestionan solicitudes, listas de espera, invitaciones, jugadores y coorganizadores; los coorganizadores sólo conservan la resolución operativa de solicitudes. Los cambios de estado o rol comparan el estado de origen y cualquier transición que ocupe una plaza confirma capacidad de forma atómica.
+- Participantes activos e historial separado se muestran con identidad visible, rol del GM principal, estado, fecha relevante y paginación de teclado; nadie puede promocionarse a sí mismo y los estados históricos no permiten reactivación ni nuevas solicitudes desde Telegram.
+- La solicitud de plaza comparte la misma validación de capacidad entre visibilidad y ejecución. Los one-shots públicos con política `members_and_external` se pueden abrir desde `/start role_game_<id>` por usuarios no aprobados y permiten solicitar plaza externa sin aprobar automáticamente la membresía del usuario.
 - Infraestructura Storage para handouts internos con proposito `role_game_handouts`, oculto de Storage normal, `/storage`, busquedas, web/TUI Storage y busquedas LLM.
-- Los managers pueden subir material desde la ficha de partida; el bot copia el adjunto a Storage interno con progreso editable, crea `role_game_materials` como `gm_only` y devuelve enlace `role_material_<id>` sin exponer `storage_entry_<id>`.
-- `Materiales` lista handouts subidos desde Rol con paginacion inline cuando corresponde, enlazando solo `role_material_<id>` y sin abrir acceso a Storage.
-- Los handouts pueden enviarse sólo esta vez, enviarse y revelarse o revelarse sin envio; el bot copia los adjuntos almacenados a jugadores confirmados, registra `role_game_material_deliveries`, resume fallos parciales y aplica permisos de Rol a `role_material_<id>`.
+- Los managers pueden subir uno o varios adjuntos como un único pack desde la ficha de partida. El bot recoge los archivos mediante teclado persistente, pide obligatoriamente el nombre con una sugerencia basada en el caption o el archivo y sólo entonces los copia con progreso editable. Si todavía no existe la categoría interna de handouts, crea automáticamente su topic y categoría en el supergrupo Storage por defecto antes de guardar el pack como un único `role_game_materials` `gm_only`, sin exponer `storage_entry_<id>`. Al completar la subida conserva la sesión en `Materiales`, de modo que `Volver a la partida` mantiene la navegación de Rol y no cae en el fallback de IA.
+- `Materiales` lista handouts subidos desde Rol con paginación mediante teclado de respuesta persistente cuando corresponde, enlazando sólo `role_material_<id>` y sin abrir acceso a Storage.
+- Al abrir un handout, el bot envía directamente todos sus adjuntos en orden para que el usuario pueda identificar el contenido y mantiene sus acciones en el teclado de respuesta. Los managers pueden enviarlo sólo esta vez, enviarlo y revelarlo o revelarlo sin envío; el bot copia el pack completo a jugadores confirmados, registra `role_game_material_deliveries`, resume fallos parciales y aplica permisos de Rol a `role_material_<id>`.
 
 ## Asistente LLM de órdenes naturales
 
@@ -488,7 +489,7 @@ Pendiente:
 | Catalogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Prestamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
 | Compras conjuntas | `src/telegram/group-purchase-flow.test.ts`, `src/group-purchases/*.test.ts` |
-| Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
+| Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/telegram/role-game-participants.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Avisos | `src/telegram/notice-flow.test.ts`, `src/notices/*.test.ts`, `src/news/news-group-store.test.ts` |
 | Storage | `src/telegram/storage-flow.test.ts`, `src/storage/*.test.ts` |
 | Noticias | `src/telegram/news-group-flow.test.ts`, `src/news/news-group-store.test.ts`, `src/telegram/runtime-boundary.test.ts` |

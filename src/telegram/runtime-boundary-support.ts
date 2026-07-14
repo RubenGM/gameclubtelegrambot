@@ -60,6 +60,7 @@ export type TelegramFatalRuntimeErrorHandler = (error: unknown) => void;
 export interface TelegramLogger {
   info(bindings: object, message: string): void;
   error(bindings: object, message: string): void;
+  warn?(bindings: object, message: string): void;
 }
 
 export interface TelegramContextLike {
@@ -1045,6 +1046,7 @@ function createTelegramCommandContext(
 ): TelegramCommandHandlerContext {
   return {
     ...context,
+    ...(context.runtime && logger ? { runtime: { ...context.runtime, logger } } : {}),
     ...(context.from ? { from: context.from } : {}),
     async reply(message: string, options?: TelegramReplyOptions) {
       const messageWithHealthWarning = apiHealth
