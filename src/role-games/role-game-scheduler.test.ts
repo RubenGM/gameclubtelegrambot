@@ -287,6 +287,12 @@ function createMemoryRoleGameRepository({
     requestSeat: async () => {
       throw new Error('not implemented in this test');
     },
+    confirmMemberSeat: async () => {
+      throw new Error('not implemented in this test');
+    },
+    setMemberRole: async () => {
+      throw new Error('not implemented in this test');
+    },
     setMemberStatus: async () => {
       throw new Error('not implemented in this test');
     },
@@ -429,7 +435,6 @@ function sampleMember(overrides: Partial<RoleGameMemberRecord> = {}): RoleGameMe
     role: 'player',
     status: 'confirmed',
     isExternal: false,
-    characterName: null,
     playerNote: null,
     requestedByTelegramUserId: 77,
     createdAt: '2026-07-09T10:00:00.000Z',

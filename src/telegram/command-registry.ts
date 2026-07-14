@@ -65,6 +65,10 @@ export interface TelegramCommandRuntime {
   actor: TelegramActor;
   authorization: AuthorizationService;
   session: ConversationSessionRuntime;
+  logger?: {
+    warn?(bindings: object, message: string): void;
+    error(bindings: object, message: string): void;
+  };
 }
 
 export interface TelegramCommandHandlerContext {
