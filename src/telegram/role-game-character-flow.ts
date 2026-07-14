@@ -132,10 +132,17 @@ export function buildRoleGameCharacterButtonMap(
 }
 
 export function parseRoleGameCharacterStartPayload(text: string | undefined): number | null {
-  const match = text?.trim().match(/^\/start\s+role_character_([1-9]\d*)$/u);
+  const normalized = text?.trim();
+  if (!normalized) return null;
+  const payload = normalized.startsWith('/start ') ? normalized.slice('/start '.length).trim() : normalized;
+  const match = payload.match(/^role_character_([1-9]\d*)$/u);
   if (!match) return null;
   const id = Number(match[1]);
   return Number.isSafeInteger(id) ? id : null;
+}
+
+export function isSupportedRoleGameCharacterAttachmentKind(kind: string): kind is 'document' | 'photo' | 'video' | 'audio' {
+  return kind === 'document' || kind === 'photo' || kind === 'video' || kind === 'audio';
 }
 
 export function isRoleGameCharacterSession(context: TelegramRoleGameCharacterContext): boolean {
@@ -234,7 +241,7 @@ export async function handleTelegramRoleGameCharacterMessage(
   const media = context.messageMedia;
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const t = createTelegramI18n(language).roleGames;
-  if (!media || !['document', 'photo', 'video', 'audio'].includes(media.attachmentKind)) {
+  if (!media || !isSupportedRoleGameCharacterAttachmentKind(media.attachmentKind)) {
     await context.reply(t.promptCharacterAttachment, buildRoleGameCharacterStepKeyboard({ language }));
     return true;
   }
@@ -715,7 +722,8 @@ async function handleEditText(context: TelegramRoleGameCharacterContext, access:
 }
 
 async function replyWithMemberSelection(context: TelegramRoleGameCharacterContext, access: GameAccess, characterId: number, action: 'assign' | 'transfer', language: BotLanguage, requestedPage = 1): Promise<boolean> {
-  const members = access.members.filter((member) => member.status === 'confirmed');
+  const current = action === 'transfer' ? await characterRepository(context).findCharacterById(characterId) : null;
+  const members = access.members.filter((member) => member.status === 'confirmed' && member.id !== current?.assignedMemberId);
   const t = createTelegramI18n(language).roleGames;
   const pages = Math.max(1, Math.ceil(members.length / roleGameCharacterPageSize));
   const page = Math.min(Math.max(1, requestedPage), pages);
@@ -970,29 +978,40 @@ async function copyCharacterAttachmentToStorage(
     toChatId: category.storageChatId,
     messageThreadId: category.storageThreadId,
   });
-  const detail = await createStorageEntry({
-    repository: storageRepository(context),
-    categoryId: category.id,
-    createdByTelegramUserId: context.runtime.actor.telegramUserId,
-    sourceKind: 'dm_copy',
-    description: media.caption ?? media.originalFileName ?? null,
-    tags: ['rol', `partida-${gameId}`, 'personaje'],
-    messages: [{
-      storageChatId: category.storageChatId,
-      storageMessageId: copied.messageId,
-      storageThreadId: category.storageThreadId,
-      telegramFileId: media.fileId ?? null,
-      telegramFileUniqueId: media.fileUniqueId ?? null,
-      attachmentKind: media.attachmentKind as 'document' | 'photo' | 'video' | 'audio',
-      caption: media.caption ?? null,
-      originalFileName: media.originalFileName ?? null,
-      mimeType: media.mimeType ?? null,
-      fileSizeBytes: media.fileSizeBytes ?? null,
-      mediaGroupId: media.mediaGroupId ?? null,
-      sortOrder: 0,
-    }],
-  });
-  return detail.entry.id;
+  try {
+    const detail = await createStorageEntry({
+      repository: storageRepository(context),
+      categoryId: category.id,
+      createdByTelegramUserId: context.runtime.actor.telegramUserId,
+      sourceKind: 'dm_copy',
+      description: media.caption ?? media.originalFileName ?? null,
+      tags: ['rol', `partida-${gameId}`, 'personaje'],
+      messages: [{
+        storageChatId: category.storageChatId,
+        storageMessageId: copied.messageId,
+        storageThreadId: category.storageThreadId,
+        telegramFileId: media.fileId ?? null,
+        telegramFileUniqueId: media.fileUniqueId ?? null,
+        attachmentKind: media.attachmentKind as 'document' | 'photo' | 'video' | 'audio',
+        caption: media.caption ?? null,
+        originalFileName: media.originalFileName ?? null,
+        mimeType: media.mimeType ?? null,
+        fileSizeBytes: media.fileSizeBytes ?? null,
+        mediaGroupId: media.mediaGroupId ?? null,
+        sortOrder: 0,
+      }],
+    });
+    return detail.entry.id;
+  } catch (error) {
+    if (context.runtime.bot.deleteMessage) {
+      try {
+        await context.runtime.bot.deleteMessage({ chatId: category.storageChatId, messageId: copied.messageId });
+      } catch (cleanupError) {
+        context.runtime.logger?.warn?.({ cleanupError, messageId: copied.messageId }, 'role_game.character.attachment.copy_cleanup.failed');
+      }
+    }
+    throw error;
+  }
 }
 
 async function cleanupStorageEntry(context: TelegramRoleGameCharacterContext, entryId: number): Promise<void> {

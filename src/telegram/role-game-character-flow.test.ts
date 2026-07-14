@@ -6,6 +6,7 @@ import {
   buildVisibleRoleGameCharacterPage,
   handleTelegramRoleGameCharacterStartText,
   handleTelegramRoleGameCharacterText,
+  isSupportedRoleGameCharacterAttachmentKind,
   openRoleGameCharacters,
   parseRoleGameCharacterStartPayload,
   roleGameCharacterPageSize,
@@ -61,9 +62,18 @@ test('reserved labels and fabricated buttons cannot select a character', () => {
 
 test('character deep links only accept positive integer ids', () => {
   assert.equal(parseRoleGameCharacterStartPayload('/start role_character_42'), 42);
+  assert.equal(parseRoleGameCharacterStartPayload('role_character_42'), 42);
   assert.equal(parseRoleGameCharacterStartPayload('/start role_character_0'), null);
   assert.equal(parseRoleGameCharacterStartPayload('/start role_character_42_more'), null);
   assert.equal(parseRoleGameCharacterStartPayload('/start role_game_42'), null);
+});
+
+test('character attachments accept every planned Telegram media kind and reject others', () => {
+  for (const kind of ['document', 'photo', 'video', 'audio']) {
+    assert.equal(isSupportedRoleGameCharacterAttachmentKind(kind), true);
+  }
+  assert.equal(isSupportedRoleGameCharacterAttachmentKind('text'), false);
+  assert.equal(isSupportedRoleGameCharacterAttachmentKind('animation'), false);
 });
 
 const game: RoleGameRecord = {

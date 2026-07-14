@@ -313,6 +313,9 @@ export async function transferRoleGameCharacter({
   if (!isConfirmedRoleGameMember(assignedMember, game.id)) {
     throw new Error('Character owner must be a confirmed member of the role game');
   }
+  if (assignedMember.id === character.assignedMemberId) {
+    throw new Error('Character transfer target must be a different confirmed member');
+  }
   return characterRepository.transferCharacter({
     characterId: character.id,
     assignedMemberId: assignedMember.id,

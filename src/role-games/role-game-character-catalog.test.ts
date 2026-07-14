@@ -260,6 +260,20 @@ test('transferRoleGameCharacter reloads ownership and transfers atomically for a
   }]);
 });
 
+test('transferRoleGameCharacter rejects a no-op transfer to the current owner', async () => {
+  const game = sampleGame();
+  const gm = sampleMember({ id: 9, telegramUserId: 42, role: 'primary_gm' });
+  const owner = sampleMember({ id: 5 });
+  const character = sampleCharacter({ assignedMemberId: owner.id });
+  await assert.rejects(transferRoleGameCharacter({
+    roleGameRepository: roleGameRepositoryStub({ game, members: [gm, owner] }),
+    characterRepository: characterRepositoryStub({ async findCharacterById() { return character; } }),
+    actor: sampleActor({ telegramUserId: 42 }),
+    characterId: character.id,
+    assignedMemberId: owner.id,
+  }), /different confirmed member/);
+});
+
 test('requestRoleGameCharacter creates a claim only after reloading a public free character', async () => {
   const game = sampleGame();
   const member = sampleMember();
