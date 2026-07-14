@@ -78,7 +78,7 @@ import {
 } from './schedule-parsing.js';
 import { formatScheduleDraftSummary } from './schedule-draft-summary.js';
 import { formatScheduleListWithVenueImpact } from './schedule-list-impact.js';
-import { notifyScheduleConflicts, publishCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
+import { notifyScheduleConflicts, publishCalendarSnapshotToNewsGroups, publishPublicCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
 import {
   buildAttendanceModeOptions,
   buildCancelConfirmOptions,
@@ -92,9 +92,11 @@ import {
   buildEditDurationOptions,
   buildEditFieldMenuOptionsForEvent,
   buildEditInitialOccupiedSeatsOptions,
+  buildEditPublicVisibilityOptions,
   buildEditTableOptions,
   buildEditTimeMinuteOptions,
   buildInitialOccupiedSeatsOptions,
+  buildPublicVisibilityOptions,
   buildKeepCurrentKeyboard,
   buildReminderPreferenceOptions,
   buildScheduleMenuOptions,
@@ -142,6 +144,20 @@ function parseAttendanceModeSelection(
   return null;
 }
 
+function parsePublicVisibilitySelection(
+  text: string,
+  texts: ReturnType<typeof createTelegramI18n>['schedule'],
+): boolean | null {
+  if (text === texts.publicVisibilityYes || text === scheduleLabels.publicVisibilityYes) {
+    return true;
+  }
+  if (text === texts.publicVisibilityNo || text === scheduleLabels.publicVisibilityNo) {
+    return false;
+  }
+
+  return null;
+}
+
 export interface TelegramScheduleContext {
   messageText?: string | undefined;
   messageId?: number | undefined;
@@ -183,12 +199,19 @@ export interface TelegramScheduleContext {
 
 export async function handleTelegramScheduleText(context: TelegramScheduleContext): Promise<boolean> {
   const text = context.messageText?.trim();
-  if (!text || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
+  if (!text || context.runtime.chat.kind !== 'private') {
     return false;
   }
 
   if (isScheduleSession(context.runtime.session.current?.flowKey)) {
+    if (!context.runtime.actor.isApproved && !(await canContinuePublicJoinReminderSession(context))) {
+      return false;
+    }
     return handleActiveScheduleSession(context, text);
+  }
+
+  if (!context.runtime.actor.isApproved) {
+    return false;
   }
 
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
@@ -222,18 +245,24 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
 
 export async function handleTelegramScheduleStartText(context: TelegramScheduleContext): Promise<boolean> {
   const detailsEventId = parseScheduleStartPayload(context.messageText, scheduleDetailsStartPayloadPrefix);
-  if (detailsEventId !== null && context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved) {
+  if (detailsEventId !== null && context.runtime.chat.kind === 'private') {
     const event = await loadEventOrThrow(context, detailsEventId);
+    if (!canReadScheduleEvent(context.runtime.actor, event)) {
+      return false;
+    }
     await sendScheduleDetailsMessage(context, event);
     return true;
   }
 
   const eventId = parseScheduleStartPayload(context.messageText, scheduleStartPayloadPrefix);
-  if (eventId === null || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
+  if (eventId === null || context.runtime.chat.kind !== 'private') {
     return false;
   }
 
   const event = await loadEventOrThrow(context, eventId);
+  if (!canReadScheduleEvent(context.runtime.actor, event)) {
+    return false;
+  }
   await context.reply(await formatScheduleEventView(context, event), {
     ...buildScheduleDetailActionOptions({
       actor: context.runtime.actor,
@@ -278,7 +307,7 @@ export async function handleTelegramScheduleMessage(context: TelegramScheduleCon
 
 export async function handleTelegramScheduleCallback(context: TelegramScheduleContext): Promise<boolean> {
   const callbackData = context.callbackData;
-  if (!callbackData || context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved) {
+  if (!callbackData || context.runtime.chat.kind !== 'private') {
     return false;
   }
 
@@ -288,6 +317,9 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
   if (callbackData.startsWith(scheduleCallbackPrefixes.inspect)) {
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.inspect, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
+    if (!canReadScheduleEvent(context.runtime.actor, event)) {
+      return false;
+    }
     await context.reply(await formatScheduleEventView(context, event), {
       ...buildScheduleDetailActionOptions({
         actor: context.runtime.actor,
@@ -304,6 +336,9 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
   if (callbackData.startsWith(scheduleCallbackPrefixes.join)) {
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.join, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
+    if (!canReadScheduleEvent(context.runtime.actor, event)) {
+      return false;
+    }
     await joinScheduleEvent({
       repository: resolveScheduleRepository(context),
       eventId,
@@ -326,6 +361,9 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
   }
 
   if (callbackData.startsWith(scheduleCallbackPrefixes.leave)) {
+    if (!context.runtime.actor.isApproved) {
+      return false;
+    }
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.leave, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
     await leaveScheduleEvent({
@@ -351,12 +389,18 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
   }
 
   if (callbackData.startsWith(scheduleCallbackPrefixes.day)) {
+    if (!context.runtime.actor.isApproved) {
+      return false;
+    }
     const dayKey = parseDayKey(callbackData, scheduleCallbackPrefixes.day);
     await replyWithInspectableEventList(context, { dayKey });
     return true;
   }
 
   if (callbackData.startsWith(scheduleCallbackPrefixes.selectEdit)) {
+    if (!context.runtime.actor.isApproved) {
+      return false;
+    }
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.selectEdit, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
     if (!canManageEvent(context.runtime.actor, context.runtime.authorization, event)) {
@@ -371,12 +415,15 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     });
     await context.reply(
       `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId), language })}\n\n${texts.selectFieldPrompt}`,
-      { ...buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', language }), parseMode: 'HTML' },
+      { ...buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', hasPublicVisibility: event.attendanceMode === 'open', language }), parseMode: 'HTML' },
     );
     return true;
   }
 
   if (callbackData.startsWith(scheduleCallbackPrefixes.selectCancel)) {
+    if (!context.runtime.actor.isApproved) {
+      return false;
+    }
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.selectCancel, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
     if (!canManageEvent(context.runtime.actor, context.runtime.authorization, event)) {
@@ -397,6 +444,9 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
   }
 
   if (callbackData.startsWith(scheduleCallbackPrefixes.tableSelection)) {
+    if (!context.runtime.actor.isApproved) {
+      return false;
+    }
     return handleTableSelectionCallback(context, callbackData);
   }
 
@@ -572,7 +622,27 @@ async function handleCreateSession(
       await context.reply(texts.invalidAttendanceMode, buildAttendanceModeOptions(language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, attendanceMode } });
+    if (attendanceMode === 'open') {
+      await context.runtime.session.advance({ stepKey: 'public-visibility', data: { ...data, attendanceMode } });
+      await context.reply(texts.askPublicVisibility, buildPublicVisibilityOptions(language));
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, attendanceMode, isPublic: false } });
+    await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+    return true;
+  }
+
+  if (stepKey === 'public-visibility') {
+    const isPublic = parsePublicVisibilitySelection(text, texts);
+    if (isPublic === null) {
+      const capacity = parseCapacity(text);
+      if (!(capacity instanceof Error)) {
+        return advanceCreateCapacity(context, { ...data, isPublic: false }, capacity, language);
+      }
+      await context.reply(texts.invalidPublicVisibility, buildPublicVisibilityOptions(language));
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, isPublic } });
     await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
     return true;
   }
@@ -583,21 +653,7 @@ async function handleCreateSession(
       await context.reply(texts.invalidCapacity, buildSingleBackCancelKeyboard(language));
       return true;
     }
-    const attendanceMode = data.attendanceMode;
-    if (attendanceMode !== 'open' && attendanceMode !== 'closed') {
-      await context.runtime.session.advance({ stepKey: 'attendance-mode', data });
-      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
-      return true;
-    }
-    const nextData = { ...data, capacity };
-    if (attendanceMode === 'open') {
-      await context.runtime.session.advance({ stepKey: 'initial-occupied-seats', data: nextData });
-      await context.reply(texts.askInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
-      return true;
-    }
-    await context.runtime.session.advance({ stepKey: 'table', data: { ...nextData, initialOccupiedSeats: 0 } });
-    await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
-    return true;
+    return advanceCreateCapacity(context, data, capacity, language);
   }
 
   if (stepKey === 'initial-occupied-seats') {
@@ -659,6 +715,7 @@ async function handleCreateSession(
       tableId: asNullableNumber(data.tableId),
       catalogItemId: asNullableNumber(data.catalogItemId),
       attendanceMode: String(data.attendanceMode) === 'closed' ? 'closed' : 'open',
+      isPublic: data.isPublic === true,
       initialOccupiedSeats: Number(data.initialOccupiedSeats ?? 0),
       capacity: Number(data.capacity),
     });
@@ -728,6 +785,30 @@ async function handleJoinReminderSession(
   }
 
   await context.reply(texts.askReminderPreference, buildReminderPreferenceOptions(language));
+  return true;
+}
+
+async function advanceCreateCapacity(
+  context: TelegramScheduleContext,
+  data: Record<string, unknown>,
+  capacity: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).schedule;
+  const attendanceMode = data.attendanceMode;
+  if (attendanceMode !== 'open' && attendanceMode !== 'closed') {
+    await context.runtime.session.advance({ stepKey: 'attendance-mode', data });
+    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    return true;
+  }
+  const nextData = { ...data, capacity };
+  if (attendanceMode === 'open') {
+    await context.runtime.session.advance({ stepKey: 'initial-occupied-seats', data: nextData });
+    await context.reply(texts.askInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
+    return true;
+  }
+  await context.runtime.session.advance({ stepKey: 'table', data: { ...nextData, isPublic: false, initialOccupiedSeats: 0 } });
+  await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
   return true;
 }
 
@@ -821,7 +902,39 @@ async function handleCreateSessionBack(
     return true;
   }
 
+  if (stepKey === 'public-visibility') {
+    await context.runtime.session.advance({
+      stepKey: 'attendance-mode',
+      data: {
+        title: data.title,
+        ...descriptionPatch,
+        ...linkedCatalogPatch,
+        date: data.date,
+        time: data.time,
+        durationMinutes: data.durationMinutes,
+      },
+    });
+    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    return true;
+  }
+
   if (stepKey === 'capacity') {
+    if (data.attendanceMode === 'open') {
+      await context.runtime.session.advance({
+        stepKey: 'public-visibility',
+        data: {
+          title: data.title,
+          ...descriptionPatch,
+          ...linkedCatalogPatch,
+          date: data.date,
+          time: data.time,
+          durationMinutes: data.durationMinutes,
+          attendanceMode: data.attendanceMode,
+        },
+      });
+      await context.reply(texts.askPublicVisibility, buildPublicVisibilityOptions(language));
+      return true;
+    }
     await context.runtime.session.advance({
       stepKey: 'attendance-mode',
       data: {
@@ -848,6 +961,7 @@ async function handleCreateSessionBack(
         time: data.time,
         durationMinutes: data.durationMinutes,
         attendanceMode: data.attendanceMode,
+        isPublic: data.isPublic,
       },
     });
     await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
@@ -866,6 +980,7 @@ async function handleCreateSessionBack(
           time: data.time,
           durationMinutes: data.durationMinutes,
           attendanceMode: data.attendanceMode,
+          isPublic: data.isPublic,
           capacity: data.capacity,
         },
       });
@@ -883,6 +998,7 @@ async function handleCreateSessionBack(
         time: data.time,
         durationMinutes: data.durationMinutes,
         attendanceMode: data.attendanceMode,
+        isPublic: data.isPublic,
       },
     });
     await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
@@ -900,6 +1016,7 @@ async function handleCreateSessionBack(
         time: data.time,
         durationMinutes: data.durationMinutes,
         attendanceMode: data.attendanceMode,
+        isPublic: data.isPublic,
         capacity: data.capacity,
         initialOccupiedSeats: data.initialOccupiedSeats,
       },
@@ -960,12 +1077,17 @@ async function handleEditSession(
       await context.reply(texts.askEditInitialOccupiedSeats, buildEditInitialOccupiedSeatsOptions(language));
       return true;
     }
+    if (event.attendanceMode === 'open' && (text === texts.editFieldPublicVisibility || text === scheduleLabels.editFieldPublicVisibility)) {
+      await context.runtime.session.advance({ stepKey: 'public-visibility', data });
+      await context.reply(texts.askPublicVisibility, buildEditPublicVisibilityOptions(language));
+      return true;
+    }
     if (text === texts.editFieldTable || text === scheduleLabels.editFieldTable) {
       await context.runtime.session.advance({ stepKey: 'table', data });
       await context.reply(texts.askEditTable, buildEditTableOptions({ tableNames: await listSchedulableTableNames(context), language }));
       return true;
     }
-    await context.reply(texts.selectFieldPrompt, buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', language }));
+    await context.reply(texts.selectFieldPrompt, buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', hasPublicVisibility: event.attendanceMode === 'open', language }));
     return true;
   }
 
@@ -1131,6 +1253,17 @@ async function handleEditSession(
     }
     return returnToEditMenu(context, event, data, { initialOccupiedSeats });
   }
+  if (stepKey === 'public-visibility') {
+    if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
+      return returnToEditMenu(context, event, data, { isPublic: event.isPublic });
+    }
+    const isPublic = parsePublicVisibilitySelection(text, texts);
+    if (isPublic === null) {
+      await context.reply(texts.invalidPublicVisibility, buildEditPublicVisibilityOptions(language));
+      return true;
+    }
+    return returnToEditMenu(context, event, data, { isPublic });
+  }
   if (stepKey === 'table') {
     if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
       return returnToEditMenu(context, event, data, { tableId: event.tableId });
@@ -1164,7 +1297,7 @@ async function returnToEditMenu(
         tableRepository: resolveTableRepository(context),
         resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
       })}\n\n${texts.selectFieldPrompt}`,
-      { ...buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', language }), parseMode: 'HTML' },
+      { ...buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', hasPublicVisibility: event.attendanceMode === 'open', language }), parseMode: 'HTML' },
     );
   return true;
 }
@@ -1206,6 +1339,7 @@ async function persistEditedScheduleEvent(
     tableId: asNullableNumber(data.tableId),
     catalogItemId: event.catalogItemId ?? null,
     attendanceMode: event.attendanceMode,
+    isPublic: Object.prototype.hasOwnProperty.call(data, 'isPublic') ? data.isPublic === true : event.isPublic,
     initialOccupiedSeats: Number(data.initialOccupiedSeats ?? event.initialOccupiedSeats),
     capacity: Number(data.capacity ?? event.capacity),
   });
@@ -1641,6 +1775,27 @@ async function isActorAttending(context: TelegramScheduleContext, eventId: numbe
   return participant?.status === 'active';
 }
 
+function isPublicReadableEvent(event: ScheduleEventRecord): boolean {
+  return event.lifecycleStatus === 'scheduled' && event.attendanceMode === 'open' && event.isPublic === true;
+}
+
+function canReadScheduleEvent(actor: TelegramActor, event: ScheduleEventRecord): boolean {
+  return actor.isApproved || isPublicReadableEvent(event);
+}
+
+async function canContinuePublicJoinReminderSession(context: TelegramScheduleContext): Promise<boolean> {
+  const session = context.runtime.session.current;
+  if (session?.flowKey !== joinReminderFlowKey) {
+    return false;
+  }
+  const eventId = Number(session.data.eventId);
+  if (!Number.isInteger(eventId)) {
+    return false;
+  }
+  const event = await resolveScheduleRepository(context).findEventById(eventId);
+  return event ? isPublicReadableEvent(event) : false;
+}
+
 async function resolveMemberDisplayName(context: TelegramScheduleContext, telegramUserId: number): Promise<string> {
   const user = await resolveMembershipRepository(context).findUserByTelegramUserId(telegramUserId);
   if (user) {
@@ -1682,7 +1837,7 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
   };
 }
 
-async function runAfterScheduleSaveSideEffects(
+export async function runAfterScheduleSaveSideEffects(
   context: TelegramScheduleContext,
   event: ScheduleEventRecord,
   action: 'created' | 'updated' | 'deleted',
@@ -1701,12 +1856,20 @@ async function runAfterScheduleSaveSideEffects(
   }
 
   await ignoreSchedulePostSaveFailure(async () => {
+    const calendarBroadcastDependencies = buildCalendarBroadcastDependencies(context);
     await publishCalendarSnapshotToNewsGroups({
       change: {
         action,
         event,
       },
-      ...buildCalendarBroadcastDependencies(context),
+      ...calendarBroadcastDependencies,
+    });
+    await publishPublicCalendarSnapshotToNewsGroups({
+      change: {
+        action,
+        event,
+      },
+      ...calendarBroadcastDependencies,
     });
   });
 }

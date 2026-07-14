@@ -1048,8 +1048,10 @@ test('handleTelegramCatalogAdminText imports a BGG collection and refreshes exis
   assert.equal((await repository.findItemById(3))?.displayName, 'Root');
   assert.equal((await repository.findItemById(3))?.publisher, 'Leder Games');
   assert.equal((await repository.findItemById(3))?.recommendedAge, 10);
-  assert.equal((await repository.findItemById(4))?.itemType, 'expansion');
-  assert.equal((await repository.findItemById(4))?.displayName, 'Riverfolk Expansion');
+  const importedExpansion = (await repository.listItems({ includeDeactivated: true }))
+    .find((item) => item.externalRefs?.boardGameGeekId === '202');
+  assert.equal(importedExpansion?.itemType, 'expansion');
+  assert.equal(importedExpansion?.displayName, 'Riverfolk Expansion');
   assert.equal(auditRepository.__events.filter((event) => event.actionKey === 'catalog.item.updated').length, 1);
   assert.equal(auditRepository.__events.filter((event) => event.actionKey === 'catalog.item.created').length, 1);
 });
@@ -1409,7 +1411,7 @@ test('handleTelegramCatalogAdminMessage detects a catalog title from a cover ima
 
   assert.equal(resolverCalls.length, 1);
   assert.match(resolverCalls[0]?.imagePath ?? '', /cover-\d+\.jpg$/);
-  assert.match(resolverCalls[0]?.question ?? '', /nombre completo visible/i);
+  assert.match(resolverCalls[0]?.question ?? '', /nom complet visible/i);
   assert.equal(resolverCalls[0]?.model, 'openai/gpt-5.4-mini');
   assert.deepEqual(importCalls, ['Root']);
   assert.ok(replies.some((reply) => /Nom detectat: Root/.test(reply.message)));
@@ -1454,7 +1456,7 @@ test('handleTelegramCatalogAdminText localizes the wikipedia import handoff', as
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.equal(getCurrentSession()?.stepKey, 'select-field');
-  assert.match(replies.at(-2)?.message ?? '', /Importacion desde la API completada/);
+  assert.match(replies.at(-2)?.message ?? '', /Importación desde la API completada/);
   assert.match(replies.at(-1)?.message ?? '', /He importado datos externos para A &amp; B\./);
   assert.match(replies.at(-1)?.message ?? '', /Elige un campo del teclado o guarda los cambios cuando hayas terminado\./);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Nombre visible');
@@ -2497,7 +2499,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   assert.match(replies.at(-1)?.message ?? '', /<b>Azul<\/b>/);
 });
 
-test('handleTelegramCatalogAdminCallback shows item details without add media action', async () => {
+test('handleTelegramCatalogAdminCallback shows item details with localized admin actions', async () => {
   const repository = createRepository({
     items: [
       {
@@ -2539,7 +2541,7 @@ test('handleTelegramCatalogAdminCallback shows item details without add media ac
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Grupo: Sin grupo/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
   const buttons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];
-  assert.ok(buttons.some((button) => buttonText(button) === 'Edit item'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Editar ítem'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Autocorregir datos'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Traducir descripción'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Crear partida'));
@@ -2548,7 +2550,7 @@ test('handleTelegramCatalogAdminCallback shows item details without add media ac
   assert.ok(buttons.some((button) => buttonText(button) === 'Eliminar ítem'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Tomar prestado'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Ver préstamos'));
-  assert.ok(!buttons.some((button) => buttonText(button) === 'Afegir media'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Añadir media'));
 });
 
 test('handleTelegramCatalogAdminCallback appends BGG reimport notice for stale admin item details', async () => {
@@ -3768,15 +3770,16 @@ test('handleTelegramCatalogAdminCallback hides admin-only item actions for appro
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
 
-  const buttons = replies.at(-1)?.options?.inlineKeyboard?.flat() ?? [];
-  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.edit}3`));
-  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.autocorrect}3`));
-  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.translateDescription}3`));
-  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deactivate}3`));
-  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.editMedia}8`));
-  assert.ok(!buttons.some((button) => button.callbackData === `${catalogAdminCallbackPrefixes.deleteMedia}8`));
-  assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:create:3'));
-  assert.ok(buttons.some((button) => button.callbackData === 'catalog_loan:my_loans'));
+  const buttons = replies.at(-1)?.options?.replyKeyboard?.flat().map(buttonText) ?? [];
+  assert.ok(!buttons.some((button) => button === 'Editar ítem'));
+  assert.ok(!buttons.some((button) => button === 'Autocorregir datos'));
+  assert.ok(!buttons.some((button) => button === 'Traducir descripción'));
+  assert.ok(!buttons.some((button) => button === 'Eliminar ítem'));
+  assert.ok(!buttons.some((button) => button === 'Guardar cambios de media #8'));
+  assert.ok(!buttons.some((button) => button === 'Confirmar eliminación de media #8'));
+  assert.ok(buttons.some((button) => button === 'Crear partida'));
+  assert.ok(buttons.some((button) => button === 'Tomar prestado'));
+  assert.ok(buttons.some((button) => button === 'Ver préstamos'));
 });
 
 test('handleTelegramCatalogAdminCallback hides return action from unrelated non-admin members', async () => {
@@ -3928,7 +3931,7 @@ test('handleTelegramCatalogAdminCallback lets admins add catalog media backed by
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.ok((replies.at(-1)?.options?.replyKeyboard?.flat() ?? []).some((button) => buttonText(button) === 'Afegir media'));
+  assert.ok((replies.at(-1)?.options?.replyKeyboard?.flat() ?? []).some((button) => buttonText(button) === 'Afegir mèdia'));
 
   context.callbackData = `${catalogAdminCallbackPrefixes.addMedia}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -4066,7 +4069,7 @@ test('handleTelegramCatalogAdminCallback lets admins edit and delete item media'
   delete context.callbackData;
   assert.equal(getCurrentSession()?.stepKey, 'media-type');
 
-  context.messageText = 'Enllac';
+  context.messageText = 'Enllaç';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'https://example.com/root';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
@@ -4074,7 +4077,7 @@ test('handleTelegramCatalogAdminCallback lets admins edit and delete item media'
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = '3';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  context.messageText = 'Guardar canvis media';
+  context.messageText = 'Guardar canvis de mèdia';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession(), null);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.media.updated');
@@ -4084,7 +4087,7 @@ test('handleTelegramCatalogAdminCallback lets admins edit and delete item media'
   context.callbackData = 'catalog_admin:delete_media:8';
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   delete context.callbackData;
-  context.messageText = 'Confirmar eliminacio media';
+  context.messageText = 'Confirmar eliminació de mèdia';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.media.deleted');
 

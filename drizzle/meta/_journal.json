@@ -246,6 +246,55 @@
       "when": 1780509600000,
       "tag": "0034_create_notices",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1782812235051,
+      "tag": "0035_freezing_apocalypse",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783303677121,
+      "tag": "0036_absent_gwen_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783430505000,
+      "tag": "0037_public_schedule_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783609770366,
+      "tag": "0038_polite_justice",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1783989922178,
+      "tag": "0039_sparkling_sally_floyd",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1784020834600,
+      "tag": "0040_milky_luminals",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1784028150808,
+      "tag": "0041_lyrical_scarecrow",
+      "breakpoints": true
     }
   ]
 }

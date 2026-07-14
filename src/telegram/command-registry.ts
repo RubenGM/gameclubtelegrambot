@@ -32,6 +32,7 @@ export type TelegramHelpSection =
   | 'group_purchases'
   | 'storage'
   | 'lfg'
+  | 'role_games'
   | 'notices';
 
 export interface TelegramCommandRuntime {
@@ -51,6 +52,8 @@ export interface TelegramCommandRuntime {
     sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
     sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
+    downloadFile?(input: { fileId: string; destinationPath: string; allowLocalBotApi?: boolean }): Promise<void>;
+    supportsLargeFileDownload?: boolean;
     editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
     deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
   };
@@ -62,6 +65,10 @@ export interface TelegramCommandRuntime {
   actor: TelegramActor;
   authorization: AuthorizationService;
   session: ConversationSessionRuntime;
+  logger?: {
+    warn?(bindings: object, message: string): void;
+    error(bindings: object, message: string): void;
+  };
 }
 
 export interface TelegramCommandHandlerContext {
@@ -214,6 +221,7 @@ export function renderTelegramHelpMessage({
     lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
     lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
     lines.push(`${i18n.actionMenu.lfg}: ${i18n.common.helpLfgAction}`);
+    lines.push(`${i18n.actionMenu.roleGames}: ${i18n.common.helpRoleGamesAction}`);
     lines.push(`${i18n.actionMenu.notices}: ${i18n.common.helpNoticesAction}`);
     lines.push(`${i18n.actionMenu.welcomeTemplates}: ${i18n.common.helpWelcomeTemplatesAction}`);
     lines.push(`${i18n.actionMenu.changeDisplayName}: ${i18n.common.helpChangeDisplayNameAction}`);
@@ -229,6 +237,7 @@ export function renderTelegramHelpMessage({
   lines.push(`${i18n.actionMenu.storage}: ${i18n.common.helpStorageAction}`);
   lines.push(`${i18n.actionMenu.groupPurchases}: ${i18n.common.helpGroupPurchasesAction}`);
   lines.push(`${i18n.actionMenu.lfg}: ${i18n.common.helpLfgAction}`);
+  lines.push(`${i18n.actionMenu.roleGames}: ${i18n.common.helpRoleGamesAction}`);
   lines.push(`${i18n.actionMenu.notices}: ${i18n.common.helpNoticesAction}`);
   lines.push(`${i18n.actionMenu.changeDisplayName}: ${i18n.common.helpChangeDisplayNameAction}`);
   lines.push(`${i18n.actionMenu.language}: ${i18n.common.helpLanguageAction}`);
@@ -255,6 +264,7 @@ function helpTextForSection(
       `${actionMenu.storage}: ${common.helpStorageAction}`,
       `${actionMenu.groupPurchases}: ${common.helpGroupPurchasesAction}`,
       `${actionMenu.lfg}: ${common.helpLfgAction}`,
+      `${actionMenu.roleGames}: ${common.helpRoleGamesAction}`,
       `${actionMenu.notices}: ${common.helpNoticesAction}`,
       `${actionMenu.welcomeTemplates}: ${common.helpWelcomeTemplatesAction}`,
       `${actionMenu.changeDisplayName}: ${common.helpChangeDisplayNameAction}`,
@@ -271,6 +281,7 @@ function helpTextForSection(
       `${actionMenu.storage}: ${common.helpStorageAction}`,
       `${actionMenu.groupPurchases}: ${common.helpGroupPurchasesAction}`,
       `${actionMenu.lfg}: ${common.helpLfgAction}`,
+      `${actionMenu.roleGames}: ${common.helpRoleGamesAction}`,
       `${actionMenu.notices}: ${common.helpNoticesAction}`,
       `${actionMenu.changeDisplayName}: ${common.helpChangeDisplayNameAction}`,
       `${actionMenu.language}: ${common.helpLanguageAction}`,
@@ -318,6 +329,14 @@ function helpTextForSection(
       `${common.helpSectionHeader} ${actionMenu.lfg}`,
       common.helpContextLfg,
       common.helpSectionLfgDetail,
+    ].join('\n');
+  }
+
+  if (section === 'role_games') {
+    return [
+      `${common.helpSectionHeader} ${actionMenu.roleGames}`,
+      common.helpContextRoleGames,
+      common.helpSectionRoleGamesDetail,
     ].join('\n');
   }
 

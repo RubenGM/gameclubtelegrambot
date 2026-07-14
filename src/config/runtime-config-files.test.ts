@@ -210,3 +210,59 @@ test('splitRuntimeConfigForPersistence keeps Telegram button appearance in JSON 
   });
   assert.equal(payload.envValues.GAMECLUB_TELEGRAM_TOKEN, 'telegram-token');
 });
+
+test('splitRuntimeConfigForPersistence stores local Bot API credentials in env', () => {
+  const payload = splitRuntimeConfigForPersistence({
+    schemaVersion: 1,
+    bot: {
+      publicName: 'Game Club Bot',
+      clubName: 'Game Club',
+      language: 'ca',
+    },
+    telegram: {
+      token: 'telegram-token',
+      localBotApi: {
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:8081',
+        apiId: 123456,
+        apiHash: 'api-hash',
+        dataDir: '/var/lib/gameclubtelegrambot/telegram-bot-api',
+      },
+    },
+    database: {
+      host: 'localhost',
+      port: 5432,
+      name: 'gameclub',
+      user: 'gameclub_user',
+      password: 'db-password',
+      ssl: false,
+    },
+    adminElevation: {
+      passwordHash: 'hash',
+    },
+    bootstrap: {
+      firstAdmin: {
+        telegramUserId: 123456789,
+        displayName: 'Club Administrator',
+      },
+    },
+    notifications: {
+      defaults: {
+        groupAnnouncementsEnabled: true,
+        eventRemindersEnabled: true,
+        eventReminderLeadHours: 24,
+      },
+    },
+    featureFlags: {},
+  });
+
+  assert.deepEqual(payload.jsonConfig.telegram, {
+    localBotApi: {
+      enabled: true,
+      baseUrl: 'http://127.0.0.1:8081',
+      dataDir: '/var/lib/gameclubtelegrambot/telegram-bot-api',
+    },
+  });
+  assert.equal(payload.envValues.GAMECLUB_TELEGRAM_LOCAL_BOT_API_ID, '123456');
+  assert.equal(payload.envValues.GAMECLUB_TELEGRAM_LOCAL_BOT_API_HASH, 'api-hash');
+});

@@ -877,7 +877,7 @@ function isExplicitGroupLlmRequest(context: TelegramLlmCommandContext, text: str
     return false;
   }
 
-  return new RegExp(`(^|\\s)@${escapeRegExp(username)}\\b`, 'i').test(text);
+  return new RegExp(`^\\s*@${escapeRegExp(username)}\\b`, 'i').test(text);
 }
 
 function stripBotMention(context: TelegramLlmCommandContext, text: string): string {
@@ -886,7 +886,7 @@ function stripBotMention(context: TelegramLlmCommandContext, text: string): stri
     return text;
   }
 
-  return text.replace(new RegExp(`(^|\\s)@${escapeRegExp(username)}\\b`, 'ig'), ' ').trim();
+  return text.replace(new RegExp(`^\\s*@${escapeRegExp(username)}\\b`, 'i'), '').trim();
 }
 
 function escapeRegExp(value: string): string {

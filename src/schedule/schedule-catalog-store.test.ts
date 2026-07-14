@@ -32,6 +32,7 @@ test('createDatabaseScheduleRepository lists only scheduled events by default', 
                   tableId: null,
                   catalogItemId: null,
                   attendanceMode: 'open',
+                  isPublic: false,
                   initialOccupiedSeats: 0,
                   capacity: 5,
                   lifecycleStatus: 'scheduled',
@@ -57,10 +58,11 @@ test('createDatabaseScheduleRepository lists only scheduled events by default', 
   assert.deepEqual(events, ['list:scheduled']);
   assert.deepEqual(result.map((event) => event.id), [1]);
   assert.equal(result[0]?.attendanceMode, 'open');
+  assert.equal(result[0]?.isPublic, false);
   assert.equal(result[0]?.initialOccupiedSeats, 0);
 });
 
-test('createDatabaseScheduleRepository persists attendance mode and initial occupied seats', async () => {
+test('createDatabaseScheduleRepository persists attendance mode, visibility, and initial occupied seats', async () => {
   const repository = createDatabaseScheduleRepository({
     database: {
       insert: (table: { [key: string]: unknown }) => {
@@ -71,6 +73,7 @@ test('createDatabaseScheduleRepository persists attendance mode and initial occu
         return {
           values: (values: Record<string, unknown>) => {
             assert.equal(values.attendanceMode, 'open');
+            assert.equal(values.isPublic, true);
             assert.equal(values.initialOccupiedSeats, 2);
             assert.equal(values.catalogItemId, null);
 
@@ -87,6 +90,7 @@ test('createDatabaseScheduleRepository persists attendance mode and initial occu
                   tableId: null,
                   catalogItemId: null,
                   attendanceMode: 'open',
+                  isPublic: true,
                   initialOccupiedSeats: 2,
                   capacity: 5,
                   lifecycleStatus: 'scheduled',
@@ -113,11 +117,13 @@ test('createDatabaseScheduleRepository persists attendance mode and initial occu
     createdByTelegramUserId: 42,
     tableId: null,
     attendanceMode: 'open',
+    isPublic: true,
     initialOccupiedSeats: 2,
     capacity: 5,
-  });
+  } as never);
 
   assert.equal(event.attendanceMode, 'open');
+  assert.equal(event.isPublic, true);
   assert.equal(event.initialOccupiedSeats, 2);
 });
 

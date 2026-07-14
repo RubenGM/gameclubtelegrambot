@@ -123,7 +123,7 @@ test('createVenueEvent rejects invalid time ranges', async () => {
         occupancyScope: 'partial',
         impactLevel: 'medium',
       }),
-    /El final ha de ser posterior a l inici/,
+    /El final ha de ser posterior a l'inici/,
   );
 });
 

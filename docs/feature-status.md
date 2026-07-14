@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-06-12.
+Última revisión: 2026-07-14.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -15,21 +15,23 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 | Feature                                      | Estado               | Lectura actual                                                                                                                       |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
-| Runtime, configuración y despliegue           | 🟢 Operativo         | Base sólida con TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, canarios/reintentos Telegram, systemd/tray y backups.           |
-| Acceso, usuarios y admins                    | 🟢 Operativo         | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname visible, bienvenidas, avisos privados y alta web en `/alta`.     |
-| Idioma, menús y ayuda                        | 🟢 Operativo         | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG etiquetado como buscar grupo y ayuda contextual por sección activa.                 |
-| Asistente LLM de órdenes naturales           | 🟠 Parcial           | `/ask`, botón privado, fallback privado y menciones en grupos bajo feature flag; lecturas MVP y escrituras confirmadas parciales.            |
-| Mesas                                        | 🟢 Operativo         | Administración de mesas y consulta de tablas activas para socios.                                                                        |
-| Agenda de actividades                        | 🟢 Operativo         | Crear/listar/editar/cancelar, apuntarse/salir, plazas, conflictos, recordatorios y publicación en canales de noticias.                   |
-| Eventos del local                            | 🟢 Operativo         | Gestión de eventos por admins con impacto directo en agenda y resumen diario, avisando impacto con progreso editable.                    |
-| Catálogo                                     | 🟢 Operativo         | CRUD, familias, búsqueda, media por URL/adjunto con Storage interno, BGG/Open Library/Wikipedia y procesos largos con progreso editable. |
-| Préstamos                                    | 🟢 Operativo         | Flujo principal funcional con recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.          |
-| Grupos de noticias                           | 🟢 Operativo         | `/news` gestiona suscripciones por categoría para grupo completo o topic concreto, incluyendo `nuevos_miembros`; `/admin/news` resume feeds activos. |
-| Avisos                                       | 🟢 Operativo         | Socios y admins crean, ven, editan y archivan avisos privados con formato/adjuntos, publicados sólo en destinos `/news avisos`.            |
-| Compras conjuntas                            | 🟢 Operativo         | Crear/listar/unirse/confirmar, descripciones enriquecidas, avisos por `/news group-purchases`, participantes y recordatorios.             |
-| Storage / Archivos                           | 🟢 Operativo         | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación desde web.                |
-| Backups, operación y panel web               | 🟢 Operativo         | CLI/TUI de backup/restore, gestión Debian, dashboard web, secciones admin separadas, Storage web, bienvenidas, temas y páginas públicas.  |
-| Analytics / UX                               | 🟡 Técnico parcial    | Existe reporte/TUI operativo y wrapper OpenCode para leer imágenes, con mejoras de analítica avanzada pendientes.                         |
+| Runtime, configuración y despliegue          | 🟢 Operativo        | Base TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, reintentos Telegram, systemd/tray y backups.                           |
+| Acceso, usuarios y admins                    | 🟢 Operativo        | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname, bienvenidas, avisos privados y alta web en `/alta`.            |
+| Idioma, menús y ayuda                        | 🟢 Operativo        | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG, Rol y ayuda contextual por sección activa.                                     |
+| Asistente LLM de órdenes naturales           | 🟠 Parcial          | `/ask`, botón privado, fallback y menciones/replies en grupos bajo flag; lecturas MVP y escrituras confirmadas parciales.             |
+| Mesas                                        | 🟢 Operativo        | Administración de mesas y consulta de tablas activas para socios.                                                                     |
+| Agenda de actividades                        | 🟢 Operativo        | Crear/listar/editar/cancelar, apuntarse/salir, actividades públicas, conflictos, recordatorios y feeds de noticias.                   |
+| Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
+| Catálogo                                     | 🟢 Operativo        | CRUD, familias, búsqueda, media URL/adjunto con Storage, BGG/Open Library/Wikipedia y procesos con progreso editable.                 |
+| Préstamos                                    | 🟢 Operativo        | Flujo principal, recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.                 |
+| Grupos de noticias                           | 🟢 Operativo        | `/news` por categoría para grupo completo o topic, incluido `public-events`; `/admin/news` resume feeds activos.                      |
+| Avisos                                       | 🟢 Operativo        | Socios y admins crean, ven, editan y archivan avisos con formato/adjuntos en destinos `/news avisos`.                                 |
+| Compras conjuntas                            | 🟢 Operativo        | Crear/listar/unirse/confirmar, descripciones, `/news group-purchases`, participantes y recordatorios.                                 |
+| Rol / partidas de rol                        | 🟢 Operativo        | Campañas/one-shots, personajes, participantes, sesiones, recurrencias, solicitudes y handouts privados con Storage interno.           |
+| Storage / Archivos                           | 🟢 Operativo        | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación web.                     |
+| Impresión                                    | 🟢 Operativo        | Botón privado, estados admin, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial.                          |
+| Backups, operación y panel web               | 🟢 Operativo        | CLI/TUI de backup/restore, gestión Debian, dashboard web, Storage web, bienvenidas, temas y páginas públicas.                         |
+| Analytics / UX                               | 🟡 Técnico parcial  | Reporte/TUI operativo y wrapper OpenCode para leer imágenes; mejoras de analítica avanzada pendientes.                                |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 ```
 
@@ -47,7 +49,7 @@ Implementado:
 - PostgreSQL con Drizzle, schema central y migraciones en `src/infrastructure/database/schema.ts`.
 - Long polling con `allowed_updates` limitado a `message` y `callback_query` en `src/telegram/runtime-boundary-support.ts`.
 - Capa intermedia de reintentos para envios y operaciones Telegram en `src/telegram/telegram-api-retry.ts`, usada desde el boundary runtime; respeta `retry_after` de Telegram sin recortarlo al máximo de backoff propio.
-- Canario de salud de Telegram API: detecta fallos transitorios, mantiene estado degradado temporal y añade aviso a mensajes privados de texto mientras dura la incidencia; no añade ese estado al final de mensajes enviados a grupos.
+- Canario de salud de Telegram API: detecta fallos transitorios y mantiene estado degradado temporal para diagnóstico interno sin añadir avisos a las respuestas visibles del bot.
 - El middleware global de Telegram responde los errores inesperados con el detalle exacto saneado para operador/usuario, en vez de ocultarlos tras un mensaje generico.
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
 - Herramienta `npm run opencode:image` y wrapper `scripts/opencode-cawa.sh` para enviar prompts/imagenes a OpenCode con el usuario operador; usa `openai/gpt-5.4-mini` por defecto y esta pensada como paso previo a búsquedas BGG o traducciones asistidas, no como fuente de metadatos.
@@ -87,7 +89,7 @@ Implementado:
 
 Riesgos o pendientes:
 
-- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos especificos para rol admin, revocacion de acceso y storage category access.
+- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos especificos para rol admin, revocacion de acceso, storage category access y permiso global de impresión.
 
 ## Idioma, menus y ayuda
 
@@ -97,7 +99,7 @@ Implementado:
 
 - `/language` y flujo de idioma en privado/grupo.
 - Menu principal dinamico por rol, estado, chat y sesion en `src/telegram/action-menu.ts`.
-- El menu aprobado/admin muestra "LFG (buscar grupo)", "Avisos" y una accion visible para cambiar el nombre mostrado por el bot; el menu raiz de admins añade un botón `Admin` que abre las herramientas administrativas sin mezclar solicitudes, usuarios, mesas admin y bienvenidas con las acciones diarias.
+- El menu aprobado/admin muestra "LFG (buscar grupo)", "Rol", "Avisos" y una accion visible para cambiar el nombre mostrado por el bot; el menu raiz de admins añade un botón `Admin` que abre las herramientas administrativas sin mezclar solicitudes, usuarios, mesas admin y bienvenidas con las acciones diarias.
 - `Inicio` y `/start` normal limpian cualquier sesion activa antes de reconstruir la portada, evitando dejar al usuario atrapado con un teclado de `/cancel`, y muestran hasta 3 avisos activos recientes.
 - Ayuda contextual en `src/telegram/command-registry.ts` y seccion activa gestionada desde `runtime-boundary-registration.ts`.
 - Soporte visible para `ca`, `es` y `en`.
@@ -105,6 +107,47 @@ Implementado:
 Riesgos o pendientes:
 
 - Muchos flujos dependen de comparar texto localizado de botones. Cambios de copy pueden romper acciones si no se actualizan tests.
+
+## Rol / partidas de rol
+
+Estado: `operativo`.
+
+Implementado:
+
+- Botón privado `Rol` para socios aprobados y admins en el menu raiz, manteniendo herramientas administrativas dentro de `Admin`.
+- Comandos `/rol` y `/role_games`, además del botón `Rol`, abren directamente `Mis partidas`; el teclado conserva `Partidas visibles` y `Crear partida` como acciones secundarias.
+- Home con `Mis partidas`, `Partidas visibles`, `Crear partida` y `Cancelar` con rol danger.
+- Listas read-only de partidas propias y visibles desde `RoleGameRepository`, con paginacion estilo Telegram y deep links `role_game_<id>` al detalle.
+- El detalle de partida funciona como portada con teclado persistente, resume ocupación, solicitudes pendientes y la sesión futura enlazada más próxima (o su ausencia), y ofrece los submenús de Participantes, Sesiones, Materiales, Invitar y Configurar sin depender de acciones inline bajo el mensaje.
+- `Personajes` aparece en esa portada para cualquier miembro confirmado —incluidos GM principal y coorganizadores— y para admins globales. Al entrar abre directamente `Mis personajes`, manteniendo en el teclado las vistas de campaña y libres, la creación y las acciones de gestión autorizadas. Visitantes, solicitudes pendientes y miembros históricos no ven ni pueden abrir la sección.
+- Cada miembro confirmado puede mantener varios personajes propios con nombre, descripción opcional, URL `http/https` opcional y privacidad `players` o `private`. La edición confirma y persiste cada campo de forma atómica; las previsualizaciones respetan el formato HTML de Telegram. Un personaje público es visible para todos los miembros confirmados; uno privado sólo para su propietario y los GM operativos.
+- Los jugadores crean personajes asignados exclusivamente a sí mismos. GM principal, coorganizadores confirmados y admins pueden crearlos para cualquier miembro confirmado o dejarlos libres, y asignarlos, transferirlos o desasignarlos mediante confirmación sin modificar el rol ni el estado del participante.
+- Los personajes públicos libres admiten solicitudes. El jugador puede cancelar la suya y los GM las revisan con aprobación o rechazo; la aprobación asigna de forma atómica y cancela las solicitudes rivales. Los cambios de asignación y resolución se notifican por privado en modo best-effort.
+- Abandonar un personaje lo deja libre sin borrarlo. Cuando un miembro confirmado pasa a `left` o `removed`, todos sus personajes se desasignan dentro de la misma transacción; una promoción o degradación entre roles confirmados conserva sus personajes.
+- Las vistas `Mis personajes`, `Personajes de la campaña` y `Personajes sin asignar` muestran cada personaje como enlace de texto al detalle `role_character_<id>` y reservan el teclado persistente para acciones, navegación y paginación. Las selecciones de miembros, solicitudes y adjuntos conservan mapas de botones ligados a la sesión; todas las listas mantienen páginas de seis elementos. El detalle de personaje se abre sólo si está autorizado y responde sin revelar la existencia o el nombre cuando no hay acceso.
+- Cada personaje admite adjuntos independientes de documento, foto, vídeo o audio. Propietario y GM pueden añadir, reemplazar, retirar y cambiar su privacidad; la audiencia se vuelve a comprobar al abrirlos y los adjuntos privados sólo llegan al propietario actual y a los GM.
+- La creación y edición permiten añadir, sustituir o retirar un único retrato mediante foto o documento de imagen. El retrato se guarda como adjunto interno especializado y, al abrir el personaje, el bot envía primero la ficha textual y justo después copia el retrato si existe.
+- Cada adjunto de personaje usa una entrada de la categoría interna `role_game_handouts`; el flujo de Rol crea la categoría/topic si falta, intercambia enlaces con compare-and-set al reemplazar y hace limpieza lógica best-effort. Estas entradas siguen ocultas y bloqueadas en navegación, búsqueda, detalle directo, edición, borrado, tags e impresión genéricos de Storage.
+- `Crear partida` inicia un flujo guiado cancelable para crear la partida base con tipo, titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion y modo de programacion.
+- `Editar partida` inicia un flujo guiado cancelable para cambiar titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion, programacion manual por jugadores, publicacion Agenda por defecto y estado.
+- `Cancelar partida` permite al GM principal y a los admins globales cancelar campañas y one-shots desde `Configurar`, con confirmación explícita. Conserva la partida y su historial, fija el estado `cancelled`, detiene la generación recurrente y la retira de las listas activas.
+- `Eliminar partida` permite al GM principal y a los admins globales borrar definitivamente campañas y one-shots desde `Configurar`. Exige escribir el título exacto y una confirmación final; elimina personajes, solicitudes, adjuntos, materiales, categorías y participantes, marca como borradas las entradas Storage internas y cancela las sesiones Agenda vinculadas. La opción `Configurar` permanece disponible para propietarios de one-shots aunque no admitan recurrencia.
+- `Invitar jugadores` genera un enlace `role_game_<id>` compartible con resumen de plazas confirmadas sin aprobar automaticamente membresias.
+- Los one-shots piden fecha y hora en la creacion y generan una primera sesion en `schedule_events` enlazada con `role_game_sessions`.
+- Las sesiones iniciales de one-shots y las sesiones manuales creadas desde Rol ejecutan las mismas notificaciones posteriores que una actividad creada desde Agenda: actualizan los snapshots de los grupos/topics suscritos a `events` y, cuando corresponde, a `public-events`.
+- Las campañas activas en modo manual muestran `Programar siguiente sesión` a GM/coorganizadores/admins, y tambien a jugadores confirmados si la partida permite programacion manual por jugadores; one-shots, partidas pausadas y campañas recurrentes no exponen esta accion manual.
+- Las campañas pueden configurarse como recurrentes desde la creacion o desde el detalle con `Configurar recurrencia`, indicando intervalo semanal, dia, hora y ventana de sesiones futuras.
+- El worker de recurrencias arranca junto al servicio y mantiene la ventana futura de campañas recurrentes creando eventos Agenda enlazados en `role_game_sessions`; las sesiones canceladas enlazadas no se recrean.
+- Las sesiones de rol reutilizan Agenda: crean eventos con `createScheduleEvent`, enlazan `role_game_sessions`, apuntan automaticamente a jugadores confirmados hasta la capacidad disponible cuando la partida lo configura y enlazan el recibo a `schedule_event_<id>`.
+- GM principal y admins gestionan solicitudes, listas de espera, invitaciones, jugadores y coorganizadores; los coorganizadores sólo conservan la resolución operativa de solicitudes. Los cambios de estado o rol comparan el estado de origen y cualquier transición que ocupe una plaza confirma capacidad de forma atómica.
+- Participantes activos e historial separado se muestran con identidad visible, rol del GM principal, estado, fecha relevante y paginación de teclado; nadie puede promocionarse a sí mismo y los estados históricos no permiten reactivación ni nuevas solicitudes desde Telegram.
+- La solicitud de plaza comparte la misma validación de capacidad entre visibilidad y ejecución. Los one-shots públicos con política `members_and_external` se pueden abrir desde `/start role_game_<id>` por usuarios no aprobados y permiten solicitar plaza externa sin aprobar automáticamente la membresía del usuario.
+- Un admin global que consulte una partida privada o de sólo invitación sin ser todavía participante ve inicialmente la ficha normal de jugador, puede solicitar plaza y dispone de `Abrir como administrador` para activar temporalmente las herramientas administrativas de esa partida. La solicitud no usa privilegios para saltarse el aforo ni la revisión configurada por el GM y queda registrada como miembro interno pendiente o confirmado según la política de aceptación de la partida.
+- Infraestructura Storage para handouts internos con proposito `role_game_handouts`, oculto de Storage normal, `/storage`, busquedas, web/TUI Storage y busquedas LLM.
+- Los managers pueden subir uno o varios adjuntos como un único pack desde la ficha de partida. El bot recoge los archivos mediante teclado persistente, pide obligatoriamente el nombre con una sugerencia basada en el caption o el archivo y sólo entonces los copia con progreso editable. Si todavía no existe la categoría interna de handouts, crea automáticamente su topic y categoría en el supergrupo Storage por defecto antes de guardar el pack como un único `role_game_materials` `gm_only`, sin exponer `storage_entry_<id>`. Al completar la subida conserva la sesión en `Materiales`, de modo que `Volver a la partida` mantiene la navegación de Rol y no cae en el fallback de IA.
+- `Materiales` lista handouts subidos desde Rol con paginación mediante teclado de respuesta persistente cuando corresponde, enlazando sólo `role_material_<id>` y sin abrir acceso a Storage.
+- Los handouts se organizan en categorías y subcategorías jerárquicas privadas de cada partida, sin reutilizar ni mostrar el árbol global de Storage, con navegación mediante enlaces de texto y paginación conjunta de carpetas y materiales. Los uploads nuevos se guardan en la categoría abierta; el contenido anterior permanece en la raíz sin categoría y los managers pueden moverlo después a cualquier categoría de esa misma partida.
+- Al abrir un handout, el bot envía directamente todos sus adjuntos en orden para que el usuario pueda identificar el contenido y mantiene sus acciones en el teclado de respuesta. Los managers pueden enviarlo sólo esta vez, enviarlo y revelarlo, revelarlo sin envío o eliminarlo tras una confirmación explícita; además pueden elegir a un jugador confirmado concreto para enviárselo o revelárselo en privado, sin cambiar la visibilidad global ni conceder acceso al resto. La revelación individual queda registrada y permite únicamente al destinatario confirmado volver a abrir `role_material_<id>`. También pueden ejecutar las acciones de envío y revelado sobre una categoría completa, incluyendo recursivamente todas sus subcategorías, con progreso editable y resumen agregado. Al eliminar un handout se retiran su historial de entregas y su referencia de Rol, y la entrada interna se marca como eliminada en Storage. El bot registra `role_game_material_deliveries`, resume fallos parciales y aplica permisos de Rol a `role_material_<id>`.
 
 ## Asistente LLM de órdenes naturales
 
@@ -134,7 +177,7 @@ Implementado:
 - El prompt distingue catálogo físico/prestable frente a Storage como repositorio de archivos, incluyendo STL y material de rol como libros, manuales, aventuras, fichas y mapas, para clasificar mejor consultas ambiguas.
 - Las recomendaciones LLM de catálogo usan `catalog.recommend`: el bot filtra juegos reales por tipo, disponibilidad y número de jugadores, usa la consulta como señal de ranking semántico sobre texto y metadatos BGG en vez de como filtro duro, aplica fallback a rangos cercanos, juegos prestados o metadatos incompletos cuando no hay coincidencia exacta, envía candidatos con metadatos a la LLM para elegir, y renderiza la respuesta con enlaces a los detalles del bot.
 - La importación/autocorrección BGG guarda metadatos útiles para recomendaciones: peso medio, rating, bayes average, usuarios, votos de peso y rangos de jugadores recomendados por encuesta, además de categorías y mecánicas.
-- Las búsquedas LLM de Storage refinan los candidatos con una segunda pasada semántica sobre descripción, ruta completa de categoría, tags y archivos para separar, por ejemplo, material de rol/PDF de modelos STL con la misma franquicia; si la consulta coincide con una categoría, el bot incluye también sus descendientes para encontrar archivos guardados en subcarpetas específicas, y trata todo lo que cuelga de la categoría raíz de STL como contenido de impresión 3D (`STL`, modelos 3D, figuras, estatuas, miniaturas o dioramas) en vez de exigir extensión `.stl` literal.
+- Las búsquedas LLM de Storage refinan los candidatos visibles con una segunda pasada semántica sobre descripción, ruta completa de categoría, tags y archivos para separar, por ejemplo, material de rol/PDF de modelos STL con la misma franquicia; si la consulta coincide con una categoría visible, el bot incluye también sus descendientes para encontrar archivos guardados en subcarpetas específicas, y trata todo lo que cuelga de la categoría raíz de STL como contenido de impresión 3D (`STL`, modelos 3D, figuras, estatuas, miniaturas o dioramas) en vez de exigir extensión `.stl` literal. Los handouts internos de Rol no se devuelven por `storage.search` ni por la sección Storage de `bot.search`.
 - Timeout LLM por defecto ampliado a 60s para reducir cortes en grupos y búsquedas con refinado semántico; los timeouts se comunican con mensaje específico al usuario.
 - Las lecturas usan el riesgo local de la allowlist por encima del `safety.risk` devuelto por la LLM, de modo que consultas como agenda semanal no caen en confirmación/prellenado aunque la LLM clasifique mal la salida.
 - Métricas saneadas persistidas en `audit_log` con intención, confianza, origen, tipo de chat, resultado, duración y motivo; no guardan texto literal del usuario, prompt completo ni respuesta completa de la LLM.
@@ -167,13 +210,14 @@ Estado: `operativo`.
 Implementado:
 
 - `/schedule` con crear, listar, editar, cancelar, detalle por deep link, unirse y salir.
-- Soporte de fecha, hora, duracion, mesa opcional, juego de catalogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, plazas iniciales ocupadas, capacidad y mensaje extra opcional con adjuntos para detalles.
+- Soporte de fecha, hora, duracion, mesa opcional, juego de catalogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, visibilidad pública sólo para mesas abiertas, plazas iniciales ocupadas, capacidad y mensaje extra opcional con adjuntos para detalles.
+- Las actividades públicas siguen apareciendo en las listas internas normales y además permiten que usuarios de Telegram no aprobados abran el deep link de detalle y se apunten, sin convertirlos en socios del club.
 - Si el usuario escribe solo la hora de inicio, el bot pasa a un paso especifico de minutos con botones rapidos (`:00`, `:15`, `:30`, `:45`) y copy propio.
 - Preferencia de recordatorio al apuntarse y worker persistente de recordatorios.
 - Avisos de conflicto y capacidad al crear/editar.
 - Integracion con eventos del local para mostrar impacto.
 - Listado y snapshots de grupo con enlace `Ver detalles` solo cuando la actividad tiene mensaje extra guardado; en ese caso no imprimen la descripcion larga en linea y el deep link reenvia el mensaje original al usuario.
-- Publicación de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic. El bot recuerda el último snapshot por grupo/topic y borra el anterior tras publicar uno nuevo; si Telegram rechaza el borrado por antigüedad o permisos, edita el mensaje anterior a puntos suspensivos para que no queden dos calendarios largos visibles.
+- Publicación de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic. El feed separado `public-events` no se activa por defecto y publica sólo la agenda filtrada a actividades públicas. El bot recuerda el último snapshot por grupo/topic/categoría y borra el anterior tras publicar uno nuevo; si Telegram rechaza el borrado por antigüedad o permisos, edita el mensaje anterior a puntos suspensivos para que no queden dos calendarios largos visibles.
 
 Riesgos o pendientes:
 
@@ -264,8 +308,8 @@ Implementado:
 - `/news activar` dentro de un topic habilita el grupo y suscribe el feed de agenda (`events`) a ese topic para evitar que las actualizaciones de calendario caigan al general.
 - Teclat inline de `/news` con `activar/desactivar`, `subscriure`, `desubscriure`, `refresh` y estado actual.
 - Las respuestas administrativas de `/news` confirman feed y destino por nombre de grupo cuando Telegram lo proporciona, y se borran automaticamente tras 1 minuto para no ensuciar el grupo o topic; las publicaciones reales de feeds se conservan.
-- Catálogo canónico de categorías de noticias y aliases reutilizado por agenda, LFG, préstamos, compras conjuntas y altas web (`nuevos_miembros`).
-- Publicación de novedades por categoría concreta (agenda => `events`, Avisos => `avisos`, compras conjuntas => `group-purchases`, LFG, préstamos por tipo de ítem, altas web => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto, como `events` y `group-purchases`, si no tienen ese feed suscrito explícitamente.
+- Catálogo canónico de categorías de noticias y aliases reutilizado por agenda, agenda pública, LFG, préstamos, compras conjuntas y altas web (`nuevos_miembros`).
+- Publicación de novedades por categoría concreta (agenda interna => `events`, agenda pública filtrada => `public-events`, Avisos => `avisos`, compras conjuntas => `group-purchases`, LFG, préstamos por tipo de ítem, altas web => `nuevos_miembros`) en el destino suscrito; los grupos habilitados reciben los feeds marcados por defecto, como `events` y `group-purchases`, si no tienen ese feed suscrito explícitamente.
 - `/admin/news` muestra los feeds disponibles y cuántos destinos activos hay suscritos a cada categoría.
 
 Pendiente:
@@ -330,6 +374,7 @@ Implementado:
 - Tags visibles como enlaces `#tag (X archivos)` hacia busqueda por tag, listado paginado de tags, entrada flexible sin `#` en prompts explicitos y gestion desde el detalle de archivo para propietario o admin.
 - Criterio de organizacion visible en los flujos de subida: categorias para ubicacion/tipo general del contenido y tags para rasgos cruzados como criaturas, facciones, formatos, campañas o packs mixtos.
 - Busqueda de Storage con entrada guiada para buscar por palabra/tag o explorar categorias nivel a nivel, normalizando `#tag` y buscando tambien por nombre de categoria.
+- Las categorias internas `catalog_media` y `role_game_handouts` quedan fuera de la navegacion normal, busqueda, web/TUI Storage y enlaces `storage_entry_<id>`.
 - Subida por DM: el usuario elige categoria con selector nivel a nivel, envia adjuntos con recibo editable del total del lote, finaliza, revisa tags con opcion de omitir, revisa una vista previa acotada para no superar el limite de Telegram con botones visibles para editar descripcion, añadir tags, añadir imagenes o completar, acumula imagenes adicionales con recibo editable, recibe aviso antes de completar sin tags y el bot muestra progreso editable con estado por adjunto mientras copia al topic canonico, indexa y notifica suscripciones; al terminar edita el recibo con enlaces directos a la entrada guardada y a su categoria.
 - Subida por reenvio de mensajes de Telegram en privado: en modo neutral el bot pregunta que hacer, permite "Añadir a almacenamiento", acumula mensajes reenviados con un recibo editable del total del lote, pide categoria, precarga descripcion/tags/adjuntos/texto desde el mensaje reenviado, filtra enlaces `t.me` de spam antes de derivar descripcion o guardar captions y confirma tags antes de mostrar la vista previa.
 - Subida directa en topic: si el mensaje cae en un topic asociado a categoria y el usuario tiene permiso, se indexa directamente.
@@ -357,6 +402,46 @@ Documentacion relacionada:
 
 - `improvements/storage_tui_management_plan.md` describe el alcance usado para el gestor TUI de Storage.
 - `docs/superpowers/specs/2026-04-21-telegram-storage-design.md` contiene el diseño original.
+
+## Impresión
+
+Estado: `operativo`.
+
+Implementado:
+
+- Botón privado `Imprimir`, visible cuando un admin pone la feature en `Activar` o `Modo prueba` desde `Admin` -> `Impresora` y el usuario es admin o tiene el permiso global `printing.use`.
+- Comando privado `/print` para iniciar el mismo flujo sin depender del teclado; socios aprobados sin `printing.use` reciben una denegación explicativa y no abren sesión de impresión.
+- El estado operativo se persiste en `app_metadata` con efecto inmediato: `Activar`, `Desactivar` o `Modo prueba`. Al desactivar se bloquean nuevas sesiones y se oculta el botón, pero las sesiones ya iniciadas pueden terminar.
+- Los admins gestionan el permiso desde `Admin` -> `Impresora` con `Conceder impresión`, `Revocar impresión` y `Accesos impresión`; las listas usan mensajes HTML con enlaces profundos, paginación por teclado y estadísticas por usuario de impresiones enviadas y páginas estimadas. Los admins siempre pueden imprimir aunque no tengan una asignación explícita.
+- Entrada desde adjuntos Telegram: PDFs directos, documentos Office/OpenDocument convertibles a PDF mediante LibreOffice headless y fotos/imágenes JPG, PNG, WebP, TIFF o BMP normalizadas a PDF con ImageMagick.
+- Entrada desde Storage: el detalle de entradas imprimibles muestra `Imprimir` cuando la feature está activa, el archivo tiene `telegramFileId`, el usuario puede leer la entrada de Storage y además es admin o tiene `printing.use`.
+- El flujo rechaza de forma explicativa archivos que superan el límite de descarga del Bot API de Telegram en la nube (20 MB) antes de llamar a `getFile` cuando conoce el tamaño, salvo que el runtime tenga activado `telegram.localBotApi` para descargas grandes de impresión.
+- Integración opcional con Bot API local sólo para impresión: `downloadFile` acepta `allowLocalBotApi`, el resto del bot sigue usando la ruta cloud por defecto, y si el intento local falla se registra el error y se usa el fallback cloud.
+- El despliegue instala `gameclubtelegrambot-local-bot-api.service` como servicio systemd hermano del bot principal: `startup.sh` lo habilita/reinicia antes del bot cuando `telegram.localBotApi.enabled=true`, y lo detiene/deshabilita cuando está apagado.
+- Cuando un archivo no puede descargarse por tamaño, el flujo cierra la sesión de impresión y restaura la navegación normal o el detalle de Storage, sin dejar un teclado de `Cancelar` huérfano.
+- Cuando una descarga falla de forma transitoria (por ejemplo `fetch failed`), el flujo no propaga el error al chat: en adjuntos directos conserva el paso de archivo para reenviar el PDF sin reiniciar, y desde Storage restaura el detalle para reintentar con `Imprimir`.
+- Para archivos dentro del límite de descarga, el flujo descarga el archivo temporalmente, normaliza Office a PDF si hace falta, inspecciona páginas con `pdfinfo`, pide páginas, páginas por hoja cuando hay más de una página seleccionada, copias, orientación `Vertical`/`Horizontal` y modo `Una cara`/`Doble cara` sólo si la cola CUPS confirma dúplex automático.
+- Las imágenes se normalizan a PDF con ImageMagick después de elegir orientación: A4 vertical por defecto o A4 horizontal cuando el usuario lo selecciona.
+- Si el documento normalizado sólo tiene una página, el flujo salta la pregunta de páginas y la de páginas por hoja, y pide directamente copias; si finalmente se imprime una sola página con una sola copia, también salta `Una cara`/`Doble cara` y usa una cara por defecto.
+- La pregunta de páginas por hoja sólo aparece cuando aporta opciones útiles: `1`/`2` para dos o tres páginas seleccionadas, y `1`/`2`/`4` a partir de cuatro páginas seleccionadas; no ofrece `4` si sólo hay dos o tres páginas.
+- Las preguntas del flujo muestran botones rápidos: `Todas` y `Cancelar` en páginas, `1`/`2`/`4` según corresponda en páginas por hoja, `1` y `Cancelar` en copias, `Vertical`/`Horizontal` en orientación, y `Cancelar` se mantiene visible en el resto de pasos.
+- Confirmación extra si se seleccionan más de 10 páginas distintas y confirmación extra si se piden más de 10 copias.
+- Confirmación final con archivo, páginas, páginas por hoja, copias, orientación, modo de caras, total estimado y cola CUPS antes de llamar a `lp`.
+- En `Modo prueba`, el usuario recorre el flujo completo y el trabajo queda registrado con ID `test-mode`, pero el bot no llama a `lp` ni envía nada a CUPS.
+- Al completar una impresión iniciada desde Storage, el bot restaura el teclado normal y vuelve a mostrar el detalle del mismo archivo para que el usuario pueda seguir usando sus acciones.
+- La orientación se envía a CUPS con `orientation-requested=3` para vertical y `orientation-requested=4` para horizontal; las páginas por hoja se envían con `number-up=1`, `number-up=2` o `number-up=4`; los PDFs se envían además con `fit-to-page=true` y `media=A4` para escalar al área imprimible y evitar recortes de márgenes físicos.
+- Doble cara sólo automática: cuando la cola CUPS confirma soporte, el usuario puede elegir doble cara y el trabajo se envía con `sides=two-sided-long-edge`; si CUPS no confirma el soporte, o no se puede leer el estado, el flujo oculta esa opción y usa `one-sided`.
+- Historial persistente en `print_jobs` con usuario, origen, archivo, páginas, páginas por hoja, copias, total estimado de hojas físicas, modo, cola, estado, ID CUPS y error seguro.
+- Menú admin `Impresora` con estado de cola, activación/desactivación, concesión/revocación de permisos de impresión, refresco e historial reciente.
+- Las pruebas automatizadas usan runners falsos y no envían trabajos reales a la impresora física `HP-LaserJet-P2015-Series`.
+
+Riesgos o pendientes:
+
+- No se aceptan enlaces externos en la primera versión.
+- La v1 de imágenes imprime una imagen como una página A4 ajustada y centrada; no hay todavía selección de orientación, márgenes, tamaño real, recorte, álbumes ni varias imágenes por página.
+- Los documentos de Telegram superiores a 20 MB requieren activar y operar el servidor Bot API local en el PC del club; si no está activo, el bot los seguirá rechazando con explicación. Si falta el binario `telegram-bot-api`, el despliegue lo compila desde la fuente oficial de TDLib cuando la feature local está activada.
+- No hay cancelación de trabajos ya enviados a CUPS desde el bot.
+- La prueba real de papel/tóner queda para validación presencial en el club.
 
 ## Backups, consola operativa y panel web
 
@@ -413,11 +498,12 @@ Pendiente:
 | Runtime/menus | `src/telegram/runtime-boundary.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/command-registry.test.ts` |
 | Bienvenidas/nickname | `src/membership/welcome-template-store.test.ts`, `src/membership/access-flow.test.ts`, `src/telegram/runtime-boundary.test.ts`, `src/telegram/action-menu.test.ts` |
 | Acceso | `src/membership/*.test.ts`, `src/telegram/runtime-boundary.test.ts` |
-| Agenda | `src/telegram/schedule-flow.test.ts`, `src/schedule/*reminder*.test.ts` |
+| Agenda | `src/telegram/schedule-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-catalog-store.test.ts`, `src/schedule/*reminder*.test.ts` |
 | Mesas | `src/telegram/table-admin-flow.test.ts`, `src/telegram/table-read-flow.test.ts` |
 | Catalogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Prestamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
 | Compras conjuntas | `src/telegram/group-purchase-flow.test.ts`, `src/group-purchases/*.test.ts` |
+| Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-character-catalog.test.ts`, `src/role-games/role-game-character-store.test.ts`, `src/role-games/role-game-character-store.integration.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/telegram/role-game-participants.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/telegram/role-game-character-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Avisos | `src/telegram/notice-flow.test.ts`, `src/notices/*.test.ts`, `src/news/news-group-store.test.ts` |
 | Storage | `src/telegram/storage-flow.test.ts`, `src/storage/*.test.ts` |
 | Noticias | `src/telegram/news-group-flow.test.ts`, `src/news/news-group-store.test.ts`, `src/telegram/runtime-boundary.test.ts` |

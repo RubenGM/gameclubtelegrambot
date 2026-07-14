@@ -9,9 +9,11 @@ CONFIG_DIR="/etc/gameclubtelegrambot"
 CONFIG_TARGET="$CONFIG_DIR/runtime.json"
 RUNTIME_ENV_TARGET="$CONFIG_DIR/.env"
 ENV_TARGET="/etc/default/gameclubtelegrambot"
+LOCAL_BOT_API_ENV_TARGET="/etc/default/gameclubtelegrambot-local-bot-api"
 SUDOERS_OPENCODE_TARGET="/etc/sudoers.d/gameclubtelegrambot-opencode"
 SUDOERS_CODEX_TARGET="/etc/sudoers.d/gameclubtelegrambot-codex"
 SERVICE_NAME="gameclubtelegrambot.service"
+LOCAL_BOT_API_SERVICE_NAME="gameclubtelegrambot-local-bot-api.service"
 BACKUP_SERVICE_NAME="gameclubtelegrambot-backup.service"
 BACKUP_TIMER_NAME="gameclubtelegrambot-backup.timer"
 SERVICE_USER="gameclubbot"
@@ -32,6 +34,18 @@ if [ -z "$CODEX_REAL_BIN" ]; then
   CODEX_REAL_BIN="$(command -v codex 2>/dev/null || true)"
 fi
 CODEX_REAL_BIN="${CODEX_REAL_BIN:-/usr/local/bin/codex}"
+TELEGRAM_LOCAL_BOT_API_BIN="${GAMECLUB_TELEGRAM_LOCAL_BOT_API_BIN:-}"
+if [ -z "$TELEGRAM_LOCAL_BOT_API_BIN" ]; then
+  TELEGRAM_LOCAL_BOT_API_BIN="$(command -v telegram-bot-api 2>/dev/null || true)"
+fi
+TELEGRAM_LOCAL_BOT_API_BIN="${TELEGRAM_LOCAL_BOT_API_BIN:-/usr/bin/telegram-bot-api}"
+LOCAL_BOT_API_CONFIG_LOADED=0
+GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED='false'
+GAMECLUB_TELEGRAM_LOCAL_BOT_API_BASE_URL='http://127.0.0.1:8081'
+GAMECLUB_TELEGRAM_LOCAL_BOT_API_HOST='127.0.0.1'
+GAMECLUB_TELEGRAM_LOCAL_BOT_API_PORT='8081'
+GAMECLUB_TELEGRAM_LOCAL_BOT_API_DATA_DIR='/var/lib/gameclubtelegrambot/telegram-bot-api'
+GAMECLUB_TELEGRAM_LOCAL_BOT_API_TEMP_DIR='/var/lib/gameclubtelegrambot/telegram-bot-api/tmp'
 VISUDO_BIN="$(command -v visudo 2>/dev/null || true)"
 VISUDO_BIN="${VISUDO_BIN:-/usr/sbin/visudo}"
 
@@ -56,7 +70,7 @@ What it does:
   - Copies the built app to the target root and installs production dependencies.
   - Installs runtime config and secret env files under /etc.
   - Validates the installed runtime config and applies database migrations.
-  - Installs and enables the systemd service and polkit rule.
+  - Installs and enables the systemd service, optional local Bot API sibling service, and polkit rule.
   - Installs GNOME AppIndicator support and tray autostart for the operator user.
 EOF
 }
@@ -124,8 +138,36 @@ run_as_user() {
   fi
 }
 
+run_as_user_in_dir() {
+  local target_user="$1"
+  local workdir="$2"
+  shift 2
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '+ cd %q && ' "$workdir"
+    if [ "$(id -u)" -eq 0 ]; then
+      printf '%q ' runuser -u "$target_user" --
+    else
+      printf '%q ' sudo -u "$target_user"
+    fi
+    printf '%q ' "$@"
+    printf '\n'
+    return 0
+  fi
+
+  if [ "$(id -u)" -eq 0 ]; then
+    runuser -u "$target_user" -- /bin/sh -c 'cd "$1" && shift && exec "$@"' sh "$workdir" "$@"
+  else
+    sudo -u "$target_user" /bin/sh -c 'cd "$1" && shift && exec "$@"' sh "$workdir" "$@"
+  fi
+}
+
 package_installed() {
   dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed'
+}
+
+shell_quote_value() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
 ensure_packages() {
@@ -198,6 +240,11 @@ prepare_build_artifacts() {
 
   if [ ! -f "$ROOT_DIR/dist/scripts/print-database-runtime-config.js" ]; then
     printf 'No s ha generat dist/scripts/print-database-runtime-config.js despres del build local\n' >&2
+    exit 1
+  fi
+
+  if [ ! -f "$ROOT_DIR/dist/scripts/print-telegram-local-bot-api-runtime-config.js" ]; then
+    printf 'No s ha generat dist/scripts/print-telegram-local-bot-api-runtime-config.js despres del build local\n' >&2
     exit 1
   fi
 }
@@ -318,20 +365,120 @@ EOF
 
 validate_installed_runtime() {
   log 'Validant la configuracio runtime instal.lada'
-  run_as_user "$SERVICE_USER" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/check-runtime-config.js"
+  run_as_user_in_dir "$SERVICE_USER" "$APP_ROOT" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/check-runtime-config.js"
 }
 
 apply_runtime_migrations() {
   log 'Aplicant migracions de base de dades abans d arrencar el servei'
-  run_as_user "$SERVICE_USER" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/migrate.js"
+  run_as_user_in_dir "$SERVICE_USER" "$APP_ROOT" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/migrate.js"
+}
+
+load_local_bot_api_runtime_config() {
+  local config_tmp
+
+  if [ "$LOCAL_BOT_API_CONFIG_LOADED" -eq 1 ]; then
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log 'En mode dry-run se simula el Bot API local desactivat per no llegir configuració desplegada.'
+    LOCAL_BOT_API_CONFIG_LOADED=1
+    return 0
+  fi
+
+  config_tmp="$(mktemp)"
+  if ! run_as_user_in_dir "$SERVICE_USER" "$APP_ROOT" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/print-telegram-local-bot-api-runtime-config.js" > "$config_tmp"; then
+    rm -f "$config_tmp"
+    printf 'No s ha pogut preparar la configuració del Bot API local de Telegram\n' >&2
+    exit 1
+  fi
+
+  # shellcheck disable=SC1090
+  . "$config_tmp"
+  rm -f "$config_tmp"
+  LOCAL_BOT_API_CONFIG_LOADED=1
+}
+
+resolve_local_bot_api_binary() {
+  local resolved_bin
+
+  if [[ "$TELEGRAM_LOCAL_BOT_API_BIN" = */* ]]; then
+    printf '%s\n' "$TELEGRAM_LOCAL_BOT_API_BIN"
+    return 0
+  fi
+
+  resolved_bin="$(command -v "$TELEGRAM_LOCAL_BOT_API_BIN" 2>/dev/null || true)"
+  if [ -n "$resolved_bin" ]; then
+    printf '%s\n' "$resolved_bin"
+    return 0
+  fi
+
+  printf '%s\n' "$TELEGRAM_LOCAL_BOT_API_BIN"
+}
+
+ensure_local_bot_api_binary() {
+  TELEGRAM_LOCAL_BOT_API_BIN="$(resolve_local_bot_api_binary)"
+
+  if [ -x "$TELEGRAM_LOCAL_BOT_API_BIN" ]; then
+    return 0
+  fi
+
+  if [ "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED" != 'true' ]; then
+    return 0
+  fi
+
+  if [ "$SKIP_APT" -eq 1 ]; then
+    printf 'telegram.localBotApi.enabled=true pero no se ha encontrado un binario ejecutable en %s\n' "$TELEGRAM_LOCAL_BOT_API_BIN" >&2
+    printf 'Ejecuta sin --skip-apt para compilar telegram-bot-api o define GAMECLUB_TELEGRAM_LOCAL_BOT_API_BIN.\n' >&2
+    exit 1
+  fi
+
+  log 'telegram.localBotApi está activo y falta telegram-bot-api; compilando el servidor oficial de TDLib.'
+  run_cmd "$ROOT_DIR/scripts/install-telegram-bot-api.sh"
+  TELEGRAM_LOCAL_BOT_API_BIN="$(command -v telegram-bot-api 2>/dev/null || true)"
+  TELEGRAM_LOCAL_BOT_API_BIN="${TELEGRAM_LOCAL_BOT_API_BIN:-/usr/local/bin/telegram-bot-api}"
+}
+
+install_local_bot_api_runtime_assets() {
+  local env_tmp
+
+  load_local_bot_api_runtime_config
+
+  ensure_local_bot_api_binary
+
+  if [ "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED" = 'true' ] && [ ! -x "$TELEGRAM_LOCAL_BOT_API_BIN" ]; then
+    printf 'telegram.localBotApi.enabled=true pero no se ha encontrado un binario ejecutable en %s\n' "$TELEGRAM_LOCAL_BOT_API_BIN" >&2
+    printf 'Instala telegram-bot-api o define GAMECLUB_TELEGRAM_LOCAL_BOT_API_BIN antes de ejecutar el instalador.\n' >&2
+    exit 1
+  fi
+
+  run_root_cmd install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_DATA_DIR"
+  run_root_cmd install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_TEMP_DIR"
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '+ cat > %q <<EOF\nGAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED=%s\nGAMECLUB_TELEGRAM_LOCAL_BOT_API_BASE_URL=%s\nGAMECLUB_TELEGRAM_LOCAL_BOT_API_HOST=%s\nGAMECLUB_TELEGRAM_LOCAL_BOT_API_PORT=%s\nGAMECLUB_TELEGRAM_LOCAL_BOT_API_DATA_DIR=%s\nGAMECLUB_TELEGRAM_LOCAL_BOT_API_TEMP_DIR=%s\nEOF\n' "$LOCAL_BOT_API_ENV_TARGET" "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED")" "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_BASE_URL")" "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_HOST")" "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_PORT")" "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_DATA_DIR")" "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_TEMP_DIR")"
+  else
+    env_tmp="$(mktemp)"
+    {
+      printf 'GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED=%s\n' "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED")"
+      printf 'GAMECLUB_TELEGRAM_LOCAL_BOT_API_BASE_URL=%s\n' "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_BASE_URL")"
+      printf 'GAMECLUB_TELEGRAM_LOCAL_BOT_API_HOST=%s\n' "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_HOST")"
+      printf 'GAMECLUB_TELEGRAM_LOCAL_BOT_API_PORT=%s\n' "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_PORT")"
+      printf 'GAMECLUB_TELEGRAM_LOCAL_BOT_API_DATA_DIR=%s\n' "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_DATA_DIR")"
+      printf 'GAMECLUB_TELEGRAM_LOCAL_BOT_API_TEMP_DIR=%s\n' "$(shell_quote_value "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_TEMP_DIR")"
+    } > "$env_tmp"
+    run_root_cmd install -m 0644 "$env_tmp" "$LOCAL_BOT_API_ENV_TARGET"
+    rm -f "$env_tmp"
+  fi
 }
 
 install_service_assets() {
-  local service_tmp backup_service_tmp
+  local service_tmp backup_service_tmp local_bot_api_service_tmp
 
   service_tmp="$(mktemp)"
   backup_service_tmp="$(mktemp)"
-  trap 'rm -f "$service_tmp" "$backup_service_tmp"' RETURN
+  local_bot_api_service_tmp="$(mktemp)"
+  trap 'rm -f "$service_tmp" "$backup_service_tmp" "$local_bot_api_service_tmp"' RETURN
 
   sed \
     -e "s|^User=.*|User=$SERVICE_USER|" \
@@ -342,7 +489,26 @@ install_service_assets() {
     -e "s|^ExecStart=.*|ExecStart=/usr/bin/node $APP_ROOT/dist/main.js|" \
     "$ROOT_DIR/deploy/systemd/gameclubtelegrambot.service" > "$service_tmp"
 
+  if [ "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED" = 'true' ]; then
+    sed -i \
+      -e "s|^After=network-online.target|After=network-online.target $LOCAL_BOT_API_SERVICE_NAME|" \
+      -e "s|^Wants=network-online.target|Wants=network-online.target $LOCAL_BOT_API_SERVICE_NAME|" \
+      "$service_tmp"
+  fi
+
   run_root_cmd install -m 0644 "$service_tmp" "/etc/systemd/system/$SERVICE_NAME"
+
+  sed \
+    -e "s|^User=.*|User=$SERVICE_USER|" \
+    -e "s|^Group=.*|Group=$SERVICE_GROUP|" \
+    -e "s|^WorkingDirectory=.*|WorkingDirectory=$GAMECLUB_TELEGRAM_LOCAL_BOT_API_DATA_DIR|" \
+    -e "s|^EnvironmentFile=/etc/default/gameclubtelegrambot-local-bot-api|EnvironmentFile=$LOCAL_BOT_API_ENV_TARGET|" \
+    -e "s|^EnvironmentFile=-/etc/gameclubtelegrambot/.env|EnvironmentFile=-$RUNTIME_ENV_TARGET|" \
+    -e "s|^ExecStart=/usr/bin/telegram-bot-api |ExecStart=$TELEGRAM_LOCAL_BOT_API_BIN |" \
+    -e "s|^ReadWritePaths=.*|ReadWritePaths=$GAMECLUB_TELEGRAM_LOCAL_BOT_API_DATA_DIR|" \
+    "$ROOT_DIR/deploy/systemd/gameclubtelegrambot-local-bot-api.service" > "$local_bot_api_service_tmp"
+
+  run_root_cmd install -m 0644 "$local_bot_api_service_tmp" "/etc/systemd/system/$LOCAL_BOT_API_SERVICE_NAME"
 
   sed \
     -e "s|^User=.*|User=$SERVICE_USER|" \
@@ -361,13 +527,22 @@ install_service_assets() {
   run_root_cmd systemctl daemon-reload
   run_root_cmd systemctl enable --now "$BACKUP_TIMER_NAME"
 
+  if [ "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED" = 'true' ]; then
+    run_root_cmd systemctl enable "$LOCAL_BOT_API_SERVICE_NAME"
+    if [ "$START_SERVICE" -eq 1 ]; then
+      run_root_cmd systemctl restart "$LOCAL_BOT_API_SERVICE_NAME"
+    fi
+  else
+    run_root_cmd systemctl disable --now "$LOCAL_BOT_API_SERVICE_NAME" || true
+  fi
+
   if [ "$START_SERVICE" -eq 1 ]; then
     run_root_cmd systemctl enable --now "$SERVICE_NAME"
   else
     log 'S omet l arrencada del servei per petició de l operador.'
   fi
 
-  rm -f "$service_tmp" "$backup_service_tmp"
+  rm -f "$service_tmp" "$backup_service_tmp" "$local_bot_api_service_tmp"
   trap - RETURN
 }
 
@@ -446,6 +621,7 @@ validate_installed_runtime
 apply_runtime_migrations
 install_opencode_sudoers
 install_codex_sudoers
+install_local_bot_api_runtime_assets
 install_service_assets
 install_tray_support
 
@@ -453,5 +629,6 @@ log 'Instal·lació completada.'
 log "Aplicació desplegada a: $APP_ROOT"
 log "Configuració runtime: $CONFIG_TARGET"
 log "Servei systemd: $SERVICE_NAME"
+log "Servei Bot API local: $LOCAL_BOT_API_SERVICE_NAME ($GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED)"
 log "Usuari operador: $OPERATOR_USER"
 log 'Pot caldre tancar sessió i tornar a entrar perquè els nous grups i l extensió de GNOME es reflecteixin a la sessió actual.'

@@ -15,6 +15,7 @@ export interface ScheduleEventRecord {
   tableId: number | null;
   catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
+  isPublic: boolean;
   initialOccupiedSeats: number;
   capacity: number;
   lifecycleStatus: ScheduleEventLifecycleStatus;
@@ -57,6 +58,7 @@ export interface ScheduleRepository {
     tableId: number | null;
     catalogItemId?: number | null;
     attendanceMode: ScheduleAttendanceMode;
+    isPublic: boolean;
     initialOccupiedSeats: number;
     capacity: number;
   }): Promise<ScheduleEventRecord>;
@@ -85,6 +87,7 @@ export interface ScheduleRepository {
     tableId: number | null;
     catalogItemId?: number | null;
     attendanceMode: ScheduleAttendanceMode;
+    isPublic: boolean;
     initialOccupiedSeats: number;
     capacity: number;
   }): Promise<ScheduleEventRecord>;
@@ -118,6 +121,7 @@ export async function createScheduleEvent({
   tableId,
   catalogItemId,
   attendanceMode,
+  isPublic,
   initialOccupiedSeats,
   capacity,
 }: {
@@ -133,6 +137,7 @@ export async function createScheduleEvent({
   tableId?: number | null;
   catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
+  isPublic?: boolean;
   initialOccupiedSeats: number;
   capacity: number;
 }): Promise<ScheduleEventRecord> {
@@ -148,6 +153,7 @@ export async function createScheduleEvent({
     tableId: normalizeTableId(tableId),
     catalogItemId: normalizeCatalogItemId(catalogItemId),
     attendanceMode: normalizeAttendanceMode(attendanceMode),
+    isPublic: normalizePublicVisibility({ attendanceMode, isPublic }),
     initialOccupiedSeats: normalizeInitialOccupiedSeats({
       attendanceMode,
       initialOccupiedSeats,
@@ -215,6 +221,7 @@ export async function updateScheduleEvent({
   tableId,
   catalogItemId,
   attendanceMode,
+  isPublic,
   initialOccupiedSeats,
   capacity,
 }: {
@@ -230,6 +237,7 @@ export async function updateScheduleEvent({
   tableId?: number | null;
   catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
+  isPublic?: boolean;
   initialOccupiedSeats: number;
   capacity: number;
 }): Promise<ScheduleEventRecord> {
@@ -254,6 +262,7 @@ export async function updateScheduleEvent({
     tableId: normalizeTableId(tableId),
     catalogItemId: normalizeCatalogItemId(catalogItemId),
     attendanceMode: normalizeAttendanceMode(attendanceMode),
+    isPublic: normalizePublicVisibility({ attendanceMode, isPublic }),
     initialOccupiedSeats: normalizeInitialOccupiedSeats({
       attendanceMode,
       initialOccupiedSeats,
@@ -595,6 +604,21 @@ function normalizeAttendanceMode(attendanceMode: ScheduleAttendanceMode): Schedu
   }
 
   return attendanceMode;
+}
+
+function normalizePublicVisibility({
+  attendanceMode,
+  isPublic,
+}: {
+  attendanceMode: ScheduleAttendanceMode;
+  isPublic: boolean | undefined;
+}): boolean {
+  const normalizedAttendanceMode = normalizeAttendanceMode(attendanceMode);
+  const normalizedIsPublic = isPublic === true;
+  if (normalizedIsPublic && normalizedAttendanceMode !== 'open') {
+    throw new Error('Una actividad pública debe ser una mesa abierta');
+  }
+  return normalizedIsPublic;
 }
 
 function normalizeInitialOccupiedSeats({

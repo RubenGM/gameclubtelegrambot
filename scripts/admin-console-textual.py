@@ -1528,13 +1528,17 @@ class AdminConsoleTextualApp(App[None]):
                       left join (
                         select "parent_category_id", count(*) as child_count
                           from "storage_categories"
+                         where "category_purpose" = 'user_uploads'
                          group by "parent_category_id"
                       ) children on children."parent_category_id" = c."id"
                       left join (
-                        select "category_id", count(*) filter (where "lifecycle_status" = 'active') as entry_count
-                          from "storage_entries"
-                         group by "category_id"
+                        select e."category_id", count(*) filter (where e."lifecycle_status" = 'active') as entry_count
+                          from "storage_entries" e
+                          join "storage_categories" ec on ec."id" = e."category_id"
+                         where ec."category_purpose" = 'user_uploads'
+                         group by e."category_id"
                       ) entries on entries."category_id" = c."id"
+                     where c."category_purpose" = 'user_uploads'
                      order by c."display_name", c."id"
                     """
                 )
@@ -1582,6 +1586,7 @@ class AdminConsoleTextualApp(App[None]):
                       from "storage_entries" e
                       join "storage_categories" c on c."id" = e."category_id"
                       left join "storage_entry_messages" m on m."entry_id" = e."id"
+                     where c."category_purpose" = 'user_uploads'
                      group by e."id", c."display_name"
                      order by e."updated_at" desc, e."id" desc
                      limit 500
@@ -1636,13 +1641,23 @@ class AdminConsoleTextualApp(App[None]):
     def fetch_storage_category_detail(self, category_id: int) -> str:
         with self.connection() as conn:
             with conn.cursor(row_factory=psycopg.rows.dict_row) as cursor:
-                cursor.execute('select * from "storage_categories" where "id" = %s', [category_id])
+                cursor.execute('select * from "storage_categories" where "id" = %s and "category_purpose" = %s', [category_id, "user_uploads"])
                 category = cursor.fetchone()
                 if category is None:
                     raise RuntimeError("categoria no encontrada")
-                cursor.execute('select count(*) from "storage_categories" where "parent_category_id" = %s', [category_id])
+                cursor.execute('select count(*) from "storage_categories" where "parent_category_id" = %s and "category_purpose" = %s', [category_id, "user_uploads"])
                 child_count = int(cursor.fetchone()["count"])
-                cursor.execute('select count(*) from "storage_entries" where "category_id" = %s and "lifecycle_status" = %s', [category_id, "active"])
+                cursor.execute(
+                    """
+                    select count(*)
+                      from "storage_entries" e
+                      join "storage_categories" c on c."id" = e."category_id"
+                     where e."category_id" = %s
+                       and e."lifecycle_status" = %s
+                       and c."category_purpose" = %s
+                    """,
+                    [category_id, "active", "user_uploads"],
+                )
                 active_entries = int(cursor.fetchone()["count"])
                 return "\n".join([
                     f"Categoria #{category['id']}",
@@ -1669,8 +1684,9 @@ class AdminConsoleTextualApp(App[None]):
                       from "storage_entries" e
                       join "storage_categories" c on c."id" = e."category_id"
                      where e."id" = %s
+                       and c."category_purpose" = %s
                     """,
-                    [entry_id],
+                    [entry_id, "user_uploads"],
                 )
                 entry = cursor.fetchone()
                 if entry is None:

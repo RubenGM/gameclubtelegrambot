@@ -4,7 +4,14 @@ import assert from 'node:assert/strict';
 import type { CatalogItemRecord } from '../catalog/catalog-model.js';
 import type { StorageCategoryRecord } from '../storage/storage-catalog.js';
 import {
+  storageCategories,
+  storageEntries,
+  storageEntryMessages,
+  users,
+} from '../infrastructure/database/schema.js';
+import {
   buildStorageCategoryPath,
+  executeTelegramLlmReadAction,
   inferCatalogQueryFromReplyContext,
   llmCommandDirectReadResultLimit,
   llmCommandGroupedReadResultLimit,
@@ -12,6 +19,11 @@ import {
   resolveStorageCategoryMatchIds,
   selectCatalogRecommendationCandidateSet,
 } from './llm-command-read-actions.js';
+
+const storageCategoriesTable = storageCategories as unknown;
+const storageEntriesTable = storageEntries as unknown;
+const storageEntryMessagesTable = storageEntryMessages as unknown;
+const usersTable = users as unknown;
 
 test('LLM read result limits show more direct results while keeping grouped search compact', () => {
   assert.equal(llmCommandDirectReadResultLimit, 12);
@@ -67,6 +79,27 @@ test('buildStorageCategoryPath includes storage category ancestors for semantic 
 
 test('normalizeStorageFileExtensionsForSearch treats STL as content type instead of literal file extension', () => {
   assert.deepEqual(normalizeStorageFileExtensionsForSearch(['.stl', 'PDF', ' zip ', 'rar', 'pdf']), ['pdf', 'zip', 'rar']);
+});
+
+test('executeTelegramLlmReadAction hides role game handouts from Storage search', async () => {
+  const response = await executeTelegramLlmReadAction(createLlmReadContextWithStorageHandout() as never, {
+    intent: 'storage.search',
+    params: { query: 'villano' },
+  });
+
+  assert.doesNotMatch(response, /Secreto del villano|Handouts de rol|storage_entry_15/);
+  assert.equal(response, 'Resultados de Storage: no hay resultados.');
+});
+
+test('executeTelegramLlmReadAction hides role game handouts from bot search Storage results', async () => {
+  const response = await executeTelegramLlmReadAction(createLlmReadContextWithStorageHandout() as never, {
+    intent: 'bot.search',
+    params: { query: 'villano', sources: ['storage'] },
+    userText: 'busca villano',
+  });
+
+  assert.doesNotMatch(response, /Secreto del villano|Handouts de rol|storage_entry_15/);
+  assert.equal(response, 'No he encontrado resultados para villano en Storage.');
 });
 
 test('selectCatalogRecommendationCandidateSet returns exact available matches first', () => {
@@ -252,6 +285,120 @@ function storageCategory(input: {
     lifecycleStatus: 'active',
     createdAt: now,
     updatedAt: now,
+    archivedAt: null,
+  };
+}
+
+function createLlmReadContextWithStorageHandout() {
+  const categoryRows = [
+    storageCategoryRow({ id: 7, slug: 'manuales', displayName: 'Manuales', categoryPurpose: 'user_uploads' }),
+    storageCategoryRow({ id: 8, slug: 'handouts', displayName: 'Handouts de rol', storageThreadId: 11, categoryPurpose: 'role_game_handouts' }),
+  ];
+  const entryRows = [
+    {
+      id: 15,
+      categoryId: 8,
+      createdByTelegramUserId: 42,
+      sourceKind: 'dm_copy',
+      description: 'Secreto del villano',
+      tags: ['rol'],
+      lifecycleStatus: 'active',
+      createdAt: new Date('2026-04-21T12:00:00.000Z'),
+      updatedAt: new Date('2026-04-21T12:00:00.000Z'),
+      deletedAt: null,
+      deletedByTelegramUserId: null,
+    },
+  ];
+  const messageRows = [
+    {
+      id: 1,
+      entryId: 15,
+      storageChatId: -100123,
+      storageMessageId: 900,
+      storageThreadId: 11,
+      telegramFileId: 'file-1',
+      telegramFileUniqueId: 'unique-1',
+      attachmentKind: 'document',
+      caption: null,
+      originalFileName: 'secreto-villano.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+      createdAt: new Date('2026-04-21T12:00:00.000Z'),
+    },
+  ];
+
+  return {
+    runtime: {
+      services: {
+        database: {
+          db: {
+            select: () => ({
+              from: (table: { [key: string]: unknown }) => {
+                if ((table as unknown) === storageCategoriesTable) {
+                  return {
+                    orderBy: async () => categoryRows,
+                    where: async () => categoryRows,
+                  };
+                }
+                if ((table as unknown) === storageEntriesTable) {
+                  return {
+                    where: () => ({
+                      orderBy: async () => entryRows,
+                    }),
+                  };
+                }
+                if ((table as unknown) === storageEntryMessagesTable) {
+                  return {
+                    where: () => ({
+                      orderBy: async () => messageRows,
+                    }),
+                  };
+                }
+                if ((table as unknown) === usersTable) {
+                  return {
+                    where: async () => [],
+                  };
+                }
+                throw new Error('unexpected table');
+              },
+            }),
+          },
+        },
+      },
+      chat: { kind: 'private', chatId: 42 },
+      actor: {
+        telegramUserId: 42,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: false,
+        permissions: [],
+      },
+    },
+  };
+}
+
+function storageCategoryRow(input: {
+  id: number;
+  slug: string;
+  displayName: string;
+  storageThreadId?: number;
+  categoryPurpose: string;
+}) {
+  return {
+    id: input.id,
+    slug: input.slug,
+    displayName: input.displayName,
+    parentCategoryId: null,
+    description: null,
+    storageChatId: -100123,
+    storageThreadId: input.storageThreadId ?? 10,
+    categoryPurpose: input.categoryPurpose,
+    lifecycleStatus: 'active',
+    createdAt: new Date('2026-04-21T10:00:00.000Z'),
+    updatedAt: new Date('2026-04-21T10:00:00.000Z'),
     archivedAt: null,
   };
 }

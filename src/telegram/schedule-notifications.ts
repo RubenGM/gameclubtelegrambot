@@ -4,7 +4,7 @@ import { detectScheduleConflicts, getScheduleEventEndsAt, type ScheduleEventReco
 import type { ClubTableRepository } from '../tables/table-catalog.js';
 import type { VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
-import { eventsNewsGroupCategory } from '../news/news-group-catalog.js';
+import { eventsNewsGroupCategory, publicEventsNewsGroupCategory } from '../news/news-group-catalog.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import type { TelegramSentMessage } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
@@ -65,20 +65,7 @@ export async function notifyScheduleConflicts({
   );
 }
 
-export async function publishCalendarSnapshotToNewsGroups({
-  change,
-  sendGroupMessage,
-  deleteMessage,
-  editMessageText,
-  snapshotStorage,
-  newsGroupRepository,
-  database,
-  botLanguage,
-  scheduleRepository,
-  venueEventRepository,
-  tableRepository,
-  resolveActorDisplayName,
-}: {
+export interface PublishCalendarSnapshotInput {
   change: ScheduleCalendarChange;
   sendGroupMessage?: (chatId: number, message: string, options?: { parseMode?: 'HTML'; messageThreadId?: number }) => Promise<TelegramSentMessage | void>;
   deleteMessage?: (input: { chatId: number; messageId: number }) => Promise<void>;
@@ -91,12 +78,47 @@ export async function publishCalendarSnapshotToNewsGroups({
   venueEventRepository?: VenueEventRepository;
   tableRepository?: ClubTableRepository;
   resolveActorDisplayName: () => Promise<string>;
+}
+
+export async function publishCalendarSnapshotToNewsGroups(input: PublishCalendarSnapshotInput): Promise<void> {
+  return publishCalendarSnapshotForCategory({
+    ...input,
+    categoryKey: eventsNewsGroupCategory,
+  });
+}
+
+export async function publishPublicCalendarSnapshotToNewsGroups(input: PublishCalendarSnapshotInput): Promise<void> {
+  return publishCalendarSnapshotForCategory({
+    ...input,
+    categoryKey: publicEventsNewsGroupCategory,
+    publicOnly: true,
+  });
+}
+
+async function publishCalendarSnapshotForCategory({
+  change,
+  sendGroupMessage,
+  deleteMessage,
+  editMessageText,
+  snapshotStorage,
+  newsGroupRepository,
+  database,
+  botLanguage,
+  scheduleRepository,
+  venueEventRepository,
+  tableRepository,
+  resolveActorDisplayName,
+  categoryKey,
+  publicOnly = false,
+}: PublishCalendarSnapshotInput & {
+  categoryKey: string;
+  publicOnly?: boolean;
 }): Promise<void> {
   if (!sendGroupMessage) {
     return;
   }
 
-  const groups = await newsGroupRepository.listSubscribedGroupsByCategory(eventsNewsGroupCategory);
+  const groups = await newsGroupRepository.listSubscribedGroupsByCategory(categoryKey);
   if (groups.length === 0) {
     return;
   }
@@ -108,10 +130,13 @@ export async function publishCalendarSnapshotToNewsGroups({
     ...(scheduleRepository ? { scheduleRepository } : {}),
     ...(venueEventRepository ? { venueEventRepository } : {}),
     ...(tableRepository ? { tableRepository } : {}),
+    publicOnly,
   });
   const message = entries.length > 0
-    ? `${texts.calendarBroadcastTitle}\n${formatCalendarMessage(entries, language)}`
-    : texts.calendarBroadcastEmpty;
+    ? `${publicOnly ? texts.publicCalendarBroadcastTitle : texts.calendarBroadcastTitle}\n${formatCalendarMessage(entries, language)}`
+    : publicOnly
+      ? texts.publicCalendarBroadcastEmpty
+      : texts.calendarBroadcastEmpty;
   const footer = await formatCalendarBroadcastFooter({
     change,
     language,
@@ -135,6 +160,7 @@ export async function publishCalendarSnapshotToNewsGroups({
           ...(deleteMessage ? { deleteMessage } : {}),
           ...(editMessageText ? { editMessageText } : {}),
           ...(snapshotStorage ? { snapshotStorage } : {}),
+          categoryKey,
         });
       } catch (error) {
         console.warn(JSON.stringify({
@@ -154,6 +180,7 @@ async function rememberAndDeletePreviousCalendarSnapshot({
   messageThreadId,
   sent,
   replacedText,
+  categoryKey,
   deleteMessage,
   editMessageText,
   snapshotStorage,
@@ -162,6 +189,7 @@ async function rememberAndDeletePreviousCalendarSnapshot({
   messageThreadId: number | null;
   sent: TelegramSentMessage | void;
   replacedText: string;
+  categoryKey: string;
   deleteMessage?: (input: { chatId: number; messageId: number }) => Promise<void>;
   editMessageText?: (input: { chatId: number; messageId: number; text: string; options?: { parseMode?: 'HTML' } }) => Promise<void>;
   snapshotStorage?: AppMetadataSessionStorage;
@@ -170,8 +198,10 @@ async function rememberAndDeletePreviousCalendarSnapshot({
     return;
   }
 
-  const key = buildCalendarSnapshotMessageKey(chatId, messageThreadId);
-  const previous = parseCalendarSnapshotMessage(await snapshotStorage.get(key));
+  const key = buildCalendarSnapshotMessageKey(categoryKey, chatId, messageThreadId);
+  const legacyKey = categoryKey === eventsNewsGroupCategory ? buildLegacyCalendarSnapshotMessageKey(chatId, messageThreadId) : null;
+  const previous = parseCalendarSnapshotMessage(await snapshotStorage.get(key))
+    ?? (legacyKey ? parseCalendarSnapshotMessage(await snapshotStorage.get(legacyKey)) : null);
 
   await snapshotStorage.set(key, JSON.stringify({
     chatId,
@@ -219,7 +249,11 @@ async function rememberAndDeletePreviousCalendarSnapshot({
   }
 }
 
-function buildCalendarSnapshotMessageKey(chatId: number, messageThreadId: number | null): string {
+function buildCalendarSnapshotMessageKey(categoryKey: string, chatId: number, messageThreadId: number | null): string {
+  return `telegram.schedule.calendar_snapshot:${categoryKey}:${chatId}:${messageThreadId ?? 0}`;
+}
+
+function buildLegacyCalendarSnapshotMessageKey(chatId: number, messageThreadId: number | null): string {
   return `telegram.schedule.calendar_snapshot:${chatId}:${messageThreadId ?? 0}`;
 }
 

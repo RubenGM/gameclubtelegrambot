@@ -173,6 +173,22 @@ test('handleTelegramLlmFallbackText only handles group text when it mentions or 
     inlineKeyboard: [[{ text: 'Abrir privado', url: 'https://t.me/gameclubbot?start=llm_ask' }]],
   });
 
+  for (const messageText of [
+    'información: para usar el bot tenéis que escribir a @gameclubbot',
+    'comparte esto con @gameclubbot por si acaso',
+  ]) {
+    const mentionInsideText = createContext({ chatKind: 'group', messageText });
+    assert.equal(await handleTelegramLlmFallbackText(mentionInsideText), false);
+    assert.equal(mentionInsideText.servicePrompts.length, 0);
+  }
+
+  const leadingWhitespaceMention = createContext({
+    chatKind: 'group',
+    messageText: '   @gameclubbot que puedes hacer',
+  });
+  assert.equal(await handleTelegramLlmFallbackText(leadingWhitespaceMention), true);
+  assert.match(leadingWhitespaceMention.servicePrompts[0] ?? '', /que puedes hacer/);
+
   const replied = createContext({
     chatKind: 'group',
     messageText: '¿y alguno disponible?',

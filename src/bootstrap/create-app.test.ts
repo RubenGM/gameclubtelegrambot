@@ -221,6 +221,10 @@ test('createApp notifies the first admin when startup is ready', async () => {
       start: async () => {},
       stop: async () => {},
     }),
+    startRoleGameRecurrences: () => ({
+      start: async () => {},
+      stop: async () => {},
+    }),
   });
 
   await app.start();
@@ -264,6 +268,10 @@ test('createApp keeps running when the first admin startup notification fails', 
       stop: async () => {},
     }),
     startScheduleReminders: () => ({
+      start: async () => {},
+      stop: async () => {},
+    }),
+    startRoleGameRecurrences: () => ({
       start: async () => {},
       stop: async () => {},
     }),
@@ -356,6 +364,66 @@ test('createApp starts and stops schedule reminder worker with the app lifecycle
   await app.stop();
 
   assert.deepEqual(events, ['start:reminders', 'stop:reminders', 'stop:telegram', 'stop:infrastructure']);
+});
+
+test('createApp starts and stops role game recurrence worker with the app lifecycle', async () => {
+  const events: string[] = [];
+  const logger = {
+    info: (_bindings: object, _message: string) => {},
+  };
+
+  const app = createApp({
+    config: runtimeConfig,
+    logger,
+    startInfrastructure: async () => ({
+      status: {
+        database: 'connected',
+      },
+      services: {
+        database: databaseConnection,
+      },
+      stop: async () => {
+        events.push('stop:infrastructure');
+      },
+    }),
+    startTelegram: async () => ({
+      status: {
+        bot: 'connected',
+      },
+      sendPrivateMessage: async () => {},
+      stop: async () => {
+        events.push('stop:telegram');
+      },
+    }),
+    startScheduleReminders: () => ({
+      start: async () => {
+        events.push('start:reminders');
+      },
+      stop: async () => {
+        events.push('stop:reminders');
+      },
+    }),
+    startRoleGameRecurrences: () => ({
+      start: async () => {
+        events.push('start:role-game-recurrences');
+      },
+      stop: async () => {
+        events.push('stop:role-game-recurrences');
+      },
+    }),
+  });
+
+  await app.start();
+  await app.stop();
+
+  assert.deepEqual(events, [
+    'start:reminders',
+    'start:role-game-recurrences',
+    'stop:role-game-recurrences',
+    'stop:reminders',
+    'stop:telegram',
+    'stop:infrastructure',
+  ]);
 });
 
 test('createApp starts and stops the admin HTTP server with the app lifecycle', async () => {

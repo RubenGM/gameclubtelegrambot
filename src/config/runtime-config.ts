@@ -41,6 +41,37 @@ const booleanFromEnvSchema = z.preprocess((value) => {
 const integerFromEnvSchema = z.coerce.number().int();
 const numberFromEnvSchema = z.coerce.number();
 
+const telegramLocalBotApiSchema = z
+  .object({
+    enabled: booleanFromEnvSchema.default(false),
+    baseUrl: z.string().trim().url().default('http://127.0.0.1:8081'),
+    apiId: integerFromEnvSchema.min(1).optional(),
+    apiHash: z.string().trim().min(1).optional(),
+    dataDir: z.string().trim().min(1).default('/var/lib/gameclubtelegrambot/telegram-bot-api'),
+  })
+  .superRefine((value, context) => {
+    if (!value.enabled) {
+      return;
+    }
+
+    if (value.apiId === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['apiId'],
+        message: 'Required when telegram.localBotApi.enabled is true',
+      });
+    }
+
+    if (!value.apiHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['apiHash'],
+        message: 'Required when telegram.localBotApi.enabled is true',
+      });
+    }
+  })
+  .optional();
+
 const defaultNotificationDefaults = {
   groupAnnouncementsEnabled: true,
   eventRemindersEnabled: true,
@@ -58,6 +89,7 @@ export const runtimeConfigSchema = z.object({
   telegram: z.object({
     token: z.string().trim().min(1),
     buttonAppearance: telegramButtonAppearanceByRoleSchema,
+    localBotApi: telegramLocalBotApiSchema,
   }),
   bgg: z
     .object({

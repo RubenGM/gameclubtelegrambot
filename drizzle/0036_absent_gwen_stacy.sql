@@ -1,0 +1,1 @@
+ALTER TABLE "print_jobs" ADD COLUMN "pages_per_sheet" integer DEFAULT 1 NOT NULL;

@@ -62,6 +62,63 @@ test('loadRuntimeConfig returns typed configuration from the configured JSON fil
   assert.equal(config.bootstrap.firstAdmin.telegramUserId, 123456789);
   assert.equal(config.notifications.defaults.eventReminderLeadHours, 24);
   assert.equal(config.featureFlags.bootstrapWizard, true);
+  assert.equal(config.telegram.localBotApi?.enabled ?? false, false);
+});
+
+test('loadRuntimeConfig accepts optional local Bot API settings for large file downloads', async () => {
+  const config = await loadRuntimeConfig({
+    env: {
+      GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+      GAMECLUB_TELEGRAM_LOCAL_BOT_API_ID: '123456',
+      GAMECLUB_TELEGRAM_LOCAL_BOT_API_HASH: 'api-hash',
+    },
+    readConfigFile: async () => JSON.stringify({
+      ...JSON.parse(validConfigJson),
+      telegram: {
+        token: 'telegram-token',
+        localBotApi: {
+          enabled: true,
+          baseUrl: 'http://127.0.0.1:8081',
+          dataDir: '/srv/gameclub/telegram-bot-api',
+        },
+      },
+    }),
+  });
+
+  assert.ok(config.telegram.localBotApi);
+  assert.equal(config.telegram.localBotApi.enabled, true);
+  assert.equal(config.telegram.localBotApi.baseUrl, 'http://127.0.0.1:8081');
+  assert.equal(config.telegram.localBotApi.apiId, 123456);
+  assert.equal(config.telegram.localBotApi.apiHash, 'api-hash');
+  assert.equal(config.telegram.localBotApi.dataDir, '/srv/gameclub/telegram-bot-api');
+});
+
+test('loadRuntimeConfig fails when local Bot API is enabled without app credentials', async () => {
+  await assert.rejects(
+    () =>
+      loadRuntimeConfig({
+        env: {
+          GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+        },
+        readConfigFile: async () => JSON.stringify({
+          ...JSON.parse(validConfigJson),
+          telegram: {
+            token: 'telegram-token',
+            localBotApi: {
+              enabled: true,
+              baseUrl: 'http://127.0.0.1:8081',
+            },
+          },
+        }),
+      }),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : '';
+      assert.match(message, /Runtime configuration validation failed/);
+      assert.match(message, /telegram\.localBotApi\.apiId/);
+      assert.match(message, /telegram\.localBotApi\.apiHash/);
+      return true;
+    },
+  );
 });
 
 test('loadRuntimeConfig merges secret values from the sibling .env file', async () => {

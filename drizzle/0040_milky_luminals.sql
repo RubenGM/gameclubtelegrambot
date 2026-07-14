@@ -1,0 +1,2 @@
+ALTER TABLE "role_game_character_attachments" ADD COLUMN "kind" varchar(16) DEFAULT 'attachment' NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "role_game_character_attachments_one_active_portrait_idx" ON "role_game_character_attachments" USING btree ("character_id") WHERE "role_game_character_attachments"."kind" = 'portrait' and "role_game_character_attachments"."removed_at" is null;

@@ -6,6 +6,8 @@ import { llmCommandTexts } from './i18n-llm-command.js';
 import { llmModelAdminTexts } from './i18n-llm-model-admin.js';
 import { lfgTexts } from './i18n-lfg.js';
 import { noticeTexts } from './i18n-notices.js';
+import { printingTexts } from './i18n-printing.js';
+import { roleGameTexts } from './i18n-role-games.js';
 import { scheduleTexts } from './i18n-schedule.js';
 import { storageTexts } from './i18n-storage.js';
 import { listNewsGroupCategories, newsGroupCategoryLines } from '../news/news-group-catalog.js';
@@ -55,7 +57,9 @@ export function createTelegramI18n(language: BotLanguage) {
     llmCommand: llmCommandTexts[language],
     llmModelAdmin: llmModelAdminTexts[language],
     lfg: lfgTexts[language],
+    roleGames: roleGameTexts[language],
     notices: noticeTexts[language],
+    printing: printingTexts[language],
     storage: storageTexts[language],
   };
 }

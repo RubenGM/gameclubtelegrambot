@@ -358,6 +358,8 @@ function createContext(
     createdTopic = { chatId: -100555, name: 'Manuales', messageThreadId: 77 },
     failCreateForumTopic = false,
     supportsEditMessageText = false,
+    printingMode = 'disabled',
+    canPrint = false,
   }: {
     isAdmin?: boolean;
     canReadCategoryIds?: number[];
@@ -377,6 +379,8 @@ function createContext(
     createdTopic?: { chatId: number; name: string; messageThreadId: number };
     failCreateForumTopic?: boolean;
     supportsEditMessageText?: boolean;
+    printingMode?: 'disabled' | 'enabled' | 'test';
+    canPrint?: boolean;
   } = {},
 ): {
   context: TelegramCommandHandlerContext & Record<string, unknown>;
@@ -425,7 +429,7 @@ function createContext(
             ? permissionKey === 'storage.entry.read'
               ? canReadCategoryIds.includes(Number(resource.id))
               : canUploadCategoryIds.includes(Number(resource.id))
-            : false,
+            : permissionKey === 'printing.use' && canPrint,
           permissionKey,
           reason: 'test',
         }),
@@ -434,7 +438,7 @@ function createContext(
             ? permissionKey === 'storage.entry.read'
               ? canReadCategoryIds.includes(Number(resource.id))
               : canUploadCategoryIds.includes(Number(resource.id))
-            : false,
+            : permissionKey === 'printing.use' && canPrint,
       },
       session: {
         get current() {
@@ -529,6 +533,12 @@ function createContext(
       },
     },
     storageRepository: repository,
+    printSettingsStore: {
+      async getSettings() {
+        return { mode: printingMode, cupsQueue: 'Virtual-PDF' };
+      },
+      async saveSettings() {},
+    },
     ...(storageCategoryAccessRepository ? { storageCategoryAccessRepository } : {}),
     storageCategorySubscriptionRepository: resolvedStorageCategorySubscriptionRepository,
     storageDefaultChatStore,
@@ -558,6 +568,17 @@ test('handleTelegramStorageText opens the storage submenu from the command entry
   );
   assert.equal(replies[0]?.options?.parseMode, 'HTML');
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
+});
+
+test('handleTelegramStorageText does not claim the role-game material category action', async () => {
+  const { context, replies, getCurrentSession } = createContext(createRepository());
+  context.messageText = 'Crear categoría de material';
+
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, false);
+  assert.equal(getCurrentSession(), null);
+  assert.deepEqual(replies, []);
 });
 
 test('handleTelegramStorageText lists available categories for approved users', async () => {
@@ -1273,6 +1294,120 @@ test('handleTelegramStorageText shows categories directly in the storage menu', 
   assert.equal(handled, true);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
   assert.match(replies.at(-1)?.message ?? '', /Categorías disponibles:/);
+});
+
+test('handleTelegramStorageText hides role game handout categories from storage menu and search', async () => {
+  const repository = createRepository([
+    createCategory({ id: 7, slug: 'manuales', displayName: 'Manuales', categoryPurpose: 'user_uploads' }),
+    createCategory({ id: 8, slug: 'handouts', displayName: 'Handouts de rol', storageThreadId: 11, categoryPurpose: 'role_game_handouts' }),
+  ]);
+  await repository.createEntry({
+    categoryId: 8,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Secreto del villano',
+    tags: ['rol'],
+    messages: [
+      {
+        storageChatId: -100123,
+        storageMessageId: 900,
+        storageThreadId: 11,
+        telegramFileId: 'file-1',
+        telegramFileUniqueId: 'unique-1',
+        attachmentKind: 'document',
+        caption: null,
+        originalFileName: 'secreto-villano.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        mediaGroupId: null,
+        sortOrder: 0,
+      },
+    ],
+  });
+  const { context, replies, copiedMessages } = createContext(repository, { canReadCategoryIds: [7, 8], canUploadCategoryIds: [7, 8] });
+
+  context.messageText = 'Almacenamiento';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Handouts de rol|Secreto del villano|storage_entry_1/);
+
+  context.messageText = 'Buscar archivos';
+  await handleTelegramStorageText(context as never);
+  context.messageText = 'villano';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Handouts de rol|Secreto del villano|storage_entry_1/);
+
+  context.messageText = '/start storage_entry_1';
+  assert.equal(await handleTelegramStorageStartText(context as never), true);
+
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Handouts de rol|Secreto del villano/);
+  assert.deepEqual(copiedMessages, []);
+});
+
+test('handleTelegramStorageCallback blocks direct internal role handout storage actions', async () => {
+  const repository = createRepository([
+    createCategory({ id: 8, slug: 'handouts', displayName: 'Handouts de rol', storageThreadId: 11, categoryPurpose: 'role_game_handouts' }),
+  ]);
+  await repository.createEntry({
+    categoryId: 8,
+    createdByTelegramUserId: 42,
+    sourceKind: 'dm_copy',
+    description: 'Secreto del villano',
+    tags: ['rol'],
+    messages: [
+      {
+        storageChatId: -100123,
+        storageMessageId: 900,
+        storageThreadId: 11,
+        telegramFileId: 'file-1',
+        telegramFileUniqueId: 'unique-1',
+        attachmentKind: 'document',
+        caption: null,
+        originalFileName: 'secreto-villano.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        mediaGroupId: null,
+        sortOrder: 0,
+      },
+    ],
+  });
+
+  const edit = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [8],
+    canUploadCategoryIds: [8],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  edit.context.callbackData = `${storageCallbackPrefixes.editEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(edit.context as never), true);
+  assert.equal(edit.getCurrentSession(), null);
+  assert.equal(edit.replies.at(-1)?.message, 'No existe ninguna entrada disponible con ese identificador.');
+
+  const remove = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [8],
+    canUploadCategoryIds: [8],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  remove.context.callbackData = `${storageCallbackPrefixes.deleteEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(remove.context as never), true);
+  assert.equal((await repository.getEntryDetail(1))?.entry.lifecycleStatus, 'active');
+  assert.equal(remove.getCurrentSession(), null);
+  assert.equal(remove.replies.at(-1)?.message, 'No existe ninguna entrada disponible con ese identificador.');
+
+  const print = createContext(repository, {
+    isAdmin: true,
+    canReadCategoryIds: [8],
+    canUploadCategoryIds: [8],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  print.context.callbackData = `${storageCallbackPrefixes.printEntry}1`;
+  assert.equal(await handleTelegramStorageCallback(print.context as never), true);
+  assert.equal(print.getCurrentSession(), null);
+  assert.equal(print.replies.at(-1)?.message, 'No existe ninguna entrada disponible con ese identificador.');
 });
 
 test('handleTelegramStorageText searches entries inside readable categories', async () => {
@@ -3186,6 +3321,87 @@ test('sendStorageEntryDetail shows edit action to the original uploader', async 
       { text: 'Añadir tags', callbackData: `${storageCallbackPrefixes.addEntryTags}1`, semanticRole: 'success' },
     ],
   ]);
+});
+
+test('sendStorageEntryDetail shows print action only to users with print permission', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 99,
+    sourceKind: 'dm_copy',
+    description: 'Manual imprimible',
+    tags: [],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 501,
+      storageThreadId: 10,
+      telegramFileId: 'file-1',
+      telegramFileUniqueId: 'unique-1',
+      attachmentKind: 'document',
+      caption: null,
+      originalFileName: 'manual.pdf',
+      mimeType: 'application/pdf',
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+
+  const denied = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [],
+    printingMode: 'enabled',
+    canPrint: false,
+  });
+  denied.context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageStartText(denied.context as never);
+  assert.equal(Boolean(denied.replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Imprimir')), false);
+
+  const allowed = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  allowed.context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageStartText(allowed.context as never);
+  assert.equal(allowed.replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Imprimir'), true);
+});
+
+test('sendStorageEntryDetail shows print action for stored photos with print permission', async () => {
+  const repository = createRepository([createCategory()]);
+  await repository.createEntry({
+    categoryId: 7,
+    createdByTelegramUserId: 99,
+    sourceKind: 'dm_copy',
+    description: 'Mapa imprimible',
+    tags: [],
+    messages: [{
+      storageChatId: -100123,
+      storageMessageId: 501,
+      storageThreadId: 10,
+      telegramFileId: 'photo-file-1',
+      telegramFileUniqueId: 'photo-unique-1',
+      attachmentKind: 'photo',
+      caption: null,
+      originalFileName: null,
+      mimeType: null,
+      fileSizeBytes: 1024,
+      mediaGroupId: null,
+      sortOrder: 0,
+    }],
+  });
+
+  const allowed = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [],
+    printingMode: 'enabled',
+    canPrint: true,
+  });
+  allowed.context.messageText = '/start storage_entry_1';
+  await handleTelegramStorageStartText(allowed.context as never);
+
+  assert.equal(allowed.replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Imprimir'), true);
 });
 
 test('handleTelegramStorageCallback opens edit flow only for allowed users', async () => {

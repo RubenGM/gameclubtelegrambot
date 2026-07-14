@@ -339,7 +339,9 @@ test('catalog loan callbacks create, list and return loans', async () => {
   await handleTelegramCatalogLoanCallback(context);
 
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
-  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Prendre prestat'));
+  assert.ok(replies[0]?.options?.replyKeyboard?.flat().some((button) => (
+    typeof button === 'string' ? button : button.text
+  ) === 'Prendre prestat'));
 });
 
 test('catalog loan callback blocks returns from unrelated normal users', async () => {

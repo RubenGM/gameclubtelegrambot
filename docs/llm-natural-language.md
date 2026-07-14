@@ -28,11 +28,14 @@ La feature se activa por estas vías:
 - Botón privado `Preguntar al bot`, que abre una sesión de conversación.
 - Fallback privado configurable para mensajes que no hayan sido manejados por
   otros flujos.
-- Menciones al bot en grupos o topics.
+- Menciones al bot en grupos o topics, únicamente cuando `@username` aparece al
+  principio del mensaje, después de espacios iniciales.
 - Replies a mensajes del bot en grupos o privado.
 
-En grupos y topics sólo se responden lecturas cuando hay mención explícita al
-bot o el usuario responde a un mensaje suyo. Las escrituras pedidas desde grupo
+En grupos y topics sólo se responden lecturas cuando hay una mención explícita al
+principio del mensaje o el usuario responde realmente a un mensaje suyo. Las
+quotes, las menciones escritas dentro de una frase y los mensajes informativos
+como `para usar el bot tenéis que escribir a @cawa_bot` se ignoran. Las escrituras pedidas desde grupo
 no se ejecutan allí: el bot debe pedir al usuario que repita o continúe en
 privado.
 
@@ -264,6 +267,13 @@ fichas, mapas u otros archivos. Cuando el usuario pide material de rol, libros o
 contenido narrativo, el bot debe entregar a la LLM datos suficientes para
 distinguir el tipo de contenido: descripción, categoría, tags, nombres de
 archivos, tipo de adjunto y metadatos disponibles.
+
+Las búsquedas normales de Storage sólo exponen categorías de propósito
+`user_uploads`. Las categorías internas como `catalog_media` y los handouts de
+Rol (`role_game_handouts`) no se entregan a `storage.search`, `bot.search`,
+listados de categorías ni enlaces `storage_entry_<id>`. Los materiales de Rol
+deben abrirse por enlaces `role_material_<id>` y por los permisos propios de
+Rol cuando esa entrega esté conectada.
 
 La categoría principal de STL representa el ámbito completo de contenido de
 impresión 3D. Todo lo que cuelga de esa raíz debe interpretarse como STL,

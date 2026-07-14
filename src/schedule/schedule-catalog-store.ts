@@ -30,6 +30,7 @@ export function createDatabaseScheduleRepository({
           tableId: input.tableId,
           catalogItemId: input.catalogItemId ?? null,
           attendanceMode: input.attendanceMode,
+          isPublic: input.isPublic,
           initialOccupiedSeats: input.initialOccupiedSeats,
           capacity: input.capacity,
         })
@@ -114,6 +115,7 @@ export function createDatabaseScheduleRepository({
           tableId: input.tableId,
           catalogItemId: input.catalogItemId ?? null,
           attendanceMode: input.attendanceMode,
+          isPublic: input.isPublic,
           initialOccupiedSeats: input.initialOccupiedSeats,
           capacity: input.capacity,
           updatedAt: new Date(),
@@ -231,6 +233,7 @@ function mapScheduleEventRow(row: typeof scheduleEvents.$inferSelect): ScheduleE
     tableId: row.tableId,
     catalogItemId: row.catalogItemId,
     attendanceMode: row.attendanceMode as ScheduleEventRecord['attendanceMode'],
+    isPublic: row.isPublic,
     initialOccupiedSeats: row.initialOccupiedSeats,
     capacity: row.capacity,
     lifecycleStatus: row.lifecycleStatus as ScheduleEventRecord['lifecycleStatus'],

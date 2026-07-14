@@ -15,6 +15,7 @@ import type {
   StorageEntryRecord,
   StorageEntryUploaderRecord,
 } from './storage-catalog.js';
+import { isUserVisibleStorageCategoryPurpose } from './storage-internal-purpose.js';
 
 export function createDatabaseStorageRepository({
   database,
@@ -105,9 +106,13 @@ export function createDatabaseStorageRepository({
       const row = rows[0];
       return row ? mapStorageCategoryRow(row) : null;
     },
-    async listCategories() {
+    async listAllCategoriesForInternalUse() {
       const rows = await database.select().from(storageCategories).orderBy(asc(storageCategories.displayName), asc(storageCategories.id));
       return rows.map(mapStorageCategoryRow);
+    },
+    async listCategories() {
+      const rows = await database.select().from(storageCategories).orderBy(asc(storageCategories.displayName), asc(storageCategories.id));
+      return rows.map(mapStorageCategoryRow).filter((category) => isUserVisibleStorageCategoryPurpose(category.categoryPurpose));
     },
     async createEntry(input) {
       return database.transaction(async (tx) => {
@@ -360,7 +365,9 @@ export function createDatabaseStorageRepository({
           .where(inArray(users.telegramUserId, Array.from(new Set(entryRows.map((entry) => entry.createdByTelegramUserId))))),
       ]);
 
-      return buildStorageEntryDetails({ entryRows, categoryRows, messageRows, uploaderRows }).filter((detail) => matchesStorageSearch(detail, normalizedQuery));
+      return buildStorageEntryDetails({ entryRows, categoryRows, messageRows, uploaderRows })
+        .filter((detail) => isUserVisibleStorageCategoryPurpose(detail.category.categoryPurpose))
+        .filter((detail) => matchesStorageSearch(detail, normalizedQuery));
     },
   };
 }

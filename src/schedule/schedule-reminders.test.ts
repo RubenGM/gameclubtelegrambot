@@ -182,6 +182,7 @@ function createEvent(input: { id: number; title: string; startsAt: string }): Sc
     createdByTelegramUserId: 42,
     tableId: null,
     attendanceMode: 'open',
+    isPublic: false,
     initialOccupiedSeats: 0,
     capacity: 4,
     lifecycleStatus: 'scheduled',

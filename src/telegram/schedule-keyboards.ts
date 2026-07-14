@@ -16,6 +16,7 @@ export const scheduleLabels = {
   editFieldDuration: 'Durada',
   editFieldCapacity: 'Places',
   editFieldInitialOccupiedSeats: 'Places ocupades inicials',
+  editFieldPublicVisibility: 'Visibilitat',
   editFieldTable: 'Taula',
   start: 'Inici',
   help: 'Ajuda',
@@ -31,6 +32,8 @@ export const scheduleLabels = {
   durationMinutes: 'Minuts',
   attendanceOpen: 'Abierta',
   attendanceClosed: 'Cerrada',
+  publicVisibilityYes: 'Pública',
+  publicVisibilityNo: 'Només socis',
   initialOccupiedSeatsZero: '0',
   confirmCreate: 'Guardar activitat',
   confirmEdit: 'Guardar canvis',
@@ -170,6 +173,24 @@ export function buildAttendanceModeOptions(language: BotLanguage = 'ca'): Telegr
   };
 }
 
+export function buildPublicVisibilityOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
+  return {
+    replyKeyboard: [[texts.publicVisibilityYes, texts.publicVisibilityNo], [texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildEditPublicVisibilityOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
+  return {
+    replyKeyboard: [[texts.keepCurrent], [texts.publicVisibilityYes, texts.publicVisibilityNo], [dangerButton(scheduleLabels.cancelFlow)]],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
 export function buildInitialOccupiedSeatsOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
@@ -224,9 +245,11 @@ export function buildEditFieldMenuOptions(language: BotLanguage = 'ca'): Telegra
 
 export function buildEditFieldMenuOptionsForEvent({
   hasInitialOccupiedSeats,
+  hasPublicVisibility,
   language = 'ca',
 }: {
   hasInitialOccupiedSeats: boolean;
+  hasPublicVisibility?: boolean;
   language?: BotLanguage;
 }): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
@@ -236,6 +259,7 @@ export function buildEditFieldMenuOptionsForEvent({
       [texts.editFieldTime, texts.editFieldDuration],
       [texts.editFieldCapacity],
       ...(hasInitialOccupiedSeats ? [[texts.editFieldInitialOccupiedSeats]] : []),
+      ...(hasPublicVisibility ? [[texts.editFieldPublicVisibility]] : []),
       [texts.editFieldTable],
       [texts.editFieldDescription],
       [texts.confirmEdit],

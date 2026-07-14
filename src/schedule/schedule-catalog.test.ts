@@ -10,13 +10,14 @@ import {
   joinScheduleEvent,
   leaveScheduleEvent,
   setScheduleEventParticipantStatus,
+  updateScheduleEvent,
   type ScheduleEventRecord,
   type ScheduleParticipantRecord,
   type ScheduleRepository,
 } from './schedule-catalog.js';
 
-type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
-  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'>>;
+type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'isPublic' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
+  Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'isPublic' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'>>;
 
 function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleRepository {
   const events = new Map(initialEvents.map((event) => {
@@ -42,6 +43,7 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         catalogItemId: input.catalogItemId ?? null,
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
+        isPublic: input.isPublic,
         initialOccupiedSeats: input.initialOccupiedSeats,
         capacity: input.capacity,
         lifecycleStatus: 'scheduled',
@@ -79,6 +81,7 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         catalogItemId: input.catalogItemId ?? existing.catalogItemId ?? null,
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
+        isPublic: input.isPublic,
         initialOccupiedSeats: input.initialOccupiedSeats,
         capacity: input.capacity,
         updatedAt: '2026-04-04T11:00:00.000Z',
@@ -132,6 +135,7 @@ function normalizeScheduleEventFixture(event: ScheduleEventFixture): ScheduleEve
   return {
     ...event,
     attendanceMode: event.attendanceMode ?? 'open',
+    isPublic: event.isPublic ?? false,
     initialOccupiedSeats: event.initialOccupiedSeats ?? 0,
     detailsMessageChatId: event.detailsMessageChatId ?? null,
     detailsMessageId: event.detailsMessageId ?? null,
@@ -170,6 +174,87 @@ test('createScheduleEvent creates a scheduled activity with organizer ownership 
   assert.equal(event.lifecycleStatus, 'scheduled');
 
   assert.deepEqual(await repository.listParticipants(event.id), []);
+});
+
+test('createScheduleEvent allows public open activities', async () => {
+  const repository = createRepository();
+
+  const event = await createScheduleEvent({
+    repository,
+    title: 'Torneo abierto',
+    description: null,
+    startsAt: '2026-07-10T18:00:00.000Z',
+    durationMinutes: 180,
+    organizerTelegramUserId: 42,
+    createdByTelegramUserId: 42,
+    tableId: null,
+    attendanceMode: 'open',
+    initialOccupiedSeats: 0,
+    capacity: 8,
+    isPublic: true,
+  });
+
+  assert.equal(event.isPublic, true);
+});
+
+test('createScheduleEvent rejects public closed activities', async () => {
+  const repository = createRepository();
+
+  await assert.rejects(
+    () =>
+      createScheduleEvent({
+        repository,
+        title: 'Mesa cerrada',
+        description: null,
+        startsAt: '2026-07-10T18:00:00.000Z',
+        durationMinutes: 180,
+        organizerTelegramUserId: 42,
+        createdByTelegramUserId: 42,
+        tableId: null,
+        attendanceMode: 'closed',
+        initialOccupiedSeats: 0,
+        capacity: 4,
+        isPublic: true,
+      }),
+    /Una actividad pública debe ser una mesa abierta/,
+  );
+});
+
+test('updateScheduleEvent rejects public closed activities', async () => {
+  const repository = createRepository();
+  const event = await createScheduleEvent({
+    repository,
+    title: 'Mesa abierta',
+    description: null,
+    startsAt: '2026-07-10T18:00:00.000Z',
+    durationMinutes: 180,
+    organizerTelegramUserId: 42,
+    createdByTelegramUserId: 42,
+    tableId: null,
+    attendanceMode: 'open',
+    initialOccupiedSeats: 0,
+    capacity: 4,
+    isPublic: false,
+  });
+
+  await assert.rejects(
+    () =>
+      updateScheduleEvent({
+        repository,
+        eventId: event.id,
+        title: event.title,
+        description: event.description,
+        startsAt: event.startsAt,
+        durationMinutes: event.durationMinutes,
+        organizerTelegramUserId: event.organizerTelegramUserId,
+        tableId: event.tableId,
+        attendanceMode: 'closed',
+        initialOccupiedSeats: 0,
+        capacity: event.capacity,
+        isPublic: true,
+      }),
+    /Una actividad pública debe ser una mesa abierta/,
+  );
 });
 
 test('getScheduleCapacitySnapshot for open activities counts initial occupied seats separately from bot participants', async () => {

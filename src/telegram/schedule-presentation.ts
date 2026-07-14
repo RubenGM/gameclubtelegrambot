@@ -105,6 +105,7 @@ export function formatScheduleEventDetails({
     formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
     formatHtmlField(texts.detailsDuration, formatDurationMinutes(event.durationMinutes)),
     formatHtmlField(texts.detailsAttendanceMode, escapeHtml(attendanceLabel)),
+    formatHtmlField(texts.detailsVisibility, escapeHtml(event.isPublic ? texts.publicActivityTag : texts.memberOnlyActivityTag)),
     formatHtmlField(texts.detailsSeats, String(event.capacity)),
     ...(event.attendanceMode === 'open'
       ? [formatHtmlField(texts.detailsInitialOccupiedSeats, String(event.initialOccupiedSeats))]

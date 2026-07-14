@@ -83,7 +83,7 @@ test('createMiddlewarePipeline reuses the board-game import service across updat
 });
 
 test('createMiddlewarePipeline exposes Telegram file download support in runtime bot', async () => {
-  const downloadCalls: Array<{ fileId: string; destinationPath: string }> = [];
+  const downloadCalls: Array<{ fileId: string; destinationPath: string; allowLocalBotApi?: boolean }> = [];
   const middlewares = createMiddlewarePipeline({
     config: runtimeConfig,
     services: {
@@ -111,9 +111,38 @@ test('createMiddlewarePipeline exposes Telegram file download support in runtime
   const context = createTextContext();
   await runMiddlewares(middlewares, context);
 
-  await context.runtime?.bot.downloadFile?.({ fileId: 'cover-file', destinationPath: '/tmp/cover.jpg' });
+  await context.runtime?.bot.downloadFile?.({ fileId: 'cover-file', destinationPath: '/tmp/cover.jpg', allowLocalBotApi: true });
 
-  assert.deepEqual(downloadCalls, [{ fileId: 'cover-file', destinationPath: '/tmp/cover.jpg' }]);
+  assert.deepEqual(downloadCalls, [{ fileId: 'cover-file', destinationPath: '/tmp/cover.jpg', allowLocalBotApi: true }]);
+});
+
+test('createMiddlewarePipeline exposes large file download capability when the bot supports it', async () => {
+  const middlewares = createMiddlewarePipeline({
+    config: runtimeConfig,
+    services: {
+      database: {
+        pool: undefined as never,
+        db: createMembershipDatabaseStub() as never,
+        close: async () => {},
+      },
+    } satisfies InfrastructureRuntimeServices,
+    bot: {
+      ...createBotStub(),
+      supportsLargeFileDownload: true,
+    },
+    logger: createLoggerStub(),
+    isNewsEnabledGroup: async () => false,
+    loadActor: async ({ telegramUserId }) => createApprovedActor(telegramUserId),
+    conversationSessionStore: createConversationSessionStoreStub(),
+    languagePreferenceStore: {
+      loadLanguage: async () => null,
+    },
+  });
+
+  const context = createTextContext();
+  await runMiddlewares(middlewares, context);
+
+  assert.equal(context.runtime?.bot.supportsLargeFileDownload, true);
 });
 
 test('createMiddlewarePipeline exposes Telegram message edit support in runtime bot', async () => {
