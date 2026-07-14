@@ -615,6 +615,8 @@ test('database role game repository creates materials, reveals visibility and re
   assert.ok(revealed.revealedAt);
   assert.equal(delivery.recipientTelegramUserId, 100);
   assert.equal(delivery.deliveryMode, 'send_and_reveal');
+  assert.equal(await repository.hasMaterialRecipientAccess?.(material.id, 100), true);
+  assert.equal(await repository.hasMaterialRecipientAccess?.(material.id, 101), false);
 });
 
 function createCampaignInput(overrides: Partial<CreateRoleGameInput> = {}): CreateRoleGameInput {
@@ -911,6 +913,14 @@ function createRoleGameStoreFixture() {
             }),
           };
         }
+        if ((table as unknown) === roleGameMaterialDeliveriesTable) {
+          return {
+            where: (condition: unknown) => ({
+              limit: async (limit: number) => deliveries.filter((delivery) =>
+                matchesMaterialDeliveryAccessWhere(condition, delivery)).slice(0, limit),
+            }),
+          };
+        }
         throw new Error('unexpected select table');
       },
     }),
@@ -940,6 +950,17 @@ function matchesMemberWhere(condition: unknown, member: Record<string, unknown>)
     const memberValue = member[column === 'role_game_id' ? 'roleGameId' : column === 'telegram_user_id' ? 'telegramUserId' : column];
     return operator === '=' ? memberValue === value : memberValue !== value;
   });
+}
+
+function matchesMaterialDeliveryAccessWhere(condition: unknown, delivery: Record<string, unknown>): boolean {
+  const comparisons = collectSqlComparisons(condition).filter(({ operator }) => operator === '=');
+  const valuesFor = (column: string) => comparisons
+    .filter((comparison) => comparison.column === column)
+    .map((comparison) => comparison.value);
+  return valuesFor('role_game_material_id').includes(delivery.roleGameMaterialId) &&
+    valuesFor('recipient_telegram_user_id').includes(delivery.recipientTelegramUserId) &&
+    valuesFor('status').includes(delivery.status) &&
+    valuesFor('delivery_mode').includes(delivery.deliveryMode);
 }
 
 function collectSqlComparisons(value: unknown): Array<{ column: string; operator: '=' | '<>'; value: unknown }> {

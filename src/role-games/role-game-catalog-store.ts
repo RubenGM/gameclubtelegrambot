@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, ne, or } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import {
@@ -464,6 +464,21 @@ export function createDatabaseRoleGameRepository({
         throw new Error('Role game material delivery insert did not return a row');
       }
       return mapRoleGameMaterialDeliveryRow(row);
+    },
+    async hasMaterialRecipientAccess(materialId, recipientTelegramUserId) {
+      const rows = await database.select({ id: roleGameMaterialDeliveries.id })
+        .from(roleGameMaterialDeliveries)
+        .where(and(
+          eq(roleGameMaterialDeliveries.roleGameMaterialId, materialId),
+          eq(roleGameMaterialDeliveries.recipientTelegramUserId, recipientTelegramUserId),
+          eq(roleGameMaterialDeliveries.status, 'sent'),
+          or(
+            eq(roleGameMaterialDeliveries.deliveryMode, 'send_and_reveal'),
+            eq(roleGameMaterialDeliveries.deliveryMode, 'reveal_only'),
+          ),
+        ))
+        .limit(1);
+      return rows.length > 0;
     },
     async requestSeat(input) {
       return database.transaction(async (tx) => {

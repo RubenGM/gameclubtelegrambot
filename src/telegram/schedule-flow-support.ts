@@ -1837,7 +1837,7 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
   };
 }
 
-async function runAfterScheduleSaveSideEffects(
+export async function runAfterScheduleSaveSideEffects(
   context: TelegramScheduleContext,
   event: ScheduleEventRecord,
   action: 'created' | 'updated' | 'deleted',

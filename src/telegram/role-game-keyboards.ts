@@ -275,9 +275,42 @@ export function buildRoleGameMaterialDetailKeyboard({
       [primaryButton(texts.sendMaterialOnly)],
       [successButton(texts.sendAndRevealMaterial)],
       [successButton(texts.revealMaterialOnly)],
+      [primaryButton(texts.deliverMaterialToPlayer)],
       [dangerButton(texts.deleteMaterial)],
     ] : []),
     [navigationButton(texts.backToMaterials)],
+  ]);
+}
+
+export function buildRoleGameMaterialPlayerSelectionKeyboard({
+  playerLabels,
+  hasPreviousPage = false,
+  hasNextPage = false,
+  language = 'ca',
+}: {
+  playerLabels: string[];
+  hasPreviousPage?: boolean;
+  hasNextPage?: boolean;
+  language?: BotLanguage;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  const navigation: TelegramReplyButton[] = [];
+  if (hasPreviousPage) navigation.push(navigationButton(texts.previousPage));
+  if (hasNextPage) navigation.push(navigationButton(texts.nextPage));
+  return buildRoleGameReplyKeyboard(language, [
+    ...playerLabels.map((label) => [primaryButton(label)]),
+    ...(navigation.length > 0 ? [navigation] : []),
+    [navigationButton(texts.backToMaterial)],
+  ]);
+}
+
+export function buildRoleGameMaterialPlayerActionKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [primaryButton(texts.sendMaterialToPlayerOnly)],
+    [successButton(texts.sendAndRevealMaterialToPlayer)],
+    [successButton(texts.revealMaterialToPlayerOnly)],
+    [navigationButton(texts.backToMaterial)],
   ]);
 }
 

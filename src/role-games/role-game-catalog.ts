@@ -243,6 +243,7 @@ export interface RoleGameRepository {
   deleteGame?(input: { gameId: number; deletedByTelegramUserId: number }): Promise<RoleGameRecord>;
   updateMaterialVisibility(input: UpdateRoleGameMaterialVisibilityInput): Promise<RoleGameMaterialRecord>;
   createMaterialDelivery(input: CreateRoleGameMaterialDeliveryInput): Promise<RoleGameMaterialDeliveryRecord>;
+  hasMaterialRecipientAccess?(materialId: number, recipientTelegramUserId: number): Promise<boolean>;
   requestSeat(input: {
     roleGameId: number;
     telegramUserId: number;

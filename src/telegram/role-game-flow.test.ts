@@ -34,6 +34,9 @@ import type {
   StorageEntryMessageInput,
 } from '../storage/storage-catalog.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
+import type { NewsGroupRepository } from '../news/news-group-catalog.js';
+import type { ClubTableRepository } from '../tables/table-catalog.js';
+import type { VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import type { TelegramReplyKeyboardButton } from './runtime-boundary.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
@@ -1245,6 +1248,7 @@ test('handleTelegramRoleGameText creates a recurring campaign with recurrence se
 
 test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event', async () => {
   let createdGame: RoleGameRecord | null = null;
+  const groupMessages: Array<{ chatId: number; message: string; messageThreadId?: number }> = [];
   const scheduleRepository = createFakeScheduleRepository();
   const roleGameRepository = createFakeRoleGameRepository({
     onCreateGame: async (input) => {
@@ -1256,6 +1260,12 @@ test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event
     messageText: 'Crear partida',
     roleGameRepository,
     scheduleRepository,
+    newsGroupRepository: createRoleGameNewsRepository(),
+    venueEventRepository: createEmptyVenueEventRepository(),
+    tableRepository: createEmptyTableRepository(),
+    onSendGroupMessage: async (chatId, message, options) => {
+      groupMessages.push({ chatId, message, ...(options?.messageThreadId ? { messageThreadId: options.messageThreadId } : {}) });
+    },
   });
 
   assert.equal(await handleTelegramRoleGameText(context), true);
@@ -1287,6 +1297,10 @@ test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event
   assert.equal(roleGameRepository.createdSessionLinks.at(0)?.source, 'one_shot_initial');
   assert.equal(roleGameRepository.createdSessionLinks.at(0)?.roleGameId, created.id);
   assert.match(lastReply(context).message, /schedule_event_1/);
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.chatId, -100700);
+  assert.equal(groupMessages[0]?.messageThreadId, 77);
+  assert.match(groupMessages[0]?.message ?? '', /La partida única/);
 });
 
 test('handleTelegramRoleGameText cancels role game creation without orphan keyboard', async () => {
@@ -1435,6 +1449,7 @@ test('handleTelegramRoleGameCallback blocks non-managers from accepting requests
 
 test('handleTelegramRoleGameCallback lets a manager schedule the next manual session', async () => {
   const game = sampleRoleGame({ id: 82, primaryGmTelegramUserId: 42, allowPlayerManualScheduling: false });
+  const groupMessages: Array<{ chatId: number; message: string; messageThreadId?: number }> = [];
   const scheduleRepository = createFakeScheduleRepository();
   const roleGameRepository = createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, []]]) });
   const context = createRoleGameTestContext({
@@ -1442,6 +1457,12 @@ test('handleTelegramRoleGameCallback lets a manager schedule the next manual ses
     callbackData: 'role_game:schedule:82',
     roleGameRepository,
     scheduleRepository,
+    newsGroupRepository: createRoleGameNewsRepository(),
+    venueEventRepository: createEmptyVenueEventRepository(),
+    tableRepository: createEmptyTableRepository(),
+    onSendGroupMessage: async (chatId, message, options) => {
+      groupMessages.push({ chatId, message, ...(options?.messageThreadId ? { messageThreadId: options.messageThreadId } : {}) });
+    },
   });
 
   assert.equal(await handleTelegramRoleGameCallback(context), true);
@@ -1460,6 +1481,9 @@ test('handleTelegramRoleGameCallback lets a manager schedule the next manual ses
   assert.equal(getCurrentSession(context), null);
   assert.match(lastReply(context).message, /Sesión programada/i);
   assert.match(lastReply(context).message, /schedule_event_1/);
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.messageThreadId, 77);
+  assert.match(groupMessages[0]?.message ?? '', /Partida de prueba/);
 });
 
 test('handleTelegramRoleGameCallback hides manual scheduling for non-manual games', async () => {
@@ -2339,6 +2363,96 @@ test('handleTelegramRoleGameCallback reveals material without sending it', async
   assert.match(lastReply(context).message, /Material revelado/);
 });
 
+test('GM can send and reveal a material to one confirmed player without exposing it to the rest', async () => {
+  const game = sampleRoleGame({ id: 941, primaryGmTelegramUserId: 42 });
+  const storageRepository = createFakeStorageRepository();
+  const storedEntry = await createStoredRoleGameMaterialEntry(storageRepository);
+  const selectedPlayer = sampleRoleGameMember({
+    id: 9411,
+    roleGameId: game.id,
+    telegramUserId: 100,
+    role: 'player',
+    status: 'confirmed',
+  });
+  const otherPlayer = sampleRoleGameMember({
+    id: 9412,
+    roleGameId: game.id,
+    telegramUserId: 101,
+    role: 'player',
+    status: 'confirmed',
+  });
+  const material = sampleRoleGameMaterial({
+    id: 9413,
+    roleGameId: game.id,
+    internalStorageEntryId: storedEntry.entry.id,
+    visibility: 'gm_only',
+    deliveryState: 'not_sent',
+    title: 'Carta secreta',
+  });
+  const repository = createFakeRoleGameRepository({
+    gamesById: [game],
+    membersByGameId: new Map([[game.id, [selectedPlayer, otherPlayer]]]),
+    materialsById: [material],
+  });
+  const privateMessages: number[] = [];
+  const copiedToChats: number[] = [];
+  const gmContext = createRoleGameTestContext({
+    messageText: `/start role_material_${material.id}`,
+    roleGameRepository: repository,
+    storageRepository,
+    onSendPrivateMessage: async (telegramUserId) => {
+      privateMessages.push(telegramUserId);
+    },
+    onCopyMessage: async ({ toChatId }) => {
+      copiedToChats.push(toChatId);
+      return { messageId: copiedToChats.length };
+    },
+  });
+
+  assert.equal(await handleTelegramRoleGameStartText(gmContext), true);
+  copiedToChats.length = 0;
+  await sendRoleGameText(gmContext, 'Entregar a un jugador');
+  assert.match(lastReply(gmContext).message, /Elige el jugador/);
+  assert.deepEqual(lastReply(gmContext).options?.replyKeyboard?.slice(0, 2).map((row) => row.map(buttonText)), [
+    ['Usuario 100'],
+    ['Usuario 101'],
+  ]);
+  await sendRoleGameText(gmContext, 'Usuario 100');
+  await sendRoleGameText(gmContext, 'Enviar y revelar a este jugador');
+
+  assert.deepEqual(privateMessages, [100]);
+  assert.deepEqual(copiedToChats, [100]);
+  assert.equal((await repository.findMaterialById(material.id))?.visibility, 'gm_only');
+  assert.equal(await repository.hasMaterialRecipientAccess?.(material.id, 100), true);
+  assert.equal(await repository.hasMaterialRecipientAccess?.(material.id, 101), false);
+  assert.match(lastReply(gmContext).message, /únicamente a Usuario 100/);
+
+  const selectedPlayerCopies: number[] = [];
+  const selectedPlayerContext = createRoleGameTestContext({
+    messageText: `/start role_material_${material.id}`,
+    roleGameRepository: repository,
+    storageRepository,
+    actor: { telegramUserId: 100 },
+    onCopyMessage: async ({ toChatId }) => {
+      selectedPlayerCopies.push(toChatId);
+      return { messageId: selectedPlayerCopies.length };
+    },
+  });
+  assert.equal(await handleTelegramRoleGameStartText(selectedPlayerContext), true);
+  assert.match(lastReply(selectedPlayerContext).message, /Carta secreta/);
+  assert.deepEqual(selectedPlayerCopies, [100]);
+
+  const otherPlayerContext = createRoleGameTestContext({
+    messageText: `/start role_material_${material.id}`,
+    roleGameRepository: repository,
+    storageRepository,
+    actor: { telegramUserId: 101 },
+  });
+  assert.equal(await handleTelegramRoleGameStartText(otherPlayerContext), true);
+  assert.doesNotMatch(lastReply(otherPlayerContext).message, /Carta secreta/);
+  assert.match(lastReply(otherPlayerContext).message, /No se ha encontrado/);
+});
+
 test('handleTelegramRoleGameCallback reports partial material delivery failures', async () => {
   const game = sampleRoleGame({ id: 95, primaryGmTelegramUserId: 42 });
   const storageRepository = createFakeStorageRepository();
@@ -2414,11 +2528,15 @@ function createRoleGameTestContext({
   storageRepository,
   storageDefaultChatStore,
   membershipRepository = createFakeMembershipRepository(),
+  newsGroupRepository,
+  venueEventRepository,
+  tableRepository,
   session = {},
   actor = {},
   onSendPrivateMessage,
   onCopyMessage,
   onCreateForumTopic,
+  onSendGroupMessage,
   onWarning,
 }: {
   messageText: string;
@@ -2428,6 +2546,9 @@ function createRoleGameTestContext({
   storageRepository?: StorageCategoryRepository;
   storageDefaultChatStore?: AppMetadataSessionStorage;
   membershipRepository?: MembershipAccessRepository;
+  newsGroupRepository?: NewsGroupRepository;
+  venueEventRepository?: VenueEventRepository;
+  tableRepository?: ClubTableRepository;
   session?: {
     current?: TelegramCommandHandlerContext['runtime']['session']['current'];
   };
@@ -2435,6 +2556,7 @@ function createRoleGameTestContext({
   onSendPrivateMessage?: (telegramUserId: number, message: string) => Promise<void>;
   onCopyMessage?: (input: { fromChatId: number; messageId: number; toChatId: number }) => Promise<{ messageId: number }>;
   onCreateForumTopic?: (input: { chatId: number; name: string }) => Promise<{ chatId: number; name: string; messageThreadId: number }>;
+  onSendGroupMessage?: (chatId: number, message: string, options?: TelegramReplyOptions) => Promise<void>;
   onWarning?: (bindings: object, message: string) => void;
 }): TelegramCommandHandlerContext & {
   roleGameRepository: RoleGameRepository;
@@ -2482,6 +2604,9 @@ function createRoleGameTestContext({
     ...(storageRepository ? { storageRepository } : {}),
     ...(storageDefaultChatStore ? { storageDefaultChatStore } : {}),
     ...(membershipRepository ? { membershipRepository } : {}),
+    ...(newsGroupRepository ? { newsGroupRepository } : {}),
+    ...(venueEventRepository ? { venueEventRepository } : {}),
+    ...(tableRepository ? { tableRepository } : {}),
     replies,
     reply: async (message: string, options?: TelegramReplyOptions) => {
       replies.push(options ? { message, options } : { message });
@@ -2509,6 +2634,7 @@ function createRoleGameTestContext({
         clubName: 'Game Club',
         language: 'es',
         sendPrivateMessage: onSendPrivateMessage ?? (async () => {}),
+        ...(onSendGroupMessage ? { sendGroupMessage: onSendGroupMessage } : {}),
         copyMessage: onCopyMessage ?? (async () => ({ messageId: 900 })),
         ...(onCreateForumTopic ? { createForumTopic: onCreateForumTopic } : {}),
       },
@@ -2519,6 +2645,49 @@ function createRoleGameTestContext({
     storageRepository?: StorageCategoryRepository;
     membershipRepository?: MembershipAccessRepository;
     replies: Array<{ message: string; options?: TelegramReplyOptions }>;
+  };
+}
+
+function createRoleGameNewsRepository(): NewsGroupRepository {
+  const target = {
+    chatId: -100700,
+    messageThreadId: 77,
+    isEnabled: true,
+    metadata: null,
+    createdAt: '2026-07-09T10:00:00.000Z',
+    updatedAt: '2026-07-09T10:00:00.000Z',
+    enabledAt: '2026-07-09T10:00:00.000Z',
+    disabledAt: null,
+  };
+  return {
+    findGroupByChatId: async () => null,
+    listGroups: async () => [],
+    upsertGroup: async () => { throw new Error('not implemented in this test'); },
+    listSubscriptionsByChatId: async () => [],
+    upsertSubscription: async () => { throw new Error('not implemented in this test'); },
+    deleteSubscription: async () => false,
+    listSubscribedGroupsByCategory: async (categoryKey) => categoryKey === 'events' ? [target] : [],
+    isNewsEnabledGroup: async () => true,
+  };
+}
+
+function createEmptyVenueEventRepository(): VenueEventRepository {
+  return {
+    createVenueEvent: async () => { throw new Error('not implemented in this test'); },
+    findVenueEventById: async () => null,
+    listVenueEvents: async () => [],
+    updateVenueEvent: async () => { throw new Error('not implemented in this test'); },
+    cancelVenueEvent: async () => { throw new Error('not implemented in this test'); },
+  };
+}
+
+function createEmptyTableRepository(): ClubTableRepository {
+  return {
+    createTable: async () => { throw new Error('not implemented in this test'); },
+    findTableById: async () => null,
+    listTables: async () => [],
+    updateTable: async () => { throw new Error('not implemented in this test'); },
+    deactivateTable: async () => { throw new Error('not implemented in this test'); },
   };
 }
 
@@ -2613,6 +2782,7 @@ function createFakeRoleGameRepository({
   const createdSessionLinks: RoleGameSessionRecord[] = Array.from(sessionLinksByGameId.values()).flat();
   const materials = new Map<number, RoleGameMaterialRecord>(materialsById.map((material) => [material.id, material]));
   const categories = new Map<number, RoleGameMaterialCategoryRecord>(materialCategories.map((category) => [category.id, category]));
+  const materialDeliveries: RoleGameMaterialDeliveryRecord[] = [];
   return {
     createGame: async (input) => {
       if (onCreateGame) {
@@ -2728,11 +2898,17 @@ function createFakeRoleGameRepository({
       throw new Error('not implemented in this test');
     },
     createMaterialDelivery: async (input) => {
-      if (onCreateMaterialDelivery) {
-        return onCreateMaterialDelivery(input);
-      }
-      throw new Error('not implemented in this test');
+      const delivery = onCreateMaterialDelivery
+        ? await onCreateMaterialDelivery(input)
+        : sampleRoleGameMaterialDelivery({ ...input, id: materialDeliveries.length + 1 });
+      materialDeliveries.push(delivery);
+      return delivery;
     },
+    hasMaterialRecipientAccess: async (materialId, recipientTelegramUserId) => materialDeliveries.some((delivery) =>
+      delivery.roleGameMaterialId === materialId &&
+      delivery.recipientTelegramUserId === recipientTelegramUserId &&
+      delivery.status === 'sent' &&
+      (delivery.deliveryMode === 'send_and_reveal' || delivery.deliveryMode === 'reveal_only')),
     requestSeat: async (input) => {
       if (onRequestSeat) {
         return onRequestSeat(input);
