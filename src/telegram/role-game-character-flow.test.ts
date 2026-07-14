@@ -94,6 +94,21 @@ function fakeCharacterRepository(initial: RoleGameCharacterRecord[] = [], portra
     },
     findCharacterById: async (id: number) => characters.find((item) => item.id === id) ?? null,
     listCharacters: async () => [...characters],
+    updateCharacter: async (input: Parameters<RoleGameCharacterRepository['updateCharacter']>[0]) => {
+      const index = characters.findIndex((item) => item.id === input.characterId);
+      const current = characters[index];
+      if (!current || current.updatedAt !== input.expectedUpdatedAt) throw new Error('stale character');
+      const updated = character(current.id, {
+        ...current,
+        name: input.name,
+        description: input.description,
+        externalUrl: input.externalUrl,
+        visibility: input.visibility,
+        updatedAt: '2026-07-14T10:01:00.000Z',
+      });
+      characters[index] = updated;
+      return updated;
+    },
     listAttachments: async () => [],
     findPortrait: async (characterId: number) => portrait?.characterId === characterId ? portrait : null,
     listClaimRequests: async () => [],
@@ -229,6 +244,25 @@ test('character edit offers portrait upload as an editable field', async () => {
   ctx.messageText = 'Añadir o cambiar retrato';
   assert.equal(await handleTelegramRoleGameCharacterText(ctx), true);
   assert.match(ctx.replies.at(-1)?.message ?? '', /foto o un documento de imagen/);
+});
+
+test('character name edit persists after confirmation and renders the preview as HTML', async () => {
+  const owner = member(10, 109);
+  const editable = character(25, { assignedMemberId: owner.id, name: 'Strahd' });
+  const ctx = context({ text: '/start role_character_25', telegramUserId: owner.telegramUserId, members: [owner], characters: [editable] });
+
+  await handleTelegramRoleGameCharacterStartText(ctx);
+  ctx.messageText = 'Editar personaje'; await handleTelegramRoleGameCharacterText(ctx);
+  ctx.messageText = 'Nombre'; await handleTelegramRoleGameCharacterText(ctx);
+  ctx.messageText = 'Strahd von Zarovich'; await handleTelegramRoleGameCharacterText(ctx);
+
+  assert.equal(ctx.replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.match(ctx.replies.at(-1)?.message ?? '', /<b>Strahd von Zarovich<\/b>/);
+
+  ctx.messageText = 'Confirmar acción';
+  assert.equal(await handleTelegramRoleGameCharacterText(ctx), true);
+  assert.match(ctx.replies.at(-1)?.message ?? '', /Personaje: Strahd von Zarovich/);
+  assert.doesNotMatch(ctx.replies.at(-1)?.message ?? '', /Personaje: Strahd\n/);
 });
 
 test('private character deep links use a non-disclosing unavailable response for other players', async () => {

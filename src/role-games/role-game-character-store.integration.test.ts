@@ -91,6 +91,17 @@ integrationTest('PostgreSQL transfers ownership atomically and approves only one
       createdByTelegramUserId: seed.playerTelegramUserId,
     });
 
+    const renamed = await characterRepository.updateCharacter({
+      characterId: character.id,
+      expectedUpdatedAt: character.updatedAt,
+      name: 'Nyra renamed',
+      description: null,
+      externalUrl: null,
+      visibility: 'players',
+      actorTelegramUserId: seed.playerTelegramUserId,
+    });
+    assert.equal(renamed.name, 'Nyra renamed');
+
     const transferred = await characterRepository.transferCharacter({
       characterId: character.id,
       expectedAssignedMemberId: player.id,

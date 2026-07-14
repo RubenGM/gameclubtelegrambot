@@ -69,10 +69,7 @@ export function createDatabaseRoleGameCharacterRepository({
           externalUrl: input.externalUrl,
           visibility: input.visibility,
           updatedAt,
-        }).where(and(
-          eq(roleGameCharacters.id, character.id),
-          eq(roleGameCharacters.updatedAt, character.updatedAt),
-        )).returning();
+        }).where(eq(roleGameCharacters.id, character.id)).returning();
         const updated = mapRequiredCharacter(
           rows[0],
           `Role game character ${input.characterId} has stale state`,

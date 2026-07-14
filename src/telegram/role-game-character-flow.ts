@@ -228,7 +228,10 @@ export async function handleTelegramRoleGameCharacterMessage(
     try {
       const entryId = await copyCharacterAttachmentToStorage(context, data.gameId, media, 'portrait');
       await context.runtime.session.start({ flowKey: roleGameCharacterFlowKey, stepKey: 'confirm', data: { ...data, createStep: 'confirm', pendingStorageEntryId: entryId } });
-      await context.reply(`${formatDraft(data.draft, t)}\n${escapeHtml(t.characterPortrait)}: ✓`, buildRoleGameCharacterConfirmKeyboard(language));
+      await context.reply(`${formatDraft(data.draft, t)}\n${escapeHtml(t.characterPortrait)}: ✓`, {
+        ...buildRoleGameCharacterConfirmKeyboard(language),
+        parseMode: 'HTML',
+      });
     } catch (error) {
       context.runtime.logger?.warn?.({ error }, 'role_game.character.portrait.copy.failed');
       await context.reply(t.characterAttachmentStorageError, buildRoleGameCharacterStepKeyboard({ language, rows: [[{ text: t.skipCharacterPortrait, semanticRole: 'navigation' }]] }));
@@ -649,7 +652,10 @@ async function handleCreateText(context: TelegramRoleGameCharacterContext, acces
   }
   if (data.createStep === 'portrait' && text === t.skipCharacterPortrait) {
     await context.runtime.session.start({ flowKey: roleGameCharacterFlowKey, stepKey: 'confirm', data: { ...data, createStep: 'confirm' } });
-    await context.reply(formatDraft(draft, t), buildRoleGameCharacterConfirmKeyboard(language));
+    await context.reply(formatDraft(draft, t), {
+      ...buildRoleGameCharacterConfirmKeyboard(language),
+      parseMode: 'HTML',
+    });
     return true;
   }
   if (data.createStep === 'confirm' && text === t.confirmCreateCharacter && draft.name && draft.visibility) {
@@ -718,7 +724,8 @@ async function handleEditText(context: TelegramRoleGameCharacterContext, access:
       });
       const refreshed = await loadVisibleCharacter(context, updated.id);
       return refreshed ? replyWithCharacterDetail(context, refreshed, language, t.characterSaved) : replyUnavailable(context, language);
-    } catch {
+    } catch (error) {
+      context.runtime.logger?.warn?.({ error, characterId: loaded.character.id, editField: data.editField }, 'role_game.character.edit.failed');
       return replyWithCharacterDetail(context, loaded, language, t.characterActionStale);
     }
   }
@@ -749,7 +756,10 @@ async function handleEditText(context: TelegramRoleGameCharacterContext, access:
     stepKey: 'edit-confirm',
     data: { ...data, draft: { gameId: access.game.id, assignedMemberId: current.assignedMemberId, ...draft } },
   });
-  await context.reply(formatDraft({ gameId: access.game.id, assignedMemberId: current.assignedMemberId, ...draft }, t), buildRoleGameCharacterActionConfirmKeyboard(language));
+  await context.reply(formatDraft({ gameId: access.game.id, assignedMemberId: current.assignedMemberId, ...draft }, t), {
+    ...buildRoleGameCharacterActionConfirmKeyboard(language),
+    parseMode: 'HTML',
+  });
   return true;
 }
 
