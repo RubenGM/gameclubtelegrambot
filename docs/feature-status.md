@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-07-13.
+Última revisión: 2026-07-14.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -27,7 +27,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Grupos de noticias                           | 🟢 Operativo        | `/news` por categoría para grupo completo o topic, incluido `public-events`; `/admin/news` resume feeds activos.                      |
 | Avisos                                       | 🟢 Operativo        | Socios y admins crean, ven, editan y archivan avisos con formato/adjuntos en destinos `/news avisos`.                                 |
 | Compras conjuntas                            | 🟢 Operativo        | Crear/listar/unirse/confirmar, descripciones, `/news group-purchases`, participantes y recordatorios.                                 |
-| Rol / partidas de rol                        | 🟢 Operativo        | Campañas/one-shots, dashboard por teclado persistente y gestión de participantes, sesiones, recurrencias y packs de handouts.         |
+| Rol / partidas de rol                        | 🟢 Operativo        | Campañas/one-shots, personajes, participantes, sesiones, recurrencias, solicitudes y handouts privados con Storage interno.           |
 | Storage / Archivos                           | 🟢 Operativo        | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación web.                     |
 | Impresión                                    | 🟢 Operativo        | Botón privado, estados admin, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial.                          |
 | Backups, operación y panel web               | 🟢 Operativo        | CLI/TUI de backup/restore, gestión Debian, dashboard web, Storage web, bienvenidas, temas y páginas públicas.                         |
@@ -119,6 +119,14 @@ Implementado:
 - Home con `Mis partidas`, `Partidas visibles`, `Crear partida` y `Cancelar` con rol danger.
 - Listas read-only de partidas propias y visibles desde `RoleGameRepository`, con paginacion estilo Telegram y deep links `role_game_<id>` al detalle.
 - El detalle de partida funciona como portada con teclado persistente, resume ocupación, solicitudes pendientes y la sesión futura enlazada más próxima (o su ausencia), y ofrece los submenús de Participantes, Sesiones, Materiales, Invitar y Configurar sin depender de acciones inline bajo el mensaje.
+- `Personajes` aparece en esa portada para cualquier miembro confirmado —incluidos GM principal y coorganizadores— y para admins globales. Visitantes, solicitudes pendientes y miembros históricos no ven ni pueden abrir la sección.
+- Cada miembro confirmado puede mantener varios personajes propios con nombre, descripción opcional, URL `http/https` opcional y privacidad `players` o `private`. Un personaje público es visible para todos los miembros confirmados; uno privado sólo para su propietario y los GM operativos.
+- Los jugadores crean personajes asignados exclusivamente a sí mismos. GM principal, coorganizadores confirmados y admins pueden crearlos para cualquier miembro confirmado o dejarlos libres, y asignarlos, transferirlos o desasignarlos mediante confirmación sin modificar el rol ni el estado del participante.
+- Los personajes públicos libres admiten solicitudes. El jugador puede cancelar la suya y los GM las revisan con aprobación o rechazo; la aprobación asigna de forma atómica y cancela las solicitudes rivales. Los cambios de asignación y resolución se notifican por privado en modo best-effort.
+- Abandonar un personaje lo deja libre sin borrarlo. Cuando un miembro confirmado pasa a `left` o `removed`, todos sus personajes se desasignan dentro de la misma transacción; una promoción o degradación entre roles confirmados conserva sus personajes.
+- Las listas de personajes, miembros elegibles, solicitudes y adjuntos usan teclados de respuesta persistentes, mapas de botones ligados a la sesión, páginas de seis elementos y nombres duplicados desambiguados. `role_character_<id>` abre sólo el detalle autorizado y responde sin revelar la existencia o el nombre cuando no hay acceso.
+- Cada personaje admite adjuntos independientes de documento, foto, vídeo o audio. Propietario y GM pueden añadir, reemplazar, retirar y cambiar su privacidad; la audiencia se vuelve a comprobar al abrirlos y los adjuntos privados sólo llegan al propietario actual y a los GM.
+- Cada adjunto de personaje usa una entrada de la categoría interna `role_game_handouts`; el flujo de Rol crea la categoría/topic si falta, intercambia enlaces con compare-and-set al reemplazar y hace limpieza lógica best-effort. Estas entradas siguen ocultas y bloqueadas en navegación, búsqueda, detalle directo, edición, borrado, tags e impresión genéricos de Storage.
 - `Crear partida` inicia un flujo guiado cancelable para crear la partida base con tipo, titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion y modo de programacion.
 - `Editar partida` inicia un flujo guiado cancelable para cambiar titulo, sistema, descripcion, plazas, visibilidad, modo de entrada, aceptacion, programacion manual por jugadores, publicacion Agenda por defecto y estado.
 - `Invitar jugadores` genera un enlace `role_game_<id>` compartible con resumen de plazas confirmadas sin aprobar automaticamente membresias.
@@ -489,7 +497,7 @@ Pendiente:
 | Catalogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Prestamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
 | Compras conjuntas | `src/telegram/group-purchase-flow.test.ts`, `src/group-purchases/*.test.ts` |
-| Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/telegram/role-game-participants.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
+| Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-character-catalog.test.ts`, `src/role-games/role-game-character-store.test.ts`, `src/role-games/role-game-character-store.integration.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/telegram/role-game-participants.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/telegram/role-game-character-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Avisos | `src/telegram/notice-flow.test.ts`, `src/notices/*.test.ts`, `src/news/news-group-store.test.ts` |
 | Storage | `src/telegram/storage-flow.test.ts`, `src/storage/*.test.ts` |
 | Noticias | `src/telegram/news-group-flow.test.ts`, `src/news/news-group-store.test.ts`, `src/telegram/runtime-boundary.test.ts` |
