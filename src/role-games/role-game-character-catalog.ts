@@ -494,6 +494,109 @@ export async function rejectRoleGameCharacterClaim(
   return resolveRoleGameCharacterClaim({ ...input, status: 'rejected' });
 }
 
+export async function addRoleGameCharacterAttachment({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  characterId,
+  internalStorageEntryId,
+  visibility,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  characterId: number;
+  internalStorageEntryId: number;
+  visibility: RoleGameCharacterAttachmentVisibility;
+}): Promise<RoleGameCharacterAttachmentRecord> {
+  const character = await requireEditableCharacter({
+    roleGameRepository,
+    characterRepository,
+    actor,
+    characterId,
+    action: 'add an attachment to',
+  });
+  return characterRepository.createAttachment({
+    characterId: character.id,
+    internalStorageEntryId: normalizeEntityId(internalStorageEntryId, 'storage entry'),
+    visibility: normalizeAttachmentVisibility(visibility),
+    uploadedByTelegramUserId: actor.telegramUserId,
+  });
+}
+
+export async function updateRoleGameCharacterAttachmentVisibility({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  attachmentId,
+  visibility,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  attachmentId: number;
+  visibility: RoleGameCharacterAttachmentVisibility;
+}): Promise<RoleGameCharacterAttachmentRecord> {
+  const { attachment } = await requireEditableAttachment({
+    roleGameRepository,
+    characterRepository,
+    actor,
+    attachmentId,
+    action: 'change visibility for',
+  });
+  return characterRepository.updateAttachmentVisibility({
+    attachmentId: attachment.id,
+    expectedVisibility: attachment.visibility,
+    visibility: normalizeAttachmentVisibility(visibility),
+    actorTelegramUserId: actor.telegramUserId,
+  });
+}
+
+export async function replaceRoleGameCharacterAttachmentStorageEntry({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  attachmentId,
+  internalStorageEntryId,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  attachmentId: number;
+  internalStorageEntryId: number;
+}): Promise<RoleGameCharacterAttachmentRecord> {
+  const { attachment } = await requireEditableAttachment({
+    roleGameRepository,
+    characterRepository,
+    actor,
+    attachmentId,
+    action: 'replace',
+  });
+  return characterRepository.replaceAttachmentStorageEntry({
+    attachmentId: attachment.id,
+    expectedInternalStorageEntryId: attachment.internalStorageEntryId,
+    internalStorageEntryId: normalizeEntityId(internalStorageEntryId, 'storage entry'),
+    actorTelegramUserId: actor.telegramUserId,
+  });
+}
+
+export async function removeRoleGameCharacterAttachment({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  attachmentId,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  attachmentId: number;
+}): Promise<RoleGameCharacterAttachmentRecord> {
+  const { attachment } = await requireEditableAttachment({
+    roleGameRepository,
+    characterRepository,
+    actor,
+    attachmentId,
+    action: 'remove',
+  });
+  return characterRepository.removeAttachment({
+    attachmentId: attachment.id,
+    expectedRemovedAt: null,
+    actorTelegramUserId: actor.telegramUserId,
+  });
+}
+
 function isConfirmedActorMembership(
   actor: RoleGameActor,
   game: RoleGameRecord,
@@ -533,6 +636,63 @@ async function requireClaim(
     throw new Error(`Role game character claim ${normalizedRequestId} not found`);
   }
   return request;
+}
+
+async function requireAttachment(
+  repository: RoleGameCharacterRepository,
+  attachmentId: number,
+): Promise<RoleGameCharacterAttachmentRecord> {
+  const normalizedAttachmentId = normalizeEntityId(attachmentId, 'role game character attachment');
+  const attachment = await repository.findAttachmentById(normalizedAttachmentId);
+  if (!attachment || attachment.removedAt !== null) {
+    throw new Error(`Role game character attachment ${normalizedAttachmentId} not found`);
+  }
+  return attachment;
+}
+
+async function requireEditableCharacter({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  characterId,
+  action,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  characterId: number;
+  action: string;
+}): Promise<RoleGameCharacterRecord> {
+  const character = await requireCharacter(characterRepository, characterId);
+  const game = await requireGame(roleGameRepository, character.roleGameId);
+  const actorMembership = await roleGameRepository.findMemberByTelegramUserId(game.id, actor.telegramUserId);
+  if (!canEditRoleGameCharacter(actor, game, actorMembership, character)) {
+    throw new Error(`Actor does not have permission to ${action} this character`);
+  }
+  return character;
+}
+
+async function requireEditableAttachment({
+  roleGameRepository,
+  characterRepository,
+  actor,
+  attachmentId,
+  action,
+}: RoleGameCharacterDomainRepositories & {
+  actor: RoleGameActor;
+  attachmentId: number;
+  action: string;
+}): Promise<{
+  character: RoleGameCharacterRecord;
+  attachment: RoleGameCharacterAttachmentRecord;
+}> {
+  const attachment = await requireAttachment(characterRepository, attachmentId);
+  const character = await requireEditableCharacter({
+    roleGameRepository,
+    characterRepository,
+    actor,
+    characterId: attachment.characterId,
+    action,
+  });
+  return { character, attachment };
 }
 
 async function requireManagerForCharacter({
@@ -593,6 +753,15 @@ async function resolveRoleGameCharacterClaim({
 function normalizeEntityId(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${label} id must be a positive integer`);
+  }
+  return value;
+}
+
+function normalizeAttachmentVisibility(
+  value: RoleGameCharacterAttachmentVisibility,
+): RoleGameCharacterAttachmentVisibility {
+  if (value !== 'players' && value !== 'private') {
+    throw new Error('Character attachment visibility must be players or private');
   }
   return value;
 }

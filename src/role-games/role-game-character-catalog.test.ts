@@ -7,12 +7,16 @@ import {
   canViewRoleGameCharacter,
   canViewRoleGameCharacterAttachment,
   abandonRoleGameCharacter,
+  addRoleGameCharacterAttachment,
   approveRoleGameCharacterClaim,
   assignRoleGameCharacter,
   cancelRoleGameCharacterRequest,
   createRoleGameCharacter,
   normalizeRoleGameCharacterDraft,
   requestRoleGameCharacter,
+  removeRoleGameCharacterAttachment,
+  replaceRoleGameCharacterAttachmentStorageEntry,
+  updateRoleGameCharacterAttachmentVisibility,
   updateRoleGameCharacter,
   transferRoleGameCharacter,
   type RoleGameCharacterAttachmentRecord,
@@ -402,6 +406,86 @@ test('claim approval and cancellation revalidate manager and requester membershi
   });
   assert.equal(cancelled.status, 'cancelled');
   assert.deepEqual(resolved, ['approved', 'cancelled']);
+});
+
+test('character owner can add, privatize, replace, and remove an attachment', async () => {
+  const game = sampleGame();
+  const owner = sampleMember();
+  const character = sampleCharacter({ assignedMemberId: owner.id });
+  let attachment = sampleAttachment();
+  const characterRepository = characterRepositoryStub({
+    async findCharacterById() { return character; },
+    async findAttachmentById() { return attachment; },
+    async createAttachment(input) {
+      attachment = sampleAttachment({
+        characterId: input.characterId,
+        internalStorageEntryId: input.internalStorageEntryId,
+        visibility: input.visibility,
+      });
+      return attachment;
+    },
+    async updateAttachmentVisibility(input) {
+      attachment = { ...attachment, visibility: input.visibility };
+      return attachment;
+    },
+    async replaceAttachmentStorageEntry(input) {
+      attachment = { ...attachment, internalStorageEntryId: input.internalStorageEntryId };
+      return attachment;
+    },
+    async removeAttachment(input) {
+      attachment = { ...attachment, removedAt: '2026-07-14T11:00:00.000Z' };
+      assert.equal(input.expectedRemovedAt, null);
+      return attachment;
+    },
+  });
+  const repositories = {
+    roleGameRepository: roleGameRepositoryStub({ game, members: [owner] }),
+    characterRepository,
+  };
+  const actor = sampleActor();
+
+  await addRoleGameCharacterAttachment({
+    ...repositories,
+    actor,
+    characterId: character.id,
+    internalStorageEntryId: 30,
+    visibility: 'players',
+  });
+  await updateRoleGameCharacterAttachmentVisibility({
+    ...repositories,
+    actor,
+    attachmentId: attachment.id,
+    visibility: 'private',
+  });
+  await replaceRoleGameCharacterAttachmentStorageEntry({
+    ...repositories,
+    actor,
+    attachmentId: attachment.id,
+    internalStorageEntryId: 31,
+  });
+  const removed = await removeRoleGameCharacterAttachment({
+    ...repositories,
+    actor,
+    attachmentId: attachment.id,
+  });
+  assert.equal(removed.internalStorageEntryId, 31);
+  assert.notEqual(removed.removedAt, null);
+});
+
+test('another confirmed member cannot mutate someone else character attachment', async () => {
+  const game = sampleGame();
+  const actorMembership = sampleMember();
+  const character = sampleCharacter({ assignedMemberId: 8 });
+  await assert.rejects(() => addRoleGameCharacterAttachment({
+    roleGameRepository: roleGameRepositoryStub({ game, members: [actorMembership] }),
+    characterRepository: characterRepositoryStub({
+      async findCharacterById() { return character; },
+    }),
+    actor: sampleActor(),
+    characterId: character.id,
+    internalStorageEntryId: 30,
+    visibility: 'players',
+  }), /permission/i);
 });
 
 function sampleActor(overrides: Partial<RoleGameActor> = {}): RoleGameActor {
