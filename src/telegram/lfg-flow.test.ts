@@ -311,7 +311,9 @@ test('handleTelegramLfgText returns from the LFG submenu to the main menu', asyn
   assert.deepEqual(replies[0]?.options?.replyKeyboard, [
     [{ text: 'Activitats', semanticRole: 'primary' }, { text: 'Taules', semanticRole: 'primary' }],
     [{ text: 'Catàleg', semanticRole: 'primary' }, { text: 'Emmagatzematge', semanticRole: 'primary' }],
-    [{ text: 'Compres conjuntes', semanticRole: 'primary' }, { text: 'LFG', semanticRole: 'primary' }],
+    [{ text: 'Compres conjuntes', semanticRole: 'primary' }, { text: 'LFG (buscar grup)', semanticRole: 'primary' }],
+    [{ text: 'Rol', semanticRole: 'primary' }, { text: 'Avisos', semanticRole: 'primary' }],
+    [{ text: 'Canviar nom', semanticRole: 'secondary' }],
     [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
   ]);
 });

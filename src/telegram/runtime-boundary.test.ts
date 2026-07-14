@@ -2177,7 +2177,7 @@ test('private approved members can open role games from the root action menu', a
 
   assert.equal(telegram.status.bot, 'connected');
   assert.equal(replies.length, 1);
-  assert.match(replies[0]?.message ?? '', /Rol/);
+  assert.equal(replies[0]?.message, 'Encara no tens partides de rol actives.');
   assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard)?.at(0), ['Les meves partides', 'Partides visibles']);
 
   await telegram.stop();
