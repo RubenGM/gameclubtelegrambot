@@ -155,6 +155,21 @@ test('participant presentation falls back to the supplied localized identity and
   assert.match(message, /Jugadores confirmados/);
 });
 
+test('participant presentation uses supplied detail links for list rows', () => {
+  const item = participant({ memberId: 7, telegramUserId: 52, status: 'confirmed', displayName: 'Ana', username: 'ana_rpg' });
+  const page = buildRoleGameParticipantPage({ items: [item], kind: 'active', requestedPage: 1, pageSize: 6 });
+  const message = formatRoleGameParticipantList({
+    page,
+    title: 'Partida de prueba',
+    kind: 'active',
+    participantLinks: new Map([[7, 'https://t.me/test_bot?start=role_game_participant_1_7_active_1']]),
+    language: 'es',
+  });
+
+  assert.match(message, /<a href="https:\/\/t\.me\/test_bot\?start=role_game_participant_1_7_active_1">Ana \(@ana_rpg\)<\/a>/);
+  assert.doesNotMatch(message, /href="https:\/\/t\.me\/ana_rpg"/);
+});
+
 test('participant actions hide self-promotion even from a global admin', () => {
   const game = sampleRoleGame();
   const member = participant({

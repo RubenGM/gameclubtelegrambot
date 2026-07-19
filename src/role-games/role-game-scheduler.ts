@@ -16,6 +16,12 @@ export interface RoleGameScheduleSessionResult {
   link: RoleGameSessionRecord;
 }
 
+export interface RoleGameRecurringSessionPlan {
+  startsAtToCreate: string[];
+  activeFutureSessions: number;
+  skipped: number;
+}
+
 export async function createRoleGameScheduleSession({
   roleGameRepository,
   scheduleRepository,
@@ -98,11 +104,15 @@ export function computeUpcomingRoleGameOccurrences({
   }
   const [hour, minute] = parseRecurrenceTime(rule.time);
   const occurrences: string[] = [];
-  const cursor = new Date(now);
-  cursor.setHours(hour, minute, 0, 0);
-  const daysUntilWeekday = (rule.weekday - cursor.getDay() + 7) % 7;
-  cursor.setDate(cursor.getDate() + daysUntilWeekday);
-  if (cursor.getTime() <= now.getTime()) {
+  const cursor = rule.startsOn
+    ? buildRecurrenceStartDate(rule.startsOn, hour, minute)
+    : new Date(now);
+  if (!rule.startsOn) {
+    cursor.setHours(hour, minute, 0, 0);
+    const daysUntilWeekday = (rule.weekday - cursor.getDay() + 7) % 7;
+    cursor.setDate(cursor.getDate() + daysUntilWeekday);
+  }
+  while (cursor.getTime() <= now.getTime()) {
     cursor.setDate(cursor.getDate() + 7 * rule.intervalWeeks);
   }
 
@@ -111,6 +121,21 @@ export function computeUpcomingRoleGameOccurrences({
     cursor.setDate(cursor.getDate() + 7 * rule.intervalWeeks);
   }
   return occurrences;
+}
+
+function buildRecurrenceStartDate(startsOn: string, hour: number, minute: number): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startsOn);
+  if (!match) {
+    throw new Error(`Invalid recurrence start date: ${startsOn}`);
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    throw new Error(`Invalid recurrence start date: ${startsOn}`);
+  }
+  return date;
 }
 
 export async function ensureRecurringRoleGameSessions({
@@ -126,16 +151,48 @@ export async function ensureRecurringRoleGameSessions({
   actorTelegramUserId: number;
   now?: Date;
 }): Promise<{ created: number; skipped: number }> {
+  const plan = await planRecurringRoleGameSessions({
+    roleGameRepository,
+    scheduleRepository,
+    game,
+    now,
+  });
+  let created = 0;
+  for (const startsAt of plan.startsAtToCreate) {
+    await createRoleGameScheduleSession({
+      roleGameRepository,
+      scheduleRepository,
+      game,
+      startsAt,
+      actorTelegramUserId,
+      source: 'recurring',
+    });
+    created += 1;
+  }
+
+  return { created, skipped: plan.skipped };
+}
+
+export async function planRecurringRoleGameSessions({
+  roleGameRepository,
+  scheduleRepository,
+  game,
+  now = new Date(),
+}: {
+  roleGameRepository: RoleGameRepository;
+  scheduleRepository: ScheduleRepository;
+  game: RoleGameRecord;
+  now?: Date;
+}): Promise<RoleGameRecurringSessionPlan> {
   if (game.schedulingMode !== 'recurring' || !game.recurrenceRule || game.recurrenceWindowCount <= 0 || game.status !== 'active') {
-    return { created: 0, skipped: 0 };
+    return { startsAtToCreate: [], activeFutureSessions: 0, skipped: 0 };
   }
 
   const linkedSessions = await roleGameRepository.listSessionLinks(game.id);
   const linkedByOccurrence = await buildLinkedSessionOccurrences({ linkedSessions, scheduleRepository });
-
-  let created = 0;
-  let skipped = 0;
+  const startsAtToCreate: string[] = [];
   let activeFutureSessions = 0;
+  let skipped = 0;
   let occurrenceIndex = 0;
 
   while (activeFutureSessions < game.recurrenceWindowCount) {
@@ -157,22 +214,13 @@ export async function ensureRecurringRoleGameSessions({
         activeFutureSessions += 1;
       }
     } else {
-      const session = await createRoleGameScheduleSession({
-        roleGameRepository,
-        scheduleRepository,
-        game,
-        startsAt: occurrence,
-        actorTelegramUserId,
-        source: 'recurring',
-      });
-      linkedByOccurrence.set(occurrence, session.link);
+      startsAtToCreate.push(occurrence);
       activeFutureSessions += 1;
-      created += 1;
     }
     occurrenceIndex += 1;
   }
 
-  return { created, skipped };
+  return { startsAtToCreate, activeFutureSessions, skipped };
 }
 
 async function buildLinkedSessionOccurrences({

@@ -30,6 +30,7 @@ export interface RoleGameRecurrenceRule {
   intervalWeeks: number;
   weekday: 0 | 1 | 2 | 3 | 4 | 5 | 6;
   time: string;
+  startsOn?: string;
 }
 
 export interface RoleGameRecord {
@@ -315,6 +316,82 @@ export async function requestRoleGameSeat({
     telegramUserId: normalizedTelegramUserId,
     actorTelegramUserId: normalizedActor.telegramUserId,
     isExternal: normalizedActor.isApproved !== true,
+  });
+}
+
+export async function inviteRoleGamePlayer({
+  repository,
+  gameId,
+  telegramUserId,
+  actor,
+}: {
+  repository: RoleGameRepository;
+  gameId: number;
+  telegramUserId: number;
+  actor: RoleGameActor;
+}): Promise<RoleGameMemberRecord> {
+  const normalizedGameId = normalizeEntityId(gameId, 'role game');
+  const normalizedTelegramUserId = normalizeTelegramUserId(telegramUserId, 'invited player');
+  const normalizedActor: RoleGameActor = {
+    ...actor,
+    telegramUserId: normalizeTelegramUserId(actor.telegramUserId, 'actor'),
+  };
+  const game = await repository.findGameById(normalizedGameId);
+  if (!game || game.status !== 'active') {
+    throw new Error(`Role game ${normalizedGameId} is not active`);
+  }
+  const actorMembership = await repository.findMemberByTelegramUserId(normalizedGameId, normalizedActor.telegramUserId);
+  if (!canManageRoleGameOperationally(normalizedActor, game, actorMembership)) {
+    throw new Error(`Actor ${normalizedActor.telegramUserId} cannot invite players to role game ${normalizedGameId}`);
+  }
+  if (normalizedTelegramUserId === game.primaryGmTelegramUserId) {
+    throw new Error(`Telegram user ${normalizedTelegramUserId} is the primary GM`);
+  }
+  const existing = await repository.findMemberByTelegramUserId(normalizedGameId, normalizedTelegramUserId);
+  if (existing && isActiveMemberStatus(existing.status)) {
+    throw new Error(`Telegram user ${normalizedTelegramUserId} already has an active membership in role game ${normalizedGameId}`);
+  }
+  return repository.createOrUpdateMember({
+    roleGameId: normalizedGameId,
+    telegramUserId: normalizedTelegramUserId,
+    role: 'player',
+    status: 'invited',
+    isExternal: false,
+    playerNote: null,
+    requestedByTelegramUserId: normalizedActor.telegramUserId,
+  });
+}
+
+export async function respondToRoleGameInvitation({
+  repository,
+  memberId,
+  telegramUserId,
+  response,
+}: {
+  repository: RoleGameRepository;
+  memberId: number;
+  telegramUserId: number;
+  response: 'accept' | 'decline';
+}): Promise<RoleGameMemberRecord> {
+  const normalizedMemberId = normalizeEntityId(memberId, 'role game member');
+  const normalizedTelegramUserId = normalizeTelegramUserId(telegramUserId, 'invited player');
+  const member = await repository.findMemberById(normalizedMemberId);
+  if (!member || member.telegramUserId !== normalizedTelegramUserId || member.role !== 'player' || member.status !== 'invited') {
+    throw new Error(`Role game invitation ${normalizedMemberId} is not available for Telegram user ${normalizedTelegramUserId}`);
+  }
+  if (response === 'accept') {
+    return repository.confirmMemberSeat({
+      memberId: normalizedMemberId,
+      actorTelegramUserId: normalizedTelegramUserId,
+      expectedStatuses: ['invited'],
+    });
+  }
+  return repository.setMemberStatus({
+    memberId: normalizedMemberId,
+    status: 'rejected',
+    expectedStatus: 'invited',
+    expectedRole: 'player',
+    actorTelegramUserId: normalizedTelegramUserId,
   });
 }
 
@@ -717,10 +794,16 @@ function normalizeCreateRoleGameInput(input: CreateRoleGameInput): CreateRoleGam
 }
 
 function normalizeRecurrenceRule(rule: RoleGameRecurrenceRule): RoleGameRecurrenceRule {
+  const weekday = normalizeWeekday(rule.weekday);
+  const startsOn = rule.startsOn === undefined ? undefined : normalizeDate(rule.startsOn);
+  if (startsOn !== undefined && weekdayForDate(startsOn) !== weekday) {
+    throw new Error('Role game recurrence start date must match its weekday');
+  }
   return {
     intervalWeeks: normalizePositiveInteger(rule.intervalWeeks, 'recurrence interval weeks', 1, 52),
-    weekday: normalizeWeekday(rule.weekday),
+    weekday,
     time: normalizeTime(rule.time),
+    ...(startsOn !== undefined ? { startsOn } : {}),
   };
 }
 
@@ -783,6 +866,26 @@ function normalizeTime(value: string): string {
     throw new Error('Role game recurrence time must be a valid 24-hour time');
   }
   return value;
+}
+
+function normalizeDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    throw new Error('Role game recurrence start date must use YYYY-MM-DD format');
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    throw new Error('Role game recurrence start date must be valid');
+  }
+  return value;
+}
+
+function weekdayForDate(value: string): number {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year!, month! - 1, day).getDay();
 }
 
 function isActiveMemberStatus(status: RoleGameMemberStatus): boolean {

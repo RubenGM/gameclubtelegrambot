@@ -18,6 +18,7 @@ import {
   computeUpcomingRoleGameOccurrences,
   createManualRoleGameSession,
   ensureRecurringRoleGameSessions,
+  planRecurringRoleGameSessions,
 } from './role-game-scheduler.js';
 
 test('createManualRoleGameSession creates an Agenda event with game defaults', async () => {
@@ -121,6 +122,33 @@ test('computeUpcomingRoleGameOccurrences skips alternating weeks for biweekly We
   ]);
 });
 
+test('computeUpcomingRoleGameOccurrences anchors the cadence on the explicitly selected next date', () => {
+  const occurrences = computeUpcomingRoleGameOccurrences({
+    rule: { intervalWeeks: 2, weekday: 6, startsOn: '2026-07-25', time: '18:30' },
+    now: new Date(2026, 6, 18, 10, 0),
+    count: 3,
+  });
+
+  assert.deepEqual(occurrences, [
+    new Date(2026, 6, 25, 18, 30).toISOString(),
+    new Date(2026, 7, 8, 18, 30).toISOString(),
+    new Date(2026, 7, 22, 18, 30).toISOString(),
+  ]);
+});
+
+test('computeUpcomingRoleGameOccurrences advances from a selected date that is already past without changing cadence', () => {
+  const occurrences = computeUpcomingRoleGameOccurrences({
+    rule: { intervalWeeks: 2, weekday: 6, startsOn: '2026-07-18', time: '09:00' },
+    now: new Date(2026, 6, 18, 10, 0),
+    count: 2,
+  });
+
+  assert.deepEqual(occurrences, [
+    new Date(2026, 7, 1, 9, 0).toISOString(),
+    new Date(2026, 7, 15, 9, 0).toISOString(),
+  ]);
+});
+
 test('ensureRecurringRoleGameSessions maintains the configured future window count', async () => {
   const roleGameRepository = createMemoryRoleGameRepository();
   const scheduleRepository = createMemoryScheduleRepository();
@@ -150,6 +178,39 @@ test('ensureRecurringRoleGameSessions maintains the configured future window cou
     new Date(2026, 6, 16, 18, 0).toISOString(),
     new Date(2026, 6, 23, 18, 0).toISOString(),
   ]);
+});
+
+test('planRecurringRoleGameSessions reports the exact missing occurrences without writing Agenda events', async () => {
+  const existingOccurrence = new Date(2026, 6, 9, 18, 0).toISOString();
+  const roleGameRepository = createMemoryRoleGameRepository({
+    sessionLinks: [sampleSessionLink({ scheduleEventId: 1, generatedForStartsAt: existingOccurrence })],
+  });
+  const scheduleRepository = createMemoryScheduleRepository({
+    events: [sampleScheduleEvent({ id: 1, startsAt: existingOccurrence })],
+  });
+  const game = sampleGame({
+    schedulingMode: 'recurring',
+    recurrenceRule: { intervalWeeks: 1, weekday: 4, time: '18:00' },
+    recurrenceWindowCount: 3,
+  });
+
+  const plan = await planRecurringRoleGameSessions({
+    roleGameRepository,
+    scheduleRepository,
+    game,
+    now: new Date(2026, 6, 9, 17, 0),
+  });
+
+  assert.deepEqual(plan, {
+    startsAtToCreate: [
+      new Date(2026, 6, 16, 18, 0).toISOString(),
+      new Date(2026, 6, 23, 18, 0).toISOString(),
+    ],
+    activeFutureSessions: 3,
+    skipped: 0,
+  });
+  assert.equal((await scheduleRepository.listEvents({ includeCancelled: true })).length, 1);
+  assert.equal((await roleGameRepository.listSessionLinks(game.id)).length, 1);
 });
 
 test('ensureRecurringRoleGameSessions counts matching future manual sessions instead of duplicating them', async () => {

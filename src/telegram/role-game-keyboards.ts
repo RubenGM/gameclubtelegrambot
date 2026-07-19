@@ -16,6 +16,8 @@ export const roleGameCallbackPrefixes = {
   materials: 'role_game:materials:',
   edit: 'role_game:edit:',
   invite: 'role_game:invite:',
+  inviteAccept: 'role_game:invite_accept:',
+  inviteDecline: 'role_game:invite_decline:',
   material: 'role_game:material:',
 } as const;
 
@@ -152,13 +154,11 @@ export function buildRoleGameSessionsKeyboard({
 }
 
 export function buildRoleGameParticipantsKeyboard({
-  memberButtons,
   kind,
   hasPreviousPage = false,
   hasNextPage = false,
   language = 'ca',
 }: {
-  memberButtons: Record<string, number>;
   kind: 'active' | 'history';
   hasPreviousPage?: boolean;
   hasNextPage?: boolean;
@@ -173,7 +173,6 @@ export function buildRoleGameParticipantsKeyboard({
     navigation.push(navigationButton(texts.nextPage));
   }
   return buildRoleGameReplyKeyboard(language, [
-    ...Object.keys(memberButtons).map((label) => [primaryButton(label)]),
     ...(navigation.length > 0 ? [navigation] : []),
     [navigationButton(kind === 'active' ? texts.participantsHistory : texts.currentParticipants)],
     [navigationButton(texts.backToGame)],
@@ -201,6 +200,53 @@ export function buildRoleGameParticipantActionConfirmationKeyboard(language: Bot
     [dangerButton(texts.participantActionCancel)],
     [navigationButton(texts.backToGame)],
   ]);
+}
+
+export function buildRoleGameInviteSelectionKeyboard({
+  hasPreviousPage = false,
+  hasNextPage = false,
+  canGoToPage = false,
+  language = 'ca',
+}: {
+  hasPreviousPage?: boolean;
+  hasNextPage?: boolean;
+  canGoToPage?: boolean;
+  language?: BotLanguage;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  const navigation: TelegramReplyButton[] = [];
+  if (hasPreviousPage) navigation.push(navigationButton(texts.previousPage));
+  if (canGoToPage) navigation.push(navigationButton(texts.inviteGoToPage));
+  if (hasNextPage) navigation.push(navigationButton(texts.nextPage));
+  return buildRoleGameReplyKeyboard(language, [
+    ...(navigation.length > 0 ? [navigation] : []),
+    [navigationButton(texts.backToGame)],
+    [dangerButton(texts.cancel)],
+  ]);
+}
+
+export function buildRoleGameInvitationResponseKeyboard({
+  memberId,
+  language = 'ca',
+}: {
+  memberId: number;
+  language?: BotLanguage;
+}): Pick<TelegramReplyOptions, 'inlineKeyboard'> {
+  const texts = createTelegramI18n(language).roleGames;
+  return {
+    inlineKeyboard: [[
+      {
+        text: texts.acceptInvitation,
+        callbackData: `${roleGameCallbackPrefixes.inviteAccept}${memberId}`,
+        semanticRole: 'success',
+      },
+      {
+        text: texts.declineInvitation,
+        callbackData: `${roleGameCallbackPrefixes.inviteDecline}${memberId}`,
+        semanticRole: 'danger',
+      },
+    ]],
+  };
 }
 
 export function buildRoleGameMaterialsKeyboard({

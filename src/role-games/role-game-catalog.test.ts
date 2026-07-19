@@ -11,8 +11,10 @@ import {
   canRequestRoleGameSeat,
   canViewRoleGame,
   createRoleGame,
+  inviteRoleGamePlayer,
   manageRoleGameMember,
   requestRoleGameSeat,
+  respondToRoleGameInvitation,
   resolveRoleGameSeatRequest,
   setRoleGameMemberStatus,
   type CreateRoleGameInput,
@@ -55,6 +57,26 @@ test('createRoleGame normalizes a member-visible campaign with primary GM', asyn
   assert.equal(game.description, 'Campaña gótica de larga duración');
   assert.equal(game.primaryGmTelegramUserId, 42);
   assert.equal(game.status, 'active');
+});
+
+test('createRoleGame preserves a valid recurrence anchor and rejects a date on another weekday', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const recurringInput = sampleCreateInput({
+    schedulingMode: 'recurring',
+    recurrenceRule: { intervalWeeks: 2, weekday: 6, startsOn: '2026-07-18', time: '18:30' },
+    recurrenceWindowCount: 4,
+  });
+
+  const game = await createRoleGame({ repository, ...recurringInput });
+  assert.deepEqual(game.recurrenceRule, recurringInput.recurrenceRule);
+  await assert.rejects(
+    createRoleGame({
+      repository,
+      ...recurringInput,
+      recurrenceRule: { ...recurringInput.recurrenceRule!, startsOn: '2026-07-19' },
+    }),
+    /must match its weekday/,
+  );
 });
 
 test('canManageRoleGame allows primary GM and admin only for full management', () => {
@@ -134,6 +156,52 @@ test('requestRoleGameSeat lets a global admin request an invite-only private gam
   assert.equal(member.role, 'player');
   assert.equal(member.status, 'requested');
   assert.equal(member.isExternal, false);
+});
+
+test('inviteRoleGamePlayer creates a pending invitation and only its recipient can answer it', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const game = await repository.createGame(sampleCreateInput({ primaryGmTelegramUserId: 42 }));
+
+  const invitation = await inviteRoleGamePlayer({
+    repository,
+    gameId: game.id,
+    telegramUserId: 77,
+    actor: { telegramUserId: 42, isAdmin: false, isApproved: true },
+  });
+  assert.equal(invitation.status, 'invited');
+  assert.equal(invitation.requestedByTelegramUserId, 42);
+
+  await assert.rejects(
+    respondToRoleGameInvitation({ repository, memberId: invitation.id, telegramUserId: 88, response: 'accept' }),
+    /not available/,
+  );
+  const accepted = await respondToRoleGameInvitation({
+    repository,
+    memberId: invitation.id,
+    telegramUserId: 77,
+    response: 'accept',
+  });
+  assert.equal(accepted.status, 'confirmed');
+});
+
+test('respondToRoleGameInvitation records a recipient decline without occupying a seat', async () => {
+  const repository = createMemoryRoleGameRepository();
+  const game = await repository.createGame(sampleCreateInput({ primaryGmTelegramUserId: 42 }));
+  const invitation = await inviteRoleGamePlayer({
+    repository,
+    gameId: game.id,
+    telegramUserId: 77,
+    actor: { telegramUserId: 42, isAdmin: false, isApproved: true },
+  });
+
+  const declined = await respondToRoleGameInvitation({
+    repository,
+    memberId: invitation.id,
+    telegramUserId: 77,
+    response: 'decline',
+  });
+  assert.equal(declined.status, 'rejected');
+  assert.equal(await repository.countConfirmedPlayers(game.id), 0);
 });
 
 test('requestRoleGameSeat auto-confirms while capacity remains', async () => {

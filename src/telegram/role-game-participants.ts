@@ -114,11 +114,13 @@ export function formatRoleGameParticipantList({
   page,
   title,
   kind,
+  participantLinks,
   language = 'ca',
 }: {
   page: RoleGameParticipantPage;
   title: string;
   kind: RoleGameParticipantListKind;
+  participantLinks?: ReadonlyMap<number, string>;
   language?: BotLanguage;
 }): string {
   const texts = createTelegramI18n(language).roleGames;
@@ -128,7 +130,11 @@ export function formatRoleGameParticipantList({
   for (const group of groups) {
     const groupItems = page.items.filter(group.matches);
     if (groupItems.length > 0) {
-      lines.push('', `<b>${escapeHtml(group.heading)}</b>`, ...groupItems.map((item) => formatParticipantRow(item, texts)));
+      lines.push('', `<b>${escapeHtml(group.heading)}</b>`, ...groupItems.map((item) => formatParticipantRow(
+        item,
+        texts,
+        participantLinks?.get(item.member.id),
+      )));
     }
   }
 
@@ -212,12 +218,21 @@ function participantGroupDefinitions(
 function formatParticipantRow(
   item: RoleGameParticipantListItem,
   texts: ReturnType<typeof createTelegramI18n>['roleGames'],
+  participantLink?: string,
 ): string {
-  return `- ${formatTelegramUserLink({
-    telegramUserId: item.member.telegramUserId,
-    displayName: item.displayName,
-    username: item.username,
-  })} · ${escapeHtml(participantRoleLabel(item.member, texts))} · ${escapeHtml(participantStatusLabel(item.member.status, texts))}`;
+  const identity = participantLink
+    ? `<a href="${escapeHtml(participantLink)}">${escapeHtml(formatParticipantIdentity(item))}</a>`
+    : formatTelegramUserLink({
+      telegramUserId: item.member.telegramUserId,
+      displayName: item.displayName,
+      username: item.username,
+    });
+  return `- ${identity} · ${escapeHtml(participantRoleLabel(item.member, texts))} · ${escapeHtml(participantStatusLabel(item.member.status, texts))}`;
+}
+
+function formatParticipantIdentity(item: RoleGameParticipantListItem): string {
+  const username = item.username?.trim().replace(/^@/, '');
+  return username ? `${item.displayName} (@${username})` : item.displayName;
 }
 
 function participantRoleLabel(
