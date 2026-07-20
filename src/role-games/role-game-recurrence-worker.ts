@@ -1,6 +1,7 @@
 import type { ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { ScheduleReminderWorker } from '../schedule/schedule-reminder-worker.js';
 import type { RoleGameRepository } from './role-game-catalog.js';
+import type { RoleGameAutoSchedulingStore } from './role-game-auto-scheduling-store.js';
 import { ensureRecurringRoleGameSessions } from './role-game-scheduler.js';
 
 export function createRoleGameRecurrenceWorker({
@@ -10,6 +11,7 @@ export function createRoleGameRecurrenceWorker({
   scheduleRepository,
   actorTelegramUserId,
   logger,
+  autoSchedulingStore,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
 }: {
@@ -19,6 +21,7 @@ export function createRoleGameRecurrenceWorker({
   scheduleRepository: ScheduleRepository;
   actorTelegramUserId: number;
   logger: { error(bindings: { error: string }, message: string): void };
+  autoSchedulingStore: RoleGameAutoSchedulingStore;
   setIntervalFn?: (handler: () => void, intervalMs: number) => ReturnType<typeof setInterval>;
   clearIntervalFn?: (timer: ReturnType<typeof setInterval>) => void;
 }): ScheduleReminderWorker {
@@ -32,6 +35,9 @@ export function createRoleGameRecurrenceWorker({
 
     running = true;
     try {
+      if (!(await autoSchedulingStore.isEnabled())) {
+        return;
+      }
       const games = await roleGameRepository.listRecurringGames?.() ?? [];
       await Promise.all(games.map((game) =>
         ensureRecurringRoleGameSessions({

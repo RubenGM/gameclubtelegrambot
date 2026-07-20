@@ -88,6 +88,7 @@ import {
 } from './lfg-flow.js';
 import {
   handleTelegramRoleGameCallback,
+  handleTelegramRoleGameAutoSchedulingCommand,
   handleTelegramRoleGameMessage,
   handleTelegramRoleGameStartText,
   handleTelegramRoleGameText,
@@ -1715,6 +1716,19 @@ function createDefaultCommands({
       },
       handle: async (context) => {
         await handleTelegramRoleGameText({ ...context, messageText: '/role_games' });
+      },
+    },
+    {
+      command: 'role_auto_schedule',
+      contexts: ['private'],
+      access: 'admin',
+      descriptionByLanguage: {
+        ca: 'Activa o desactiva la programació automàtica de Rol',
+        es: 'Activa o desactiva la programación automática de Rol',
+        en: 'Enable or disable automatic role-game scheduling',
+      },
+      handle: async (context) => {
+        await handleTelegramRoleGameAutoSchedulingCommand(context);
       },
     },
     {

@@ -26,6 +26,8 @@ import { createScheduleReminderWorker, type ScheduleReminderWorker } from '../sc
 import { createAdminHttpServer, type AdminHttpServer } from '../http/admin-http-server.js';
 import { createRoleGameRecurrenceWorker } from '../role-games/role-game-recurrence-worker.js';
 import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalog-store.js';
+import { createAppMetadataRoleGameAutoSchedulingStore } from '../role-games/role-game-auto-scheduling-store.js';
+import { createDatabaseAppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
 
 export interface LoggerLike {
   info(bindings: object, message: string): void;
@@ -126,6 +128,9 @@ export function createApp({
       intervalMs: 60_000,
       roleGameRepository: createDatabaseRoleGameRepository({ database: services.database.db }),
       scheduleRepository: createDatabaseScheduleRepository({ database: services.database.db }),
+      autoSchedulingStore: createAppMetadataRoleGameAutoSchedulingStore({
+        storage: createDatabaseAppMetadataSessionStorage({ database: services.database.db }),
+      }),
       actorTelegramUserId: config.bootstrap.firstAdmin.telegramUserId,
       logger: {
         error: logger.error?.bind(logger) ?? (() => {}),
