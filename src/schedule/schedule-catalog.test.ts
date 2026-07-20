@@ -577,7 +577,7 @@ test('leaveScheduleEvent frees the seat and rejects leaving when not joined', as
   );
 });
 
-test('detectScheduleConflicts finds overlapping activities and impacted recipients without blocking creation', async () => {
+test('detectScheduleConflicts only finds overlaps at the same assigned table', async () => {
   const repository = createRepository([
     {
       id: 20,
@@ -603,7 +603,7 @@ test('detectScheduleConflicts finds overlapping activities and impacted recipien
       startsAt: '2026-04-05T17:00:00.000Z',
       organizerTelegramUserId: 77,
       createdByTelegramUserId: 77,
-      tableId: 2,
+      tableId: 1,
       durationMinutes: 120,
       capacity: 4,
       lifecycleStatus: 'scheduled',
@@ -617,10 +617,27 @@ test('detectScheduleConflicts finds overlapping activities and impacted recipien
       id: 22,
       title: 'Heat',
       description: null,
-      startsAt: '2026-04-05T20:30:00.000Z',
+      startsAt: '2026-04-05T17:30:00.000Z',
       organizerTelegramUserId: 88,
       createdByTelegramUserId: 88,
       tableId: null,
+      durationMinutes: 60,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+    {
+      id: 23,
+      title: 'Catan',
+      description: null,
+      startsAt: '2026-04-05T17:30:00.000Z',
+      organizerTelegramUserId: 99,
+      createdByTelegramUserId: 99,
+      tableId: 2,
       durationMinutes: 60,
       capacity: 4,
       lifecycleStatus: 'scheduled',
@@ -644,4 +661,13 @@ test('detectScheduleConflicts finds overlapping activities and impacted recipien
 
   assert.deepEqual(conflicts.overlappingEventIds, [20]);
   assert.deepEqual(conflicts.impactedTelegramUserIds, [42, 55, 66]);
+
+  const eventWithoutTableConflicts = await detectScheduleConflicts({
+    repository,
+    eventId: 22,
+    actorTelegramUserId: 88,
+  });
+
+  assert.deepEqual(eventWithoutTableConflicts.overlappingEventIds, []);
+  assert.deepEqual(eventWithoutTableConflicts.impactedTelegramUserIds, []);
 });

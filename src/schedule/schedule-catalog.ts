@@ -482,7 +482,7 @@ export async function detectScheduleConflicts({
   const conflicts: Array<{ eventId: number; overlappingEventId: number; impactedTelegramUserIds: number[] }> = [];
 
   for (const candidate of candidates) {
-    if (!eventsOverlap(event, candidate)) {
+    if (!eventsOverlap(event, candidate) || !eventsUseSameAssignedTable(event, candidate)) {
       continue;
     }
 
@@ -663,4 +663,11 @@ function eventsOverlap(
   const rightEnd = new Date(getScheduleEventEndsAt(right)).getTime();
 
   return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+function eventsUseSameAssignedTable(
+  left: Pick<ScheduleEventRecord, 'tableId'>,
+  right: Pick<ScheduleEventRecord, 'tableId'>,
+): boolean {
+  return left.tableId !== null && right.tableId !== null && left.tableId === right.tableId;
 }

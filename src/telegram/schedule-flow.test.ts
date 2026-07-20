@@ -2815,6 +2815,18 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
 });
 
 test('handleTelegramScheduleText sends private conflict notifications after creating an overlapping activity', async () => {
+  const tableRepository = createTableRepository([
+    {
+      id: 7,
+      displayName: 'Mesa principal',
+      description: null,
+      recommendedCapacity: 4,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
   const scheduleRepository = createScheduleRepository([
     {
       id: 30,
@@ -2823,7 +2835,7 @@ test('handleTelegramScheduleText sends private conflict notifications after crea
       startsAt: '2026-04-05T16:00:00.000Z',
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
-      tableId: null,
+      tableId: 7,
       durationMinutes: 180,
       capacity: 4,
       lifecycleStatus: 'scheduled',
@@ -2836,7 +2848,7 @@ test('handleTelegramScheduleText sends private conflict notifications after crea
   ]);
   await scheduleRepository.upsertParticipant({ eventId: 30, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active' });
   await scheduleRepository.upsertParticipant({ eventId: 30, participantTelegramUserId: 55, actorTelegramUserId: 55, status: 'active' });
-  const { context, privateMessages } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+  const { context, privateMessages } = createContext({ scheduleRepository, tableRepository, actorTelegramUserId: 77 });
 
   context.messageText = scheduleLabels.create;
   await handleTelegramScheduleText(context);
@@ -2856,7 +2868,7 @@ test('handleTelegramScheduleText sends private conflict notifications after crea
   await handleTelegramScheduleText(context);
   context.messageText = '0';
   await handleTelegramScheduleText(context);
-  context.messageText = scheduleLabels.noTable;
+  context.messageText = 'Mesa principal';
   await handleTelegramScheduleText(context);
   context.messageText = scheduleLabels.confirmCreate;
   await handleTelegramScheduleText(context);
@@ -2868,6 +2880,18 @@ test('handleTelegramScheduleText sends private conflict notifications after crea
 });
 
 test('handleTelegramScheduleText sends private conflict notifications after editing into an overlap', async () => {
+  const tableRepository = createTableRepository([
+    {
+      id: 7,
+      displayName: 'Mesa principal',
+      description: null,
+      recommendedCapacity: 4,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
   const scheduleRepository = createScheduleRepository([
     {
       id: 40,
@@ -2876,7 +2900,7 @@ test('handleTelegramScheduleText sends private conflict notifications after edit
       startsAt: '2026-04-05T16:00:00.000Z',
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
-      tableId: null,
+      tableId: 7,
       durationMinutes: 180,
       capacity: 4,
       lifecycleStatus: 'scheduled',
@@ -2893,7 +2917,7 @@ test('handleTelegramScheduleText sends private conflict notifications after edit
       startsAt: '2026-04-05T20:00:00.000Z',
       organizerTelegramUserId: 77,
       createdByTelegramUserId: 77,
-      tableId: null,
+      tableId: 7,
       durationMinutes: 120,
       capacity: 4,
       lifecycleStatus: 'scheduled',
@@ -2906,7 +2930,7 @@ test('handleTelegramScheduleText sends private conflict notifications after edit
   ]);
   await scheduleRepository.upsertParticipant({ eventId: 40, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active' });
   await scheduleRepository.upsertParticipant({ eventId: 40, participantTelegramUserId: 55, actorTelegramUserId: 55, status: 'active' });
-  const { context, privateMessages } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+  const { context, privateMessages } = createContext({ scheduleRepository, tableRepository, actorTelegramUserId: 77 });
 
   context.callbackData = `${scheduleCallbackPrefixes.selectEdit}41`;
   await handleTelegramScheduleCallback(context);

@@ -1309,10 +1309,11 @@ async function persistEditedScheduleEvent(
 ): Promise<void> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
+  const tableId = Object.prototype.hasOwnProperty.call(data, 'tableId') ? asNullableNumber(data.tableId) : event.tableId;
   try {
     await requireSchedulableTableSelection({
       repository: resolveTableRepository(context),
-      tableId: asNullableNumber(data.tableId),
+      tableId,
     });
   } catch {
     await context.runtime.session.advance({ stepKey: 'table', data });
@@ -1336,7 +1337,7 @@ async function persistEditedScheduleEvent(
     startsAt: buildStartsAt(String(data.date ?? formatLocalDateInput(event.startsAt)), String(data.time ?? formatLocalTimeInput(event.startsAt))),
     durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
     organizerTelegramUserId: event.organizerTelegramUserId,
-    tableId: asNullableNumber(data.tableId),
+    tableId,
     catalogItemId: event.catalogItemId ?? null,
     attendanceMode: event.attendanceMode,
     isPublic: Object.prototype.hasOwnProperty.call(data, 'isPublic') ? data.isPublic === true : event.isPublic,
