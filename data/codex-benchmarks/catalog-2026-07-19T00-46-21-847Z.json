@@ -1,0 +1,202 @@
+{
+  "generatedAt": "2026-07-19T00:46:21.847Z",
+  "options": {
+    "models": [
+      "gpt-5.6-luna",
+      "gpt-5.6-terra",
+      "gpt-5.6-sol",
+      "gpt-5.4-mini",
+      "gpt-5.4"
+    ],
+    "runs": 2,
+    "codexBin": "./scripts/codex-cawa.sh",
+    "reasoningEffort": "low"
+  },
+  "results": [
+    {
+      "model": "gpt-5.6-luna",
+      "runs": 2,
+      "requests": 4,
+      "successfulRequests": 4,
+      "reliableResponses": 4,
+      "meanElapsedMs": 4995,
+      "p95ElapsedMs": 6259,
+      "cost": null,
+      "costStatus": "n/d: Codex CLI no expone tokens ni coste facturable de forma fiable.",
+      "samples": [
+        {
+          "workload": "catalog_translation",
+          "elapsedMs": 6259,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_title_extraction_contract",
+          "elapsedMs": 4087,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_translation",
+          "elapsedMs": 5329,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_title_extraction_contract",
+          "elapsedMs": 4303,
+          "success": true,
+          "reliable": true
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "runs": 2,
+      "requests": 4,
+      "successfulRequests": 4,
+      "reliableResponses": 4,
+      "meanElapsedMs": 4835,
+      "p95ElapsedMs": 5839,
+      "cost": null,
+      "costStatus": "n/d: Codex CLI no expone tokens ni coste facturable de forma fiable.",
+      "samples": [
+        {
+          "workload": "catalog_translation",
+          "elapsedMs": 5839,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_title_extraction_contract",
+          "elapsedMs": 3990,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_translation",
+          "elapsedMs": 4199,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_title_extraction_contract",
+          "elapsedMs": 5312,
+          "success": true,
+          "reliable": true
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "runs": 2,
+      "requests": 4,
+      "successfulRequests": 4,
+      "reliableResponses": 2,
+      "meanElapsedMs": 5099,
+      "p95ElapsedMs": 6369,
+      "cost": null,
+      "costStatus": "n/d: Codex CLI no expone tokens ni coste facturable de forma fiable.",
+      "samples": [
+        {
+          "workload": "catalog_translation",
+          "elapsedMs": 6369,
+          "success": true,
+          "reliable": false
+        },
+        {
+          "workload": "catalog_title_extraction_contract",
+          "elapsedMs": 4604,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_translation",
+          "elapsedMs": 4709,
+          "success": true,
+          "reliable": false
+        },
+        {
+          "workload": "catalog_title_extraction_contract",
+          "elapsedMs": 4713,
+          "success": true,
+          "reliable": true
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.4-mini",
+      "runs": 2,
+      "requests": 4,
+      "successfulRequests": 4,
+      "reliableResponses": 4,
+      "meanElapsedMs": 5199,
+      "p95ElapsedMs": 8302,
+      "cost": null,
+      "costStatus": "n/d: Codex CLI no expone tokens ni coste facturable de forma fiable.",
+      "samples": [
+        {
+          "workload": "catalog_translation",
+          "elapsedMs": 3987,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_title_extraction_contract",
+          "elapsedMs": 4207,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_translation",
+          "elapsedMs": 4298,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_title_extraction_contract",
+          "elapsedMs": 8302,
+          "success": true,
+          "reliable": true
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.4",
+      "runs": 2,
+      "requests": 4,
+      "successfulRequests": 4,
+      "reliableResponses": 4,
+      "meanElapsedMs": 4398,
+      "p95ElapsedMs": 4807,
+      "cost": null,
+      "costStatus": "n/d: Codex CLI no expone tokens ni coste facturable de forma fiable.",
+      "samples": [
+        {
+          "workload": "catalog_translation",
+          "elapsedMs": 4807,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_title_extraction_contract",
+          "elapsedMs": 3985,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_translation",
+          "elapsedMs": 4506,
+          "success": true,
+          "reliable": true
+        },
+        {
+          "workload": "catalog_title_extraction_contract",
+          "elapsedMs": 4293,
+          "success": true,
+          "reliable": true
+        }
+      ]
+    }
+  ]
+}

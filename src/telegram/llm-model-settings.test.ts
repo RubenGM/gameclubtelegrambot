@@ -15,6 +15,8 @@ import {
 
 test('LLM model settings validate allowed model/reasoning combinations', () => {
   assert.equal(isAllowedLlmModelReasoning('gpt-5.3-codex-spark', 'xhigh'), true);
+  assert.equal(isAllowedLlmModelReasoning('gpt-5.6-luna', 'low'), true);
+  assert.equal(isAllowedLlmModelReasoning('gpt-5.6-sol', 'medium'), false);
   assert.equal(isAllowedLlmModelReasoning('gpt-5.4-mini', 'medium'), true);
   assert.equal(isAllowedLlmModelReasoning('gpt-5.4-mini', 'high'), false);
   assert.equal(isAllowedLlmModelReasoning('gpt-5.5', 'xhigh'), false);

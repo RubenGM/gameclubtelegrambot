@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { runCodexPromptCapture } from '../scripts/codex-prompt.js';
 
 export type CatalogDescriptionTranslatorInput = {
   description: string;
@@ -13,7 +13,7 @@ export type CatalogDescriptionTranslatorOptions = {
   deeplApiUrl?: string;
   deeplTimeoutMs?: number;
   fetchImpl?: typeof fetch;
-  opencodeBin: string;
+  codexBin: string;
 };
 
 const defaultDeepLFreeApiUrl = 'https://api-free.deepl.com/v2/translate';
@@ -25,7 +25,7 @@ export function createCatalogDescriptionTranslator({
   deeplApiUrl,
   deeplTimeoutMs = defaultDeepLTimeoutMs,
   fetchImpl = fetch,
-  opencodeBin,
+  codexBin,
 }: CatalogDescriptionTranslatorOptions): CatalogDescriptionTranslator {
   return async (input) => {
     const normalizedDeepLApiKey = deeplApiKey?.trim();
@@ -47,11 +47,11 @@ export function createCatalogDescriptionTranslator({
       }
     }
 
-    return translateDescriptionWithOpencode({
+    return translateDescriptionWithCodex({
       description: input.description,
       model: input.model,
       targetLanguage: input.targetLanguage,
-      opencodeBin,
+      codexBin,
     });
   };
 }
@@ -117,12 +117,12 @@ export async function translateDescriptionWithDeepL({
   }
 }
 
-export async function translateDescriptionWithOpencode({
+export async function translateDescriptionWithCodex({
   description,
   model,
-  opencodeBin,
+  codexBin,
 }: CatalogDescriptionTranslatorInput & {
-  opencodeBin: string;
+  codexBin: string;
 }): Promise<string> {
   const prompt = [
     'Traduce al castellano la siguiente descripción de un juego de mesa.',
@@ -132,45 +132,10 @@ export async function translateDescriptionWithOpencode({
     description,
   ].join('\n');
 
-  return runOpencodeTextPromptCapture({
+  return runCodexPromptCapture({
     prompt,
     model,
-    opencodeBin,
-  });
-}
-
-function runOpencodeTextPromptCapture({
-  prompt,
-  model,
-  opencodeBin,
-}: {
-  prompt: string;
-  model: string;
-  opencodeBin: string;
-}): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(opencodeBin, ['run', prompt, '--model', model], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stdout = '';
-    let stderr = '';
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve((stdout.trim() || stderr.trim()).trim());
-        return;
-      }
-      reject(new Error(stderr.trim() || stdout.trim() || `opencode exited with code ${code ?? 1}`));
-    });
+    codexBin,
   });
 }
 

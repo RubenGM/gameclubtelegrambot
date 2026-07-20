@@ -22,7 +22,7 @@ export const defaultLlmCommandConfig: ResolvedLlmCommandConfig = {
   privateFallbackEnabled: true,
   provider: 'codex',
   codexBin: './scripts/codex-cawa.sh',
-  model: 'gpt-5.4-mini',
+  model: 'gpt-5.6-luna',
   reasoningEffort: 'low',
   timeoutMs: 60000,
   maxHistory: 8,

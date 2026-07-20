@@ -55,7 +55,7 @@ import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-sto
 import { createDatabaseStorageRepository } from '../storage/storage-catalog-store.js';
 import type { StorageCategoryRepository } from '../storage/storage-catalog.js';
 import { createBoardGameGeekCollectionImportService, createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
-import { buildOpencodeRunArgs, runOpencodeImageQueryCapture } from '../scripts/opencode-image-query.js';
+import { buildCodexImageQueryArgs, runCodexImageQueryCapture } from '../scripts/codex-image-query.js';
 import {
   buildLoanItemButton,
   canReturnLoan,
@@ -239,9 +239,9 @@ export const catalogAdminCallbackPrefixes = {
   deleteMedia: 'catalog_admin:delete_media:',
 } as const;
 
-const catalogCoverTitleModel = process.env.GAMECLUB_COVER_TITLE_MODEL?.trim() || 'openai/gpt-5.4-mini';
-const catalogBggDescriptionTranslationModel = process.env.GAMECLUB_BGG_DESCRIPTION_TRANSLATION_MODEL?.trim() || 'openai/gpt-5.4-mini';
-const catalogOpencodeBin = process.env.GAMECLUB_OPENCODE_BIN?.trim() || 'opencode';
+const catalogCoverTitleModel = process.env.GAMECLUB_COVER_TITLE_MODEL?.trim() || 'gpt-5.4';
+const catalogBggDescriptionTranslationModel = process.env.GAMECLUB_BGG_DESCRIPTION_TRANSLATION_MODEL?.trim() || 'gpt-5.4';
+const catalogCodexBin = process.env.GAMECLUB_CATALOG_CODEX_BIN?.trim() ?? process.env.GAMECLUB_CODEX_BIN?.trim() ?? './scripts/codex-cawa.sh';
 
 export const catalogAdminLabels = {
   openMenu: 'Catàleg',
@@ -2273,19 +2273,20 @@ async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminCont
       debugFileKept: shouldKeepDebugFile,
     }));
     console.info(JSON.stringify({
-      event: 'catalog.cover-title.opencode-command',
-      command: catalogOpencodeBin,
-      args: buildOpencodeRunArgs({
+      event: 'catalog.cover-title.codex-command',
+      command: catalogCodexBin,
+      args: buildCodexImageQueryArgs({
         imagePath: effectiveImagePath,
-        question: texts.coverTitleQuestion,
         model: catalogCoverTitleModel,
+        reasoningEffort: 'low',
       }),
     }));
-    const resolver = context.coverTitleResolver ?? ((input) => runOpencodeImageQueryCapture({
+    const resolver = context.coverTitleResolver ?? ((input) => runCodexImageQueryCapture({
       imagePath: input.imagePath,
       question: input.question,
       model: input.model,
-      opencodeBin: catalogOpencodeBin,
+      codexBin: catalogCodexBin,
+      reasoningEffort: 'low',
     }));
     const detected = await resolver({
       imagePath: effectiveImagePath,
@@ -3795,7 +3796,7 @@ function resolveCatalogDescriptionTranslator(context: TelegramCatalogAdminContex
     ?? createCatalogDescriptionTranslator({
       ...optionalCatalogDeepLConfig(process.env),
       ...optionalCatalogTranslationTimeout(process.env.GAMECLUB_DEEPL_TIMEOUT_MS),
-      opencodeBin: catalogOpencodeBin,
+      codexBin: catalogCodexBin,
     });
 }
 

@@ -237,6 +237,9 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
 
   assert.equal(events[0], 'token:telegram-token');
   assert.ok(events.includes('register:/access'));
+  assert.ok(events.includes('register:/adminai'));
+  assert.ok(events.includes('register:callback:admin_ai:confirm'));
+  assert.ok(events.includes('register:callback:admin_ai:cancel'));
   assert.ok(events.includes('register:callback:approve_access:'));
   assert.ok(events.includes('runtime:database:1'));
   assert.ok(events.includes('reply:Com vols que et conegui el bot? Escriu el nom que vols mostrar.'));

@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-07-18.
+Última revisión: 2026-07-19.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -18,7 +18,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Runtime, configuración y despliegue          | 🟢 Operativo        | Base TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, reintentos Telegram, systemd/tray y backups.                           |
 | Acceso, usuarios y admins                    | 🟢 Operativo        | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname, bienvenidas, avisos privados y alta web en `/alta`.            |
 | Idioma, menús y ayuda                        | 🟢 Operativo        | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG, Rol y ayuda contextual por sección activa.                                     |
-| Asistente LLM de órdenes naturales           | 🟠 Parcial          | `/ask`, botón privado, fallback y menciones/replies en grupos bajo flag; lecturas MVP y escrituras confirmadas parciales.             |
+| Asistente LLM de órdenes naturales           | 🟠 Parcial          | `/ask` para socios y `/adminai` confirmado para abrir opciones admin; lecturas MVP y escrituras generales parciales.                  |
 | Mesas                                        | 🟢 Operativo        | Administración de mesas y consulta de tablas activas para socios.                                                                     |
 | Agenda de actividades                        | 🟢 Operativo        | Crear/listar/editar/cancelar, apuntarse/salir, actividades públicas, conflictos, recordatorios y feeds de noticias.                   |
 | Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
@@ -31,7 +31,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Storage / Archivos                           | 🟢 Operativo        | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación web.                     |
 | Impresión                                    | 🟢 Operativo        | Botón privado, estados admin, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial.                          |
 | Backups, operación y panel web               | 🟢 Operativo        | CLI/TUI de backup/restore, gestión Debian, dashboard web, Storage web, bienvenidas, temas y páginas públicas.                         |
-| Analytics / UX                               | 🟡 Técnico parcial  | Reporte/TUI operativo y wrapper OpenCode para leer imágenes; mejoras de analítica avanzada pendientes.                                |
+| Analytics / UX                               | 🟡 Técnico parcial  | Reporte/TUI operativo y herramientas Codex para leer imágenes y medir modelos; mejoras de analítica avanzada pendientes.              |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
 ```
 
@@ -52,7 +52,7 @@ Implementado:
 - Canario de salud de Telegram API: detecta fallos transitorios y mantiene estado degradado temporal para diagnóstico interno sin añadir avisos a las respuestas visibles del bot.
 - El middleware global de Telegram responde los errores inesperados con el detalle exacto saneado para operador/usuario, en vez de ocultarlos tras un mensaje generico.
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
-- Herramienta `npm run opencode:image` y wrapper `scripts/opencode-cawa.sh` para enviar prompts/imagenes a OpenCode con el usuario operador; usa `openai/gpt-5.4-mini` por defecto y esta pensada como paso previo a búsquedas BGG o traducciones asistidas, no como fuente de metadatos.
+- Herramientas `npm run codex:image` y `npm run codex:benchmark`, junto con `scripts/codex-cawa.sh`, para consultar imágenes y medir modelos Codex con el usuario operador; la lectura de portadas y el fallback LLM de traducción del catálogo usan `gpt-5.4` por defecto y no sustituyen las fuentes de metadatos BGG/Open Library/Wikipedia.
 - Panel HTTP integrado en el servicio del bot (`src/http/admin-http-server.ts`): portada pública en `/`, feedback público en `/feedback`, alta de socio en `/alta`, información del club en `/club`, actividades futuras en `/actividades`, catálogo público enriquecido en `/catalogo`, admin protegido en `/admin` y edición de marca/contenido/tema, enlaces destacados y assets de portada en `/admin/web`.
 - El despliegue público usa Nginx como reverse proxy hacia `127.0.0.1:8787` con HTTPS de Let's Encrypt para `cawa.hopto.org`.
 
@@ -77,6 +77,7 @@ Implementado:
 - La gestion de rol admin escribe auditoria en `user_permission_audit_log` y `audit_log`.
 - `/elevate_admin` eleva a admin usando hash de password runtime.
 - `/subscribe_requests` y `/unsubscribe_requests` permiten avisos privados de nuevas solicitudes.
+- `/adminai {petición}` permite a un admin expresar en lenguaje natural la opción del bot que quiere abrir. Codex devuelve un plan estructurado con un único destino de allowlist; el bot muestra siempre explicación, lista numerada de acciones y botones inline `Aceptar`/`Cancelar`. Sólo tras aceptar se vuelve a comprobar el rol y el contexto, se registra la confirmación sin guardar el prompt literal y se abre el flujo guiado o comando local existente. No admite shell, SQL, HTTP, argumentos libres ni escrituras directas de la LLM.
 - `/autojoin enabled` y `/autojoin disabled` permiten a admins activar por grupo el alta automatica: cada usuario no bot que entre en un grupo con autojoin activado se crea como pendiente si hace falta, queda aprobado como miembro y recibe una bienvenida de grupo si hay plantillas activas; con autojoin desactivado, la entrada al grupo no aprueba ni envia bienvenida. Los usuarios bloqueados no se reactivan automaticamente.
 - `/alta` registra solicitudes de alta desde la web en `member_signup_requests`, avisa por privado a admins aprobados y publica en grupos suscritos al feed `nuevos_miembros`.
 - `/admin/member-signups` permite revisar desde el panel web las solicitudes de alta recibidas, su estado, el resumen de avisos enviados y marcar cada solicitud como contactada, aprobada, rechazada o pendiente.
@@ -157,10 +158,10 @@ Implementado:
 
 - Configuración runtime `llmCommands` con variables `GAMECLUB_LLM_COMMANDS_*`, apagada por defecto mediante `GAMECLUB_LLM_COMMANDS_ENABLED=false`.
 - Documentación operativa mantenida en `docs/llm-natural-language.md`; cualquier cambio en interacción LLM/chat natural debe actualizar esa guía en el mismo cambio.
-- Servicio de invocación LLM con proveedor configurable (`codex` por defecto, `opencode` alternativo), modelo `gpt-5.4-mini` con razonamiento `low`, timeout y errores clasificados; Codex se invoca mediante `GAMECLUB_CODEX_BIN`, `codex exec --ephemeral --sandbox read-only` y schemas de salida.
+- Servicio de invocación LLM operativo exclusivamente con Codex: perfil normal `gpt-5.6-luna`/`low` y perfil reforzado `gpt-5.6-sol`/`low`, timeout y errores clasificados; Codex se invoca mediante `GAMECLUB_CODEX_BIN`, `codex exec --ephemeral --sandbox read-only` y schemas de salida.
 - Contrato JSON versionado, parser estricto, schemas JSON para Codex, allowlist de intents/actions, umbrales locales de confianza (`0.75` lectura, `0.90` escritura) y rechazo de acciones administrativas con el copy obligatorio.
 - Prompt generado desde un catálogo tipado de capacidades permitidas por rol/contexto, sin dar autoridad a la LLM para ejecutar lógica de negocio.
-- La primera pasada puede pedir `nextStep.useStrongerModel`; el bot valida localmente esa señal y sólo escala la siguiente llamada de lectura semántica para `bot.search`, `catalog.detail`, `catalog.recommend` y `storage.search`. Los admins pueden elegir desde `Admin` -> `Modelos IA` el perfil normal y el perfil de más pensamiento entre `GPT-5.3-Codex-Spark`, `GPT-5.4-Mini`, `GPT-5.4` y `GPT-5.5` con los niveles de reasoning admitidos, persistiendo la selección en `app_metadata`.
+- La primera pasada puede pedir `nextStep.useStrongerModel`; el bot valida localmente esa señal y sólo escala la siguiente llamada de lectura semántica para `bot.search`, `catalog.detail`, `catalog.recommend` y `storage.search`. Los perfiles activos son `GPT-5.6-Luna`/`low` y `GPT-5.6-Sol`/`low`; los admins pueden ajustarlos desde `Admin` -> `Modelos IA` entre los modelos Codex permitidos, persistiendo la selección en `app_metadata`.
 - El selector admin de `Modelos IA` muestra una tabla comparativa con el último test guardado por combinación, permite lanzar un test pequeño desde Telegram y guarda el resultado en `data/llm-model-tests/<modelo>_<reasoning>.json`, sobrescribiendo el resultado anterior de esa misma combinación; duración, éxitos/fracasos, tokens y coste se muestran, dejando tokens/coste como `n/d` si Codex no los expone de forma fiable.
 - Comando privado `/ask` para socios aprobados.
 - Botón privado `Preguntar al bot` visible sólo cuando la feature está habilitada.
@@ -182,10 +183,11 @@ Implementado:
 - Las lecturas usan el riesgo local de la allowlist por encima del `safety.risk` devuelto por la LLM, de modo que consultas como agenda semanal no caen en confirmación/prellenado aunque la LLM clasifique mal la salida.
 - Métricas saneadas persistidas en `audit_log` con intención, confianza, origen, tipo de chat, resultado, duración y motivo; no guardan texto literal del usuario, prompt completo ni respuesta completa de la LLM.
 - Confirmación LLM previa para escrituras y preparación/delegación a flujos normales para `notice.create`, `notice.archive`, `lfg.create`, `schedule.join`, `schedule.leave`, `group_purchase.join`, `catalog.loan.create` y `storage.upload.start`; la persistencia final sigue dependiendo de los handlers estándar y sus confirmaciones cuando existan.
+- Comando `/adminai` separado del asistente general, exclusivo de admins y disponible en privado/grupo/topic: usa el perfil reforzado, valida `admin-ai-plan.schema.json`, muestra siempre explicación + acciones + `Aceptar`/`Cancelar` y sólo despacha destinos administrativos allowlisted hacia los handlers existentes después de confirmar.
 
 Riesgos o pendientes:
 
-- OpenCode queda disponible como proveedor alternativo, pero el despliegue operativo usa Codex por defecto tras pruebas reales de clasificación con schema.
+- Las pruebas comparativas se ejecutan contra los perfiles Codex disponibles; no hay proveedor LLM alternativo activo en el despliegue.
 - Falta conectar prellenado equivalente para el resto de escrituras (`schedule.create`, creación/edición de catálogo, creación/edición de compras y edición de Storage) sin duplicar reglas de negocio.
 - Las lecturas MVP son resúmenes básicos; falta UX de detalle largo por privado y selección guiada entre múltiples resultados.
 
@@ -252,13 +254,13 @@ Implementado:
 - Propietario opcional por item: un usuario puede asignarse como propietario desde el detalle; los admins pueden asignar otro usuario con selector paginado y quitar el propietario. El detalle muestra el nombre enlazado.
 - Media por URL con tipo `image`, `link` o `document`.
 - Los admins pueden añadir imagen a un item existente desde el detalle usando URL o adjunto Telegram.
-- Los admins pueden autocorregir datos de juegos/expansiones y libros desde el detalle: el bot reconsulta BGG/Open Library con el titulo o ID disponible, si BGG devuelve varias coincidencias muestra opciones para elegir manualmente, intenta traducir al castellano las descripciones BGG cuando el bot esta en español usando DeepL si esta configurado y OpenCode como fallback, actualiza campos, limpia referencias externas/metadata visibles, edita un mensaje de progreso con duracion por paso (API, traduccion, guardado, descarga/subida de portada y detalle) y reporta si la portada se ha importado, ya existia o no estaba disponible. Tambien pueden traducir solo la descripcion actual del item sin tocar el resto de datos usando progreso editable.
+- Los admins pueden autocorregir datos de juegos/expansiones y libros desde el detalle: el bot reconsulta BGG/Open Library con el titulo o ID disponible, si BGG devuelve varias coincidencias muestra opciones para elegir manualmente, intenta traducir al castellano las descripciones BGG cuando el bot esta en español usando DeepL si esta configurado y Codex como fallback, actualiza campos, limpia referencias externas/metadata visibles, edita un mensaje de progreso con duracion por paso (API, traduccion, guardado, descarga/subida de portada y detalle) y reporta si la portada se ha importado, ya existia o no estaba disponible. Tambien pueden traducir solo la descripcion actual del item sin tocar el resto de datos usando progreso editable.
 - El detalle admin de juegos/expansiones avisa al final cuando detecta una referencia BGG antigua sin metadatos modernos de rating, peso o jugadores recomendados, con enlace y boton de teclado para una importacion BGG rapida que actualiza solo metadata sin traducir descripcion ni importar portada; tras esa importacion rapida, el detalle actualizado enlaza el juego pendiente anterior y siguiente para revisar la cola con menos pasos. El comando privado secreto de admins `/update_bgg` y el boton `Actualizar BGG` del submenu Admin recorren todos los juegos/expansiones activos, aplican esa importacion rapida solo a los que la necesitan y mantienen un mensaje editable con barra de progreso y resumen final.
 - Las imagenes reales del catalogo se guardan como entradas de Storage en una categoria interna `catalog_media`, oculta de la navegacion normal de `/storage`.
 - La media principal de un item es la primera imagen por `sortOrder`, usando `0` como portada.
 - Al abrir el detalle de un item, el bot intenta mostrar primero la portada principal y despues una ficha resumida con breadcrumbs, titulo, propietario si existe, disponibilidad, prestatario si existe, jugadores, duracion y enlace "Ver detalles" a la ficha completa.
 - Las acciones del detalle de item se muestran en teclado de respuesta persistente para mantener libres los enlaces HTML dentro del mensaje; los detalles de lectura, préstamo y admin mantienen siempre `Inicio` y `Ayuda` al final del teclado para poder salir del contexto.
-- En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; OpenCode sugiere el titulo y, si se crea el item, el bot pregunta si se guarda esa portada como imagen principal.
+- En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; Codex sugiere el titulo y, si se crea el item, el bot pregunta si se guarda esa portada como imagen principal.
 - `/catalog_search` como consulta para usuarios aprobados.
 - Vista de lectura con indice por rangos de tres iniciales: cada bloque muestra total de articulos y desglose por juegos de mesa, libros y accesorios, con enlaces normales `t.me?...start=` en el texto; los grupos internos no aparecen en la navegacion principal.
 - Vista publica `/catalogo` con busqueda por titulo/original/editorial, filtros por tipo, numero de jugadores y disponibilidad, paginacion, agrupacion por inicial, tarjetas con portada, descripcion, familia/grupo, propietario, disponibilidad/prestamo y datos principales, detalle publico por item con descripcion completa y enlace a BoardGameGeek cuando el item conserva referencia BGG.
@@ -271,7 +273,7 @@ Integraciones reales:
 - Libros y RPG: lookup HTTP hacia Open Library desde `catalog-lookup-service`, incluyendo portada cuando Open Library expone `cover_i`, `cover_edition_key` o ISBN utilizable.
 - BoardGameGeek: importacion individual, autocorreccion desde detalle y coleccion operativas; la importacion de coleccion usa progreso editable durante la reconciliacion y, cuando BGG devuelve portada, el bot descarga la `imageUrl`/`coverUrl` y la sube a Storage como portada.
 - Open Library: cuando devuelve portada, el alta intenta guardarla como portada.
-- OpenCode: solo se usa para leer el titulo visible desde la portada con progreso editable; los metadatos completos siguen viniendo de APIs catalogadas como BGG/Open Library/Wikipedia.
+- Codex: se usa para leer el titulo visible desde la portada con progreso editable y como fallback de traducción; los metadatos completos siguen viniendo de APIs catalogadas como BGG/Open Library/Wikipedia.
 
 Riesgos o pendientes:
 

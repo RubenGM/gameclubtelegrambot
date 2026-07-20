@@ -155,7 +155,7 @@ L'editor TUI pot escriure aquest split automàticament:
 - `bot.*` descriu metadata visible del club i del bot; no ha de barrejar-se amb secrets.
 - `telegram.*` i `database.*` són configuració operativa; `adminElevation.passwordHash` és un secret derivat persistit, no la contrasenya en clar.
 - `bgg.apiKey` activa BoardGameGeek com a font principal per a la importació de jocs i s'envia com a `Authorization: Bearer ...`; si no hi és, el sistema continua amb Wikipedia com a fallback extrem.
-- `translation.deeplApiKey` activa DeepL com a traductor ràpid per a descripcions importades; si falla o no està configurat, el bot conserva OpenCode com a fallback.
+- `translation.deeplApiKey` activa DeepL com a traductor ràpid per a descripcions importades; si falla o no està configurat, el bot usa Codex com a fallback mitjançant `GAMECLUB_CATALOG_CODEX_BIN` o `GAMECLUB_CODEX_BIN`.
 - el runtime final mai no necessita recuperar la contrasenya d'elevació original; només necessita poder verificar-la en el futur.
 - `bootstrap.firstAdmin.*` descriu la identitat inicial que el wizard ha de persistir; el sistema no l'ha d'inferir a partir del primer usuari que escriu al bot.
 - `bootstrap.firstAdmin.telegramUserId` és la identitat canònica; `username` només és ajuda humana i no s'ha d'usar com a clau única.

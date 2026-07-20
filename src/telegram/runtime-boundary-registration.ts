@@ -101,6 +101,13 @@ import {
   llmCommandCallbackPrefixes,
 } from './llm-command-flow.js';
 import {
+  adminAiCallbackPrefixes,
+  handleTelegramAdminAiCallback,
+  handleTelegramAdminAiCommand,
+  type AdminAiPlan,
+  type AdminAiTarget,
+} from './admin-ai-flow.js';
+import {
   handleTelegramLlmModelAdminCallback,
   handleTelegramLlmModelAdminText,
   llmModelAdminCallbackPrefixes,
@@ -232,6 +239,7 @@ export function registerHandlers({
   registerLfgCallbacks({ bot });
   registerRoleGameCallbacks({ bot });
   registerLlmCommandCallbacks({ bot });
+  registerAdminAiCallbacks({ bot, publicName, adminElevationPasswordHash });
   registerLlmModelAdminCallbacks({ bot });
   registerNoticeCallbacks({ bot });
   registerNewsGroupCallbacks({ bot });
@@ -1370,6 +1378,117 @@ function registerLlmCommandCallbacks({
   }
 }
 
+function registerAdminAiCallbacks({
+  bot,
+  publicName,
+  adminElevationPasswordHash,
+}: {
+  bot: TelegramBotLike;
+  publicName: string;
+  adminElevationPasswordHash: string;
+}): void {
+  for (const prefix of Object.values(adminAiCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramAdminAiCallback(context, async (callbackContext, plan) =>
+        executeAdminAiTarget(callbackContext, plan, { publicName, adminElevationPasswordHash }));
+    });
+  }
+}
+
+async function executeAdminAiTarget(
+  context: TelegramCommandHandlerContext,
+  plan: AdminAiPlan,
+  commandConfig: {
+    publicName: string;
+    adminElevationPasswordHash: string;
+  },
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const actionMenuLabels: Partial<Record<AdminAiTarget, string>> = {
+    admin_menu: createTelegramI18n(language).actionMenu.admin,
+    tables_admin: createTelegramI18n(language).actionMenu.tables,
+    welcome_templates: createTelegramI18n(language).actionMenu.welcomeTemplates,
+    printer_admin: createTelegramI18n(language).actionMenu.printerAdmin,
+    llm_models: createTelegramI18n(language).actionMenu.llmModels,
+    language: createTelegramI18n(language).actionMenu.language,
+    change_display_name: createTelegramI18n(language).actionMenu.changeDisplayName,
+  };
+  const actionMenuLabel = actionMenuLabels[plan.target];
+  if (actionMenuLabel) {
+    if (context.runtime.chat.kind !== 'private') {
+      return false;
+    }
+    await recordAdminAiConfirmation(context, plan);
+    return handleTelegramActionMenuText({ ...context, messageText: actionMenuLabel }, commandConfig);
+  }
+
+  if (plan.target === 'member_menu') {
+    if (context.runtime.chat.kind !== 'private') {
+      return false;
+    }
+    await recordAdminAiConfirmation(context, plan);
+    return handleTelegramMemberMenuDebugText({
+      ...context,
+      messageText: createTelegramI18n(language).actionMenu.memberDebug,
+    });
+  }
+
+  const commandNameByTarget: Partial<Record<AdminAiTarget, string>> = {
+    schedule: 'schedule',
+    calendar: 'calendar',
+    catalog: 'catalog',
+    catalog_search: 'catalog_search',
+    catalog_bulk: 'catalog_bulk',
+    loan_admin: 'loan_admin',
+    update_bgg: 'update_bgg',
+    storage: 'storage',
+    group_purchases: 'group_purchases',
+    lfg: 'lfg',
+    role_games: 'role_games',
+    notices: 'notices',
+    review_access: 'review_access',
+    manage_users: 'manage_users',
+    venue_events: 'venue_events',
+    print: 'print',
+    subscribe_requests: 'subscribe_requests',
+    unsubscribe_requests: 'unsubscribe_requests',
+    status: 'status',
+    restart: 'restart',
+    news: 'news',
+    autojoin: 'autojoin',
+    help: 'help',
+  };
+  const commandName = commandNameByTarget[plan.target];
+  const command = commandName
+    ? createDefaultCommands(commandConfig).find((candidate) => candidate.command === commandName)
+    : undefined;
+  if (!command || !command.contexts.includes(context.runtime.chat.kind)) {
+    return false;
+  }
+
+  await recordAdminAiConfirmation(context, plan);
+  await command.handle({ ...context, messageText: `/${command.command}` });
+  return true;
+}
+
+async function recordAdminAiConfirmation(
+  context: TelegramCommandHandlerContext,
+  plan: AdminAiPlan,
+): Promise<void> {
+  await safeAppendTelegramMenuEvent(context, {
+    actionKey: 'telegram.admin_ai.confirmed',
+    targetType: 'admin_ai_target',
+    targetId: plan.target,
+    summary: 'Administrative AI plan confirmed',
+    details: {
+      target: plan.target,
+      actions: plan.actions,
+      chatKind: context.runtime.chat.kind,
+      messageThreadId: context.messageThreadId ?? null,
+    },
+  });
+}
+
 function registerLlmModelAdminCallbacks({
   bot,
 }: {
@@ -1401,6 +1520,19 @@ function createDefaultCommands({
       },
       handle: async (context) => {
         await handleTelegramLlmAskCommand(context);
+      },
+    },
+    {
+      command: 'adminai',
+      contexts: ['private', 'group', 'group-news'],
+      access: 'admin',
+      descriptionByLanguage: {
+        ca: 'Obre opcions administratives amb llenguatge natural',
+        es: 'Abre opciones administrativas con lenguaje natural',
+        en: 'Open administrative options using natural language',
+      },
+      handle: async (context) => {
+        await handleTelegramAdminAiCommand(context);
       },
     },
     {

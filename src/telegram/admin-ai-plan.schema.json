@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "explanation", "actions", "target"],
+  "properties": {
+    "version": { "type": "integer", "enum": [1] },
+    "explanation": { "type": "string", "minLength": 1, "maxLength": 1200 },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "type": "string", "minLength": 1, "maxLength": 240 }
+    },
+    "target": {
+      "type": "string",
+      "enum": [
+        "admin_menu",
+        "schedule",
+        "calendar",
+        "tables_admin",
+        "catalog",
+        "catalog_search",
+        "catalog_bulk",
+        "loan_admin",
+        "update_bgg",
+        "storage",
+        "group_purchases",
+        "lfg",
+        "role_games",
+        "notices",
+        "review_access",
+        "manage_users",
+        "welcome_templates",
+        "venue_events",
+        "printer_admin",
+        "print",
+        "llm_models",
+        "member_menu",
+        "language",
+        "change_display_name",
+        "subscribe_requests",
+        "unsubscribe_requests",
+        "status",
+        "restart",
+        "news",
+        "autojoin",
+        "help"
+      ]
+    }
+  }
+}

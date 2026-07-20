@@ -65,7 +65,7 @@ export function createMiddlewarePipeline({
   const descriptionTranslator = createCatalogDescriptionTranslator({
     ...optionalDeepLConfig(config),
     ...optionalDeepLTimeout(process.env.GAMECLUB_DEEPL_TIMEOUT_MS),
-    opencodeBin: process.env.GAMECLUB_OPENCODE_BIN?.trim() || 'opencode',
+    codexBin: process.env.GAMECLUB_CATALOG_CODEX_BIN?.trim() ?? process.env.GAMECLUB_CODEX_BIN?.trim() ?? './scripts/codex-cawa.sh',
   });
   const llmCommands = resolveLlmCommandConfig(config);
   const llmCommandService = createLlmCommandService({

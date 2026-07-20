@@ -31,31 +31,31 @@ test('translateDescriptionWithDeepL sends text to DeepL and returns translated t
   assert.match(calls[0]?.body ?? '', /Move\+through\+the\+Caribbean\+-\+collect\+goods\./);
 });
 
-test('createCatalogDescriptionTranslator falls back to OpenCode when DeepL is not configured', async () => {
+test('createCatalogDescriptionTranslator falls back to Codex when DeepL is not configured', async () => {
   await assert.rejects(
     createCatalogDescriptionTranslator({
-      opencodeBin: '/missing/opencode',
+      codexBin: '/missing/codex',
       fetchImpl: async () => {
         throw new Error('DeepL should not be called');
       },
     })({
       description: 'A long English board game description.',
-      model: 'openai/gpt-5.4-mini',
+      model: 'gpt-5.4-mini',
       targetLanguage: 'es',
     }),
     /ENOENT|no such file/i,
   );
 });
 
-test('createCatalogDescriptionTranslator falls back to OpenCode when DeepL fails', async () => {
+test('createCatalogDescriptionTranslator falls back to Codex when DeepL fails', async () => {
   await assert.rejects(
     createCatalogDescriptionTranslator({
       deeplApiKey: 'test-key:fx',
-      opencodeBin: '/missing/opencode',
+      codexBin: '/missing/codex',
       fetchImpl: async () => new Response('nope', { status: 500 }),
     })({
       description: 'A long English board game description.',
-      model: 'openai/gpt-5.4-mini',
+      model: 'gpt-5.4-mini',
       targetLanguage: 'es',
     }),
     /ENOENT|no such file/i,

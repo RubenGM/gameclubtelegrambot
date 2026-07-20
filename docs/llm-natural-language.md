@@ -51,10 +51,45 @@ Las reglas de seguridad son locales al bot:
 - Las lecturas usan umbral local de confianza `readConfidenceThreshold`.
 - Las escrituras usan umbral local de confianza `writeConfidenceThreshold` y
   siempre requieren confirmación.
-- Las acciones administrativas quedan fuera de la LLM. Si se detecta una acción
-  admin, el usuario debe usar el menú normal de admin.
+- Las acciones administrativas quedan fuera del asistente general `/ask`. Si se
+  detecta una acción admin allí, el usuario debe usar el menú normal de admin o
+  el comando específico `/adminai`.
 - Las métricas no guardan texto literal del usuario, prompts completos ni
   respuestas completas de la LLM.
+
+### Comando administrativo `/adminai`
+
+`/adminai {petición}` es una entrada separada y exclusiva para administradores.
+Está disponible en privado, grupos y topics para poder abrir tanto herramientas
+privadas como opciones ligadas al grupo actual. No convierte a Codex en un
+ejecutor general:
+
+1. Envía un mensaje editable mientras interpreta la petición con el perfil de
+   más pensamiento configurado, actualmente `gpt-5.6-sol` con `low`.
+2. Exige una salida estructurada validada por
+   `src/telegram/admin-ai-plan.schema.json`.
+3. Muestra siempre una explicación en lenguaje natural, la lista numerada de
+   acciones previstas y botones inline `Aceptar` y `Cancelar`.
+4. Guarda el plan en la sesión `admin-ai`; cancelar elimina la sesión sin
+   ejecutar nada y una confirmación caducada no se reutiliza.
+5. Al aceptar, vuelve a comprobar que el actor sigue siendo admin, elimina la
+   sesión de confirmación y abre el flujo guiado existente o invoca un comando
+   local explícitamente permitido.
+
+El campo `target` sólo admite destinos declarados en código: menús de agenda,
+mesas, catálogo, préstamos, Storage, compras, LFG, Rol, avisos, usuarios,
+bienvenidas, eventos, impresión, modelos IA y preferencias; además de comandos
+administrativos concretos como estado, alertas de solicitudes, `/news`,
+`/autojoin`, actualización BGG o reinicio. No se aceptan comandos arbitrarios,
+argumentos inventados, shell, SQL, HTTP ni escrituras directas en base de datos.
+Si la petición es vaga, mezcla flujos independientes o no tiene un destino
+seguro exacto, el plan deriva al menú admin o a la ayuda contextual.
+
+Los destinos privados sólo se abren desde el chat privado. `/news` y
+`/autojoin` sólo se despachan desde el grupo o topic actual. Tras confirmar, el
+handler normal conserva sus comprobaciones y confirmaciones internas. La
+confirmación se registra en auditoría con destino, acciones y contexto, pero no
+conserva el prompt literal del administrador.
 
 ## Proveedor LLM
 
@@ -65,7 +100,7 @@ El proveedor recomendado y operativo es Codex:
 ```bash
 GAMECLUB_LLM_COMMANDS_PROVIDER=codex
 GAMECLUB_CODEX_BIN=./scripts/codex-cawa.sh
-GAMECLUB_LLM_COMMANDS_MODEL=gpt-5.4-mini
+GAMECLUB_LLM_COMMANDS_MODEL=gpt-5.6-luna
 GAMECLUB_LLM_COMMANDS_REASONING_EFFORT=low
 ```
 
@@ -74,9 +109,13 @@ corre como `gameclubbot`, pero Codex debe ejecutarse mediante el wrapper
 `GAMECLUB_CODEX_BIN` como usuario operador `cawa`, que es donde están las
 credenciales.
 
-OpenCode se mantiene como proveedor alternativo mediante `GAMECLUB_OPENCODE_BIN`,
-pero nuevas mejoras del intérprete de lenguaje natural deben probarse primero
-con Codex salvo decisión explícita en contrario.
+El despliegue operativo usa exclusivamente Codex mediante `GAMECLUB_CODEX_BIN`.
+
+Las funciones auxiliares del catálogo (lectura de títulos visibles en portadas y
+fallback de traducción de descripciones) usan también Codex mediante
+`GAMECLUB_CATALOG_CODEX_BIN`, o `GAMECLUB_CODEX_BIN` cuando no se configura el
+primero. La invocación usa siempre `codex exec --ephemeral --sandbox read-only`;
+para portadas adjunta la imagen con `--image`.
 
 ## Configuración
 
@@ -87,8 +126,7 @@ GAMECLUB_LLM_COMMANDS_ENABLED=false
 GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED=true
 GAMECLUB_LLM_COMMANDS_PROVIDER=codex
 GAMECLUB_CODEX_BIN=./scripts/codex-cawa.sh
-GAMECLUB_OPENCODE_BIN=./scripts/opencode-cawa.sh
-GAMECLUB_LLM_COMMANDS_MODEL=gpt-5.4-mini
+GAMECLUB_LLM_COMMANDS_MODEL=gpt-5.6-luna
 GAMECLUB_LLM_COMMANDS_REASONING_EFFORT=low
 GAMECLUB_LLM_COMMANDS_TIMEOUT_MS=60000
 GAMECLUB_LLM_COMMANDS_MAX_HISTORY=8
@@ -123,13 +161,15 @@ separados por líneas en blanco. No debe mostrar la petición completa del usuar
 Si la LLM falla o caduca, el mismo mensaje debe editarse con el error final
 siempre que Telegram lo permita.
 
-La primera pasada usa el modelo configurado, normalmente `gpt-5.4-mini` con
-`low`. Cuando esa pasada detecta que la siguiente fase necesitará interpretación
+La primera pasada usa Codex con el perfil normal, `gpt-5.6-luna` con `low`.
+Cuando esa pasada detecta que la siguiente fase necesitará interpretación
 semántica sobre datos reales, puede pedir escalado con `nextStep`. El bot valida
 esa petición localmente y, sólo para intents de lectura permitidos, ejecuta la
-siguiente llamada `generateJson` con `gpt-5.5` y reasoning `medium`.
+siguiente llamada `generateJson` con el perfil reforzado Sol/`low`.
 
-Los admins pueden cambiar estos dos perfiles desde Telegram, en el submenú
+Los perfiles operativos fijados son Luna/`low` para interpretar la petición y
+Sol/`low` para las lecturas semánticas escaladas. Los admins pueden cambiar
+estos dos perfiles desde Telegram, en el submenú
 `Admin` -> `Modelos IA`:
 
 - Perfil normal: usado para la primera interpretación de la petición.
@@ -138,10 +178,13 @@ Los admins pueden cambiar estos dos perfiles desde Telegram, en el submenú
 
 La selección se guarda en `app_metadata` con clave `llm.model_settings`, tiene
 efecto inmediato y no requiere reiniciar el servicio. Si no hay selección
-guardada o no se puede cargar, el fallback sigue siendo `gpt-5.4-mini` con
-`low` para normal y `gpt-5.5` con `medium` para más pensamiento.
+guardada o no se puede cargar, el fallback sigue siendo `gpt-5.6-luna` con
+`low` para normal y `gpt-5.6-sol` con `low` para más pensamiento.
 
 Modelos seleccionables:
+
+- `GPT-5.6-Luna`: `low`.
+- `GPT-5.6-Sol`: `low`.
 
 - `GPT-5.3-Codex-Spark`: `none`, `low`, `medium`, `high`, `xhigh`.
 - `GPT-5.4-Mini`: `none`, `low`, `medium`.
@@ -213,7 +256,9 @@ Escrituras preparadas o delegadas a flujos normales:
 - `lfg.create`
 
 Acciones admin como `catalog.create` o `catalog.edit` están declaradas para que
-la LLM pueda reconocerlas, pero deben rechazarse y derivarse al menú normal.
+el asistente general pueda reconocerlas, pero `/ask` debe rechazarlas y
+derivarlas al menú normal. `/adminai` usa un contrato y una allowlist separados;
+no amplía la autoridad del contrato general.
 
 ## Feedback loop de lectura
 
@@ -374,6 +419,10 @@ no-op correcto y no debe desactivar futuras ediciones.
 - `src/telegram/llm-command-actions.ts`: allowlist de capacidades.
 - `src/telegram/llm-command-read-actions.ts`: lecturas, búsquedas, refinados,
   recomendaciones y respuestas con enlaces.
+- `src/telegram/admin-ai-flow.ts`: planificación admin, sesión de confirmación y
+  callbacks aceptar/cancelar.
+- `src/telegram/admin-ai-plan.schema.json`: destinos administrativos permitidos
+  y contrato de explicación/acciones.
 - `src/telegram/runtime-boundary-support.ts`: extracción de menciones, replies,
   topics y contexto Telegram.
 - `src/telegram/editable-progress.ts`: helper de mensajes editables.
