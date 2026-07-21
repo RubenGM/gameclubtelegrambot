@@ -95,6 +95,11 @@ import {
   roleGameCallbackPrefixes,
 } from './role-game-flow.js';
 import {
+  handleTelegramRoleGameAutoSchedulingAdminCallback,
+  handleTelegramRoleGameAutoSchedulingAdminText,
+  roleGameAutoSchedulingAdminCallbackPrefixes,
+} from './role-game-auto-scheduling-admin-flow.js';
+import {
   handleTelegramLlmAskCommand,
   handleTelegramLlmCallback,
   handleTelegramLlmFallbackText,
@@ -239,6 +244,7 @@ export function registerHandlers({
   registerGroupPurchaseCallbacks({ bot });
   registerLfgCallbacks({ bot });
   registerRoleGameCallbacks({ bot });
+  registerRoleGameAutoSchedulingAdminCallbacks({ bot });
   registerLlmCommandCallbacks({ bot });
   registerAdminAiCallbacks({ bot, publicName, adminElevationPasswordHash });
   registerLlmModelAdminCallbacks({ bot });
@@ -276,6 +282,10 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramActionMenuText(context, { publicName, adminElevationPasswordHash })) {
+      return;
+    }
+
+    if (await handleTelegramRoleGameAutoSchedulingAdminText(context)) {
       return;
     }
 
@@ -1351,6 +1361,18 @@ function registerRoleGameCallbacks({
   for (const prefix of Object.values(roleGameCallbackPrefixes)) {
     bot.onCallback(prefix, async (context) => {
       await handleTelegramRoleGameCallback(context);
+    });
+  }
+}
+
+function registerRoleGameAutoSchedulingAdminCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(roleGameAutoSchedulingAdminCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramRoleGameAutoSchedulingAdminCallback(context);
     });
   }
 }
@@ -2907,6 +2929,10 @@ async function handleTelegramActionMenuText(
 
     if (selection.actionId === 'llm_models') {
       return handleTelegramLlmModelAdminText({ ...context, messageText: selection.label });
+    }
+
+    if (selection.actionId === 'role_game_auto_scheduling') {
+      return handleTelegramRoleGameAutoSchedulingAdminText({ ...context, messageText: selection.label });
     }
 
     if (selection.actionId === 'printer_admin') {

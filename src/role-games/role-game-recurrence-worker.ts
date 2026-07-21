@@ -35,7 +35,8 @@ export function createRoleGameRecurrenceWorker({
 
     running = true;
     try {
-      if (!(await autoSchedulingStore.isEnabled())) {
+      const settings = await autoSchedulingStore.getSettings();
+      if (!settings.enabled) {
         return;
       }
       const games = await roleGameRepository.listRecurringGames?.() ?? [];
@@ -45,6 +46,7 @@ export function createRoleGameRecurrenceWorker({
           scheduleRepository,
           game,
           actorTelegramUserId,
+          maxFutureWeeks: settings.maxFutureWeeks,
         }),
       ));
     } catch (error) {

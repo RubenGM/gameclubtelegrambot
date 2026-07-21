@@ -10,10 +10,16 @@ import type {
   RoleGameSessionRecord,
   RoleGameSessionSource,
 } from './role-game-catalog.js';
+import {
+  defaultRoleGameAutoSchedulingMaxFutureWeeks,
+  maxRoleGameAutoSchedulingMaxFutureWeeks,
+  minRoleGameAutoSchedulingMaxFutureWeeks,
+} from './role-game-auto-scheduling-store.js';
 
 export interface RoleGameScheduleSessionResult {
   event: ScheduleEventRecord;
   link: RoleGameSessionRecord;
+  wasCreated: boolean;
 }
 
 export interface RoleGameRecurringSessionPlan {
@@ -22,7 +28,36 @@ export interface RoleGameRecurringSessionPlan {
   skipped: number;
 }
 
-export async function createRoleGameScheduleSession({
+const recurringSessionCreationLocks = new Map<string, Promise<void>>();
+
+export async function createRoleGameScheduleSession(input: {
+  roleGameRepository: RoleGameRepository;
+  scheduleRepository: ScheduleRepository;
+  game: RoleGameRecord;
+  startsAt: string;
+  actorTelegramUserId: number;
+  source: RoleGameSessionSource;
+  tableId?: number | null;
+}): Promise<RoleGameScheduleSessionResult> {
+  if (input.source !== 'recurring') {
+    return createRoleGameScheduleSessionUnlocked(input);
+  }
+  const normalizedInput = { ...input, startsAt: new Date(input.startsAt).toISOString() };
+  return withRecurringSessionCreationLock(`${normalizedInput.game.id}:${normalizedInput.startsAt}`, async () => {
+    const existingLink = (await normalizedInput.roleGameRepository.listSessionLinks(normalizedInput.game.id)).find(
+      (link) => link.source === 'recurring' && link.generatedForStartsAt === normalizedInput.startsAt,
+    );
+    if (existingLink) {
+      const existingEvent = await normalizedInput.scheduleRepository.findEventById(existingLink.scheduleEventId);
+      if (existingEvent) {
+        return { event: existingEvent, link: existingLink, wasCreated: false };
+      }
+    }
+    return createRoleGameScheduleSessionUnlocked(normalizedInput);
+  });
+}
+
+async function createRoleGameScheduleSessionUnlocked({
   roleGameRepository,
   scheduleRepository,
   game,
@@ -54,13 +89,50 @@ export async function createRoleGameScheduleSession({
     capacity: game.capacity,
   });
 
-  const link = await roleGameRepository.createSessionLink({
-    roleGameId: game.id,
-    scheduleEventId: event.id,
-    source,
-    generatedForStartsAt: source === 'recurring' ? startsAt : null,
-    createdByTelegramUserId: actorTelegramUserId,
-  });
+  let link: RoleGameSessionRecord;
+  try {
+    link = await roleGameRepository.createSessionLink({
+      roleGameId: game.id,
+      scheduleEventId: event.id,
+      source,
+      generatedForStartsAt: source === 'recurring' ? startsAt : null,
+      createdByTelegramUserId: actorTelegramUserId,
+    });
+  } catch (error) {
+    let competingLink: RoleGameSessionRecord | undefined;
+    let competingEvent: ScheduleEventRecord | null = null;
+    if (source === 'recurring') {
+      try {
+        competingLink = (await roleGameRepository.listSessionLinks(game.id)).find(
+          (candidate) => candidate.source === 'recurring' && candidate.generatedForStartsAt === startsAt,
+        );
+        competingEvent = competingLink
+          ? await scheduleRepository.findEventById(competingLink.scheduleEventId)
+          : null;
+      } catch {
+        competingLink = undefined;
+        competingEvent = null;
+      }
+    }
+    try {
+      await scheduleRepository.cancelEvent({
+        eventId: event.id,
+        actorTelegramUserId,
+        reason: competingLink && competingEvent
+          ? 'Duplicate recurring role game occurrence'
+          : 'Role game session link creation failed',
+      });
+    } catch (compensationError) {
+      throw new AggregateError(
+        [error, compensationError],
+        'Role game session link creation and Agenda compensation both failed',
+      );
+    }
+    if (competingLink && competingEvent) {
+      return { event: competingEvent, link: competingLink, wasCreated: false };
+    }
+    throw error;
+  }
 
   if (game.autoAddConfirmedPlayers) {
     const members = await roleGameRepository.listMembers(game.id);
@@ -80,7 +152,26 @@ export async function createRoleGameScheduleSession({
     );
   }
 
-  return { event, link };
+  return { event, link, wasCreated: true };
+}
+
+async function withRecurringSessionCreationLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = recurringSessionCreationLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => current);
+  recurringSessionCreationLocks.set(key, tail);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (recurringSessionCreationLocks.get(key) === tail) {
+      recurringSessionCreationLocks.delete(key);
+    }
+  }
 }
 
 export async function createManualRoleGameSession(input: Omit<Parameters<typeof createRoleGameScheduleSession>[0], 'source'>): Promise<RoleGameScheduleSessionResult> {
@@ -123,6 +214,22 @@ export function computeUpcomingRoleGameOccurrences({
   return occurrences;
 }
 
+export function limitRoleGameOccurrencesToFutureWeeks({
+  occurrences,
+  now,
+  maxFutureWeeks,
+}: {
+  occurrences: string[];
+  now: Date;
+  maxFutureWeeks: number;
+}): string[] {
+  assertValidMaxFutureWeeks(maxFutureWeeks);
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() + (maxFutureWeeks * 7));
+  cutoff.setHours(23, 59, 59, 999);
+  return occurrences.filter((startsAt) => new Date(startsAt).getTime() <= cutoff.getTime());
+}
+
 function buildRecurrenceStartDate(startsOn: string, hour: number, minute: number): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startsOn);
   if (!match) {
@@ -144,22 +251,25 @@ export async function ensureRecurringRoleGameSessions({
   game,
   actorTelegramUserId,
   now = new Date(),
+  maxFutureWeeks = defaultRoleGameAutoSchedulingMaxFutureWeeks,
 }: {
   roleGameRepository: RoleGameRepository;
   scheduleRepository: ScheduleRepository;
   game: RoleGameRecord;
   actorTelegramUserId: number;
   now?: Date;
+  maxFutureWeeks?: number;
 }): Promise<{ created: number; skipped: number }> {
   const plan = await planRecurringRoleGameSessions({
     roleGameRepository,
     scheduleRepository,
     game,
     now,
+    maxFutureWeeks,
   });
   let created = 0;
   for (const startsAt of plan.startsAtToCreate) {
-    await createRoleGameScheduleSession({
+    const session = await createRoleGameScheduleSession({
       roleGameRepository,
       scheduleRepository,
       game,
@@ -167,7 +277,9 @@ export async function ensureRecurringRoleGameSessions({
       actorTelegramUserId,
       source: 'recurring',
     });
-    created += 1;
+    if (session.wasCreated) {
+      created += 1;
+    }
   }
 
   return { created, skipped: plan.skipped };
@@ -178,11 +290,13 @@ export async function planRecurringRoleGameSessions({
   scheduleRepository,
   game,
   now = new Date(),
+  maxFutureWeeks = defaultRoleGameAutoSchedulingMaxFutureWeeks,
 }: {
   roleGameRepository: RoleGameRepository;
   scheduleRepository: ScheduleRepository;
   game: RoleGameRecord;
   now?: Date;
+  maxFutureWeeks?: number;
 }): Promise<RoleGameRecurringSessionPlan> {
   if (game.schedulingMode !== 'recurring' || !game.recurrenceRule || game.recurrenceWindowCount <= 0 || game.status !== 'active') {
     return { startsAtToCreate: [], activeFutureSessions: 0, skipped: 0 };
@@ -193,22 +307,21 @@ export async function planRecurringRoleGameSessions({
   const startsAtToCreate: string[] = [];
   let activeFutureSessions = 0;
   let skipped = 0;
-  let occurrenceIndex = 0;
-
-  while (activeFutureSessions < game.recurrenceWindowCount) {
-    const occurrences = computeUpcomingRoleGameOccurrences({
+  const occurrences = limitRoleGameOccurrencesToFutureWeeks({
+    occurrences: computeUpcomingRoleGameOccurrences({
       rule: game.recurrenceRule,
       now,
-      count: occurrenceIndex + 1,
-    });
-    const occurrence = occurrences[occurrenceIndex];
-    if (!occurrence) {
-      break;
-    }
+      count: game.recurrenceWindowCount,
+    }),
+    now,
+    maxFutureWeeks,
+  });
+
+  for (const occurrence of occurrences) {
     const existingLink = linkedByOccurrence.get(occurrence);
     if (existingLink) {
       const event = await scheduleRepository.findEventById(existingLink.scheduleEventId);
-      if (event?.lifecycleStatus === 'cancelled') {
+      if (!event || event.lifecycleStatus === 'cancelled') {
         skipped += 1;
       } else if (event && event.startsAt > now.toISOString()) {
         activeFutureSessions += 1;
@@ -217,10 +330,21 @@ export async function planRecurringRoleGameSessions({
       startsAtToCreate.push(occurrence);
       activeFutureSessions += 1;
     }
-    occurrenceIndex += 1;
   }
 
   return { startsAtToCreate, activeFutureSessions, skipped };
+}
+
+function assertValidMaxFutureWeeks(maxFutureWeeks: number): void {
+  if (
+    !Number.isInteger(maxFutureWeeks)
+    || maxFutureWeeks < minRoleGameAutoSchedulingMaxFutureWeeks
+    || maxFutureWeeks > maxRoleGameAutoSchedulingMaxFutureWeeks
+  ) {
+    throw new RangeError(
+      `Role game automatic scheduling horizon must be an integer between ${minRoleGameAutoSchedulingMaxFutureWeeks} and ${maxRoleGameAutoSchedulingMaxFutureWeeks} weeks`,
+    );
+  }
 }
 
 async function buildLinkedSessionOccurrences({

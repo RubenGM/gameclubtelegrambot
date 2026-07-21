@@ -17,7 +17,9 @@ import type {
 import {
   computeUpcomingRoleGameOccurrences,
   createManualRoleGameSession,
+  createRoleGameScheduleSession,
   ensureRecurringRoleGameSessions,
+  limitRoleGameOccurrencesToFutureWeeks,
   planRecurringRoleGameSessions,
 } from './role-game-scheduler.js';
 
@@ -94,6 +96,110 @@ test('createManualRoleGameSession auto-adds confirmed players only up to event c
   assert.deepEqual(participants.map((participant) => participant.participantTelegramUserId).sort((a, b) => a - b), [77, 88]);
 });
 
+test('createRoleGameScheduleSession serializes concurrent recurring creation for the same occurrence', async () => {
+  const roleGameRepository = createMemoryRoleGameRepository();
+  const scheduleRepository = createMemoryScheduleRepository();
+  const game = sampleGame({ id: 12 });
+  const startsAt = '2026-07-16T16:00:00.000Z';
+
+  const sessions = await Promise.all([
+    createRoleGameScheduleSession({
+      roleGameRepository,
+      scheduleRepository,
+      game,
+      startsAt: '2026-07-16T18:00:00.000+02:00',
+      actorTelegramUserId: 42,
+      source: 'recurring',
+    }),
+    createRoleGameScheduleSession({
+      roleGameRepository,
+      scheduleRepository,
+      game,
+      startsAt,
+      actorTelegramUserId: 42,
+      source: 'recurring',
+    }),
+  ]);
+
+  assert.deepEqual(sessions.map((session) => session.wasCreated).sort(), [false, true]);
+  assert.equal((await roleGameRepository.listSessionLinks(game.id)).length, 1);
+  assert.equal((await scheduleRepository.listEvents({ includeCancelled: true })).length, 1);
+});
+
+test('createRoleGameScheduleSession compensates a cross-process unique conflict and returns the winning occurrence', async () => {
+  const scheduleRepository = createMemoryScheduleRepository();
+  const game = sampleGame({ id: 13 });
+  const startsAt = '2026-07-16T16:00:00.000Z';
+  const winnerEvent = await scheduleRepository.createEvent({
+    title: game.title,
+    description: game.description,
+    startsAt,
+    durationMinutes: game.defaultDurationMinutes,
+    organizerTelegramUserId: game.primaryGmTelegramUserId,
+    createdByTelegramUserId: 77,
+    tableId: game.defaultTableId,
+    attendanceMode: game.defaultAttendanceMode,
+    isPublic: game.defaultIsPublicScheduleEvent,
+    initialOccupiedSeats: 0,
+    capacity: game.capacity,
+  });
+  const links: RoleGameSessionRecord[] = [];
+  const baseRoleGameRepository = createMemoryRoleGameRepository();
+  const roleGameRepository: RoleGameRepository = {
+    ...baseRoleGameRepository,
+    listSessionLinks: async () => links,
+    createSessionLink: async () => {
+      links.push(sampleSessionLink({
+        id: 91,
+        roleGameId: game.id,
+        scheduleEventId: winnerEvent.id,
+        generatedForStartsAt: startsAt,
+      }));
+      throw new Error('duplicate key value violates unique constraint role_game_sessions_role_game_occurrence_idx');
+    },
+  };
+
+  const result = await createRoleGameScheduleSession({
+    roleGameRepository,
+    scheduleRepository,
+    game,
+    startsAt,
+    actorTelegramUserId: 42,
+    source: 'recurring',
+  });
+
+  assert.equal(result.wasCreated, false);
+  assert.equal(result.event.id, winnerEvent.id);
+  assert.equal(result.link.id, 91);
+  const allEvents = await scheduleRepository.listEvents({ includeCancelled: true });
+  assert.equal(allEvents.length, 2);
+  assert.equal(allEvents.find((event) => event.id !== winnerEvent.id)?.lifecycleStatus, 'cancelled');
+});
+
+test('createRoleGameScheduleSession cancels a newly created Agenda event when linking fails', async () => {
+  const scheduleRepository = createMemoryScheduleRepository();
+  const game = sampleGame({ id: 14 });
+  const roleGameRepository: RoleGameRepository = {
+    ...createMemoryRoleGameRepository(),
+    createSessionLink: async () => {
+      throw new Error('database unavailable');
+    },
+  };
+
+  await assert.rejects(() => createManualRoleGameSession({
+    roleGameRepository,
+    scheduleRepository,
+    game,
+    startsAt: '2026-07-16T16:00:00.000Z',
+    actorTelegramUserId: 42,
+  }), /database unavailable/);
+
+  const events = await scheduleRepository.listEvents({ includeCancelled: true });
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.lifecycleStatus, 'cancelled');
+  assert.equal(events[0]?.cancellationReason, 'Role game session link creation failed');
+});
+
 test('computeUpcomingRoleGameOccurrences returns weekly Thursday sessions at 18:00', () => {
   const occurrences = computeUpcomingRoleGameOccurrences({
     rule: { intervalWeeks: 1, weekday: 4, time: '18:00' },
@@ -147,6 +253,17 @@ test('computeUpcomingRoleGameOccurrences advances from a selected date that is a
     new Date(2026, 7, 1, 9, 0).toISOString(),
     new Date(2026, 7, 15, 9, 0).toISOString(),
   ]);
+});
+
+test('limitRoleGameOccurrencesToFutureWeeks includes the complete boundary day across the spring DST change', () => {
+  const insideBoundary = '2026-03-29T21:59:59.999Z';
+  const outsideBoundary = '2026-03-29T22:00:00.000Z';
+
+  assert.deepEqual(limitRoleGameOccurrencesToFutureWeeks({
+    occurrences: [insideBoundary, outsideBoundary],
+    now: new Date('2026-03-22T09:00:00.000Z'),
+    maxFutureWeeks: 1,
+  }), [insideBoundary]);
 });
 
 test('ensureRecurringRoleGameSessions maintains the configured future window count', async () => {
@@ -250,7 +367,7 @@ test('ensureRecurringRoleGameSessions counts matching future manual sessions ins
   ]);
 });
 
-test('ensureRecurringRoleGameSessions skips cancelled linked sessions without recreating them', async () => {
+test('ensureRecurringRoleGameSessions keeps cancelled occurrences as window slots without extending the future', async () => {
   const firstOccurrence = new Date(2026, 6, 9, 18, 0).toISOString();
   const cancelledOccurrence = new Date(2026, 6, 16, 18, 0).toISOString();
   const roleGameRepository = createMemoryRoleGameRepository({
@@ -286,15 +403,52 @@ test('ensureRecurringRoleGameSessions skips cancelled linked sessions without re
     now: new Date(2026, 6, 9, 17, 0),
   });
 
-  assert.deepEqual(result, { created: 2, skipped: 1 });
+  assert.deepEqual(result, { created: 1, skipped: 1 });
   const links = await roleGameRepository.listSessionLinks(game.id);
   assert.equal(links.filter((link) => link.generatedForStartsAt === cancelledOccurrence).length, 1);
   assert.deepEqual(links.map((link) => link.generatedForStartsAt), [
     firstOccurrence,
     cancelledOccurrence,
     new Date(2026, 6, 23, 18, 0).toISOString(),
-    new Date(2026, 6, 30, 18, 0).toISOString(),
   ]);
+
+  const repeatedResult = await ensureRecurringRoleGameSessions({
+    roleGameRepository,
+    scheduleRepository,
+    game,
+    actorTelegramUserId: 42,
+    now: new Date(2026, 6, 9, 17, 0),
+  });
+  assert.deepEqual(repeatedResult, { created: 0, skipped: 1 });
+  assert.equal((await roleGameRepository.listSessionLinks(game.id)).length, 3);
+});
+
+test('ensureRecurringRoleGameSessions does not create occurrences beyond the configured week horizon', async () => {
+  const roleGameRepository = createMemoryRoleGameRepository();
+  const scheduleRepository = createMemoryScheduleRepository();
+  const game = sampleGame({
+    schedulingMode: 'recurring',
+    recurrenceRule: { intervalWeeks: 1, weekday: 4, time: '18:00' },
+    recurrenceWindowCount: 6,
+  });
+
+  const result = await ensureRecurringRoleGameSessions({
+    roleGameRepository,
+    scheduleRepository,
+    game,
+    actorTelegramUserId: 42,
+    now: new Date(2026, 6, 9, 17, 0),
+    maxFutureWeeks: 1,
+  });
+
+  assert.deepEqual(result, { created: 2, skipped: 0 });
+  assert.deepEqual(
+    (await scheduleRepository.listEvents({ includeCancelled: true })).map((event) => event.startsAt),
+    [
+      new Date(2026, 6, 9, 18, 0).toISOString(),
+      new Date(2026, 6, 16, 18, 0).toISOString(),
+    ],
+  );
 });
 
 function createMemoryRoleGameRepository({
@@ -394,8 +548,21 @@ function createMemoryScheduleRepository({
     updateEvent: async () => {
       throw new Error('not implemented in this test');
     },
-    cancelEvent: async () => {
-      throw new Error('not implemented in this test');
+    cancelEvent: async ({ eventId, actorTelegramUserId, reason }) => {
+      const event = events.get(eventId);
+      if (!event) {
+        throw new Error(`Schedule event ${eventId} not found`);
+      }
+      const cancelled: ScheduleEventRecord = {
+        ...event,
+        lifecycleStatus: 'cancelled',
+        updatedAt: '2026-07-09T10:01:00.000Z',
+        cancelledAt: '2026-07-09T10:01:00.000Z',
+        cancelledByTelegramUserId: actorTelegramUserId,
+        cancellationReason: reason ?? null,
+      };
+      events.set(eventId, cancelled);
+      return cancelled;
     },
     findParticipant: async (eventId, participantTelegramUserId) => participants.get(`${eventId}:${participantTelegramUserId}`) ?? null,
     listParticipants: async (eventId) =>

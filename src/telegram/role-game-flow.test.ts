@@ -1726,6 +1726,57 @@ test('handleTelegramRoleGameCallback lets managers configure recurrence with con
   assert.match(lastReply(context).message, /Recurrencia guardada/i);
 });
 
+test('recurrence Agenda preview uses the live two-week horizon and requires a new preview after it changes', async () => {
+  const game = sampleRoleGame({ id: 882, primaryGmTelegramUserId: 42, schedulingMode: 'manual' });
+  const scheduleRepository = createFakeScheduleRepository();
+  const storage = createMemoryAppMetadataStorage(new Map([
+    ['role-games.auto-scheduling.enabled', 'true'],
+  ]));
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: `role_game:configure_recurrence:${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      onUpdateGame: async (input) => sampleRoleGame({ ...game, ...input }),
+    }),
+    scheduleRepository,
+    storageDefaultChatStore: storage,
+  });
+  const weekdayLabels = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  await handleTelegramRoleGameCallback(context);
+  delete context.callbackData;
+  await sendRoleGameText(context, '1');
+  await sendRoleGameText(context, weekdayLabels[tomorrow.getDay()]!);
+  const nextDate = buttonText(lastReply(context).options?.replyKeyboard?.at(0)?.at(0) as TelegramReplyKeyboardButton);
+  await sendRoleGameText(context, nextDate);
+  await sendRoleGameText(context, '18:00');
+  await sendRoleGameText(context, '6');
+
+  const startsOn = getCurrentSession(context)?.data.startsOn as string;
+  const [year, month, day] = startsOn.split('-').map(Number);
+  const firstOccurrence = new Date(year!, month! - 1, day!, 18, 0).toISOString();
+  const secondDate = new Date(year!, month! - 1, day!, 18, 0);
+  secondDate.setDate(secondDate.getDate() + 7);
+  const secondOccurrence = secondDate.toISOString();
+  assert.deepEqual(getCurrentSession(context)?.data.agendaPreviewStartsAt, [firstOccurrence, secondOccurrence]);
+  assert.match(lastReply(context).message, /¿quieres escribir 2 actividades en Agenda\?/i);
+  assert.equal((await scheduleRepository.listEvents({ includeCancelled: true })).length, 0);
+
+  await storage.set('role-games.auto-scheduling.max-future-weeks', '1');
+  await sendRoleGameText(context, 'Confirmar');
+
+  assert.deepEqual(getCurrentSession(context)?.data.agendaPreviewStartsAt, [firstOccurrence]);
+  assert.match(lastReply(context).message, /¿quieres escribir 1 actividad en Agenda\?/i);
+  assert.equal((await scheduleRepository.listEvents({ includeCancelled: true })).length, 0);
+
+  await sendRoleGameText(context, 'Confirmar');
+  const events = await scheduleRepository.listEvents({ includeCancelled: true });
+  assert.deepEqual(events.map((event) => event.startsAt), [firstOccurrence]);
+});
+
 test('choosing no fixed days switches a recurring campaign to manual scheduling only', async () => {
   let updatedGame: RoleGameRecord | null = null;
   const game = sampleRoleGame({

@@ -515,6 +515,8 @@ export const roleGameSessions = pgTable(
   (table) => ({
     roleGameLookup: index('role_game_sessions_role_game_id_idx').on(table.roleGameId),
     scheduleEventLookup: uniqueIndex('role_game_sessions_schedule_event_id_idx').on(table.scheduleEventId),
+    recurringOccurrenceLookup: uniqueIndex('role_game_sessions_role_game_occurrence_idx')
+      .on(table.roleGameId, table.generatedForStartsAt),
   }),
 );
 

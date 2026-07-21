@@ -145,11 +145,11 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
       [{ text: 'Revisar sol·licituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
       [{ text: 'Taules', semanticRole: 'primary' }, { text: 'Benvingudes', semanticRole: 'secondary' }],
       [{ text: 'Actualitzar BGG', semanticRole: 'secondary' }, { text: 'Models IA', semanticRole: 'secondary' }],
-      [{ text: 'Impressora', semanticRole: 'secondary' }],
+      [{ text: 'Rol automàtic', semanticRole: 'secondary' }, { text: 'Impressora', semanticRole: 'secondary' }],
       [{ text: 'Menú soci', semanticRole: 'secondary' }],
       [{ text: 'Inici', semanticRole: 'navigation' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['printer_admin'], ['member_debug'], ['start', 'help']],
+    actionRows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['role_game_auto_scheduling', 'printer_admin'], ['member_debug'], ['start', 'help']],
     actions: [
       { id: 'review_access', label: 'Revisar sol·licituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
       { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
@@ -157,6 +157,7 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
       { id: 'welcome_templates', label: 'Benvingudes', telemetryActionKey: 'menu.welcome_templates', uxSection: 'admin' },
       { id: 'update_bgg', label: 'Actualitzar BGG', telemetryActionKey: 'menu.update_bgg', uxSection: 'admin' },
       { id: 'llm_models', label: 'Models IA', telemetryActionKey: 'menu.llm_models', uxSection: 'admin' },
+      { id: 'role_game_auto_scheduling', label: 'Rol automàtic', telemetryActionKey: 'menu.role_game_auto_scheduling', uxSection: 'admin' },
       { id: 'printer_admin', label: 'Impressora', telemetryActionKey: 'menu.printer_admin', uxSection: 'admin' },
       { id: 'member_debug', label: 'Menú soci', telemetryActionKey: 'menu.member_debug', uxSection: 'utility' },
       { id: 'start', label: 'Inici', telemetryActionKey: 'menu.start', uxSection: 'utility' },
@@ -192,6 +193,13 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
     actionId: 'printer_admin',
     label: 'Impressora',
     telemetryActionKey: 'menu.printer_admin',
+    uxSection: 'admin',
+  });
+  assert.deepEqual(resolveTelegramAdminMenuSelection({ context, text: 'Rol automático' }), {
+    menuId: 'private-admin-tools',
+    actionId: 'role_game_auto_scheduling',
+    label: 'Rol automàtic',
+    telemetryActionKey: 'menu.role_game_auto_scheduling',
     uxSection: 'admin',
   });
 });

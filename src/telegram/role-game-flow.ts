@@ -42,6 +42,7 @@ import {
   computeUpcomingRoleGameOccurrences,
   createManualRoleGameSession,
   createRoleGameScheduleSession,
+  limitRoleGameOccurrencesToFutureWeeks,
   planRecurringRoleGameSessions,
 } from '../role-games/role-game-scheduler.js';
 import type { ScheduleEventRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
@@ -132,7 +133,10 @@ import {
   createDatabaseAppMetadataSessionStorage,
   type AppMetadataSessionStorage,
 } from './conversation-session-store.js';
-import { createAppMetadataRoleGameAutoSchedulingStore } from '../role-games/role-game-auto-scheduling-store.js';
+import {
+  createAppMetadataRoleGameAutoSchedulingStore,
+  defaultRoleGameAutoSchedulingMaxFutureWeeks,
+} from '../role-games/role-game-auto-scheduling-store.js';
 
 const roleGameListFlowKey = 'role-games-list';
 const roleGameCreateFlowKey = 'role-game-create';
@@ -895,14 +899,17 @@ async function handleRoleGameCreateStep(
       const recurringSessions: Awaited<ReturnType<typeof createRoleGameScheduleSession>>[] = [];
       const autoSchedulingEnabled = await resolveRoleGameAutoSchedulingStore(context).isEnabled();
       for (const startsAt of autoSchedulingEnabled && draft.schedulingMode === 'recurring' ? draft.agendaPreviewStartsAt ?? [] : []) {
-        recurringSessions.push(await createRoleGameScheduleSession({
+        const session = await createRoleGameScheduleSession({
           roleGameRepository: repository,
           scheduleRepository: resolveScheduleRepository(context),
           game,
           startsAt,
           actorTelegramUserId: context.runtime.actor.telegramUserId,
           source: 'recurring',
-        }));
+        });
+        if (session.wasCreated) {
+          recurringSessions.push(session);
+        }
       }
       await context.runtime.session.cancel();
       await context.reply([
@@ -1155,14 +1162,17 @@ async function handleRoleGameRecurrenceConfigStep(
       const recurringSessions: Awaited<ReturnType<typeof createRoleGameScheduleSession>>[] = [];
       const autoSchedulingEnabled = await resolveRoleGameAutoSchedulingStore(context).isEnabled();
       for (const startsAt of autoSchedulingEnabled ? draft.agendaPreviewStartsAt ?? [] : []) {
-        recurringSessions.push(await createRoleGameScheduleSession({
+        const session = await createRoleGameScheduleSession({
           roleGameRepository: repository,
           scheduleRepository: resolveScheduleRepository(context),
           game: updated,
           startsAt,
           actorTelegramUserId: context.runtime.actor.telegramUserId,
           source: 'recurring',
-        }));
+        });
+        if (session.wasCreated) {
+          recurringSessions.push(session);
+        }
       }
       await context.runtime.session.cancel();
       await context.reply([
@@ -4164,10 +4174,12 @@ async function replyWithRoleGameCreateConfirmation(
   language: BotLanguage,
 ): Promise<void> {
   const texts = createTelegramI18n(language).roleGames;
+  const autoSchedulingSettings = await resolveRoleGameAutoSchedulingStore(context).getSettings();
   draft.agendaPreviewStartsAt = buildRoleGameCreateAgendaPreview(
     draft,
     new Date(),
-    await resolveRoleGameAutoSchedulingStore(context).isEnabled(),
+    autoSchedulingSettings.enabled,
+    autoSchedulingSettings.maxFutureWeeks,
   );
   const game = buildRoleGameRecordFromCreateDraft(draft);
   draft.agendaPreviewSignature = buildRoleGameAgendaPreviewSignature(game, draft.agendaPreviewStartsAt);
@@ -4194,10 +4206,12 @@ async function refreshRoleGameCreateAgendaPreviewIfChanged(
   draft: RoleGameCreateDraft,
   language: BotLanguage,
 ): Promise<boolean> {
+  const autoSchedulingSettings = await resolveRoleGameAutoSchedulingStore(context).getSettings();
   const currentPreview = buildRoleGameCreateAgendaPreview(
     draft,
     new Date(),
-    await resolveRoleGameAutoSchedulingStore(context).isEnabled(),
+    autoSchedulingSettings.enabled,
+    autoSchedulingSettings.maxFutureWeeks,
   );
   const game = buildRoleGameRecordFromCreateDraft(draft);
   const currentSignature = buildRoleGameAgendaPreviewSignature(game, currentPreview);
@@ -4214,6 +4228,7 @@ function buildRoleGameCreateAgendaPreview(
   draft: RoleGameCreateDraft,
   now = new Date(),
   includeRecurring = true,
+  maxFutureWeeks = defaultRoleGameAutoSchedulingMaxFutureWeeks,
 ): string[] {
   if (draft.type === 'one_shot' && draft.initialSessionDate && draft.initialSessionTime) {
     return [buildStartsAt(draft.initialSessionDate, draft.initialSessionTime)];
@@ -4221,10 +4236,14 @@ function buildRoleGameCreateAgendaPreview(
   if (!includeRecurring || draft.schedulingMode !== 'recurring' || !draft.recurrenceRule || !draft.recurrenceWindowCount) {
     return [];
   }
-  return computeUpcomingRoleGameOccurrences({
-    rule: draft.recurrenceRule,
+  return limitRoleGameOccurrencesToFutureWeeks({
+    occurrences: computeUpcomingRoleGameOccurrences({
+      rule: draft.recurrenceRule,
+      now,
+      count: draft.recurrenceWindowCount,
+    }),
     now,
-    count: draft.recurrenceWindowCount,
+    maxFutureWeeks,
   });
 }
 
@@ -4291,13 +4310,15 @@ async function planRoleGameRecurrenceAgendaPreview(
   if (draft.schedulingMode !== 'recurring') {
     return [];
   }
-  if (!(await resolveRoleGameAutoSchedulingStore(context).isEnabled())) {
+  const autoSchedulingSettings = await resolveRoleGameAutoSchedulingStore(context).getSettings();
+  if (!autoSchedulingSettings.enabled) {
     return [];
   }
   const plan = await planRecurringRoleGameSessions({
     roleGameRepository: resolveRepository(context),
     scheduleRepository: resolveScheduleRepository(context),
     game: buildRoleGameRecordWithRecurrenceDraft(game, draft),
+    maxFutureWeeks: autoSchedulingSettings.maxFutureWeeks,
   });
   return plan.startsAtToCreate;
 }
