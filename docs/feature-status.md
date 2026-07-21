@@ -54,6 +54,7 @@ Implementado:
 - Scripts de operacion, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
 - Herramientas `npm run codex:image` y `npm run codex:benchmark`, junto con `scripts/codex-cawa.sh`, para consultar imágenes y medir modelos Codex con el usuario operador; la lectura de portadas y el fallback LLM de traducción del catálogo usan `gpt-5.4` por defecto y no sustituyen las fuentes de metadatos BGG/Open Library/Wikipedia.
 - Panel HTTP integrado en el servicio del bot (`src/http/admin-http-server.ts`): portada pública en `/`, feedback público en `/feedback`, alta de socio en `/alta`, información del club en `/club`, actividades futuras en `/actividades`, catálogo público enriquecido en `/catalogo`, admin protegido en `/admin` y edición de marca/contenido/tema, enlaces destacados y assets de portada en `/admin/web`.
+- Detección local de frustración o insultos en mensajes privados de socios aprobados y no bloqueados: usa sólo diccionarios y frases fijas en catalán, español e inglés, ofrece enviar feedback de forma voluntaria y lo guarda en el mismo registro visible desde `/admin/feedback`; no usa LLM ni interviene en flujos activos.
 - El despliegue público usa Nginx como reverse proxy hacia `127.0.0.1:8787` con HTTPS de Let's Encrypt para `cawa.hopto.org`.
 
 Riesgos o pendientes:
@@ -511,4 +512,5 @@ Pendiente:
 | Avisos | `src/telegram/notice-flow.test.ts`, `src/notices/*.test.ts`, `src/news/news-group-store.test.ts` |
 | Storage | `src/telegram/storage-flow.test.ts`, `src/storage/*.test.ts` |
 | Noticias | `src/telegram/news-group-flow.test.ts`, `src/news/news-group-store.test.ts`, `src/telegram/runtime-boundary.test.ts` |
+| Feedback Telegram | `src/telegram/feedback-flow.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Operacion | `src/tui/*.test.ts`, `src/operations/*.test.ts`, `src/tray/*.test.ts` |

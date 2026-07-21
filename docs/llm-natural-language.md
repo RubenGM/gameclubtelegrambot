@@ -380,6 +380,13 @@ activos. Las sesiones pasivas de lectura de catálogo son una excepción: si el
 texto libre no corresponde a una acción del detalle, puede continuar hacia la
 LLM para permitir preguntas sobre la ficha.
 
+Antes del fallback LLM, el bot puede ofrecer recoger feedback ante una señal de
+frustración o insulto detectada localmente. Esta detección sólo funciona en
+privado para socios aprobados y no bloqueados, usa diccionarios y frases fijas
+en catalán, español e inglés, no invoca ningún modelo y no captura
+flujos activos; al aceptar, el usuario escribe el feedback que se guarda en el
+mismo fichero que el formulario web.
+
 ## Observabilidad y fallos
 
 Las métricas se registran con intención, confianza, origen, tipo de chat,

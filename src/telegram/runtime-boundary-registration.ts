@@ -107,6 +107,10 @@ import {
   llmCommandCallbackPrefixes,
 } from './llm-command-flow.js';
 import {
+  handleTelegramFeedbackSessionText,
+  offerTelegramFeedbackForLocalFrustration,
+} from './feedback-flow.js';
+import {
   adminAiCallbackPrefixes,
   handleTelegramAdminAiCallback,
   handleTelegramAdminAiCommand,
@@ -225,10 +229,12 @@ export function registerHandlers({
   bot,
   publicName,
   adminElevationPasswordHash,
+  feedbackFile = 'data/feedback.jsonl',
 }: {
   bot: TelegramBotLike;
   publicName: string;
   adminElevationPasswordHash: string;
+  feedbackFile?: string;
 }): void {
   registerTelegramCommands({
     bot,
@@ -256,7 +262,7 @@ export function registerHandlers({
   registerCatalogAdminCallbacks({ bot });
   registerStorageCallbacks({ bot });
   registerVenueEventAdminCallbacks({ bot });
-  registerTextHandlers({ bot, publicName, adminElevationPasswordHash });
+  registerTextHandlers({ bot, publicName, adminElevationPasswordHash, feedbackFile });
   registerMessageHandlers({ bot });
 }
 
@@ -264,10 +270,12 @@ function registerTextHandlers({
   bot,
   publicName,
   adminElevationPasswordHash,
+  feedbackFile,
 }: {
   bot: TelegramBotLike;
   publicName: string;
   adminElevationPasswordHash: string;
+  feedbackFile: string;
 }): void {
   bot.onText(async (context) => {
     await recordCurrentMenuActionSelection(context);
@@ -286,6 +294,10 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramRoleGameAutoSchedulingAdminText(context)) {
+      return;
+    }
+
+    if (await handleTelegramFeedbackSessionText(context, { feedbackFile })) {
       return;
     }
 
@@ -375,6 +387,10 @@ function registerTextHandlers({
 
     if (await handleTelegramCatalogReadText(context)) {
       setActiveHelpSection(context, 'catalog');
+      return;
+    }
+
+    if (await offerTelegramFeedbackForLocalFrustration(context)) {
       return;
     }
 

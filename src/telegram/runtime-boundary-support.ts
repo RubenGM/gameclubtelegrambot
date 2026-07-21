@@ -349,6 +349,7 @@ export async function createTelegramBoundary({
       bot,
       publicName: config.bot.publicName,
       adminElevationPasswordHash: config.adminElevation.passwordHash,
+      feedbackFile: config.httpServer?.feedbackFile ?? 'data/feedback.jsonl',
     });
 
     try {

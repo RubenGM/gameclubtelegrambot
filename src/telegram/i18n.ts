@@ -10,6 +10,7 @@ import { printingTexts } from './i18n-printing.js';
 import { roleGameTexts } from './i18n-role-games.js';
 import { scheduleTexts } from './i18n-schedule.js';
 import { storageTexts } from './i18n-storage.js';
+import { feedbackTexts } from './i18n-feedback.js';
 import { listNewsGroupCategories, newsGroupCategoryLines } from '../news/news-group-catalog.js';
 
 export const supportedBotLanguages = ['ca', 'es', 'en'] as const;
@@ -61,6 +62,7 @@ export function createTelegramI18n(language: BotLanguage) {
     notices: noticeTexts[language],
     printing: printingTexts[language],
     storage: storageTexts[language],
+    feedback: feedbackTexts[language],
   };
 }
 
