@@ -3046,7 +3046,7 @@ test('createTelegramBoundary routes plain text keyboard actions for schedule man
     {
       message: 'No hi ha activitats programades ara mateix.',
       options: {
-        replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
+        replyKeyboard: [['Veure activitats', 'Crear activitat', 'Crear (simple)'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
         resizeKeyboard: true,
         persistentKeyboard: true,
       },

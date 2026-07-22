@@ -108,6 +108,7 @@ import {
 } from './schedule-keyboards.js';
 
 const createFlowKey = 'schedule-create';
+const simpleCreateFlowKey = 'schedule-create-simple';
 const editFlowKey = 'schedule-edit';
 const cancelFlowKey = 'schedule-cancel';
 const joinReminderFlowKey = 'schedule-join-reminder';
@@ -125,6 +126,14 @@ export const scheduleCallbackPrefixes = {
 } as const;
 
 const defaultScheduleDurationMinutes = 180;
+const simpleScheduleDefaults = {
+  durationMinutes: defaultScheduleDurationMinutes,
+  attendanceMode: 'open',
+  isPublic: false,
+  initialOccupiedSeats: 0,
+  capacity: 4,
+  tableId: null,
+} as const;
 
 function getUtcDayStartIso(date = new Date()): string {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).toISOString();
@@ -224,6 +233,12 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
 
   if (text === texts.create || text === scheduleLabels.create || text === '/schedule_create') {
     await context.runtime.session.start({ flowKey: createFlowKey, stepKey: 'title', data: {} });
+    await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
+    return true;
+  }
+
+  if (text === texts.createSimple || text === scheduleLabels.createSimple || text === '/schedule_create_simple') {
+    await context.runtime.session.start({ flowKey: simpleCreateFlowKey, stepKey: 'title', data: {} });
     await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
     return true;
   }
@@ -454,7 +469,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
 }
 
 function isScheduleSession(flowKey: string | undefined): boolean {
-  return flowKey === createFlowKey || flowKey === editFlowKey || flowKey === cancelFlowKey || flowKey === joinReminderFlowKey;
+  return flowKey === createFlowKey || flowKey === simpleCreateFlowKey || flowKey === editFlowKey || flowKey === cancelFlowKey || flowKey === joinReminderFlowKey;
 }
 
 async function handleActiveScheduleSession(context: TelegramScheduleContext, text: string): Promise<boolean> {
@@ -463,8 +478,8 @@ async function handleActiveScheduleSession(context: TelegramScheduleContext, tex
     return false;
   }
 
-  if (session.flowKey === createFlowKey) {
-    return handleCreateSession(context, text, session.stepKey, session.data);
+  if (session.flowKey === createFlowKey || session.flowKey === simpleCreateFlowKey) {
+    return handleCreateSession(context, text, session.stepKey, session.data, session.flowKey === simpleCreateFlowKey);
   }
   if (session.flowKey === editFlowKey) {
     return handleEditSession(context, text, session.stepKey, session.data);
@@ -484,6 +499,7 @@ async function handleCreateSession(
   text: string,
   stepKey: string,
   data: Record<string, unknown>,
+  isSimpleCreate = false,
 ): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
@@ -521,6 +537,9 @@ async function handleCreateSession(
   if (stepKey === 'time') {
     const time = parseTime(text);
     if (!(time instanceof Error)) {
+      if (isSimpleCreate) {
+        return persistCreateScheduleEvent(context, { ...data, time, ...simpleScheduleDefaults }, language);
+      }
       await context.runtime.session.advance({ stepKey: 'duration-mode', data: { ...data, time } });
       await context.reply(texts.askDuration, buildCreateDurationOptions(language));
       return true;
@@ -548,6 +567,9 @@ async function handleCreateSession(
       return true;
     }
     const time = buildTimeFromHourAndMinute(timeHour, minuteSelection);
+    if (isSimpleCreate) {
+      return persistCreateScheduleEvent(context, { ...data, time, ...simpleScheduleDefaults }, language);
+    }
     await context.runtime.session.advance({ stepKey: 'duration-mode', data: { ...data, time } });
     await context.reply(texts.askDuration, buildCreateDurationOptions(language));
     return true;
@@ -702,48 +724,57 @@ async function handleCreateSession(
       await context.reply(texts.inactiveTableCreate, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
       return true;
     }
-    const created = await createScheduleEvent({
-      repository: resolveScheduleRepository(context),
-      title: String(data.title ?? ''),
-      description: asNullableString(data.description),
-      detailsMessageChatId: asNullableNumber(data.detailsMessageChatId),
-      detailsMessageId: asNullableNumber(data.detailsMessageId),
-      startsAt: buildStartsAt(String(data.date ?? ''), String(data.time ?? '')),
-      durationMinutes: Number(data.durationMinutes),
-      organizerTelegramUserId: context.runtime.actor.telegramUserId,
-      createdByTelegramUserId: context.runtime.actor.telegramUserId,
-      tableId: asNullableNumber(data.tableId),
-      catalogItemId: asNullableNumber(data.catalogItemId),
-      attendanceMode: String(data.attendanceMode) === 'closed' ? 'closed' : 'open',
-      isPublic: data.isPublic === true,
-      initialOccupiedSeats: Number(data.initialOccupiedSeats ?? 0),
-      capacity: Number(data.capacity),
-    });
-    await appendAuditEvent({
-      repository: resolveAuditRepository(context),
-      actorTelegramUserId: context.runtime.actor.telegramUserId,
-      actionKey: 'schedule.created',
-      targetType: 'schedule-event',
-      targetId: created.id,
-      summary: `Activitat creada: ${created.title}`,
-      details: {
-        startsAt: created.startsAt,
-        capacity: created.capacity,
-        tableId: created.tableId,
-        catalogItemId: created.catalogItemId ?? null,
-      },
-    });
-    await context.runtime.session.cancel();
-    await runAfterScheduleSaveSideEffects(context, created, 'created');
-    await replyAfterScheduleSave(
-      context,
-      `${texts.created.replace('.', '')}: <b>${escapeHtml(created.title)}</b>\n${await formatScheduleEventView(context, created)}`,
-      { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
-    );
-    return true;
+    return persistCreateScheduleEvent(context, data, language);
   }
 
   return false;
+}
+
+async function persistCreateScheduleEvent(
+  context: TelegramScheduleContext,
+  data: Record<string, unknown>,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).schedule;
+  const created = await createScheduleEvent({
+    repository: resolveScheduleRepository(context),
+    title: String(data.title ?? ''),
+    description: asNullableString(data.description),
+    detailsMessageChatId: asNullableNumber(data.detailsMessageChatId),
+    detailsMessageId: asNullableNumber(data.detailsMessageId),
+    startsAt: buildStartsAt(String(data.date ?? ''), String(data.time ?? '')),
+    durationMinutes: Number(data.durationMinutes),
+    organizerTelegramUserId: context.runtime.actor.telegramUserId,
+    createdByTelegramUserId: context.runtime.actor.telegramUserId,
+    tableId: asNullableNumber(data.tableId),
+    catalogItemId: asNullableNumber(data.catalogItemId),
+    attendanceMode: String(data.attendanceMode) === 'closed' ? 'closed' : 'open',
+    isPublic: data.isPublic === true,
+    initialOccupiedSeats: Number(data.initialOccupiedSeats ?? 0),
+    capacity: Number(data.capacity),
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'schedule.created',
+    targetType: 'schedule-event',
+    targetId: created.id,
+    summary: `Activitat creada: ${created.title}`,
+    details: {
+      startsAt: created.startsAt,
+      capacity: created.capacity,
+      tableId: created.tableId,
+      catalogItemId: created.catalogItemId ?? null,
+    },
+  });
+  await context.runtime.session.cancel();
+  await runAfterScheduleSaveSideEffects(context, created, 'created');
+  await replyAfterScheduleSave(
+    context,
+    `${texts.created.replace('.', '')}: <b>${escapeHtml(created.title)}</b>\n${await formatScheduleEventView(context, created)}`,
+    { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
+  );
+  return true;
 }
 
 async function handleJoinReminderSession(

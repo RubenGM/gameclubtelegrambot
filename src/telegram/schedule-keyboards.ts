@@ -7,6 +7,7 @@ export const scheduleLabels = {
   openMenu: 'Activitats',
   list: 'Veure activitats',
   create: 'Crear activitat',
+  createSimple: 'Crear (simple)',
   edit: 'Editar activitat',
   cancel: 'Cancel.lar activitat',
   editFieldTitle: 'Titol',
@@ -46,7 +47,7 @@ export const scheduleLabels = {
 
 export function buildScheduleMenuOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
-  return buildSubmenuReplyKeyboard({ language, rows: [[texts.list, texts.create], [texts.edit, texts.cancel]] });
+  return buildSubmenuReplyKeyboard({ language, rows: [[texts.list, texts.create, texts.createSimple], [texts.edit, texts.cancel]] });
 }
 
 export function buildReminderPreferenceOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {

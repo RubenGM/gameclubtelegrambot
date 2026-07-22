@@ -20,7 +20,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Idioma, menús y ayuda                        | 🟢 Operativo        | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG, Rol y ayuda contextual por sección activa.                                     |
 | Asistente LLM de órdenes naturales           | 🟠 Parcial          | `/ask` para socios y `/adminai` confirmado para abrir opciones admin; lecturas MVP y escrituras generales parciales.                  |
 | Mesas                                        | 🟢 Operativo        | Administración de mesas y consulta de tablas activas para socios.                                                                     |
-| Agenda de actividades                        | 🟢 Operativo        | Crear/listar/editar/cancelar, apuntarse/salir, actividades públicas, conflictos, recordatorios y feeds de noticias.                   |
+| Agenda de actividades                        | 🟢 Operativo        | Crear normal/simple, listar/editar/cancelar, apuntarse/salir, actividades públicas, conflictos, recordatorios y feeds de noticias. |
 | Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
 | Catálogo                                     | 🟢 Operativo        | CRUD, familias, búsqueda, media URL/adjunto con Storage, BGG/Open Library/Wikipedia y procesos con progreso editable.                 |
 | Préstamos                                    | 🟢 Operativo        | Flujo principal, recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.                 |
@@ -214,7 +214,7 @@ Estado: `operativo`.
 
 Implementado:
 
-- `/schedule` con crear, listar, editar, cancelar, detalle por deep link, unirse y salir.
+- `/schedule` con crear, crear en modo simple, listar, editar, cancelar, detalle por deep link, unirse y salir. El botón `Crear (simple)` pide sólo título, fecha y hora y crea directamente una actividad de 180 min, mesa abierta sólo para socios, 4 plazas, 0 ocupadas, sin mesa y sin descripción; el flujo completo conserva todas las opciones avanzadas.
 - Soporte de fecha, hora, duracion, mesa opcional, juego de catalogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, visibilidad pública sólo para mesas abiertas, plazas iniciales ocupadas, capacidad y mensaje extra opcional con adjuntos para detalles.
 - Las actividades públicas siguen apareciendo en las listas internas normales y además permiten que usuarios de Telegram no aprobados abran el deep link de detalle y se apunten, sin convertirlos en socios del club.
 - Si el usuario escribe solo la hora de inicio, el bot pasa a un paso especifico de minutos con botones rapidos (`:00`, `:15`, `:30`, `:45`) y copy propio.

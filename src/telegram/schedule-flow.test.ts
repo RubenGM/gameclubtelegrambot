@@ -630,7 +630,7 @@ test('handleTelegramScheduleText opens the schedule menu from the keyboard actio
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ocells i engines/);
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
-    replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
+    replyKeyboard: [['Veure activitats', 'Crear activitat', 'Crear (simple)'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -923,6 +923,83 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
 });
 
+test('handleTelegramScheduleText creates a simple activity after title, date and time with the documented defaults', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const auditRepository = createAuditRepository();
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, auditRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.createSimple;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create-simple', stepKey: 'title', data: {} });
+
+  context.messageText = 'Cascadia';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create-simple', stepKey: 'date', data: { title: 'Cascadia' } });
+
+  context.messageText = 'Diumenge, 05/04';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create-simple', stepKey: 'time', data: { title: 'Cascadia', date: '2026-04-05' } });
+
+  context.messageText = '16:00';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession(), null);
+
+  const created = await scheduleRepository.findEventById(1);
+  assert.deepEqual(created && {
+    title: created.title,
+    description: created.description,
+    startsAt: created.startsAt,
+    durationMinutes: created.durationMinutes,
+    attendanceMode: created.attendanceMode,
+    isPublic: created.isPublic,
+    initialOccupiedSeats: created.initialOccupiedSeats,
+    capacity: created.capacity,
+    tableId: created.tableId,
+  }, {
+    title: 'Cascadia',
+    description: null,
+    startsAt: '2026-04-05T14:00:00.000Z',
+    durationMinutes: 180,
+    attendanceMode: 'open',
+    isPublic: false,
+    initialOccupiedSeats: 0,
+    capacity: 4,
+    tableId: null,
+  });
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.created');
+  assert.match(replies.at(-1)?.message ?? '', /Activitat creada correctament: <b>Cascadia<\/b>/);
+  assert.deepEqual(replies.at(-1)?.options, {
+    replyKeyboard: [['Veure activitats', 'Crear activitat', 'Crear (simple)'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+    parseMode: 'HTML',
+  });
+});
+
+test('handleTelegramScheduleText creates a simple activity after selecting minutes for an hour-only time', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const { context, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+
+  context.messageText = scheduleLabels.createSimple;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Heat';
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16';
+  await handleTelegramScheduleText(context);
+  assert.deepEqual(getCurrentSession(), {
+    flowKey: 'schedule-create-simple',
+    stepKey: 'time-minute',
+    data: { title: 'Heat', date: '2026-04-05', timeHour: '16' },
+  });
+
+  context.messageText = ':30';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.equal((await scheduleRepository.findEventById(1))?.startsAt, '2026-04-05T14:30:00.000Z');
+});
+
 test('handleTelegramScheduleText asks public visibility after open attendance mode', async () => {
   const { context, replies, getCurrentSession } = createContext({ actorTelegramUserId: 42 });
 
@@ -1128,7 +1205,7 @@ test('handleTelegramScheduleText goes back from the first create step to the act
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /Activitats: tria una acció\./);
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Veure activitats', 'Crear activitat'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
+    replyKeyboard: [['Veure activitats', 'Crear activitat', 'Crear (simple)'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
