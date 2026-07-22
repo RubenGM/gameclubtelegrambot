@@ -19,6 +19,11 @@ export type RoleGameMaterialDeliveryState = 'not_sent' | 'sent' | 'revealed';
 export type RoleGameSessionSource = 'one_shot_initial' | 'manual' | 'recurring';
 export type RoleGameMaterialDeliveryMode = 'send_only' | 'send_and_reveal' | 'reveal_only';
 export type RoleGameMaterialDeliveryStatus = 'sent' | 'failed';
+export type RoleGameNotionSourceStatus = 'active' | 'disabled' | 'error';
+export type RoleGameNotionPageStatus = 'active' | 'trashed' | 'inaccessible';
+export type RoleGameNotionRevisionKind = 'previewed' | 'imported' | 'updated';
+export type RoleGameNotionWebhookEventStatus = 'received' | 'ignored' | 'processed' | 'failed';
+export type RoleGameNotionChangeStatus = 'pending' | 'processing' | 'imported' | 'dismissed' | 'failed' | 'ignored';
 
 export interface RoleGameActor {
   telegramUserId: number;
@@ -120,6 +125,91 @@ export interface RoleGameMaterialDeliveryRecord {
   sentAt: string;
 }
 
+export interface RoleGameNotionSourceRecord {
+  id: number;
+  roleGameId: number;
+  rootPageId: string;
+  rootPageUrl: string;
+  title: string | null;
+  status: RoleGameNotionSourceStatus;
+  linkedByTelegramUserId: number;
+  tokenOwnerTelegramUserId: number | null;
+  encryptedApiToken: string | null;
+  webhookPathSecret: string | null;
+  encryptedWebhookVerificationToken: string | null;
+  lastNotionEditedAt: string | null;
+  lastSyncedAt: string | null;
+  lastWebhookEventId: string | null;
+  lastWebhookEventAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoleGameNotionSourcePageRecord {
+  id: number;
+  sourceId: number;
+  notionPageId: string;
+  parentNotionPageId: string | null;
+  pageUrl: string;
+  title: string | null;
+  status: RoleGameNotionPageStatus;
+  lastNotionEditedAt: string | null;
+  latestContentFingerprint: string | null;
+  latestRoleGameMaterialId: number | null;
+  lastSeenAt: string;
+  firstImportedAt: string | null;
+  lastImportedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoleGameNotionPageRevisionRecord {
+  id: number;
+  sourcePageId: number;
+  roleGameMaterialId: number | null;
+  revisionKind: RoleGameNotionRevisionKind;
+  notionLastEditedAt: string | null;
+  contentHash: string | null;
+  blockIds: string[] | null;
+  renderedContent: string | null;
+  capturedByTelegramUserId: number | null;
+  capturedAt: string;
+}
+
+export interface RoleGameNotionWebhookEventRecord {
+  id: number;
+  eventId: string;
+  sourceId: number | null;
+  sourcePageId: number | null;
+  notionPageId: string | null;
+  eventType: string;
+  entityType: string | null;
+  occurredAt: string | null;
+  receivedAt: string;
+  payload: unknown;
+  payloadFingerprint: string | null;
+  status: RoleGameNotionWebhookEventStatus;
+  error: string | null;
+  processedAt: string | null;
+}
+
+export interface RoleGameNotionChangeRecord {
+  id: number;
+  sourceId: number;
+  sourcePageId: number | null;
+  webhookEventId: number | null;
+  changeKind: string;
+  status: RoleGameNotionChangeStatus;
+  notionLastEditedAt: string | null;
+  details: unknown;
+  error: string | null;
+  reviewedByTelegramUserId: number | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CreateRoleGameInput {
   type: RoleGameType;
   title: string;
@@ -217,6 +307,113 @@ export interface CreateRoleGameMaterialDeliveryInput {
   errorCode: string | null;
 }
 
+export interface UpsertRoleGameNotionSourceInput {
+  roleGameId: number;
+  rootPageId: string;
+  rootPageUrl: string;
+  title: string | null;
+  status: RoleGameNotionSourceStatus;
+  linkedByTelegramUserId: number;
+  tokenOwnerTelegramUserId?: number | null;
+  encryptedApiToken?: string | null;
+  webhookPathSecret?: string | null;
+  encryptedWebhookVerificationToken?: string | null;
+  lastNotionEditedAt?: string | null;
+  lastSyncedAt?: string | null;
+  lastError?: string | null;
+}
+
+export interface UpsertRoleGameNotionSourcePageInput {
+  sourceId: number;
+  notionPageId: string;
+  parentNotionPageId: string | null;
+  pageUrl: string;
+  title: string | null;
+  status: RoleGameNotionPageStatus;
+  lastNotionEditedAt?: string | null;
+  latestContentFingerprint?: string | null;
+  latestRoleGameMaterialId?: number | null;
+  lastSeenAt?: string | null;
+  firstImportedAt?: string | null;
+  lastImportedAt?: string | null;
+}
+
+export interface CreateRoleGameNotionPageRevisionInput {
+  sourcePageId: number;
+  roleGameMaterialId: number | null;
+  revisionKind: RoleGameNotionRevisionKind;
+  notionLastEditedAt: string | null;
+  contentHash: string | null;
+  blockIds: string[] | null;
+  renderedContent: string | null;
+  capturedByTelegramUserId: number | null;
+}
+
+export interface RecordRoleGameNotionWebhookEventInput {
+  eventId: string;
+  sourceId: number | null;
+  sourcePageId: number | null;
+  notionPageId: string | null;
+  eventType: string;
+  entityType: string | null;
+  occurredAt: string | null;
+  payload: unknown;
+  payloadFingerprint: string | null;
+}
+
+export interface CreateRoleGameNotionChangeInput {
+  sourceId: number;
+  sourcePageId: number | null;
+  webhookEventId: number | null;
+  changeKind: string;
+  notionLastEditedAt: string | null;
+  details: unknown;
+}
+
+export interface RoleGameNotionRepository {
+  findSourceByRoleGameId(roleGameId: number): Promise<RoleGameNotionSourceRecord | null>;
+  findSourceByWebhookPathSecret(webhookPathSecret: string): Promise<RoleGameNotionSourceRecord | null>;
+  listSourcesByNotionPageId(notionPageId: string): Promise<RoleGameNotionSourceRecord[]>;
+  listSourcePagesByNotionPageId(notionPageId: string): Promise<RoleGameNotionSourcePageRecord[]>;
+  upsertSource(input: UpsertRoleGameNotionSourceInput): Promise<RoleGameNotionSourceRecord>;
+  deleteSourceForRoleGame(roleGameId: number): Promise<boolean>;
+  setSourceStatus(input: {
+    sourceId: number;
+    status: RoleGameNotionSourceStatus;
+    lastError?: string | null;
+    lastSyncedAt?: string | null;
+  }): Promise<RoleGameNotionSourceRecord>;
+  setSourceWebhookVerificationToken(input: { sourceId: number; encryptedWebhookVerificationToken: string }): Promise<RoleGameNotionSourceRecord>;
+  findSourcePage(sourceId: number, notionPageId: string): Promise<RoleGameNotionSourcePageRecord | null>;
+  listSourcePages(sourceId: number): Promise<RoleGameNotionSourcePageRecord[]>;
+  upsertSourcePage(input: UpsertRoleGameNotionSourcePageInput): Promise<RoleGameNotionSourcePageRecord>;
+  createPageRevision(input: CreateRoleGameNotionPageRevisionInput): Promise<RoleGameNotionPageRevisionRecord>;
+  listPageRevisions(sourcePageId: number): Promise<RoleGameNotionPageRevisionRecord[]>;
+  recordWebhookEvent(input: RecordRoleGameNotionWebhookEventInput): Promise<{
+    event: RoleGameNotionWebhookEventRecord;
+    created: boolean;
+  }>;
+  updateWebhookEvent(input: {
+    eventId: string;
+    status: RoleGameNotionWebhookEventStatus;
+    error?: string | null;
+    processedAt?: string | null;
+  }): Promise<RoleGameNotionWebhookEventRecord>;
+  createChange(input: CreateRoleGameNotionChangeInput): Promise<RoleGameNotionChangeRecord>;
+  listChanges(input: {
+    sourceId: number;
+    statuses?: RoleGameNotionChangeStatus[];
+    limit?: number;
+  }): Promise<RoleGameNotionChangeRecord[]>;
+  updateChange(input: {
+    changeId: number;
+    status: RoleGameNotionChangeStatus;
+    error?: string | null;
+    reviewedByTelegramUserId?: number | null;
+    reviewedAt?: string | null;
+  }): Promise<RoleGameNotionChangeRecord>;
+}
+
 export interface RoleGameRepository {
   createGame(input: CreateRoleGameInput): Promise<RoleGameRecord>;
   findGameById(gameId: number): Promise<RoleGameRecord | null>;
@@ -245,6 +442,7 @@ export interface RoleGameRepository {
   updateMaterialVisibility(input: UpdateRoleGameMaterialVisibilityInput): Promise<RoleGameMaterialRecord>;
   createMaterialDelivery(input: CreateRoleGameMaterialDeliveryInput): Promise<RoleGameMaterialDeliveryRecord>;
   hasMaterialRecipientAccess?(materialId: number, recipientTelegramUserId: number): Promise<boolean>;
+  notion?: RoleGameNotionRepository;
   requestSeat(input: {
     roleGameId: number;
     telegramUserId: number;

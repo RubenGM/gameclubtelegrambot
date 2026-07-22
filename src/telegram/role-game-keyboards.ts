@@ -252,6 +252,7 @@ export function buildRoleGameInvitationResponseKeyboard({
 export function buildRoleGameMaterialsKeyboard({
   canUpload = false,
   canManageCategory = false,
+  canManageNotion = false,
   inCategory = false,
   hasPreviousPage = false,
   hasNextPage = false,
@@ -259,6 +260,7 @@ export function buildRoleGameMaterialsKeyboard({
 }: {
   canUpload?: boolean;
   canManageCategory?: boolean;
+  canManageNotion?: boolean;
   inCategory?: boolean;
   hasPreviousPage?: boolean;
   hasNextPage?: boolean;
@@ -274,6 +276,7 @@ export function buildRoleGameMaterialsKeyboard({
   }
   return buildRoleGameReplyKeyboard(language, [
     ...(canUpload ? [[primaryButton(texts.uploadMaterial)]] : []),
+    ...(canManageNotion ? [[primaryButton(texts.notion)]] : []),
     ...(canManageCategory ? [[primaryButton(texts.createMaterialCategory)]] : []),
     ...(canManageCategory && inCategory ? [
       [primaryButton(texts.sendMaterialCategoryOnly)],

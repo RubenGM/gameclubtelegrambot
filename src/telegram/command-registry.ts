@@ -51,7 +51,7 @@ export interface TelegramCommandRuntime {
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
-    sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
+    sendDocument?(input: { chatId: number; filePath: string; caption?: string; messageThreadId?: number }): Promise<TelegramSentMessage | void>;
     downloadFile?(input: { fileId: string; destinationPath: string; allowLocalBotApi?: boolean }): Promise<void>;
     supportsLargeFileDownload?: boolean;
     editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
@@ -61,6 +61,7 @@ export interface TelegramCommandRuntime {
   llmCommands?: ResolvedLlmCommandConfig;
   llmCommandService?: LlmCommandService;
   llmCommandMetrics?: LlmCommandMetrics;
+  notionCredentialEncryptionKey?: string;
   chat: TelegramChatContext;
   actor: TelegramActor;
   authorization: AuthorizationService;

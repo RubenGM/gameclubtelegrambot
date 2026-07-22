@@ -81,10 +81,10 @@ export function createMiddlewarePipeline({
   const llmCommandMetrics = createAuditLogLlmCommandMetrics({
     database: services.database.db,
   });
+  const notionCredentialEncryptionKey = config.notion?.enabled ? config.notion.credentialEncryptionKey : undefined;
 
   return [
     createErrorHandlingMiddleware({ logger }),
-    createLoggingMiddleware({ logger }),
     createRuntimeContextMiddleware({
       config,
       services,
@@ -95,11 +95,13 @@ export function createMiddlewarePipeline({
       llmCommands,
       llmCommandService,
       llmCommandMetrics,
+      ...(notionCredentialEncryptionKey ? { notionCredentialEncryptionKey } : {}),
     }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
     createActorMiddleware({ services, loadActor }),
     createLanguageMiddleware({ config, languagePreferenceStore }),
     createConversationSessionMiddleware({ store: conversationSessionStore }),
+    createLoggingMiddleware({ logger }),
   ];
 }
 
@@ -252,6 +254,7 @@ function createRuntimeContextMiddleware({
   llmCommands,
   llmCommandService,
   llmCommandMetrics,
+  notionCredentialEncryptionKey,
 }: {
   config: RuntimeConfig;
   services: InfrastructureRuntimeServices;
@@ -262,6 +265,7 @@ function createRuntimeContextMiddleware({
   llmCommands: ReturnType<typeof resolveLlmCommandConfig>;
   llmCommandService: ReturnType<typeof createLlmCommandService>;
   llmCommandMetrics: ReturnType<typeof createAuditLogLlmCommandMetrics>;
+  notionCredentialEncryptionKey?: string;
 }): TelegramMiddleware {
   return async (context, next) => {
     configureTelegramDeepLinks({ botUsername: await resolveBotUsername(bot) });
@@ -294,6 +298,7 @@ function createRuntimeContextMiddleware({
       llmCommands,
       llmCommandService,
       llmCommandMetrics,
+      ...(notionCredentialEncryptionKey ? { notionCredentialEncryptionKey } : {}),
     };
 
     await next();
@@ -385,9 +390,14 @@ function buildTelegramUpdateLogBindings(context: TelegramContextLike): {
     ...(context.chat ? { chatId: context.chat.id, chatType: context.chat.type } : {}),
     ...(context.from ? { telegramUserId: context.from.id } : {}),
     updateKind: resolveTelegramUpdateKind(context),
-    ...(resolveTelegramMessageText(context) ? { messageText: truncateTelegramLogValue(resolveTelegramMessageText(context) ?? '') } : {}),
+    ...(resolveTelegramMessageText(context) ? { messageText: isSensitiveNotionTokenCapture(context) ? '<redacted Notion credential>' : truncateTelegramLogValue(resolveTelegramMessageText(context) ?? '') } : {}),
     ...(resolveTelegramCallbackData(context) ? { callbackData: truncateTelegramLogValue(resolveTelegramCallbackData(context) ?? '') } : {}),
   };
+}
+
+function isSensitiveNotionTokenCapture(context: TelegramContextLike): boolean {
+  const session = context.runtime?.session?.current;
+  return session?.flowKey === 'role-game-notion' && session.stepKey === 'connect-token';
 }
 
 function truncateTelegramLogValue(value: string): string {

@@ -15,6 +15,9 @@
   "bgg": {
     "apiKey": "replace-with-real-bgg-api-key"
   },
+  "notion": {
+    "enabled": false
+  },
   "database": {
     "host": "127.0.0.1",
     "port": 55432,

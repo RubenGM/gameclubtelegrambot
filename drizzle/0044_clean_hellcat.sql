@@ -1,0 +1,4 @@
+DROP INDEX "role_game_notion_changes_webhook_event_id_unique";--> statement-breakpoint
+DROP INDEX "role_game_notion_page_revisions_source_page_hash_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "role_game_notion_changes_webhook_event_id_unique" ON "role_game_notion_changes" USING btree ("webhook_event_id","source_id") WHERE "role_game_notion_changes"."webhook_event_id" is not null;--> statement-breakpoint
+CREATE UNIQUE INDEX "role_game_notion_page_revisions_source_page_hash_unique" ON "role_game_notion_page_revisions" USING btree ("source_page_id","content_hash","revision_kind") WHERE "role_game_notion_page_revisions"."content_hash" is not null;

@@ -130,6 +130,13 @@ import {
   openRoleGameCharacters,
 } from './role-game-character-flow.js';
 import {
+  handleTelegramRoleGameNotionText,
+  isRoleGameNotionSession,
+  openRoleGameNotionBrowsePage,
+  openRoleGameNotion,
+  parseRoleGameNotionBrowseStartPayload,
+} from './role-game-notion-flow.js';
+import {
   createDatabaseAppMetadataSessionStorage,
   type AppMetadataSessionStorage,
 } from './conversation-session-store.js';
@@ -305,6 +312,7 @@ export { roleGameCallbackPrefixes };
 export async function handleTelegramRoleGameAutoSchedulingCommand(context: TelegramRoleGameContext): Promise<void> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).roleGames;
+
   if (!context.runtime.actor.isAdmin || context.runtime.actor.isBlocked) {
     await context.reply(texts.permissionDenied);
     return;
@@ -335,6 +343,21 @@ export async function handleTelegramRoleGameText(context: TelegramRoleGameContex
 
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).roleGames;
+
+  if (isRoleGameNotionSession(context)) {
+    const notionSession = context.runtime.session.current;
+    const notionData = notionSession?.data as { gameId?: unknown; categoryId?: unknown } | undefined;
+    const handled = await handleTelegramRoleGameNotionText(context, text, language);
+    if (handled) return true;
+    if (text === texts.backToMaterials && typeof notionData?.gameId === 'number') {
+      return replyWithRoleGameMaterials(context, {
+        language,
+        gameId: notionData.gameId,
+        page: 1,
+        categoryId: typeof notionData.categoryId === 'number' ? notionData.categoryId : null,
+      });
+    }
+  }
 
   if (isRoleGameCharacterSession(context)) {
     const characterSession = context.runtime.session.current?.data as { gameId?: unknown } | undefined;
@@ -448,6 +471,18 @@ export async function handleTelegramRoleGameMessage(context: TelegramRoleGameCon
 export async function handleTelegramRoleGameStartText(context: TelegramRoleGameContext): Promise<boolean> {
   if (await handleTelegramRoleGameCharacterStartText(context)) {
     return true;
+  }
+  const notionBrowsePage = parseRoleGameNotionBrowseStartPayload(context.messageText);
+  if (
+    notionBrowsePage !== null &&
+    context.runtime.chat.kind === 'private' &&
+    context.runtime.actor.isApproved &&
+    !context.runtime.actor.isBlocked
+  ) {
+    return openRoleGameNotionBrowsePage(context, {
+      language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+      ...notionBrowsePage,
+    });
   }
   const participantDetail = parseRoleGameParticipantStartPayload(context.messageText);
   if (
@@ -1837,6 +1872,7 @@ async function replyWithRoleGameMaterials(
     ...buildRoleGameMaterialsKeyboard({
       canUpload: true,
       canManageCategory: true,
+      canManageNotion: Boolean(context.runtime.notionCredentialEncryptionKey),
       inCategory: currentCategory !== null,
       hasPreviousPage: clampedPage > 1,
       hasNextPage: clampedPage < totalPages,
@@ -2905,6 +2941,9 @@ async function handleRoleGameDetailText(
   if (data.view === 'materials' && text === texts.uploadMaterial) {
     return startRoleGameMaterialUpload(context, { language, gameId: game.id, categoryId: data.materialCategoryId ?? null });
   }
+  if (data.view === 'materials' && text === texts.notion) {
+    return openRoleGameNotion(context, { language, gameId: game.id, categoryId: data.materialCategoryId ?? null });
+  }
   if (data.view === 'materials' && text === texts.createMaterialCategory) {
     await context.runtime.session.start({
       flowKey: 'role-game-detail',
@@ -3728,7 +3767,7 @@ function isRoleGameEditFieldStep(context: TelegramRoleGameContext): boolean {
   return session?.flowKey === roleGameEditFlowKey && session.stepKey === 'field';
 }
 
-function canManageCurrentRoleGame(
+export function canManageCurrentRoleGame(
   context: TelegramRoleGameContext,
   game: RoleGameRecord,
   actorMember: RoleGameMemberRecord | null,
@@ -4485,7 +4524,7 @@ async function findRoleGameHandoutCategory(repository: StorageCategoryRepository
   )) ?? null;
 }
 
-async function ensureRoleGameHandoutCategory(
+export async function ensureRoleGameHandoutCategory(
   context: TelegramRoleGameContext,
   repository: StorageCategoryRepository,
 ): Promise<StorageCategoryRecord | null> {
@@ -4583,7 +4622,7 @@ function isSupportedRoleGameMaterialAttachment(attachmentKind: string): boolean 
   return attachmentKind === 'document' || attachmentKind === 'photo' || attachmentKind === 'video' || attachmentKind === 'audio';
 }
 
-function resolveRepository(context: TelegramRoleGameContext): RoleGameRepository {
+export function resolveRepository(context: TelegramRoleGameContext): RoleGameRepository {
   return context.roleGameRepository ?? createDatabaseRoleGameRepository({
     database: context.runtime.services.database.db,
   });
@@ -4698,7 +4737,7 @@ function resolveRoleGameAutoSchedulingStore(context: TelegramRoleGameContext) {
   return createAppMetadataRoleGameAutoSchedulingStore({ storage });
 }
 
-function resolveStorageRepository(context: TelegramRoleGameContext): StorageCategoryRepository {
+export function resolveStorageRepository(context: TelegramRoleGameContext): StorageCategoryRepository {
   return context.storageRepository ?? createDatabaseStorageRepository({
     database: context.runtime.services.database.db,
   });

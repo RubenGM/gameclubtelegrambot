@@ -62,6 +62,8 @@ El contracte runtime actual inclou:
 - `telegram.token`
 - `bgg.apiKey` opcional per activar BoardGameGeek com a font principal d'importacio de jocs de taula; es fa servir com a bearer token HTTP
 - `translation.deeplApiKey` opcional per activar DeepL com a traductor ràpid de descripcions importades
+- `notion.enabled` opcional; activa les fonts Notion exclusives de cada partida de Rol
+- `notion.credentialEncryptionKey` secret obligatori quan Notion està actiu; xifra localment els tokens que aporta cada DM, no és un token de Notion del club
 - `database.host`
 - `database.port`
 - `database.name`
@@ -135,6 +137,7 @@ Per a secrets, el model recomanat és:
 GAMECLUB_TELEGRAM_TOKEN="telegram-token"
 GAMECLUB_BGG_API_KEY="bgg-api-key"
 GAMECLUB_DEEPL_API_KEY="deepl-api-key"
+GAMECLUB_NOTION_CREDENTIAL_ENCRYPTION_KEY="$(openssl rand -hex 32)"
 GAMECLUB_DATABASE_PASSWORD="super-secret"
 GAMECLUB_ADMIN_PASSWORD_HASH="scrypt:16384:8:1:..."
 ```
@@ -156,6 +159,7 @@ L'editor TUI pot escriure aquest split automàticament:
 - `telegram.*` i `database.*` són configuració operativa; `adminElevation.passwordHash` és un secret derivat persistit, no la contrasenya en clar.
 - `bgg.apiKey` activa BoardGameGeek com a font principal per a la importació de jocs i s'envia com a `Authorization: Bearer ...`; si no hi és, el sistema continua amb Wikipedia com a fallback extrem.
 - `translation.deeplApiKey` activa DeepL com a traductor ràpid per a descripcions importades; si falla o no està configurat, el bot usa Codex com a fallback mitjançant `GAMECLUB_CATALOG_CODEX_BIN` o `GAMECLUB_CODEX_BIN`.
+- `notion.enabled` no configura cap compte del club: permet que cada DM de Rol enviï el seu token d'integració durant el flux privat. `GAMECLUB_NOTION_CREDENTIAL_ENCRYPTION_KEY` ha de ser una clau aleatòria de 32 bytes (64 caràcters hex) exclusivament del servidor, guardada només a `config/.env`, ignorat per Git. `./startup.sh` la copia al fitxer d'entorn del servei; no la configuris només a `/etc`, perquè el desplegament la substituirà. Si es perd, els tokens ja xifrats no es podran recuperar i caldrà que els DM els vinculin de nou.
 - el runtime final mai no necessita recuperar la contrasenya d'elevació original; només necessita poder verificar-la en el futur.
 - `bootstrap.firstAdmin.*` descriu la identitat inicial que el wizard ha de persistir; el sistema no l'ha d'inferir a partir del primer usuari que escriu al bot.
 - `bootstrap.firstAdmin.telegramUserId` és la identitat canònica; `username` només és ajuda humana i no s'ha d'usar com a clau única.

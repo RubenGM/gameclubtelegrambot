@@ -9,6 +9,8 @@ __pycache__/
 config/.env
 config/runtime.local.json
 config/runtime.json
+# Includes GAMECLUB_NOTION_CREDENTIAL_ENCRYPTION_KEY. Per-campaign Notion
+# tokens are encrypted in PostgreSQL and must never be exported to this tree.
 backups/
 data/llm-model-tests/
 *.backup

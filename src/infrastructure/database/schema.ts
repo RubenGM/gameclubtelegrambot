@@ -597,6 +597,157 @@ export const roleGameMaterialDeliveries = pgTable(
   }),
 );
 
+export const roleGameNotionSources = pgTable(
+  'role_game_notion_sources',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    roleGameId: bigint('role_game_id', { mode: 'number' })
+      .notNull()
+      .references(() => roleGames.id, { onDelete: 'cascade' }),
+    rootPageId: varchar('root_page_id', { length: 128 }).notNull(),
+    rootPageUrl: varchar('root_page_url', { length: 2048 }).notNull(),
+    title: varchar('title', { length: 255 }),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    linkedByTelegramUserId: bigint('linked_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    tokenOwnerTelegramUserId: bigint('token_owner_telegram_user_id', { mode: 'number' })
+      .references(() => users.telegramUserId),
+    encryptedApiToken: text('encrypted_api_token'),
+    webhookPathSecret: varchar('webhook_path_secret', { length: 128 }),
+    encryptedWebhookVerificationToken: text('encrypted_webhook_verification_token'),
+    lastNotionEditedAt: timestamp('last_notion_edited_at', { withTimezone: true }),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    lastWebhookEventId: varchar('last_webhook_event_id', { length: 255 }),
+    lastWebhookEventAt: timestamp('last_webhook_event_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    oneSourcePerRoleGame: uniqueIndex('role_game_notion_sources_role_game_id_unique').on(table.roleGameId),
+    rootPageLookup: index('role_game_notion_sources_root_page_id_idx').on(table.rootPageId),
+    webhookPathLookup: uniqueIndex('role_game_notion_sources_webhook_path_unique').on(table.webhookPathSecret).where(sql`${table.webhookPathSecret} is not null`),
+    activeSourceLookup: index('role_game_notion_sources_status_idx').on(table.status),
+  }),
+);
+
+export const roleGameNotionSourcePages = pgTable(
+  'role_game_notion_source_pages',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sourceId: bigint('source_id', { mode: 'number' })
+      .notNull()
+      .references(() => roleGameNotionSources.id, { onDelete: 'cascade' }),
+    notionPageId: varchar('notion_page_id', { length: 128 }).notNull(),
+    parentNotionPageId: varchar('parent_notion_page_id', { length: 128 }),
+    pageUrl: varchar('page_url', { length: 2048 }).notNull(),
+    title: varchar('title', { length: 255 }),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    lastNotionEditedAt: timestamp('last_notion_edited_at', { withTimezone: true }),
+    latestContentFingerprint: varchar('latest_content_fingerprint', { length: 128 }),
+    latestRoleGameMaterialId: bigint('latest_role_game_material_id', { mode: 'number' })
+      .references(() => roleGameMaterials.id, { onDelete: 'set null' }),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
+    firstImportedAt: timestamp('first_imported_at', { withTimezone: true }),
+    lastImportedAt: timestamp('last_imported_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    sourcePageUnique: uniqueIndex('role_game_notion_source_pages_source_page_unique').on(table.sourceId, table.notionPageId),
+    notionPageLookup: index('role_game_notion_source_pages_notion_page_id_idx').on(table.notionPageId),
+    sourceLookup: index('role_game_notion_source_pages_source_id_idx').on(table.sourceId),
+    materialLookup: index('role_game_notion_source_pages_latest_material_id_idx').on(table.latestRoleGameMaterialId),
+  }),
+);
+
+export const roleGameNotionPageRevisions = pgTable(
+  'role_game_notion_page_revisions',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sourcePageId: bigint('source_page_id', { mode: 'number' })
+      .notNull()
+      .references(() => roleGameNotionSourcePages.id, { onDelete: 'cascade' }),
+    roleGameMaterialId: bigint('role_game_material_id', { mode: 'number' })
+      .references(() => roleGameMaterials.id, { onDelete: 'set null' }),
+    revisionKind: varchar('revision_kind', { length: 16 }).notNull(),
+    notionLastEditedAt: timestamp('notion_last_edited_at', { withTimezone: true }),
+    contentHash: varchar('content_hash', { length: 128 }),
+    blockIds: jsonb('block_ids'),
+    renderedContent: text('rendered_content'),
+    capturedByTelegramUserId: bigint('captured_by_telegram_user_id', { mode: 'number' })
+      .references(() => users.telegramUserId),
+    capturedAt: timestamp('captured_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    sourcePageLookup: index('role_game_notion_page_revisions_source_page_id_idx').on(table.sourcePageId),
+    materialLookup: index('role_game_notion_page_revisions_material_id_idx').on(table.roleGameMaterialId),
+    sourcePageRevisionUnique: uniqueIndex('role_game_notion_page_revisions_source_page_hash_unique')
+      .on(table.sourcePageId, table.contentHash, table.revisionKind)
+      .where(sql`${table.contentHash} is not null`),
+  }),
+);
+
+export const roleGameNotionWebhookEvents = pgTable(
+  'role_game_notion_webhook_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    eventId: varchar('event_id', { length: 255 }).notNull(),
+    sourceId: bigint('source_id', { mode: 'number' })
+      .references(() => roleGameNotionSources.id, { onDelete: 'set null' }),
+    sourcePageId: bigint('source_page_id', { mode: 'number' })
+      .references(() => roleGameNotionSourcePages.id, { onDelete: 'set null' }),
+    notionPageId: varchar('notion_page_id', { length: 128 }),
+    eventType: varchar('event_type', { length: 128 }).notNull(),
+    entityType: varchar('entity_type', { length: 64 }),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }),
+    receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow().notNull(),
+    payload: jsonb('payload').notNull(),
+    payloadFingerprint: varchar('payload_fingerprint', { length: 128 }),
+    status: varchar('status', { length: 16 }).notNull().default('received'),
+    error: text('error'),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (table) => ({
+    eventIdUnique: uniqueIndex('role_game_notion_webhook_events_event_id_unique').on(table.eventId),
+    sourceLookup: index('role_game_notion_webhook_events_source_id_idx').on(table.sourceId),
+    pageLookup: index('role_game_notion_webhook_events_notion_page_id_idx').on(table.notionPageId),
+    statusLookup: index('role_game_notion_webhook_events_status_idx').on(table.status),
+  }),
+);
+
+export const roleGameNotionChanges = pgTable(
+  'role_game_notion_changes',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sourceId: bigint('source_id', { mode: 'number' })
+      .notNull()
+      .references(() => roleGameNotionSources.id, { onDelete: 'cascade' }),
+    sourcePageId: bigint('source_page_id', { mode: 'number' })
+      .references(() => roleGameNotionSourcePages.id, { onDelete: 'set null' }),
+    webhookEventId: bigint('webhook_event_id', { mode: 'number' })
+      .references(() => roleGameNotionWebhookEvents.id, { onDelete: 'set null' }),
+    changeKind: varchar('change_kind', { length: 32 }).notNull(),
+    status: varchar('status', { length: 16 }).notNull().default('pending'),
+    notionLastEditedAt: timestamp('notion_last_edited_at', { withTimezone: true }),
+    details: jsonb('details'),
+    error: text('error'),
+    reviewedByTelegramUserId: bigint('reviewed_by_telegram_user_id', { mode: 'number' })
+      .references(() => users.telegramUserId),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    webhookEventUnique: uniqueIndex('role_game_notion_changes_webhook_event_id_unique')
+      .on(table.webhookEventId, table.sourceId)
+      .where(sql`${table.webhookEventId} is not null`),
+    sourceStatusLookup: index('role_game_notion_changes_source_status_idx').on(table.sourceId, table.status),
+    sourcePageLookup: index('role_game_notion_changes_source_page_id_idx').on(table.sourcePageId),
+  }),
+);
+
 export const venueEvents = pgTable('venue_events', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),

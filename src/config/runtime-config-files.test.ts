@@ -93,6 +93,26 @@ test('splitRuntimeConfigForPersistence removes secret values from the JSON paylo
   assert.equal(payload.envValues.GAMECLUB_ADMIN_PASSWORD_HASH, 'hash');
 });
 
+test('splitRuntimeConfigForPersistence keeps per-role-game Notion enabled in JSON and moves its encryption key to env', () => {
+  const payload = splitRuntimeConfigForPersistence({
+    schemaVersion: 1,
+    bot: { publicName: 'Game Club Bot', clubName: 'Game Club', language: 'ca' },
+    telegram: { token: 'telegram-token' },
+    notion: {
+      enabled: true,
+      credentialEncryptionKey: '0123456789012345678901234567890123456789012345678901234567890123',
+    },
+    database: { host: 'localhost', port: 5432, name: 'gameclub', user: 'gameclub_user', password: 'db-password', ssl: false },
+    adminElevation: { passwordHash: 'hash' },
+    bootstrap: { firstAdmin: { telegramUserId: 123456789, displayName: 'Club Administrator' } },
+    notifications: { defaults: { groupAnnouncementsEnabled: true, eventRemindersEnabled: true, eventReminderLeadHours: 24 } },
+    featureFlags: {},
+  });
+
+  assert.deepEqual(payload.jsonConfig.notion, { enabled: true });
+  assert.equal(payload.envValues.GAMECLUB_NOTION_CREDENTIAL_ENCRYPTION_KEY, '0123456789012345678901234567890123456789012345678901234567890123');
+});
+
 test('splitRuntimeConfigForPersistence preserves unrelated existing JSON keys', () => {
   const payload = splitRuntimeConfigForPersistence(
     {

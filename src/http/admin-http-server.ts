@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { mkdir, appendFile, readFile, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
@@ -21,6 +21,10 @@ import { escapeHtml, renderHttpPage, type RenderHttpPageOptions } from './http-p
 import { listHttpThemes } from './http-theme.js';
 import { createDatabaseMemberSignupStore, type MemberSignupRecord, type MemberSignupStore } from './member-signup-store.js';
 import { createAppMetadataWebSettingsStore, type WebSettings, type WebSettingsStore } from './web-settings-store.js';
+import { createNotionWebhookHandler, type NotionWebhookEvent } from '../notion/notion-webhook.js';
+import { decryptNotionCredential, encryptNotionCredential } from '../notion/notion-credential-crypto.js';
+import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalog-store.js';
+import type { RoleGameNotionSourceRecord } from '../role-games/role-game-catalog.js';
 
 export interface AdminHttpServer {
   start(): Promise<void>;
@@ -366,6 +370,11 @@ async function routeRequest(options: {
 }): Promise<void> {
   const { request, response } = options;
   const url = new URL(request.url ?? '/', 'http://localhost');
+
+  if (url.pathname.startsWith('/webhooks/notion/')) {
+    await handleNotionWebhookRequest({ ...options, url });
+    return;
+  }
 
   const assetMatch = url.pathname.match(/^\/assets\/([A-Za-z0-9][A-Za-z0-9._-]{0,160})$/);
   if (request.method === 'GET' && assetMatch?.[1]) {
@@ -1026,6 +1035,143 @@ async function routeRequest(options: {
   }
 
   sendHtml(response, 404, page('No trobat', '<p>Pàgina no trobada.</p>'));
+}
+
+async function handleNotionWebhookRequest(options: {
+  request: IncomingMessage;
+  response: ServerResponse;
+  url: URL;
+  config: RuntimeConfig;
+  logger: CreateAdminHttpServerOptions['logger'];
+  services: InfrastructureRuntimeServices;
+  telegramSender?: HttpTelegramSender;
+}): Promise<void> {
+  const { config, request, response, url } = options;
+  const suppliedSecret = url.pathname.slice('/webhooks/notion/'.length);
+  const encryptionKey = config.notion?.enabled ? config.notion.credentialEncryptionKey : undefined;
+  if (!encryptionKey || !suppliedSecret || suppliedSecret.includes('/')) {
+    sendEmpty(response, 404);
+    return;
+  }
+  if (request.method !== 'POST') {
+    sendEmpty(response, 405, { Allow: 'POST' });
+    return;
+  }
+
+  const rawBody = await readRequestBody(request, maxBodyBytes);
+  const signature = typeof request.headers['x-notion-signature'] === 'string'
+    ? request.headers['x-notion-signature']
+    : undefined;
+  const notionRepository = createDatabaseRoleGameRepository({ database: options.services.database.db }).notion;
+  if (!notionRepository) {
+    sendEmpty(response, 503);
+    return;
+  }
+  const source = await notionRepository.findSourceByWebhookPathSecret(suppliedSecret);
+  if (!source) {
+    sendEmpty(response, 404);
+    return;
+  }
+  const verificationToken = source.encryptedWebhookVerificationToken
+    ? decryptNotionCredential(source.encryptedWebhookVerificationToken, encryptionKey)
+    : undefined;
+
+  const handler = createNotionWebhookHandler({
+    ...(verificationToken ? { verificationToken } : {}),
+    logger: options.logger,
+    onVerificationToken: async (token) => {
+      await notionRepository.setSourceWebhookVerificationToken({
+        sourceId: source.id,
+        encryptedWebhookVerificationToken: encryptNotionCredential(token, encryptionKey),
+      });
+      if (options.telegramSender) {
+        await options.telegramSender.sendPrivateMessage(
+          source.tokenOwnerTelegramUserId ?? source.linkedByTelegramUserId,
+          `Notion ha enviado el token de verificación del webhook de tu partida. Pégalo ahora en el portal de Notion:\n\n${token}`,
+        );
+      }
+    },
+    onEvent: async (event) => {
+      await recordNotionWebhookEvent({
+        event,
+        webhookSource: source,
+        notionRepository,
+        roleGameRepository: createDatabaseRoleGameRepository({ database: options.services.database.db }),
+        ...(options.telegramSender ? { telegramSender: options.telegramSender } : {}),
+      });
+    },
+  });
+  const result = await handler.handle({ rawBody, signature });
+  sendEmpty(response, result.statusCode);
+}
+
+async function recordNotionWebhookEvent({
+  event,
+  webhookSource,
+  notionRepository,
+  roleGameRepository,
+  telegramSender,
+}: {
+  event: NotionWebhookEvent;
+  webhookSource: RoleGameNotionSourceRecord;
+  notionRepository: NonNullable<ReturnType<typeof createDatabaseRoleGameRepository>['notion']>;
+  roleGameRepository: ReturnType<typeof createDatabaseRoleGameRepository>;
+  telegramSender?: HttpTelegramSender;
+}): Promise<void> {
+  const notionPageId = event.entity?.type === 'page' ? event.entity.id : null;
+  const pages = notionPageId ? await notionRepository.listSourcePagesByNotionPageId(notionPageId) : [];
+  const indexedSources = notionPageId ? await notionRepository.listSourcesByNotionPageId(notionPageId) : [];
+  const sources = Array.from(new Map([...indexedSources, webhookSource].map((source) => [source.id, source])).values());
+  const recorded = await notionRepository.recordWebhookEvent({
+    eventId: event.id,
+    // The same Notion page may be deliberately shared by more than one
+    // campaign. Persist the delivery once, then fan it out into one change per
+    // campaign below instead of silently choosing the first source.
+    sourceId: null,
+    sourcePageId: null,
+    notionPageId,
+    eventType: event.type,
+    entityType: event.entity?.type ?? null,
+    occurredAt: event.timestamp,
+    payload: event.raw,
+    payloadFingerprint: createHash('sha256').update(JSON.stringify(event.raw)).digest('hex'),
+  });
+  const changes = await Promise.all(sources.map(async (source) => {
+    const sourcePage = pages.find((page) => page.sourceId === source.id) ?? null;
+    const change = await notionRepository.createChange({
+      sourceId: source.id,
+      sourcePageId: sourcePage?.id ?? null,
+      webhookEventId: recorded.event.id,
+      changeKind: event.type,
+      notionLastEditedAt: event.timestamp,
+      details: { notionPageId, entityType: event.entity?.type ?? null },
+    });
+    return { change, source, sourcePage };
+  }));
+  await notionRepository.updateWebhookEvent({ eventId: event.id, status: 'processed', processedAt: new Date().toISOString() });
+  if (!telegramSender) return;
+  await Promise.all(changes.map(async ({ source, sourcePage }) => {
+    const members = await roleGameRepository.listMembers(source.roleGameId);
+    const recipients = members.filter((member) => (
+      member.status === 'confirmed' && (member.role === 'primary_gm' || member.role === 'coorganizer')
+    ));
+    const pageLabel = sourcePage?.title ?? notionPageId ?? 'una página nueva o aún no indexada';
+    await Promise.all(recipients.map(async (member) => {
+      try {
+        await telegramSender.sendPrivateMessage(
+          member.telegramUserId,
+          `Notion ha detectado un cambio en «${pageLabel}» de la campaña. Está pendiente de revisión en Rol > Materiales > Notion; no se ha enviado nada a jugadores.`,
+        );
+      } catch {
+        // The queue is authoritative; a private notification is best effort.
+      }
+    }));
+  }));
+}
+
+function sendEmpty(response: ServerResponse, statusCode: number, headers: Record<string, string> = {}): void {
+  response.writeHead(statusCode, headers);
+  response.end();
 }
 
 async function readForm(request: IncomingMessage): Promise<URLSearchParams> {

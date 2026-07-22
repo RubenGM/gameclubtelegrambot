@@ -192,7 +192,7 @@ export interface TelegramRuntime {
     forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
     sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
     sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
-    sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
+    sendDocument?(input: { chatId: number; filePath: string; caption?: string; messageThreadId?: number }): Promise<TelegramSentMessage | void>;
     downloadFile?(input: { fileId: string; destinationPath: string; allowLocalBotApi?: boolean }): Promise<void>;
     supportsLargeFileDownload?: boolean;
     editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
@@ -233,7 +233,7 @@ export interface TelegramBotLike {
   forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
   sendAnimation?(input: { chatId: number; animationFileId: string; caption?: string; messageThreadId?: number; options?: TelegramReplyOptions }): Promise<void>;
-  sendDocument?(input: { chatId: number; filePath: string; caption?: string }): Promise<void>;
+  sendDocument?(input: { chatId: number; filePath: string; caption?: string; messageThreadId?: number }): Promise<TelegramSentMessage | void>;
   downloadFile?(input: { fileId: string; destinationPath: string; allowLocalBotApi?: boolean }): Promise<void>;
   supportsLargeFileDownload?: boolean;
   editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
@@ -624,10 +624,15 @@ function createGrammyTelegramBot({
         }),
       );
     },
-    async sendDocument({ chatId, filePath, caption }) {
-      await withTelegramApiRetry(retryOptions('sendDocument'), () =>
-        bot.api.sendDocument(chatId, new InputFile(filePath), caption ? { caption } : undefined),
+    async sendDocument({ chatId, filePath, caption, messageThreadId }) {
+      const result = await withTelegramApiRetry(retryOptions('sendDocument'), () =>
+        bot.api.sendDocument(chatId, new InputFile(filePath), {
+          ...(caption ? { caption } : {}),
+          ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+        }),
       );
+      const messageId = resolveTelegramMessageId(result);
+      return messageId ? { messageId } : undefined;
     },
     async downloadFile({ fileId, destinationPath, allowLocalBotApi }) {
       if (allowLocalBotApi === true && localBotApi?.enabled === true) {

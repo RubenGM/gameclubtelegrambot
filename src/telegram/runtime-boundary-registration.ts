@@ -99,6 +99,7 @@ import {
   handleTelegramRoleGameAutoSchedulingAdminText,
   roleGameAutoSchedulingAdminCallbackPrefixes,
 } from './role-game-auto-scheduling-admin-flow.js';
+import { openRoleGameNotion } from './role-game-notion-flow.js';
 import {
   handleTelegramLlmAskCommand,
   handleTelegramLlmCallback,
@@ -1754,6 +1755,29 @@ function createDefaultCommands({
       },
       handle: async (context) => {
         await handleTelegramRoleGameText({ ...context, messageText: '/role_games' });
+      },
+    },
+    {
+      command: 'notion',
+      contexts: ['private'],
+      access: 'approved',
+      descriptionByLanguage: {
+        ca: 'Obre la font de Notion d’una partida de rol',
+        es: 'Abre la fuente de Notion de una partida de rol',
+        en: 'Open a role-playing game Notion source',
+      },
+      handle: async (context) => {
+        const gameId = Number(context.messageText?.trim().split(/\s+/)[1]);
+        const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+        if (!Number.isSafeInteger(gameId) || gameId <= 0) {
+          await context.reply(language === 'ca'
+            ? 'Ús: /notion <id_de_partida>. Obre la partida des de Rol per veure el seu ID o accedir als seus materials.'
+            : language === 'es'
+              ? 'Uso: /notion <id_de_partida>. Abre la partida desde Rol para ver su ID o acceder a sus materiales.'
+              : 'Usage: /notion <game_id>. Open the game from Role-playing to access its materials.');
+          return;
+        }
+        await openRoleGameNotion(context, { gameId, categoryId: null, language });
       },
     },
     {

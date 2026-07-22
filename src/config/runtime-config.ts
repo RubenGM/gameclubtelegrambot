@@ -78,6 +78,22 @@ const defaultNotificationDefaults = {
   eventReminderLeadHours: 24,
 } as const;
 
+const notionConfigSchema = z
+  .object({
+    enabled: booleanFromEnvSchema.default(false),
+    credentialEncryptionKey: z.string().trim().min(32).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.enabled && !value.credentialEncryptionKey) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['credentialEncryptionKey'],
+        message: 'Required when notion.enabled is true',
+      });
+    }
+  })
+  .optional();
+
 export const runtimeConfigSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   bot: z.object({
@@ -102,6 +118,7 @@ export const runtimeConfigSchema = z.object({
       deeplApiUrl: z.string().trim().url().optional(),
     })
     .optional(),
+  notion: notionConfigSchema,
   database: z.object({
     host: z.string().trim().min(1),
     port: z.number().int().min(1).max(65535),

@@ -93,6 +93,37 @@ test('loadRuntimeConfig accepts optional local Bot API settings for large file d
   assert.equal(config.telegram.localBotApi.dataDir, '/srv/gameclub/telegram-bot-api');
 });
 
+test('loadRuntimeConfig enables per-role-game Notion only with its local encryption key', async () => {
+  const config = await loadRuntimeConfig({
+    env: {
+      GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+      GAMECLUB_NOTION_CREDENTIAL_ENCRYPTION_KEY: '0123456789012345678901234567890123456789012345678901234567890123',
+    },
+    readConfigFile: async () => JSON.stringify({
+      ...JSON.parse(validConfigJson),
+      notion: { enabled: true },
+    }),
+  });
+
+  assert.deepEqual(config.notion, {
+    enabled: true,
+    credentialEncryptionKey: '0123456789012345678901234567890123456789012345678901234567890123',
+  });
+});
+
+test('loadRuntimeConfig rejects enabled Notion without its local encryption key', async () => {
+  await assert.rejects(
+    () => loadRuntimeConfig({
+      env: {
+        GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+      },
+      readConfigFile: async () => JSON.stringify({ ...JSON.parse(validConfigJson), notion: { enabled: true } }),
+      readEnvFile: async () => '',
+    }),
+    /notion\.credentialEncryptionKey/,
+  );
+});
+
 test('loadRuntimeConfig fails when local Bot API is enabled without app credentials', async () => {
   await assert.rejects(
     () =>
