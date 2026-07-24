@@ -53,6 +53,7 @@
         "lfg.list",
         "lfg.create",
         "news.status",
+        "feedback.offer",
         "clarify",
         "unsupported"
       ]

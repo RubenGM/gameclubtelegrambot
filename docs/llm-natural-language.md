@@ -20,6 +20,10 @@ parámetros, propone mensajes y devuelve JSON. El bot valida ese JSON, aplica
 permisos, consulta repositorios internos y decide si ejecuta una lectura, pide
 confirmación o deriva al flujo normal.
 
+La generación de imágenes de `Generación de imágenes` es una integración Codex
+separada y no una capacidad de `/ask`: su operación y permisos están descritos
+en `docs/image-generation.md`.
+
 ## Entradas de usuario
 
 La feature se activa por estas vías:
@@ -31,6 +35,12 @@ La feature se activa por estas vías:
 - Menciones al bot en grupos o topics, únicamente cuando `@username` aparece al
   principio del mensaje, después de espacios iniciales.
 - Replies a mensajes del bot en grupos o privado.
+
+Una mención inicial que sólo contiene `@username` no llega a la LLM. Si la
+persona ya ha iniciado conversación privada antes, el bot le envía allí el
+inicio y su menú raíz, igual que con `Inicio`. Si todavía no puede recibir
+mensajes privados del bot, responde en el grupo con el enlace y las
+instrucciones para abrir el privado y ejecutar `/start`.
 
 En grupos y topics sólo se responden lecturas cuando hay una mención explícita al
 principio del mensaje o el usuario responde realmente a un mensaje suyo. Las
@@ -383,9 +393,18 @@ LLM para permitir preguntas sobre la ficha.
 Antes del fallback LLM, el bot puede ofrecer recoger feedback ante una señal de
 frustración o insulto detectada localmente. Esta detección sólo funciona en
 privado para socios aprobados y no bloqueados, usa diccionarios y frases fijas
-en catalán, español e inglés, no invoca ningún modelo y no captura
+en catalán, español e inglés (incluido `eres burro`), no invoca ningún modelo y no captura
 flujos activos; al aceptar, el usuario escribe el feedback que se guarda en el
 mismo fichero que el formulario web.
+
+El intérprete LLM también reconoce insultos dirigidos explícitamente al bot o a
+una de sus respuestas mediante `feedback.offer`. En privado cancela la sesión
+LLM y abre el mismo proceso de consentimiento; en grupos/topics ofrece un
+enlace de inicio al privado. Esta clasificación es semántica y cubre catalán,
+castellano e inglés con faltas, acentos omitidos, letras repetidas, puntuación
+extraña, abreviaturas, sarcasmo o insultos creativos; aun así no debe activar
+feedback por insultos entre personas, autoinsultos, citas, ejemplos educativos
+ni contenido que no se dirija al bot.
 
 ## Observabilidad y fallos
 

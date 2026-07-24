@@ -10,6 +10,11 @@ export const telegramFeedbackFlowKey = 'telegram-feedback';
 
 export type TelegramFeedbackDetection = 'insult' | 'frustration';
 
+export interface TelegramFeedbackOffer {
+  message: string;
+  options: TelegramReplyOptions;
+}
+
 const insultingWords = new Set([
   'idiota',
   'imbecil',
@@ -27,6 +32,8 @@ const insultingWords = new Set([
   'pallassa',
   'idiot',
   'moron',
+  'burro',
+  'burra',
 ]);
 
 const frustrationPhrases = [
@@ -182,14 +189,33 @@ export async function offerTelegramFeedbackForLocalFrustration(
     return false;
   }
 
+  const offer = await startTelegramFeedbackOffer(context, detection);
+  if (!offer) {
+    return false;
+  }
+
+  await context.reply(offer.message, offer.options);
+  return true;
+}
+
+export async function startTelegramFeedbackOffer(
+  context: TelegramCommandHandlerContext,
+  detection: TelegramFeedbackDetection,
+): Promise<TelegramFeedbackOffer | null> {
+  if (context.runtime.chat.kind !== 'private' || !canUseTelegramFeedback(context)) {
+    return null;
+  }
+
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   await context.runtime.session.start({
     flowKey: telegramFeedbackFlowKey,
     stepKey: 'offer',
-    data: { detection },
+      data: { detection },
   });
-  await context.reply(feedbackTexts[language].offer, buildOfferKeyboard(language));
-  return true;
+  return {
+    message: feedbackTexts[language].offer,
+    options: buildOfferKeyboard(language),
+  };
 }
 
 function canUseTelegramFeedback(context: TelegramCommandHandlerContext): boolean {

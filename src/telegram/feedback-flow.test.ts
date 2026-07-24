@@ -16,6 +16,7 @@ import type { TelegramCommandHandlerContext } from './command-registry.js';
 
 test('detectLocalBotFrustration uses local dictionaries with accent-insensitive matching', () => {
   assert.equal(detectLocalBotFrustration('Este bot es inútil'), 'insult');
+  assert.equal(detectLocalBotFrustration('Eres burro'), 'insult');
   assert.equal(detectLocalBotFrustration('Vaya desastre, no funciona nada'), 'frustration');
   assert.equal(detectLocalBotFrustration('Aquest bot és inútil'), 'insult');
   assert.equal(detectLocalBotFrustration('Això no serveix per a res'), 'frustration');

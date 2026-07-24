@@ -40,7 +40,7 @@ import {
 } from './conversation-session-store.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { resumeTelegramEditableProgress, startTelegramEditableProgress } from './editable-progress.js';
-import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+import { createTelegramI18n, normalizeBotLanguage, supportedBotLanguages } from './i18n.js';
 import type { TelegramInlineButton, TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { escapeHtml } from './schedule-presentation.js';
 import { buildGlobalNavigationRow, buildPersistentReplyKeyboard } from './submenu-keyboards.js';
@@ -879,6 +879,9 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   const i18n = createTelegramI18n(language);
   const texts = i18n.storage;
   const actionMenuTexts = i18n.actionMenu;
+  if (isCatalogSearchButtonText(text)) {
+    return false;
+  }
   if (
     context.runtime.session.current?.flowKey === storageUploadFlowKey &&
     context.runtime.session.current.stepKey === 'upload-category' &&
@@ -1216,6 +1219,10 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
   }
 
   return false;
+}
+
+function isCatalogSearchButtonText(text: string): boolean {
+  return supportedBotLanguages.some((language) => text === createTelegramI18n(language).catalogAdmin.searchByName);
 }
 
 async function handleActiveSubscribeFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {

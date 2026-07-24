@@ -10,6 +10,7 @@ export type LlmCommandRouteOutcome =
   | { type: 'private_chat_required'; message: string; targetIntent: string }
   | { type: 'admin_rejected'; message: string }
   | { type: 'permission_denied'; message: string }
+  | { type: 'feedback_offer' }
   | { type: 'confidence_too_low'; message: string; threshold: number }
   | { type: 'unsupported'; message: string };
 
@@ -40,6 +41,10 @@ export function routeLlmCommandDecision(
 
   if ((capability.requiresApprovedMember || decision.safety.requiresApprovedMember) && !context.isApproved) {
     return { type: 'permission_denied', message: 'Necesitas tener acceso aprobado para usar esta función.' };
+  }
+
+  if (decision.intent === 'feedback.offer') {
+    return { type: 'feedback_offer' };
   }
 
   if (decision.needsClarification) {

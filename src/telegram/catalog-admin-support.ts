@@ -251,7 +251,7 @@ export const catalogAdminLabels = {
   listExpansions: 'Llistar expansions',
   listBooks: 'Llistar llibres',
   listRpgBooks: 'Llistar llibres RPG',
-  searchByName: 'Cerca per nom',
+  searchByName: 'Cerca al catàleg',
   importBggCollection: 'Importar col·lecció BGG',
   edit: 'Editar ítem',
   addMedia: 'Afegir mèdia',

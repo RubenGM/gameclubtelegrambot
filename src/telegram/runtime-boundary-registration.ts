@@ -78,6 +78,7 @@ import {
 } from './command-registry.js';
 import { createAppMetadataTelegramLanguagePreferenceStore } from './language-preference-store.js';
 import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
+import { createConversationSessionKey } from './conversation-session.js';
 import { createTelegramI18n, normalizeBotLanguage, supportedBotLanguages } from './i18n.js';
 import { handleTelegramLanguageCommand, handleTelegramLanguageText } from './language-flow.js';
 import {
@@ -110,6 +111,7 @@ import {
 import {
   handleTelegramFeedbackSessionText,
   offerTelegramFeedbackForLocalFrustration,
+  startTelegramFeedbackOffer,
 } from './feedback-flow.js';
 import {
   adminAiCallbackPrefixes,
@@ -141,6 +143,8 @@ import {
   handleTelegramPrintText,
 } from './print-flow.js';
 import { handleTelegramPrinterAdminStartText, handleTelegramPrinterAdminText } from './printer-admin-flow.js';
+import { handleTelegramImageGenerationMessage, handleTelegramImageGenerationText } from './image-generation-flow.js';
+import { handleTelegramImageGenerationAdminStartText, handleTelegramImageGenerationAdminText } from './image-generation-admin-flow.js';
 import { buildTodayAtClubSummary } from './today-at-club-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { renderTelegramMessageTextAsHtml } from './telegram-entity-html.js';
@@ -306,6 +310,10 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramImageGenerationText(context)) {
+      return;
+    }
+
     if (await handleTelegramMemberMenuDebugText(context)) {
       return;
     }
@@ -368,6 +376,10 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramImageGenerationAdminText(context)) {
+      return;
+    }
+
     if (await handleTelegramCalendarText(context)) {
       return;
     }
@@ -388,6 +400,10 @@ function registerTextHandlers({
 
     if (await handleTelegramCatalogReadText(context)) {
       setActiveHelpSection(context, 'catalog');
+      return;
+    }
+
+    if (await handleEmptyLeadingBotMention(context, { publicName })) {
       return;
     }
 
@@ -437,6 +453,10 @@ function registerMessageHandlers({
     }
 
     if (await handleTelegramPrintMessage(withPrintCompletionNavigation(context))) {
+      return;
+    }
+
+    if (await handleTelegramImageGenerationMessage(context)) {
       return;
     }
 
@@ -1838,6 +1858,24 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'imagegen',
+      contexts: ['private'],
+      access: 'approved',
+      descriptionByLanguage: { ca: 'Genera una imatge amb Codex', es: 'Genera una imagen con Codex', en: 'Generate an image with Codex' },
+      handle: async (context) => {
+        await handleTelegramImageGenerationText({ ...context, messageText: '/imagegen' });
+      },
+    },
+    {
+      command: 'imagegen_admin',
+      contexts: ['private'],
+      access: 'admin',
+      descriptionByLanguage: { ca: 'Gestiona accessos de generació d’imatges', es: 'Gestiona accesos de generación de imágenes', en: 'Manage image generation access' },
+      handle: async (context) => {
+        await handleTelegramImageGenerationAdminText({ ...context, messageText: '/imagegen_admin' });
+      },
+    },
+    {
       command: 'news',
       contexts: ['group', 'group-news'],
       access: 'admin',
@@ -2000,6 +2038,14 @@ function createDefaultCommands({
           return;
         }
 
+        if (startPayload === 'feedback_insult') {
+          const offer = await startTelegramFeedbackOffer(context, 'insult');
+          if (offer) {
+            await context.reply(offer.message, offer.options);
+            return;
+          }
+        }
+
         if (await handleWelcomeTemplateAdminStartPayload(context, startPayload)) {
           return;
         }
@@ -2035,6 +2081,9 @@ function createDefaultCommands({
           return;
         }
         if (await handleTelegramPrinterAdminStartText({ ...context })) {
+          return;
+        }
+        if (await handleTelegramImageGenerationAdminStartText({ ...context })) {
           return;
         }
         if (await handleTelegramVenueEventAdminStartText({ ...context })) {
@@ -2371,6 +2420,97 @@ async function buildStartReply({
         }
       : undefined,
   };
+}
+
+async function handleEmptyLeadingBotMention(
+  context: TelegramCommandHandlerContext,
+  { publicName }: { publicName: string },
+): Promise<boolean> {
+  if (!isEmptyLeadingBotMention(context)) {
+    return false;
+  }
+
+  const membershipRepository = createDatabaseMembershipAccessRepository({
+    database: context.runtime.services.database.db,
+  });
+  const existingUser = await membershipRepository.findUserByTelegramUserId(context.runtime.actor.telegramUserId);
+  if (!existingUser) {
+    const startReply = await buildStartReply({ context, publicName, version: APP_VERSION });
+    await context.reply(startReply.message, startReply.options);
+    return true;
+  }
+
+  await cancelPrivateConversationSession(context);
+  const privateStartContext = createPrivateStartContext(context);
+  const startReply = await buildStartReply({
+    context: privateStartContext,
+    publicName,
+    version: APP_VERSION,
+  });
+
+  try {
+    await context.runtime.bot.sendPrivateMessage(
+      context.runtime.actor.telegramUserId,
+      startReply.message,
+      startReply.options,
+    );
+  } catch (error) {
+    context.runtime.logger?.warn?.(
+      {
+        error: error instanceof Error ? error.message : String(error),
+        telegramUserId: context.runtime.actor.telegramUserId,
+      },
+      'telegram.empty-mention.private-handoff.failed',
+    );
+    const groupStartReply = await buildStartReply({ context, publicName, version: APP_VERSION });
+    await context.reply(groupStartReply.message, groupStartReply.options);
+  }
+
+  return true;
+}
+
+function isEmptyLeadingBotMention(context: TelegramCommandHandlerContext): boolean {
+  if (context.runtime.chat.kind === 'private') {
+    return false;
+  }
+
+  const username = context.runtime.bot.username;
+  if (!username) {
+    return false;
+  }
+
+  return new RegExp(`^\\s*@${escapeRegExp(username)}\\b\\s*$`, 'i').test(context.messageText ?? '');
+}
+
+async function cancelPrivateConversationSession(context: TelegramCommandHandlerContext): Promise<void> {
+  const storage = createDatabaseAppMetadataSessionStorage({
+    database: context.runtime.services.database.db,
+  });
+  await storage.delete(createConversationSessionKey({
+    chatId: context.runtime.actor.telegramUserId,
+    userId: context.runtime.actor.telegramUserId,
+  }));
+}
+
+function createPrivateStartContext(context: TelegramCommandHandlerContext): TelegramCommandHandlerContext {
+  return {
+    ...context,
+    runtime: {
+      ...context.runtime,
+      chat: {
+        kind: 'private',
+        chatId: context.runtime.actor.telegramUserId,
+      },
+      session: {
+        ...context.runtime.session,
+        current: null,
+      },
+    },
+  };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function buildTodayAtClubSummaryForStart(
@@ -2959,6 +3099,10 @@ async function handleTelegramActionMenuText(
       return handleTelegramPrintText(withPrintCompletionNavigation({ ...context, messageText: selection.label }));
     }
 
+    if (selection.actionId === 'image_generation') {
+      return handleTelegramImageGenerationText({ ...context, messageText: selection.label });
+    }
+
     if (selection.actionId === 'update_bgg') {
       const handled = await handleTelegramCatalogAdminText({ ...context, messageText: '/update_bgg' });
       if (handled) {
@@ -2977,6 +3121,10 @@ async function handleTelegramActionMenuText(
 
     if (selection.actionId === 'printer_admin') {
       return handleTelegramPrinterAdminText({ ...context, messageText: selection.label });
+    }
+
+    if (selection.actionId === 'image_generation_admin') {
+      return handleTelegramImageGenerationAdminText({ ...context, messageText: selection.label });
     }
 
     const localizedContext = { ...context, messageText: selection.label };

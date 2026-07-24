@@ -1,5 +1,6 @@
 import type { AuthorizationService } from '../authorization/service.js';
 import { printPermissionKey } from '../printing/print-permissions.js';
+import { imageGenerationPermissionKey } from '../image-generation/image-generation-permissions.js';
 import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
@@ -172,6 +173,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
       (context.actor.isAdmin || context.authorization.can(printPermissionKey)),
   },
   {
+    id: 'image_generation',
+    label: (language) => createTelegramI18n(language).actionMenu.imageGeneration,
+    telemetryActionKey: 'menu.image_generation',
+    uxSection: 'primary',
+    buttonRole: 'primary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked && (context.actor.isAdmin || context.authorization.can(imageGenerationPermissionKey)),
+  },
+  {
     id: 'ask_bot',
     label: (language) => createTelegramI18n(language).actionMenu.askBot,
     telemetryActionKey: 'menu.ask_bot',
@@ -280,6 +290,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isAdmin,
   },
   {
+    id: 'image_generation_admin',
+    label: (language) => createTelegramI18n(language).actionMenu.imageGenerationAdmin,
+    telemetryActionKey: 'menu.image_generation_admin',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'language',
     label: (language) => createTelegramI18n(language).actionMenu.language,
     telemetryActionKey: 'menu.language',
@@ -335,12 +354,12 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-default',
     matches: (context) => context.chat.kind === 'private' && context.session === null && context.actor.isAdmin,
-    rows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'role_games'], ['notices', 'change_display_name'], ['admin'], ['print'], ['ask_bot'], ['language', 'help']],
+    rows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'role_games'], ['notices', 'change_display_name'], ['admin'], ['print', 'image_generation'], ['ask_bot'], ['language', 'help']],
   },
   {
     id: 'private-admin-tools',
     matches: () => false,
-    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['role_game_auto_scheduling', 'printer_admin'], ['member_debug'], ['start', 'help']],
+    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['role_game_auto_scheduling', 'printer_admin'], ['image_generation_admin'], ['member_debug'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',
@@ -349,7 +368,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
       context.session === null &&
       context.actor.isApproved &&
       !context.actor.isAdmin,
-    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['role_games', 'notices'], ['change_display_name'], ['print'], ['ask_bot'], ['language', 'help']],
+    rows: [['schedule', 'tables_read'], ['catalog', 'storage'], ['group_purchases', 'lfg'], ['role_games', 'notices'], ['change_display_name'], ['print', 'image_generation'], ['ask_bot'], ['language', 'help']],
   },
   {
     id: 'private-pending-default',

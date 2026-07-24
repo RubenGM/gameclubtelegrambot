@@ -32,6 +32,7 @@ import {
   handleTelegramCatalogAdminText,
   type TelegramCatalogAdminContext,
 } from './catalog-admin-flow.js';
+import { createTelegramI18n, supportedBotLanguages } from './i18n.js';
 
 function successButton(text: string) {
   return { text, semanticRole: 'success' as const };
@@ -576,7 +577,7 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
     ['Préstamos activos'],
     ['Listar juegos de mesa', 'Listar libros'],
     ['Listar libros RPG', 'Listar expansiones'],
-    ['Buscar por nombre', 'Importar colección BGG'],
+    ['Búsqueda en catálogo', 'Importar colección BGG'],
     ['Inicio', 'Ayuda'],
   ]);
 
@@ -592,9 +593,21 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
   context.messageText = 'Listar expansiones';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  context.messageText = 'Buscar por nombre';
+  context.messageText = 'Búsqueda en catálogo';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /Escribe el nombre, o parte del nombre,/);
+});
+
+test('handleTelegramCatalogAdminText accepts every localized catalog-search button', async () => {
+  for (const language of supportedBotLanguages) {
+    const { context, replies, getCurrentSession } = createContext({ language });
+    context.messageText = createTelegramI18n(language).catalogAdmin.searchByName;
+
+    assert.equal(await handleTelegramCatalogAdminText(context), true, language);
+    assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-browse', language);
+    assert.equal(getCurrentSession()?.stepKey, 'search-query', language);
+    assert.match(replies.at(-1)?.message ?? '', /nombre|nom|name/i, language);
+  }
 });
 
 test('handleTelegramCatalogAdminText rejects BGG collection import for non-admin members', async () => {

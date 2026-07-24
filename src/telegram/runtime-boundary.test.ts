@@ -3167,6 +3167,102 @@ test('group start reply explains private-chat usage and offers a private button'
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 });
 
+test('an empty leading bot mention opens Inicio privately for a known user and guides a new user publicly', async () => {
+  const textHandlers: TelegramCommandHandler[] = [];
+  registerHandlers({
+    bot: {
+      username: 'gameclub_test_bot',
+      use: () => {},
+      onCommand: () => {},
+      onCallback: () => {},
+      onText: (handler: TelegramCommandHandler) => {
+        textHandlers.push(handler);
+      },
+      sendPrivateMessage: async () => {},
+      startPolling: async () => {},
+      stopPolling: async () => {},
+    },
+    publicName: 'Game Club Bot',
+    adminElevationPasswordHash: 'hashed:admin-secret',
+  });
+
+  const textHandler = textHandlers[0];
+  assert.ok(textHandler);
+
+  const newUserReplies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  await textHandler({
+    messageText: '@gameclub_test_bot',
+    reply: async (message: string, options?: TelegramReplyOptions) => {
+      newUserReplies.push(options ? { message, options } : { message });
+    },
+    runtime: createRuntimeForMembershipTest({
+      database: createMembershipDatabaseStub({
+        membershipUsers: new Map(),
+        statusAuditLog: [],
+        auditEvents: [],
+      }),
+      chat: { kind: 'group', chatId: -1001 },
+      actor: {
+        telegramUserId: 77,
+        status: 'pending',
+        isApproved: false,
+        isBlocked: false,
+        isAdmin: false,
+        permissions: [],
+      },
+    }),
+  } as unknown as TelegramCommandHandlerContext);
+
+  assert.match(newUserReplies[0]?.message ?? '', /chat privado/i);
+  assert.deepEqual(newUserReplies[0]?.options?.inlineKeyboard, [[{
+    text: 'Abrir chat privado',
+    url: 'https://t.me/gameclub_test_bot?start=from_group',
+  }]]);
+
+  const membershipUsers = new Map([
+    [77, {
+      telegramUserId: 77,
+      username: 'agatha',
+      displayName: 'Agatha',
+      status: 'approved',
+      isAdmin: false,
+    }],
+  ]);
+  const privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const knownUserRuntime = createRuntimeForMembershipTest({
+    database: createMembershipDatabaseStub({ membershipUsers, statusAuditLog: [], auditEvents: [] }),
+    chat: { kind: 'group', chatId: -1001 },
+    actor: {
+      telegramUserId: 77,
+      status: 'approved',
+      isApproved: true,
+      isBlocked: false,
+      isAdmin: false,
+      permissions: [],
+    },
+  });
+  knownUserRuntime.bot.sendPrivateMessage = async (telegramUserId, message, options) => {
+    privateMessages.push(options ? { telegramUserId, message, options } : { telegramUserId, message });
+  };
+
+  await textHandler({
+    messageText: '  @gameclub_test_bot  ',
+    reply: async () => {},
+    runtime: knownUserRuntime,
+  } as unknown as TelegramCommandHandlerContext);
+
+  assert.equal(privateMessages[0]?.telegramUserId, 77);
+  assert.match(privateMessages[0]?.message ?? '', /Bienvenido a Game Club Bot/);
+  assert.deepEqual(replyKeyboardLabels(privateMessages[0]?.options?.replyKeyboard), [
+    ['Actividades', 'Mesas'],
+    ['Catálogo', 'Almacenamiento'],
+    ['Compras conjuntas', 'LFG (buscar grupo)'],
+    ['Rol', 'Avisos'],
+    ['Cambiar nombre de usuario'],
+    ['Idioma', 'Ayuda'],
+  ]);
+});
+
 test('/autojoin enabled stores group autojoin for admins', async () => {
   const commandHandlers = new Map<string, TelegramCommandHandler>();
   const replies: string[] = [];

@@ -16,6 +16,8 @@ import { executeTelegramLlmReadAction } from './llm-command-read-actions.js';
 import { startTelegramEditableProgress, type TelegramEditableProgress } from './editable-progress.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
+import { feedbackTexts } from './i18n-feedback.js';
+import { startTelegramFeedbackOffer } from './feedback-flow.js';
 import {
   createAppMetadataLlmModelSettingsStore,
   defaultLlmModelSettings,
@@ -93,15 +95,17 @@ export async function handleTelegramLlmFallbackText(context: TelegramLlmCommandC
   }
 
   const config = getLlmCommandConfig(context);
+  const groupMentionText = stripBotMention(context, text);
   if (
     config?.enabled &&
     isExplicitGroupLlmRequest(context, text) &&
+    groupMentionText.length > 0 &&
     context.runtime.actor.isApproved &&
     !context.runtime.actor.isBlocked
   ) {
     await handleTelegramLlmCommandText(context, {
       source: 'group_mention',
-      text: stripBotMention(context, text),
+      text: groupMentionText,
       force: true,
     });
     return true;
@@ -295,6 +299,37 @@ async function replyWithOutcome(
 ): Promise<void> {
   const options = buildLlmReplyOptions(context);
   const texts = resolveLlmCommandTexts(context);
+  if (outcome.type === 'feedback_offer') {
+    if (context.runtime.chat.kind !== 'private') {
+      const language = resolveLlmCommandLanguage(context);
+      const handoffOptions: TelegramReplyOptions = {
+        ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}),
+        ...(context.runtime.bot.username ? {
+          inlineKeyboard: [[{
+            text: texts.openPrivateButton,
+            url: `https://t.me/${context.runtime.bot.username}?start=feedback_insult`,
+          }]],
+        } : {}),
+      };
+      if (progress) {
+        await progress.complete(feedbackTexts[language].privateHandoff, handoffOptions);
+      } else {
+        await context.reply(feedbackTexts[language].privateHandoff, handoffOptions);
+      }
+      return;
+    }
+
+    await context.runtime.session.cancel();
+    const offer = await startTelegramFeedbackOffer(context, 'insult');
+    if (offer) {
+      if (progress) {
+        await progress.complete(offer.message, offer.options);
+      } else {
+        await context.reply(offer.message, offer.options);
+      }
+      return;
+    }
+  }
   if (outcome.type === 'execute_read') {
     await progress?.update(buildLlmProgressMessage({
       percent: 65,
@@ -705,6 +740,9 @@ async function recordLlmCommandMetric(
 }
 
 function metricActionForOutcome(outcome: LlmCommandRouteOutcome): LlmCommandMetricAction {
+  if (outcome.type === 'feedback_offer') {
+    return 'feedback_offer';
+  }
   if (outcome.type === 'execute_read' || outcome.type === 'answer_directly') {
     return 'read';
   }

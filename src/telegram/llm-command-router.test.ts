@@ -61,6 +61,21 @@ test('routeLlmCommandDecision rejects reads below the local confidence threshold
   assert.equal(outcome.threshold, 0.75);
 });
 
+test('routeLlmCommandDecision opens the feedback offer only through its allowlisted intent', () => {
+  const outcome = routeLlmCommandDecision({
+    ...readDecision(),
+    intent: 'feedback.offer',
+    confidence: 0.99,
+    action: {
+      type: 'answer_directly',
+      name: 'feedback.offer',
+      params: {},
+    },
+  }, baseContext);
+
+  assert.deepEqual(outcome, { type: 'feedback_offer' });
+});
+
 test('routeLlmCommandDecision executes local read intents even when the LLM marks them as writes', () => {
   const outcome = routeLlmCommandDecision({
     ...readDecision(),

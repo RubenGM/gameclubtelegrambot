@@ -30,6 +30,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Rol / partidas de rol                        | 🟢 Operativo        | Campañas/one-shots, personajes, sesiones, recurrencia, handouts internos e importación Notion revisada por DM.                        |
 | Storage / Archivos                           | 🟢 Operativo        | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación web.                     |
 | Impresión                                    | 🟢 Operativo        | Botón privado, estados admin, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial.                          |
+| Generación de imágenes                       | 🟢 Operativo        | Codex `$imagegen` por DM: descripción directa o guiada, referencias opcionales y permisos separados de impresión.                    |
 | Backups, operación y panel web               | 🟢 Operativo        | CLI/TUI de backup/restore, gestión Debian, dashboard web, Storage web, bienvenidas, temas y páginas públicas.                         |
 | Analytics / UX                               | 🟡 Técnico parcial  | Reporte/TUI operativo y herramientas Codex para leer imágenes y medir modelos; mejoras de analítica avanzada pendientes.              |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
@@ -91,7 +92,7 @@ Implementado:
 
 Riesgos o pendientes:
 
-- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos especificos para rol admin, revocacion de acceso, storage category access y permiso global de impresión.
+- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos especificos para rol admin, revocacion de acceso, storage category access y permisos globales de impresión y generación de imágenes.
 
 ## Idioma, menus y ayuda
 
@@ -171,7 +172,9 @@ Implementado:
 - Comando privado `/ask` para socios aprobados.
 - Botón privado `Preguntar al bot` visible sólo cuando la feature está habilitada.
 - Fallback privado configurable con `GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED`, ejecutado al final de la cadena de handlers para no capturar comandos ni botones. Las sesiones pasivas de lectura de catálogo no bloquean el fallback LLM cuando el texto libre no coincide con acciones del detalle.
+- El fallback LLM reconoce insultos dirigidos al bot y abre el consentimiento de feedback en privado; desde un grupo/topic deriva a un enlace privado. No confunde insultos entre personas con feedback del bot.
 - Lecturas en grupos/topics cuando el usuario menciona explícitamente al bot o responde a un mensaje suyo; las respuestas conservan `message_thread_id`, ofrecen abrir el privado y envían a la LLM el texto del mensaje del bot respondido como contexto conversacional.
+- Una mención inicial sin texto (`@bot`) no invoca la LLM: reabre por privado el inicio y menú raíz para quien ya contactó con el bot; para una persona nueva explica en el grupo cómo abrir el privado con `/start`.
 - Sesión LLM conversacional con expiración funcional de 15 minutos dentro del flujo `llm-command`.
 - Recibo/progreso editable inmediato para peticiones LLM: el bot confirma recepción antes de invocar el proveedor LLM, muestra una barra aproximada y textos breves de estado sin exponer la petición completa, edita el mismo mensaje con estados intermedios mientras espera a la IA y lo completa con lectura, aclaración, rechazo o confirmación.
 - La LLM puede devolver `progress.messages` con hasta 4 textos cortos y personalizados para que el bot los muestre durante la búsqueda de datos o la preparación del siguiente paso; el bot los sanea, mantiene fallback genérico y no permite que esos mensajes ejecuten lógica.
@@ -267,6 +270,7 @@ Implementado:
 - Las acciones del detalle de item se muestran en teclado de respuesta persistente para mantener libres los enlaces HTML dentro del mensaje; los detalles de lectura, préstamo y admin mantienen siempre `Inicio` y `Ayuda` al final del teclado para poder salir del contexto.
 - En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; Codex sugiere el titulo y, si se crea el item, el bot pregunta si se guarda esa portada como imagen principal.
 - `/catalog_search` como consulta para usuarios aprobados.
+- Los botones de acción con texto natural usan nombres específicos por módulo en catalán, español e inglés: `Cerca al catàleg`/`Búsqueda en catálogo`/`Search catalog` y `Cerca a l'emmagatzematge`/`Búsqueda en almacenamiento`/`Search storage`, entre otros. El dispatcher deja siempre la búsqueda de Catálogo en su flujo incluso si existe una búsqueda activa de Storage, y las etiquetas contextuales se prueban sin colisiones en los tres idiomas.
 - Vista de lectura con indice por rangos de tres iniciales: cada bloque muestra total de articulos y desglose por juegos de mesa, libros y accesorios, con enlaces normales `t.me?...start=` en el texto; los grupos internos no aparecen en la navegacion principal.
 - Vista publica `/catalogo` con busqueda por titulo/original/editorial, filtros por tipo, numero de jugadores y disponibilidad, paginacion, agrupacion por inicial, tarjetas con portada, descripcion, familia/grupo, propietario, disponibilidad/prestamo y datos principales, detalle publico por item con descripcion completa y enlace a BoardGameGeek cuando el item conserva referencia BGG.
 - Creacion de actividad desde item del catalogo y aviso si el item esta prestado.
@@ -449,6 +453,24 @@ Riesgos o pendientes:
 - Los documentos de Telegram superiores a 20 MB requieren activar y operar el servidor Bot API local en el PC del club; si no está activo, el bot los seguirá rechazando con explicación. Si falta el binario `telegram-bot-api`, el despliegue lo compila desde la fuente oficial de TDLib cuando la feature local está activada.
 - No hay cancelación de trabajos ya enviados a CUPS desde el bot.
 - La prueba real de papel/tóner queda para validación presencial en el club.
+
+## Generación de imágenes
+
+Estado: `operativo`.
+
+Implementado:
+
+- Botón privado `Generación de imágenes` y comando `/imagegen`, visibles para admins y socios aprobados con `image_generation.use`; la lista de autorizados es independiente de impresión.
+- `Describir` acepta una descripción directa, hasta cuatro referencias de imagen y genera al pulsar `Generar imagen`.
+- `Guiado` pide una idea general, prepara un prompt personalizado con Codex y permite pedir cambios sucesivos, añadir referencias, generar o cancelar.
+- La ejecución usa `GAMECLUB_CODEX_BIN` y `$imagegen` dentro de un directorio temporal por petición; indica a Codex la ruta exacta del PNG, lo devuelve como foto de Telegram y lo borra al terminar.
+- `Admin` -> `Imágenes IA` permite conceder, revocar y listar `image_generation.use`. Los admins siempre acceden sin asignación explícita.
+- La optimización del prompt y la generación muestran progreso editable. Esta capacidad queda fuera de `/ask` y de sus intents generales.
+
+Riesgos o pendientes:
+
+- La disponibilidad y cuota dependen del plan y la configuración de Codex de la cuenta operadora.
+- No se conservan historial ni imágenes generadas en Storage en esta primera versión.
 
 ## Backups, consola operativa y panel web
 

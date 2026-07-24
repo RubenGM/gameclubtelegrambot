@@ -150,6 +150,32 @@ test('handleTelegramLlmFallbackText handles private free text while catalog read
   assert.match(context.servicePrompts[0] ?? '', /qué juegos de dos personas/);
 });
 
+test('handleTelegramLlmFallbackText starts consented feedback for an LLM-detected insult in private', async () => {
+  const context = createContext({
+    messageText: 'eres un tonto',
+    decision: feedbackOfferDecision(),
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(context), true);
+  assert.equal(context.session.current?.flowKey, 'telegram-feedback');
+  assert.equal(context.replies.at(-1), 'Parece que esta respuesta te ha frustrado. ¿Quieres enviar feedback para que podamos mejorarlo?');
+});
+
+test('handleTelegramLlmFallbackText hands an LLM-detected group insult to private feedback', async () => {
+  const context = createContext({
+    chatKind: 'group',
+    messageText: '@gameclubbot eres un tonto',
+    decision: feedbackOfferDecision(),
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(context), true);
+  assert.equal(context.session.current, null);
+  assert.equal(context.replies.at(-1), 'Si quieres, puedes enviar feedback para que podamos mejorarlo. Abre el chat privado para continuar.');
+  assert.deepEqual(context.replyOptions.at(-1), {
+    inlineKeyboard: [[{ text: 'Abrir privado', url: 'https://t.me/gameclubbot?start=feedback_insult' }]],
+  });
+});
+
 test('handleTelegramLlmFallbackText only handles group text when it mentions or replies to the bot', async () => {
   const ignored = createContext({
     chatKind: 'group',
@@ -188,6 +214,13 @@ test('handleTelegramLlmFallbackText only handles group text when it mentions or 
   });
   assert.equal(await handleTelegramLlmFallbackText(leadingWhitespaceMention), true);
   assert.match(leadingWhitespaceMention.servicePrompts[0] ?? '', /que puedes hacer/);
+
+  const emptyMention = createContext({
+    chatKind: 'group',
+    messageText: '@gameclubbot',
+  });
+  assert.equal(await handleTelegramLlmFallbackText(emptyMention), false);
+  assert.equal(emptyMention.servicePrompts.length, 0);
 
   const replied = createContext({
     chatKind: 'group',
@@ -645,6 +678,23 @@ function noticeCreateDecision(): LlmCommandDecision {
   return writeDecision('notice.create', {
     text: 'Mañana abrimos media hora más tarde.',
   }, 'Voy a preparar un aviso con el texto "Mañana abrimos media hora más tarde.".');
+}
+
+function feedbackOfferDecision(): LlmCommandDecision {
+  return {
+    ...helpDecision(),
+    intent: 'feedback.offer',
+    confidence: 0.99,
+    reply: {
+      text: 'Voy a ofrecer el proceso de feedback.',
+      sendNow: false,
+    },
+    action: {
+      type: 'answer_directly',
+      name: 'feedback.offer',
+      params: {},
+    },
+  };
 }
 
 function writeDecision(

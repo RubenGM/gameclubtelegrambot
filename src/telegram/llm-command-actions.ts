@@ -32,6 +32,7 @@ export const llmCommandIntentValues = [
   'lfg.list',
   'lfg.create',
   'news.status',
+  'feedback.offer',
   'clarify',
   'unsupported',
 ] as const;
@@ -81,6 +82,7 @@ export const llmCommandCapabilities: LlmCommandCapability[] = [
   capability('lfg.list', 'consultar busquedas LFG activas', 'read_only', true),
   capability('lfg.create', 'crear o editar una busqueda LFG', 'write', true, false, ['private']),
   capability('news.status', 'consultar estado basico no administrativo de noticias visibles', 'read_only', true),
+  capability('feedback.offer', 'ofrecer el flujo de feedback cuando el usuario insulta directamente al bot', 'read_only', true),
   capability('clarify', 'pedir una aclaracion cuando falten datos', 'unknown', false),
   capability('unsupported', 'rechazar peticiones no soportadas', 'unknown', false),
 ];

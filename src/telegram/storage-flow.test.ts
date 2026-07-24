@@ -29,6 +29,7 @@ import {
   storageCallbackPrefixes,
 } from './storage-flow.js';
 import { configureTelegramDeepLinks } from './deep-links.js';
+import { createTelegramI18n, supportedBotLanguages, type BotLanguage } from './i18n.js';
 import { toGrammyReplyOptions } from './runtime-boundary-registration.js';
 
 function dangerButton(text: string) {
@@ -360,6 +361,7 @@ function createContext(
     supportsEditMessageText = false,
     printingMode = 'disabled',
     canPrint = false,
+    language = 'es',
   }: {
     isAdmin?: boolean;
     canReadCategoryIds?: number[];
@@ -381,6 +383,7 @@ function createContext(
     supportsEditMessageText?: boolean;
     printingMode?: 'disabled' | 'enabled' | 'test';
     canPrint?: boolean;
+    language?: BotLanguage;
   } = {},
 ): {
   context: TelegramCommandHandlerContext & Record<string, unknown>;
@@ -469,7 +472,7 @@ function createContext(
         },
       },
       bot: {
-        language: 'es',
+        language,
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
         username: 'gameclub_test_bot',
@@ -579,6 +582,20 @@ test('handleTelegramStorageText does not claim the role-game material category a
   assert.equal(handled, false);
   assert.equal(getCurrentSession(), null);
   assert.deepEqual(replies, []);
+});
+
+test('handleTelegramStorageText leaves every localized catalog-search button to the catalog flow even with a Storage search session active', async () => {
+  for (const language of supportedBotLanguages) {
+    const { context, replies, getCurrentSession } = createContext(createRepository(), { language });
+    await context.runtime.session.start({ flowKey: 'storage-search', stepKey: 'search-query', data: {} });
+    context.messageText = createTelegramI18n(language).catalogAdmin.searchByName;
+
+    const handled = await handleTelegramStorageText(context as never);
+
+    assert.equal(handled, false, language);
+    assert.equal(getCurrentSession()?.flowKey, 'storage-search', language);
+    assert.deepEqual(replies, [], language);
+  }
 });
 
 test('handleTelegramStorageText lists available categories for approved users', async () => {

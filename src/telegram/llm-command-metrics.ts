@@ -12,6 +12,7 @@ export type LlmCommandMetricAction =
   | 'unsupported'
   | 'permission_denied'
   | 'confidence_too_low'
+  | 'feedback_offer'
   | 'failure';
 
 export type LlmCommandMetricResult =

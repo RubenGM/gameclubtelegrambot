@@ -1,6 +1,7 @@
 export const feedbackTexts = {
   ca: {
     offer: 'Sembla que aquesta resposta t’ha frustrat. Vols enviar feedback perquè ho puguem millorar?',
+    privateHandoff: 'Si vols, pots enviar feedback perquè ho puguem millorar. Obre el xat privat per continuar.',
     accept: 'Enviar feedback',
     decline: 'No, gràcies',
     prompt: 'Explica’ns breument què ha anat malament o com ho milloraries. Es guardarà per revisar-ho.',
@@ -12,6 +13,7 @@ export const feedbackTexts = {
   },
   es: {
     offer: 'Parece que esta respuesta te ha frustrado. ¿Quieres enviar feedback para que podamos mejorarlo?',
+    privateHandoff: 'Si quieres, puedes enviar feedback para que podamos mejorarlo. Abre el chat privado para continuar.',
     accept: 'Enviar feedback',
     decline: 'No, gracias',
     prompt: 'Cuéntanos brevemente qué ha ido mal o cómo lo mejorarías. Lo guardaremos para revisarlo.',
@@ -23,6 +25,7 @@ export const feedbackTexts = {
   },
   en: {
     offer: 'It looks like this response frustrated you. Would you like to send feedback so we can improve it?',
+    privateHandoff: 'If you want, you can send feedback so we can improve it. Open the private chat to continue.',
     accept: 'Send feedback',
     decline: 'No, thanks',
     prompt: 'Briefly tell us what went wrong or how you would improve it. We will save it for review.',

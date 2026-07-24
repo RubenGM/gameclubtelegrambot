@@ -37,6 +37,12 @@ test('buildLlmCommandPrompt includes allowed read capabilities and user context'
   assert.match(prompt, /Si el usuario pide libros de rol/);
   assert.match(prompt, /usa storage\.search/);
   assert.match(prompt, /no pongas fileExtensions=\["stl"\]/);
+  assert.match(prompt, /insulta, ridiculiza o desprecia directamente al bot/);
+  assert.match(prompt, /catalán, castellano e inglés/);
+  assert.match(prompt, /faltas, acentos omitidos, letras repetidas/);
+  assert.match(prompt, /metáforas creativas o insultos inventados/);
+  assert.match(prompt, /autoinsultos, citas, ejemplos educativos/);
+  assert.match(prompt, /feedback\.offer/);
   assert.doesNotMatch(prompt, /notice\.create/);
 });
 
