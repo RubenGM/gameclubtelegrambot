@@ -3526,6 +3526,11 @@ async function handleMembershipAutojoinNewMembers(context: TelegramCommandHandle
         ...(member.username !== undefined ? { username: member.username } : {}),
         displayName: resolveTelegramDisplayName(member),
       });
+      await sendMembershipAutojoinWelcomeToCurrentGroup({
+        context,
+        repository,
+        telegramUserId: member.id,
+      });
       continue;
     }
 

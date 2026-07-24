@@ -3394,6 +3394,81 @@ test('group autojoin approves new non-bot members when enabled', async () => {
   assert.equal(groupMessages[0]?.options?.parseMode, 'HTML');
 });
 
+test('group autojoin welcomes an already approved member who rejoins', async () => {
+  const messageHandlers: TelegramCommandHandler[] = [];
+  const replies: string[] = [];
+  const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const membershipUsers = new Map<number, { telegramUserId: number; username?: string | null; displayName: string; status: string; isAdmin: boolean }>([
+    [42, { telegramUserId: 42, username: 'known_member', displayName: 'Known Member', status: 'approved', isAdmin: false }],
+  ]);
+  const statusAuditLog: Array<{ telegramUserId: number; nextStatus: string }> = [];
+  const auditEvents: Array<{ actionKey: string; targetType: string; targetId: string; summary: string; details: Record<string, unknown> | null }> = [];
+  const appMetadataRecords = new Map<string, string>([
+    ['telegram.membership-autojoin:-1001', 'true'],
+    ['telegram.welcome_templates', JSON.stringify([{
+      id: 'welcome_auto',
+      templateText: 'Bienvenido $USERNAME',
+      isEnabled: true,
+    }])],
+  ]);
+
+  registerHandlers({
+    bot: {
+      username: 'gameclub_test_bot',
+      use: () => {},
+      onCommand: () => {},
+      onCallback: () => {},
+      onText: () => {},
+      onMessage: (handler) => {
+        messageHandlers.push(handler);
+      },
+      sendPrivateMessage: async () => {},
+      startPolling: async () => {},
+      stopPolling: async () => {},
+    },
+    publicName: 'Game Club Bot',
+    adminElevationPasswordHash: 'hashed:admin-secret',
+  });
+
+  const messageHandler = messageHandlers[0];
+  assert.ok(messageHandler);
+
+  await messageHandler({
+    newChatMembers: [
+      { id: 42, username: 'known_member', first_name: 'Known', last_name: 'Member' },
+    ],
+    reply: async (message: string) => {
+      replies.push(message);
+    },
+    runtime: createRuntimeForMembershipTest({
+      database: createMembershipDatabaseStub({
+        membershipUsers,
+        statusAuditLog,
+        auditEvents,
+        appMetadataRecords,
+      }),
+      chat: { kind: 'group', chatId: -1001, chatTitle: 'CAWA test' },
+      actor: {
+        telegramUserId: 99,
+        status: 'approved',
+        isApproved: true,
+        isBlocked: false,
+        isAdmin: true,
+        permissions: [],
+      },
+      groupMessages,
+    }),
+  } as unknown as TelegramCommandHandlerContext);
+
+  assert.equal(membershipUsers.get(42)?.status, 'approved');
+  assert.deepEqual(statusAuditLog, []);
+  assert.deepEqual(auditEvents, []);
+  assert.deepEqual(replies, []);
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.message, 'Bienvenido Known Member');
+  assert.equal(groupMessages[0]?.options?.parseMode, 'HTML');
+});
+
 test('group join does not approve or welcome members when autojoin is disabled', async () => {
   const messageHandlers: TelegramCommandHandler[] = [];
   const replies: string[] = [];
