@@ -94,6 +94,12 @@ const notionConfigSchema = z
   })
   .optional();
 
+const googleCalendarConfigSchema = z
+  .object({
+    serviceAccountJson: z.string().trim().min(1).optional(),
+  })
+  .optional();
+
 export const runtimeConfigSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   bot: z.object({
@@ -119,6 +125,7 @@ export const runtimeConfigSchema = z.object({
     })
     .optional(),
   notion: notionConfigSchema,
+  googleCalendar: googleCalendarConfigSchema,
   database: z.object({
     host: z.string().trim().min(1),
     port: z.number().int().min(1).max(65535),

@@ -111,6 +111,18 @@ test('loadRuntimeConfig enables per-role-game Notion only with its local encrypt
   });
 });
 
+test('loadRuntimeConfig loads the optional Google Calendar service account from env', async () => {
+  const config = await loadRuntimeConfig({
+    env: {
+      GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json',
+      GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON: '{"client_email":"calendar@example.test"}',
+    },
+    readConfigFile: async () => validConfigJson,
+  });
+
+  assert.deepEqual(config.googleCalendar, { serviceAccountJson: '{"client_email":"calendar@example.test"}' });
+});
+
 test('loadRuntimeConfig rejects enabled Notion without its local encryption key', async () => {
   await assert.rejects(
     () => loadRuntimeConfig({

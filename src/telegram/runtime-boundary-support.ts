@@ -6,6 +6,7 @@ import { Bot, InputFile, type Context } from 'grammy';
 import type { AuthorizationService } from '../authorization/service.js';
 import type { CatalogDescriptionTranslator } from '../catalog/catalog-description-translation.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
+import type { GoogleCalendarServiceAccountConfig } from '../google-calendar/google-calendar-client.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import { createAppMetadataTelegramLanguagePreferenceStore } from './language-preference-store.js';
 import {
@@ -184,7 +185,7 @@ export interface TelegramRuntime {
     username?: string | undefined;
     getMe?(): Promise<{ id: number; username?: string }>;
     getChat?(chatId: number): Promise<{ id: number; type: string; title?: string; isForum?: boolean }>;
-    getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean }>;
+    getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean; canDeleteMessages?: boolean }>;
     createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
     sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
@@ -205,6 +206,7 @@ export interface TelegramRuntime {
   llmCommands?: ResolvedLlmCommandConfig;
   llmCommandService?: LlmCommandService;
   llmCommandMetrics?: LlmCommandMetrics;
+  googleCalendar?: GoogleCalendarServiceAccountConfig;
   chat?: TelegramChatContext;
   actor?: TelegramActor;
   authorization?: AuthorizationService;
@@ -225,7 +227,7 @@ export interface TelegramBotLike {
   onMessage?(handler: TelegramCommandHandler): void;
   getMe?(): Promise<{ id: number; username?: string }>;
   getChat?(chatId: number): Promise<{ id: number; type: string; title?: string; isForum?: boolean }>;
-  getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean }>;
+  getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean; canDeleteMessages?: boolean }>;
   createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
   sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
@@ -535,10 +537,11 @@ function createGrammyTelegramBot({
     },
     async getChatMember(chatId, userId) {
       const member = await bot.api.raw.getChatMember({ chat_id: chatId, user_id: userId });
-      const rawMember = member as { status: string; can_manage_topics?: boolean };
+      const rawMember = member as { status: string; can_manage_topics?: boolean; can_delete_messages?: boolean };
       return {
         status: rawMember.status,
         ...(rawMember.can_manage_topics !== undefined ? { canManageTopics: rawMember.can_manage_topics } : {}),
+        ...(rawMember.can_delete_messages !== undefined ? { canDeleteMessages: rawMember.can_delete_messages } : {}),
       };
     },
     async createForumTopic({ chatId, name }) {

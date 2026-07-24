@@ -113,6 +113,23 @@ test('splitRuntimeConfigForPersistence keeps per-role-game Notion enabled in JSO
   assert.equal(payload.envValues.GAMECLUB_NOTION_CREDENTIAL_ENCRYPTION_KEY, '0123456789012345678901234567890123456789012345678901234567890123');
 });
 
+test('splitRuntimeConfigForPersistence stores the Google Calendar service-account JSON only in env', () => {
+  const payload = splitRuntimeConfigForPersistence({
+    schemaVersion: 1,
+    bot: { publicName: 'Game Club Bot', clubName: 'Game Club', language: 'ca' },
+    telegram: { token: 'telegram-token' },
+    googleCalendar: { serviceAccountJson: '{"client_email":"calendar@example.test"}' },
+    database: { host: 'localhost', port: 5432, name: 'gameclub', user: 'gameclub_user', password: 'db-password', ssl: false },
+    adminElevation: { passwordHash: 'hash' },
+    bootstrap: { firstAdmin: { telegramUserId: 123456789, displayName: 'Club Administrator' } },
+    notifications: { defaults: { groupAnnouncementsEnabled: true, eventRemindersEnabled: true, eventReminderLeadHours: 24 } },
+    featureFlags: {},
+  });
+
+  assert.equal(payload.jsonConfig.googleCalendar, undefined);
+  assert.equal(payload.envValues.GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON, '{"client_email":"calendar@example.test"}');
+});
+
 test('splitRuntimeConfigForPersistence preserves unrelated existing JSON keys', () => {
   const payload = splitRuntimeConfigForPersistence(
     {

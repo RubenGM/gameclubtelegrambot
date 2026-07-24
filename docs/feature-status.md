@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-07-22.
+Última revisión: 2026-07-24.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -21,6 +21,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Asistente LLM de órdenes naturales           | 🟠 Parcial          | `/ask` para socios y `/adminai` confirmado para abrir opciones admin; lecturas MVP y escrituras generales parciales.                  |
 | Mesas                                        | 🟢 Operativo        | Administración de mesas y consulta de tablas activas para socios.                                                                     |
 | Agenda de actividades                        | 🟢 Operativo        | Crear normal/simple, listar/editar/cancelar, apuntarse/salir, actividades públicas, conflictos, recordatorios y feeds de noticias. |
+| Google Calendar                              | 🟢 Operativo        | Selección admin, acceso público/privado, sincronización Agenda → Google y enlace limpio desde grupos/topics.                         |
 | Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
 | Catálogo                                     | 🟢 Operativo        | CRUD, familias, búsqueda, media URL/adjunto con Storage, BGG/Open Library/Wikipedia y procesos con progreso editable.                 |
 | Préstamos                                    | 🟢 Operativo        | Flujo principal, recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.                 |
@@ -216,6 +217,14 @@ Riesgos o pendientes:
 ## Agenda de actividades
 
 Estado: `operativo`.
+
+Integración Google Calendar:
+
+- `Inicio → Admin → Calendar Google` y `/google_calendar` permiten seleccionar el calendario asociado, alternar su accesibilidad pública/privada (privado por defecto) e iniciar o detener la sincronización automática.
+- La Agenda conserva la autoridad: las altas, ediciones y cancelaciones se envían a Google Calendar, mientras que los cambios manuales en Google no se importan al bot.
+- Al iniciar la sincronización se reconcilian las actividades futuras existentes; un worker cada cinco minutos reintenta la sincronización de actividades futuras y cancelaciones recientes.
+- En grupos y topics, `@cawa_management_bot calendar` publica el enlace configurado en el mismo destino e intenta borrar el trigger si Telegram autoriza al bot. Un calendario privado sigue requiriendo que Google haya concedido acceso al socio o grupo.
+- La preparación de cuenta de servicio, permisos y secreto runtime está documentada en `docs/google-calendar.md`.
 
 Implementado:
 
@@ -528,6 +537,7 @@ Pendiente:
 | Bienvenidas/nickname | `src/membership/welcome-template-store.test.ts`, `src/membership/access-flow.test.ts`, `src/telegram/runtime-boundary.test.ts`, `src/telegram/action-menu.test.ts` |
 | Acceso | `src/membership/*.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Agenda | `src/telegram/schedule-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-catalog-store.test.ts`, `src/schedule/*reminder*.test.ts` |
+| Google Calendar | `src/google-calendar/google-calendar-settings.test.ts`, `src/google-calendar/google-calendar-sync.test.ts`, `src/telegram/google-calendar-public-link-flow.test.ts` |
 | Mesas | `src/telegram/table-admin-flow.test.ts`, `src/telegram/table-read-flow.test.ts` |
 | Catalogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Prestamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-store.test.ts` |

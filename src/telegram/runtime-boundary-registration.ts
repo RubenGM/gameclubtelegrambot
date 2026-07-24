@@ -145,6 +145,12 @@ import {
 import { handleTelegramPrinterAdminStartText, handleTelegramPrinterAdminText } from './printer-admin-flow.js';
 import { handleTelegramImageGenerationMessage, handleTelegramImageGenerationText } from './image-generation-flow.js';
 import { handleTelegramImageGenerationAdminStartText, handleTelegramImageGenerationAdminText } from './image-generation-admin-flow.js';
+import {
+  googleCalendarAdminCallbackPrefixes,
+  handleTelegramGoogleCalendarAdminCallback,
+  handleTelegramGoogleCalendarAdminText,
+} from './google-calendar-admin-flow.js';
+import { handleTelegramGoogleCalendarPublicLinkTrigger } from './google-calendar-public-link-flow.js';
 import { buildTodayAtClubSummary } from './today-at-club-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { renderTelegramMessageTextAsHtml } from './telegram-entity-html.js';
@@ -259,6 +265,7 @@ export function registerHandlers({
   registerLlmCommandCallbacks({ bot });
   registerAdminAiCallbacks({ bot, publicName, adminElevationPasswordHash });
   registerLlmModelAdminCallbacks({ bot });
+  registerGoogleCalendarAdminCallbacks({ bot });
   registerNoticeCallbacks({ bot });
   registerNewsGroupCallbacks({ bot });
   registerTableReadCallbacks({ bot });
@@ -380,6 +387,10 @@ function registerTextHandlers({
       return;
     }
 
+    if (await handleTelegramGoogleCalendarAdminText(context)) {
+      return;
+    }
+
     if (await handleTelegramCalendarText(context)) {
       return;
     }
@@ -404,6 +415,10 @@ function registerTextHandlers({
     }
 
     if (await handleEmptyLeadingBotMention(context, { publicName })) {
+      return;
+    }
+
+    if (await handleTelegramGoogleCalendarPublicLinkTrigger(context)) {
       return;
     }
 
@@ -1561,6 +1576,18 @@ function registerLlmModelAdminCallbacks({
   }
 }
 
+function registerGoogleCalendarAdminCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const prefix of Object.values(googleCalendarAdminCallbackPrefixes)) {
+    bot.onCallback(prefix, async (context) => {
+      await handleTelegramGoogleCalendarAdminCallback(context);
+    });
+  }
+}
+
 function createDefaultCommands({
   publicName,
   adminElevationPasswordHash,
@@ -1873,6 +1900,15 @@ function createDefaultCommands({
       descriptionByLanguage: { ca: 'Gestiona accessos de generació d’imatges', es: 'Gestiona accesos de generación de imágenes', en: 'Manage image generation access' },
       handle: async (context) => {
         await handleTelegramImageGenerationAdminText({ ...context, messageText: '/imagegen_admin' });
+      },
+    },
+    {
+      command: 'google_calendar',
+      contexts: ['private'],
+      access: 'admin',
+      descriptionByLanguage: { ca: 'Gestiona el calendari Google del club', es: 'Gestiona el calendario Google del club', en: 'Manage the club Google Calendar' },
+      handle: async (context) => {
+        await handleTelegramGoogleCalendarAdminText({ ...context, messageText: '/google_calendar' });
       },
     },
     {
@@ -3125,6 +3161,10 @@ async function handleTelegramActionMenuText(
 
     if (selection.actionId === 'image_generation_admin') {
       return handleTelegramImageGenerationAdminText({ ...context, messageText: selection.label });
+    }
+
+    if (selection.actionId === 'google_calendar') {
+      return handleTelegramGoogleCalendarAdminText({ ...context, messageText: selection.label });
     }
 
     const localizedContext = { ...context, messageText: selection.label };

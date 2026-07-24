@@ -299,6 +299,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isAdmin,
   },
   {
+    id: 'google_calendar',
+    label: (language) => createTelegramI18n(language).actionMenu.googleCalendar,
+    telemetryActionKey: 'menu.google_calendar',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'language',
     label: (language) => createTelegramI18n(language).actionMenu.language,
     telemetryActionKey: 'menu.language',
@@ -359,7 +368,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-tools',
     matches: () => false,
-    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['role_game_auto_scheduling', 'printer_admin'], ['image_generation_admin'], ['member_debug'], ['start', 'help']],
+    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['role_game_auto_scheduling', 'printer_admin'], ['image_generation_admin', 'google_calendar'], ['member_debug'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',

@@ -23,6 +23,7 @@ El proyecto ya funciona como servicio Node.js + TypeScript con:
 
 - acceso cerrado con usuarios aprobados y elevación de administradores
 - agenda de actividades con participantes, mesa opcional y avisos de conflicto
+- sincronización opcional de Agenda hacia un Google Calendar administrado desde Telegram
 - gestión de mesas del club
 - catálogo de juegos, libros, expansiones y material asociado
 - altas manuales y asistidas desde Telegram
@@ -126,11 +127,14 @@ Campos principales:
 - `bootstrap.firstAdmin.displayName`
 - `notifications.defaults.*`
 - `featureFlags`
+- `googleCalendar.serviceAccountJson` opcional, guardado como secreto en `GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON`
 
 > [!NOTE]
 > La contraseña de elevación administrativa no se guarda en claro. El bootstrap la transforma en `adminElevation.passwordHash`.
 
 La referencia completa está en `docs/runtime-configuration.md` y el ejemplo en `config/runtime.example.json`.
+
+La preparación de la cuenta de servicio, la selección de calendario y la sincronización están en `docs/google-calendar.md`.
 
 ## Arranque y operación en Debian
 

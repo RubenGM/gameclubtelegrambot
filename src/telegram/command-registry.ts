@@ -9,6 +9,7 @@ import type { TelegramPhotoMediaInput } from './telegram-media.js';
 import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
 import type { LlmCommandMetrics } from './llm-command-metrics.js';
 import type { LlmCommandService } from './llm-command-service.js';
+import type { GoogleCalendarServiceAccountConfig } from '../google-calendar/google-calendar-client.js';
 
 export class TelegramInteractionError extends Error {
   cancelSession: boolean;
@@ -43,7 +44,7 @@ export interface TelegramCommandRuntime {
     username?: string | undefined;
     getMe?(): Promise<{ id: number; username?: string }>;
     getChat?(chatId: number): Promise<{ id: number; type: string; title?: string; isForum?: boolean }>;
-    getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean }>;
+    getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean; canDeleteMessages?: boolean }>;
     createForumTopic?(input: { chatId: number; name: string }): Promise<{ chatId: number; name: string; messageThreadId: number }>;
     sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
     sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
@@ -62,6 +63,7 @@ export interface TelegramCommandRuntime {
   llmCommandService?: LlmCommandService;
   llmCommandMetrics?: LlmCommandMetrics;
   notionCredentialEncryptionKey?: string;
+  googleCalendar?: GoogleCalendarServiceAccountConfig;
   chat: TelegramChatContext;
   actor: TelegramActor;
   authorization: AuthorizationService;

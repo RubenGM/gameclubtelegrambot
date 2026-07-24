@@ -1,7 +1,10 @@
 import { appendAuditEvent, type AuditLogRepository } from '../audit/audit-log.js';
+import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
+import { synchronizeGoogleCalendarScheduleEvent } from '../google-calendar/google-calendar-sync.js';
+import type { GoogleCalendarServiceAccountConfig } from '../google-calendar/google-calendar-client.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import {
   cancelScheduleEvent,
@@ -183,9 +186,10 @@ export interface TelegramScheduleContext {
     chat: TelegramChatContext;
     services: {
       database: {
-        db: unknown;
+        db: DatabaseConnection['db'];
       };
     };
+    googleCalendar?: GoogleCalendarServiceAccountConfig;
     bot: {
       publicName: string;
       clubName: string;
@@ -1874,6 +1878,14 @@ export async function runAfterScheduleSaveSideEffects(
   event: ScheduleEventRecord,
   action: 'created' | 'updated' | 'deleted',
 ): Promise<void> {
+  await ignoreSchedulePostSaveFailure(async () => {
+    await synchronizeGoogleCalendarScheduleEvent({
+      event,
+      storage: createDatabaseAppMetadataSessionStorage({ database: context.runtime.services.database.db }),
+      config: context.runtime.googleCalendar,
+    });
+  });
+
   if (action !== 'deleted') {
     await ignoreSchedulePostSaveFailure(async () => {
       await notifyScheduleConflicts({

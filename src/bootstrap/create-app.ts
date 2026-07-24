@@ -28,6 +28,7 @@ import { createRoleGameRecurrenceWorker } from '../role-games/role-game-recurren
 import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalog-store.js';
 import { createAppMetadataRoleGameAutoSchedulingStore } from '../role-games/role-game-auto-scheduling-store.js';
 import { createDatabaseAppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
+import { createGoogleCalendarSyncWorker, type GoogleCalendarSyncWorker } from '../google-calendar/google-calendar-sync-worker.js';
 
 export interface LoggerLike {
   info(bindings: object, message: string): void;
@@ -50,6 +51,9 @@ export interface CreateAppOptions {
     services: InfrastructureRuntimeServices;
     telegram: TelegramBoundary;
   }) => ScheduleReminderWorker;
+  startGoogleCalendarSync?: (options: {
+    services: InfrastructureRuntimeServices;
+  }) => GoogleCalendarSyncWorker;
   startAdminHttpServer?: (options: {
     services: InfrastructureRuntimeServices;
     telegram: TelegramBoundary;
@@ -136,6 +140,17 @@ export function createApp({
         error: logger.error?.bind(logger) ?? (() => {}),
       },
     }),
+  startGoogleCalendarSync = ({ services }) =>
+    createGoogleCalendarSyncWorker({
+      enabled: Boolean(config.googleCalendar?.serviceAccountJson),
+      intervalMs: 5 * 60_000,
+      repository: createDatabaseScheduleRepository({ database: services.database.db }),
+      storage: createDatabaseAppMetadataSessionStorage({ database: services.database.db }),
+      config: config.googleCalendar,
+      logger: {
+        error: logger.error?.bind(logger) ?? (() => {}),
+      },
+    }),
   startAdminHttpServer = ({ services, telegram }) =>
     createAdminHttpServer({
       config,
@@ -154,6 +169,7 @@ export function createApp({
   let telegram: TelegramBoundary | undefined;
   let scheduleReminders: ScheduleReminderWorker | undefined;
   let roleGameRecurrences: ScheduleReminderWorker | undefined;
+  let googleCalendarSync: GoogleCalendarSyncWorker | undefined;
   let adminHttpServer: AdminHttpServer | undefined;
   const fatalRuntimeErrorHandlers = new Set<TelegramFatalRuntimeErrorHandler>();
   const emitFatalRuntimeError = (error: unknown) => {
@@ -185,6 +201,8 @@ export function createApp({
         await scheduleReminders.start();
         roleGameRecurrences = startRoleGameRecurrences({ services: startedInfrastructure.services, telegram });
         await roleGameRecurrences.start();
+        googleCalendarSync = startGoogleCalendarSync({ services: startedInfrastructure.services });
+        await googleCalendarSync.start();
         adminHttpServer = startAdminHttpServer({ services: startedInfrastructure.services, telegram });
         await adminHttpServer.start();
         await notifyFirstAdminReady({
@@ -230,6 +248,9 @@ export function createApp({
           if (scheduleReminders) {
             if (roleGameRecurrences) {
               await roleGameRecurrences.stop();
+            }
+            if (googleCalendarSync) {
+              await googleCalendarSync.stop();
             }
             await scheduleReminders.stop();
           }
