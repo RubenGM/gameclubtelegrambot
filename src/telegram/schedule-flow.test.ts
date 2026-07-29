@@ -923,6 +923,85 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(auditRepository.__events.at(-1)?.targetType, 'schedule-event');
 });
 
+test('handleTelegramScheduleText uses the full-create defaults, shows the selected day schedule, and lets the summary change them', async () => {
+  const tableRepository = createTableRepository([
+    {
+      id: 7,
+      displayName: 'Mesa TV',
+      description: null,
+      recommendedCapacity: 6,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 7,
+      title: 'Actividad existente',
+      description: null,
+      startsAt: '2026-04-05T14:00:00.000Z',
+      durationMinutes: 120,
+      organizerTelegramUserId: 77,
+      createdByTelegramUserId: 77,
+      tableId: 7,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, tableRepository, actorTelegramUserId: 42, language: 'es' });
+  const texts = createTelegramI18n('es').schedule;
+
+  context.messageText = texts.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Actividad nueva';
+  await handleTelegramScheduleText(context);
+  context.messageText = '05/04';
+  await handleTelegramScheduleText(context);
+  assert.match(replies.at(-1)?.message ?? '', /Actividad existente/);
+  assert.match(replies.at(-1)?.message ?? '', /Mesa TV/);
+
+  context.messageText = '18:00';
+  await handleTelegramScheduleText(context);
+  assert.equal(getCurrentSession()?.stepKey, 'capacity');
+  context.messageText = '5';
+  await handleTelegramScheduleText(context);
+  assert.equal(getCurrentSession()?.stepKey, 'confirm');
+  assert.match(replies.at(-1)?.message ?? '', /<b>Duración:<\/b> 2 h/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Tipo:<\/b> Mesa cerrada/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Mesa:<\/b> Sin mesa/);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 2), [
+    [texts.editFieldDuration, texts.detailsAttendanceMode],
+    [texts.editFieldTable, texts.editFieldDescription],
+  ]);
+
+  context.messageText = texts.editFieldDuration;
+  await handleTelegramScheduleText(context);
+  context.messageText = texts.durationHours;
+  await handleTelegramScheduleText(context);
+  context.messageText = '3';
+  await handleTelegramScheduleText(context);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Duración:<\/b> 3 h/);
+
+  context.messageText = texts.detailsAttendanceMode;
+  await handleTelegramScheduleText(context);
+  context.messageText = texts.attendanceOpen;
+  await handleTelegramScheduleText(context);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Tipo:<\/b> Mesa abierta/);
+
+  context.messageText = texts.editFieldTable;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Mesa TV';
+  await handleTelegramScheduleText(context);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Mesa:<\/b> Mesa TV/);
+});
+
 test('handleTelegramScheduleText creates a simple activity after title, date and time with the documented defaults', async () => {
   const scheduleRepository = createScheduleRepository();
   const auditRepository = createAuditRepository();

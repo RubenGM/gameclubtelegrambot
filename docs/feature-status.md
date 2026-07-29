@@ -228,7 +228,7 @@ Integración Google Calendar:
 
 Implementado:
 
-- `/schedule` con crear, crear en modo simple, listar, editar, cancelar, detalle por deep link, unirse y salir. El botón `Crear (simple)` pide sólo título, fecha y hora y crea directamente una actividad de 180 min, mesa abierta sólo para socios, 4 plazas, 0 ocupadas, sin mesa y sin descripción; el flujo completo conserva todas las opciones avanzadas.
+- `/schedule` con crear, crear en modo simple, listar, editar, cancelar, detalle por deep link, unirse y salir. El botón `Crear (simple)` pide sólo título, fecha y hora y crea directamente una actividad de 180 min, mesa abierta sólo para socios, 4 plazas, 0 ocupadas, sin mesa y sin descripción. El flujo completo muestra al elegir fecha la agenda de ese día con el mismo formato de publicación y, tras la hora, propone sin duración, mesa cerrada y sin mesa; el resumen permite cambiar rápidamente duración, tipo y mesa reservada.
 - Soporte de fecha, hora, duracion, mesa opcional, juego de catalogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, visibilidad pública sólo para mesas abiertas, plazas iniciales ocupadas, capacidad y mensaje extra opcional con adjuntos para detalles.
 - Las actividades públicas siguen apareciendo en las listas internas normales y además permiten que usuarios de Telegram no aprobados abran el deep link de detalle y se apunten, sin convertirlos en socios del club.
 - Si el usuario escribe solo la hora de inicio, el bot pasa a un paso especifico de minutos con botones rapidos (`:00`, `:15`, `:30`, `:45`) y copy propio.

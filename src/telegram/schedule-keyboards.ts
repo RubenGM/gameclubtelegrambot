@@ -159,7 +159,13 @@ export function buildCreateDurationOptions(language: BotLanguage = 'ca'): Telegr
 export function buildCreateConfirmOptions(language: BotLanguage = 'ca'): TelegramReplyOptions {
   const texts = createTelegramI18n(language).schedule;
   return {
-    replyKeyboard: [[texts.editFieldDescription], [successButton(texts.confirmCreate)], [texts.back], [dangerButton(scheduleLabels.cancelFlow)]],
+    replyKeyboard: [
+      [texts.editFieldDuration, texts.detailsAttendanceMode],
+      [texts.editFieldTable, texts.editFieldDescription],
+      [successButton(texts.confirmCreate)],
+      [texts.back],
+      [dangerButton(scheduleLabels.cancelFlow)],
+    ],
     resizeKeyboard: true,
     persistentKeyboard: true,
   };

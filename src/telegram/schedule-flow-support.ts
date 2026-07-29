@@ -129,6 +129,13 @@ export const scheduleCallbackPrefixes = {
 } as const;
 
 const defaultScheduleDurationMinutes = 180;
+const defaultCreateScheduleValues = {
+  durationMinutes: 120,
+  attendanceMode: 'closed',
+  isPublic: false,
+  initialOccupiedSeats: 0,
+  tableId: null,
+} as const;
 const simpleScheduleDefaults = {
   durationMinutes: defaultScheduleDurationMinutes,
   attendanceMode: 'open',
@@ -534,7 +541,7 @@ async function handleCreateSession(
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time', data: { ...data, date } });
-    await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
+    await replyCreateTimePrompt(context, date, language);
     return true;
   }
 
@@ -544,8 +551,8 @@ async function handleCreateSession(
       if (isSimpleCreate) {
         return persistCreateScheduleEvent(context, { ...data, time, ...simpleScheduleDefaults }, language);
       }
-      await context.runtime.session.advance({ stepKey: 'duration-mode', data: { ...data, time } });
-      await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+      await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...defaultCreateScheduleValues } });
+      await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
       return true;
     }
     const timeHour = parseTimeHour(text);
@@ -574,29 +581,34 @@ async function handleCreateSession(
     if (isSimpleCreate) {
       return persistCreateScheduleEvent(context, { ...data, time, ...simpleScheduleDefaults }, language);
     }
-    await context.runtime.session.advance({ stepKey: 'duration-mode', data: { ...data, time } });
-    await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...defaultCreateScheduleValues } });
+    await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
     return true;
   }
 
-  if (stepKey === 'duration-mode') {
+  if (stepKey === 'duration-mode' || stepKey === 'confirm-duration-mode') {
+    const returnToSummary = stepKey === 'confirm-duration-mode';
     if (text === texts.durationNone || text === scheduleLabels.durationNone) {
-      await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes: 120 } });
-      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+      if (returnToSummary) {
+        await replyCreateConfirm(context, { ...data, durationMinutes: 120 });
+      } else {
+        await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes: 120 } });
+        await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+      }
       return true;
     }
     if (text === texts.durationHours || text === scheduleLabels.durationHours) {
-      await context.runtime.session.advance({ stepKey: 'duration-hours', data });
+      await context.runtime.session.advance({ stepKey: returnToSummary ? 'confirm-duration-hours' : 'duration-hours', data });
       await context.reply(texts.askDurationHours, buildSingleBackCancelKeyboard(language));
       return true;
     }
     if (text === texts.durationHoursMinutes || text === scheduleLabels.durationHoursMinutes) {
-      await context.runtime.session.advance({ stepKey: 'duration-hours-minutes', data });
+      await context.runtime.session.advance({ stepKey: returnToSummary ? 'confirm-duration-hours-minutes' : 'duration-hours-minutes', data });
       await context.reply(texts.askDurationHoursMinutes, buildSingleBackCancelKeyboard(language));
       return true;
     }
     if (text === texts.durationMinutes || text === scheduleLabels.durationMinutes) {
-      await context.runtime.session.advance({ stepKey: 'duration', data });
+      await context.runtime.session.advance({ stepKey: returnToSummary ? 'confirm-duration' : 'duration', data });
       await context.reply(texts.askDurationMinutes, buildSingleBackCancelKeyboard(language));
       return true;
     }
@@ -604,29 +616,37 @@ async function handleCreateSession(
     return true;
   }
 
-  if (stepKey === 'duration-hours') {
+  if (stepKey === 'duration-hours' || stepKey === 'confirm-duration-hours') {
     const durationMinutes = parseDurationHours(text);
     if (durationMinutes instanceof Error) {
       await context.reply(texts.invalidDurationHours, buildSingleBackCancelKeyboard(language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
-    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    if (stepKey === 'confirm-duration-hours') {
+      await replyCreateConfirm(context, { ...data, durationMinutes });
+    } else {
+      await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
+      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    }
     return true;
   }
 
-  if (stepKey === 'duration-hours-minutes') {
+  if (stepKey === 'duration-hours-minutes' || stepKey === 'confirm-duration-hours-minutes') {
     const durationMinutes = parseDurationHoursMinutes(text);
     if (durationMinutes instanceof Error) {
       await context.reply(texts.invalidDurationHoursMinutes, buildSingleBackCancelKeyboard(language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
-    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    if (stepKey === 'confirm-duration-hours-minutes') {
+      await replyCreateConfirm(context, { ...data, durationMinutes });
+    } else {
+      await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
+      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    }
     return true;
   }
 
-  if (stepKey === 'duration') {
+  if (stepKey === 'duration' || stepKey === 'confirm-duration') {
     const durationMinutes = parseOptionalDurationMinutes({
       value: text,
       language,
@@ -637,15 +657,28 @@ async function handleCreateSession(
       await context.reply(texts.invalidDurationMinutes, buildSingleBackCancelKeyboard(language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
-    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    if (stepKey === 'confirm-duration') {
+      await replyCreateConfirm(context, { ...data, durationMinutes });
+    } else {
+      await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
+      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    }
     return true;
   }
 
-  if (stepKey === 'attendance-mode') {
+  if (stepKey === 'attendance-mode' || stepKey === 'confirm-attendance-mode') {
     const attendanceMode = parseAttendanceModeSelection(text, texts);
     if (attendanceMode === null) {
       await context.reply(texts.invalidAttendanceMode, buildAttendanceModeOptions(language));
+      return true;
+    }
+    if (stepKey === 'confirm-attendance-mode') {
+      await replyCreateConfirm(context, {
+        ...data,
+        attendanceMode,
+        isPublic: false,
+        initialOccupiedSeats: 0,
+      });
       return true;
     }
     if (attendanceMode === 'open') {
@@ -704,11 +737,26 @@ async function handleCreateSession(
     return true;
   }
 
-  if (stepKey === 'table') {
+  if (stepKey === 'table' || stepKey === 'confirm-table') {
     return advanceCreateTableSelection(context, data, text);
   }
 
   if (stepKey === 'confirm') {
+    if (text === texts.editFieldDuration || text === scheduleLabels.editFieldDuration) {
+      await context.runtime.session.advance({ stepKey: 'confirm-duration-mode', data });
+      await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+      return true;
+    }
+    if (text === texts.detailsAttendanceMode) {
+      await context.runtime.session.advance({ stepKey: 'confirm-attendance-mode', data });
+      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+      return true;
+    }
+    if (text === texts.editFieldTable || text === scheduleLabels.editFieldTable) {
+      await context.runtime.session.advance({ stepKey: 'confirm-table', data });
+      await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+      return true;
+    }
     if (text === texts.editFieldDescription || text === scheduleLabels.editFieldDescription) {
       await context.runtime.session.advance({ stepKey: 'description', data });
       await context.reply(texts.askDescription, buildDescriptionOptions(language));
@@ -837,6 +885,10 @@ async function advanceCreateCapacity(
     return true;
   }
   const nextData = { ...data, capacity };
+  if (data.tableId === null) {
+    await replyCreateConfirm(context, nextData);
+    return true;
+  }
   if (attendanceMode === 'open') {
     await context.runtime.session.advance({ stepKey: 'initial-occupied-seats', data: nextData });
     await context.reply(texts.askInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
@@ -845,6 +897,43 @@ async function advanceCreateCapacity(
   await context.runtime.session.advance({ stepKey: 'table', data: { ...nextData, isPublic: false, initialOccupiedSeats: 0 } });
   await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
   return true;
+}
+
+async function replyCreateTimePrompt(
+  context: TelegramScheduleContext,
+  date: string,
+  language: 'ca' | 'es' | 'en',
+): Promise<void> {
+  const texts = createTelegramI18n(language).schedule;
+  const startsAtFrom = buildStartsAt(date, '00:00');
+  const nextDay = new Date(startsAtFrom);
+  nextDay.setDate(nextDay.getDate() + 1);
+  const startsAtTo = nextDay.toISOString();
+  const events = (await listScheduleEvents({
+    repository: resolveScheduleRepository(context),
+    includeCancelled: false,
+    startsAtFrom,
+    startsAtTo,
+  })).filter((event) => event.startsAt < startsAtTo);
+  const daySchedule = events.length === 0
+    ? texts.noScheduledEventsDay
+    : await formatScheduleListWithVenueImpact({
+        events,
+        language,
+        loadAttendance: async (eventId) => {
+          const attendance = await getScheduleEventAttendance({
+            repository: resolveScheduleRepository(context),
+            eventId,
+          });
+          return attendance.snapshot;
+        },
+        loadTableName: async (event) => loadTableName(context, event.tableId),
+        loadRelevantVenueEvents: async (event) => listRelevantVenueEventsForScheduleEvent(context, event),
+      });
+  await context.reply(`${texts.askTime}\n\n${daySchedule}`, {
+    ...buildSingleBackCancelKeyboard(language),
+    parseMode: 'HTML',
+  });
 }
 
 async function saveJoinReminderPreference(
@@ -1057,6 +1146,11 @@ async function handleCreateSessionBack(
       },
     });
     await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+    return true;
+  }
+
+  if (stepKey === 'confirm-duration-mode' || stepKey === 'confirm-duration-hours' || stepKey === 'confirm-duration-hours-minutes' || stepKey === 'confirm-duration' || stepKey === 'confirm-attendance-mode' || stepKey === 'confirm-table') {
+    await replyCreateConfirm(context, data);
     return true;
   }
 
@@ -1447,7 +1541,7 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
   const session = context.runtime.session.current;
-  if (!session || (session.stepKey !== 'table' && session.stepKey !== 'confirm')) {
+  if (!session || (session.stepKey !== 'table' && session.stepKey !== 'confirm' && session.stepKey !== 'confirm-table')) {
     return false;
   }
 

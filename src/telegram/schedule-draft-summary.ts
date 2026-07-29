@@ -3,7 +3,7 @@ import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { asNullableNumber, asNullableString, buildStartsAt } from './schedule-parsing.js';
-import { escapeHtml, formatDurationMinutes, formatTimestamp } from './schedule-presentation.js';
+import { escapeHtml, formatDurationMinutes, formatHtmlField, formatTimestamp } from './schedule-presentation.js';
 
 export async function formatScheduleDraftSummary({
   botLanguage,
@@ -48,18 +48,18 @@ export async function formatScheduleDraftSummary({
   });
 
   return [
-    `${texts.editFieldTitle}: ${escapeHtml(title)}`,
-    `${texts.detailsDescription}: ${escapeHtml(description ?? texts.noDescription)}`,
-    `${texts.detailsStart}: ${formatTimestamp(buildStartsAt(date, time))}`,
-    `${texts.detailsDuration}: ${formatDurationMinutes(durationMinutes)}`,
-    `${texts.detailsAttendanceMode}: ${attendanceMode === 'closed' ? texts.closedDetailTag : texts.openDetailTag}`,
-    `${texts.detailsVisibility}: ${isPublic ? texts.publicActivityTag : texts.memberOnlyActivityTag}`,
-    `${attendanceMode === 'closed' ? texts.detailsPeople : texts.detailsSeats}: ${capacity}`,
-    ...(attendanceMode === 'open' ? [`${texts.detailsInitialOccupiedSeats}: ${initialOccupiedSeats}`] : []),
-    `${texts.detailsTable}: ${table?.displayName ?? texts.noTable}`,
+    formatHtmlField(texts.editFieldTitle, escapeHtml(title)),
+    formatHtmlField(texts.detailsDescription, escapeHtml(description ?? texts.noDescription)),
+    formatHtmlField(texts.detailsStart, formatTimestamp(buildStartsAt(date, time))),
+    formatHtmlField(texts.detailsDuration, formatDurationMinutes(durationMinutes)),
+    formatHtmlField(texts.detailsAttendanceMode, escapeHtml(attendanceMode === 'closed' ? texts.closedDetailTag : texts.openDetailTag)),
+    formatHtmlField(texts.detailsVisibility, escapeHtml(isPublic ? texts.publicActivityTag : texts.memberOnlyActivityTag)),
+    formatHtmlField(attendanceMode === 'closed' ? texts.detailsPeople : texts.detailsSeats, String(capacity)),
+    ...(attendanceMode === 'open' ? [formatHtmlField(texts.detailsInitialOccupiedSeats, String(initialOccupiedSeats))] : []),
+    formatHtmlField(texts.detailsTable, escapeHtml(table?.displayName ?? texts.noTable)),
     ...advisories.map(escapeHtml),
     ...(effectiveOrganizerTelegramUserId
-      ? [`${texts.detailsOrganizer}: ${escapeHtml(await resolveOrganizerDisplayName(effectiveOrganizerTelegramUserId))}`]
+      ? [formatHtmlField(texts.detailsOrganizer, escapeHtml(await resolveOrganizerDisplayName(effectiveOrganizerTelegramUserId)))]
       : []),
   ].join('\n');
 }
