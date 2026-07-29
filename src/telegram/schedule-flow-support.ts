@@ -82,6 +82,7 @@ import {
 import { formatScheduleDraftSummary } from './schedule-draft-summary.js';
 import { formatScheduleListWithVenueImpact } from './schedule-list-impact.js';
 import { notifyScheduleConflicts, publishCalendarSnapshotToNewsGroups, publishPublicCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
+import { formatTelegramUserLink } from './telegram-user-links.js';
 import {
   buildAttendanceModeOptions,
   buildCancelConfirmOptions,
@@ -1558,8 +1559,12 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
   }
 
   const nextData = { ...session.data, tableId };
+  if (session.flowKey !== editFlowKey) {
+    await replyCreateConfirm(context, nextData, selectedTable);
+    return true;
+  }
   await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
-  const event = session.flowKey === editFlowKey ? await loadEventOrThrow(context, Number(session.data.eventId)) : null;
+  const event = await loadEventOrThrow(context, Number(session.data.eventId));
     await context.reply(
       `${await formatScheduleDraftSummary({
         botLanguage: resolveBotLanguage(context),
@@ -1567,7 +1572,8 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
         selectedTable,
         tableRepository: resolveTableRepository(context),
         resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
-        ...(event ? { eventOrOrganizer: event, organizerTelegramUserId: event.organizerTelegramUserId } : {}),
+        eventOrOrganizer: event,
+        organizerTelegramUserId: event.organizerTelegramUserId,
       })}\n\n${texts.confirmPrompt}`,
       { ...(session.flowKey === editFlowKey ? buildEditConfirmOptions(language) : buildCreateConfirmOptions(language)), parseMode: 'HTML' },
     );
@@ -1605,16 +1611,71 @@ async function replyCreateConfirm(
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
   await context.runtime.session.advance({ stepKey: 'confirm', data });
+  const conflictWarning = await formatCreateDraftConflictWarning(context, data, language);
   await context.reply(
-    `${await formatScheduleDraftSummary({
+      `${await formatScheduleDraftSummary({
       botLanguage: resolveBotLanguage(context),
       data,
       tableRepository: resolveTableRepository(context),
-      resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
-      ...(selectedTable === undefined ? {} : { selectedTable }),
-    })}\n\n${texts.confirmPrompt}`,
+        resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
+        ...(selectedTable === undefined ? {} : { selectedTable }),
+      })}${conflictWarning ? `\n\n${conflictWarning}` : ''}\n\n${texts.confirmPrompt}`,
     { ...buildCreateConfirmOptions(language), parseMode: 'HTML' },
   );
+}
+
+async function formatCreateDraftConflictWarning(
+  context: TelegramScheduleContext,
+  data: Record<string, unknown>,
+  language: 'ca' | 'es' | 'en',
+): Promise<string | null> {
+  const tableId = asNullableNumber(data.tableId);
+  const durationMinutes = Number(data.durationMinutes);
+  const date = String(data.date ?? '');
+  const time = String(data.time ?? '');
+  if (tableId === null || !Number.isInteger(durationMinutes) || durationMinutes <= 0 || !date || !time) {
+    return null;
+  }
+
+  const startsAt = buildStartsAt(date, time);
+  const endsAt = new Date(new Date(startsAt).getTime() + durationMinutes * 60000).toISOString();
+  const overlappingEvents = (await listScheduleEvents({
+    repository: resolveScheduleRepository(context),
+    includeCancelled: false,
+  })).filter((event) => {
+    if (event.tableId !== tableId) {
+      return false;
+    }
+    const eventEndsAt = getScheduleEventEndsAt(event);
+    return startsAt < eventEndsAt && event.startsAt < endsAt;
+  });
+  if (overlappingEvents.length === 0) {
+    return null;
+  }
+
+  const texts = createTelegramI18n(language).schedule;
+  const scheduleMessage = await formatScheduleListWithVenueImpact({
+    events: overlappingEvents,
+    language,
+    loadAttendance: async (eventId) => {
+      const attendance = await getScheduleEventAttendance({
+        repository: resolveScheduleRepository(context),
+        eventId,
+      });
+      return attendance.snapshot;
+    },
+    loadTableName: async (event) => loadTableName(context, event.tableId),
+    loadRelevantVenueEvents: async (event) => listRelevantVenueEventsForScheduleEvent(context, event),
+  });
+  const organizerLinks = await Promise.all(overlappingEvents.map(async (event) => {
+    const organizer = await resolveMembershipRepository(context).findUserByTelegramUserId(event.organizerTelegramUserId);
+    const organizerLink = organizer
+      ? formatTelegramUserLink(organizer)
+      : `<a href="tg://user?id=${event.organizerTelegramUserId}">${escapeHtml(texts.userFallback.replace('{id}', String(event.organizerTelegramUserId)))}</a>`;
+    return `- <b>${escapeHtml(event.title)}</b>: ${organizerLink}`;
+  }));
+
+  return [texts.conflictDetected, scheduleMessage, `<b>${escapeHtml(texts.detailsOrganizer)}:</b>`, ...organizerLinks, texts.conflictUnblocked].join('\n\n');
 }
 
 async function advanceEditTableSelection(

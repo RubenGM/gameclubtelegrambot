@@ -2970,6 +2970,63 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
   assert.match(replies.at(-1)?.message ?? '', /Activitat cancel·lada correctament: <b>Ark Nova<\/b>/);
 });
 
+test('handleTelegramScheduleText warns in the creation summary when a selected table overlaps another activity', async () => {
+  const tableRepository = createTableRepository([
+    {
+      id: 7,
+      displayName: 'Mesa principal',
+      description: null,
+      recommendedCapacity: 4,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 30,
+      title: 'Terraforming Mars',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 55,
+      createdByTelegramUserId: 55,
+      tableId: 7,
+      durationMinutes: 180,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, tableRepository, actorTelegramUserId: 77, language: 'es' });
+  const texts = createTelegramI18n('es').schedule;
+
+  context.messageText = texts.create;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Ark Nova';
+  await handleTelegramScheduleText(context);
+  context.messageText = '05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '17:00';
+  await handleTelegramScheduleText(context);
+  context.messageText = '4';
+  await handleTelegramScheduleText(context);
+  context.messageText = texts.editFieldTable;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Mesa principal';
+  await handleTelegramScheduleText(context);
+
+  const summary = replies.at(-1)?.message ?? '';
+  assert.match(summary, /posible conflicto/i);
+  assert.match(summary, /Terraforming Mars/);
+  assert.match(summary, /- 18h-21h .*Terraforming Mars/);
+  assert.match(summary, /https:\/\/t\.me\/carla/);
+});
+
 test('handleTelegramScheduleText sends private conflict notifications after creating an overlapping activity', async () => {
   const tableRepository = createTableRepository([
     {
