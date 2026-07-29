@@ -32,9 +32,15 @@ La feature se activa por estas vías:
 - Botón privado `Preguntar al bot`, que abre una sesión de conversación.
 - Fallback privado configurable para mensajes que no hayan sido manejados por
   otros flujos.
-- Menciones al bot en grupos o topics, únicamente cuando `@username` aparece al
-  principio del mensaje, después de espacios iniciales.
-- Replies a mensajes del bot en grupos o privado.
+- Replies a mensajes del bot en privado.
+- Menciones iniciales al bot en grupos o topics, cuando
+  `GAMECLUB_LLM_COMMANDS_GROUP_INTERACTIONS_ENABLED=true`.
+
+En grupos y topics sólo una mención inicial con texto después de `@username`
+activa esta entrada. La consulta se ejecuta sin mensaje de progreso ni otra
+respuesta pública. Si Codex no puede interpretar el comando, el bot no escribe
+nada; si lo interpreta, entrega el resultado exclusivamente por mensaje directo
+al autor. Los replies al bot no activan la IA en grupos/topics.
 
 Una mención inicial que sólo contiene `@username` no llega a la LLM. Si la
 persona ya ha iniciado conversación privada antes, el bot le envía allí el
@@ -42,12 +48,10 @@ inicio y su menú raíz, igual que con `Inicio`. Si todavía no puede recibir
 mensajes privados del bot, responde en el grupo con el enlace y las
 instrucciones para abrir el privado y ejecutar `/start`.
 
-En grupos y topics sólo se responden lecturas cuando hay una mención explícita al
-principio del mensaje o el usuario responde realmente a un mensaje suyo. Las
-quotes, las menciones escritas dentro de una frase y los mensajes informativos
-como `para usar el bot tenéis que escribir a @cawa_bot` se ignoran. Las escrituras pedidas desde grupo
-no se ejecutan allí: el bot debe pedir al usuario que repita o continúe en
-privado.
+Las quotes, las menciones escritas dentro de una frase y los mensajes
+informativos como `para usar el bot tenéis que escribir a @cawa_bot` se ignoran.
+Las escrituras pedidas desde grupo no se ejecutan allí: su explicación se envía
+en privado y el usuario puede continuar el flujo normal desde ese chat.
 
 ## Seguridad y permisos
 
@@ -134,6 +138,7 @@ Las variables runtime principales son:
 ```bash
 GAMECLUB_LLM_COMMANDS_ENABLED=false
 GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED=true
+GAMECLUB_LLM_COMMANDS_GROUP_INTERACTIONS_ENABLED=false
 GAMECLUB_LLM_COMMANDS_PROVIDER=codex
 GAMECLUB_CODEX_BIN=./scripts/codex-cawa.sh
 GAMECLUB_LLM_COMMANDS_MODEL=gpt-5.6-luna
@@ -150,7 +155,10 @@ GAMECLUB_LLM_COMMANDS_DRY_RUN=false
 `GAMECLUB_LLM_COMMANDS_ENABLED` controla la feature completa. El fallback
 privado se puede apagar con
 `GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED=false` sin desactivar `/ask`,
-el botón privado ni las lecturas por mención/reply en grupos.
+el botón privado ni las sesiones. Las interacciones de lenguaje natural por
+mención inicial en grupos/topics se activan con
+`GAMECLUB_LLM_COMMANDS_GROUP_INTERACTIONS_ENABLED=true`; sus replies no activan
+la IA y las respuestas interpretadas se entregan siempre por privado.
 
 ## Flujo principal
 
@@ -350,10 +358,12 @@ descripción, tags, nombres de archivo y refinado semántico determinen si encaj
 La LLM puede ayudar a filtrar semánticamente, pero no debe inventar contenido ni
 ocultar que los datos reales son ambiguos.
 
-## Replies como contexto conversacional
+## Replies como contexto conversacional privado
 
-Si un usuario responde a un mensaje del bot, `runtime-boundary-support.ts`
-extrae el texto o caption del mensaje respondido y lo añade como contexto.
+Si un usuario responde a un mensaje del bot en privado,
+`runtime-boundary-support.ts` extrae el texto o caption del mensaje respondido y
+lo añade como contexto. Los replies de grupos y topics no activan el intérprete
+LLM.
 
 Usos esperados:
 
@@ -399,12 +409,13 @@ mismo fichero que el formulario web.
 
 El intérprete LLM también reconoce insultos dirigidos explícitamente al bot o a
 una de sus respuestas mediante `feedback.offer`. En privado cancela la sesión
-LLM y abre el mismo proceso de consentimiento; en grupos/topics ofrece un
-enlace de inicio al privado. Esta clasificación es semántica y cubre catalán,
-castellano e inglés con faltas, acentos omitidos, letras repetidas, puntuación
-extraña, abreviaturas, sarcasmo o insultos creativos; aun así no debe activar
-feedback por insultos entre personas, autoinsultos, citas, ejemplos educativos
-ni contenido que no se dirija al bot.
+LLM y abre el mismo proceso de consentimiento. Desde una mención de grupo/topic
+interpretada como feedback, el aviso se entrega sólo por privado.
+Esta clasificación semántica cubre catalán, castellano e inglés con faltas,
+acentos omitidos, letras repetidas, puntuación extraña, abreviaturas, sarcasmo
+o insultos creativos; aun así no debe activar feedback por insultos entre
+personas, autoinsultos, citas, ejemplos educativos ni contenido que no se dirija
+al bot.
 
 ## Observabilidad y fallos
 

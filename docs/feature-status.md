@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-07-24.
+Última revisión: 2026-07-28.
 
 Este documento refleja lo que existe en el codigo actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -18,7 +18,7 @@ Este documento refleja lo que existe en el codigo actual, no solo lo que aparece
 | Runtime, configuración y despliegue          | 🟢 Operativo        | Base TypeScript, PostgreSQL, Drizzle, bootstrap, long polling, reintentos Telegram, systemd/tray y backups.                           |
 | Acceso, usuarios y admins                    | 🟢 Operativo        | Solicitud/aprobación/rechazo/revocación, autojoin por grupo, nickname, bienvenidas, avisos privados y alta web en `/alta`.            |
 | Idioma, menús y ayuda                        | 🟢 Operativo        | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG, Rol y ayuda contextual por sección activa.                                     |
-| Asistente LLM de órdenes naturales           | 🟠 Parcial          | `/ask` para socios y `/adminai` confirmado para abrir opciones admin; lecturas MVP y escrituras generales parciales.                  |
+| Asistente LLM de órdenes naturales           | 🟠 Parcial          | `/ask` y fallback privado; menciones IA en grupos/topics responden sólo por privado, sin mensajes públicos.                           |
 | Mesas                                        | 🟢 Operativo        | Administración de mesas y consulta de tablas activas para socios.                                                                     |
 | Agenda de actividades                        | 🟢 Operativo        | Crear normal/simple, listar/editar/cancelar, apuntarse/salir, actividades públicas, conflictos, recordatorios y feeds de noticias. |
 | Google Calendar                              | 🟢 Operativo        | Selección admin, acceso público/privado, sincronización Agenda → Google y enlace limpio desde grupos/topics.                         |
@@ -173,8 +173,8 @@ Implementado:
 - Comando privado `/ask` para socios aprobados.
 - Botón privado `Preguntar al bot` visible sólo cuando la feature está habilitada.
 - Fallback privado configurable con `GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED`, ejecutado al final de la cadena de handlers para no capturar comandos ni botones. Las sesiones pasivas de lectura de catálogo no bloquean el fallback LLM cuando el texto libre no coincide con acciones del detalle.
-- El fallback LLM reconoce insultos dirigidos al bot y abre el consentimiento de feedback en privado; desde un grupo/topic deriva a un enlace privado. No confunde insultos entre personas con feedback del bot.
-- Lecturas en grupos/topics cuando el usuario menciona explícitamente al bot o responde a un mensaje suyo; las respuestas conservan `message_thread_id`, ofrecen abrir el privado y envían a la LLM el texto del mensaje del bot respondido como contexto conversacional.
+- El fallback LLM reconoce insultos dirigidos al bot y abre el consentimiento de feedback en privado. Desde una mención de grupo/topic interpretada como feedback, el aviso también se entrega sólo por privado; no confunde insultos entre personas con feedback del bot.
+- Las menciones iniciales con texto en grupos/topics activan la IA mediante `GAMECLUB_LLM_COMMANDS_GROUP_INTERACTIONS_ENABLED=true`, sin progreso, errores ni respuestas públicas. Si Codex interpreta el comando, el resultado llega sólo por mensaje directo al autor; si falla la interpretación o el envío privado, el grupo no recibe ningún mensaje. Los replies de grupo/topic no activan esta entrada. `/ask`, el botón, las sesiones y el fallback privado continúan disponibles.
 - Una mención inicial sin texto (`@bot`) no invoca la LLM: reabre por privado el inicio y menú raíz para quien ya contactó con el bot; para una persona nueva explica en el grupo cómo abrir el privado con `/start`.
 - Sesión LLM conversacional con expiración funcional de 15 minutos dentro del flujo `llm-command`.
 - Recibo/progreso editable inmediato para peticiones LLM: el bot confirma recepción antes de invocar el proveedor LLM, muestra una barra aproximada y textos breves de estado sin exponer la petición completa, edita el mismo mensaje con estados intermedios mientras espera a la IA y lo completa con lectura, aclaración, rechazo o confirmación.
@@ -188,7 +188,7 @@ Implementado:
 - Las recomendaciones LLM de catálogo usan `catalog.recommend`: el bot filtra juegos reales por tipo, disponibilidad y número de jugadores, usa la consulta como señal de ranking semántico sobre texto y metadatos BGG en vez de como filtro duro, aplica fallback a rangos cercanos, juegos prestados o metadatos incompletos cuando no hay coincidencia exacta, envía candidatos con metadatos a la LLM para elegir, y renderiza la respuesta con enlaces a los detalles del bot.
 - La importación/autocorrección BGG guarda metadatos útiles para recomendaciones: peso medio, rating, bayes average, usuarios, votos de peso y rangos de jugadores recomendados por encuesta, además de categorías y mecánicas.
 - Las búsquedas LLM de Storage refinan los candidatos visibles con una segunda pasada semántica sobre descripción, ruta completa de categoría, tags y archivos para separar, por ejemplo, material de rol/PDF de modelos STL con la misma franquicia; si la consulta coincide con una categoría visible, el bot incluye también sus descendientes para encontrar archivos guardados en subcarpetas específicas, y trata todo lo que cuelga de la categoría raíz de STL como contenido de impresión 3D (`STL`, modelos 3D, figuras, estatuas, miniaturas o dioramas) en vez de exigir extensión `.stl` literal. Los handouts internos de Rol no se devuelven por `storage.search` ni por la sección Storage de `bot.search`.
-- Timeout LLM por defecto ampliado a 60s para reducir cortes en grupos y búsquedas con refinado semántico; los timeouts se comunican con mensaje específico al usuario.
+- Timeout LLM por defecto ampliado a 60s para reducir cortes durante búsquedas con refinado semántico; los timeouts se comunican con mensaje específico al usuario.
 - Las lecturas usan el riesgo local de la allowlist por encima del `safety.risk` devuelto por la LLM, de modo que consultas como agenda semanal no caen en confirmación/prellenado aunque la LLM clasifique mal la salida.
 - Métricas saneadas persistidas en `audit_log` con intención, confianza, origen, tipo de chat, resultado, duración y motivo; no guardan texto literal del usuario, prompt completo ni respuesta completa de la LLM.
 - Confirmación LLM previa para escrituras y preparación/delegación a flujos normales para `notice.create`, `notice.archive`, `lfg.create`, `schedule.join`, `schedule.leave`, `group_purchase.join`, `catalog.loan.create` y `storage.upload.start`; la persistencia final sigue dependiendo de los handlers estándar y sus confirmaciones cuando existan.

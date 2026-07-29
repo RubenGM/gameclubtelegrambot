@@ -161,25 +161,53 @@ test('handleTelegramLlmFallbackText starts consented feedback for an LLM-detecte
   assert.equal(context.replies.at(-1), 'Parece que esta respuesta te ha frustrado. ¿Quieres enviar feedback para que podamos mejorarlo?');
 });
 
-test('handleTelegramLlmFallbackText hands an LLM-detected group insult to private feedback', async () => {
+test('handleTelegramLlmFallbackText sends an LLM-detected group insult to private feedback without writing in the group', async () => {
   const context = createContext({
     chatKind: 'group',
     messageText: '@gameclubbot eres un tonto',
+    groupInteractionsEnabled: true,
     decision: feedbackOfferDecision(),
   });
 
   assert.equal(await handleTelegramLlmFallbackText(context), true);
   assert.equal(context.session.current, null);
-  assert.equal(context.replies.at(-1), 'Si quieres, puedes enviar feedback para que podamos mejorarlo. Abre el chat privado para continuar.');
-  assert.deepEqual(context.replyOptions.at(-1), {
-    inlineKeyboard: [[{ text: 'Abrir privado', url: 'https://t.me/gameclubbot?start=feedback_insult' }]],
-  });
+  assert.equal(context.replies.length, 0);
+  assert.deepEqual(context.privateMessages, [{
+    telegramUserId: 123,
+    message: 'Si quieres, puedes enviar feedback para que podamos mejorarlo. Abre el chat privado para continuar.',
+    options: undefined,
+  }]);
 });
 
-test('handleTelegramLlmFallbackText only handles group text when it mentions or replies to the bot', async () => {
+test('handleTelegramLlmFallbackText ignores group mentions and replies while group interactions are disabled', async () => {
+  const mentioned = createContext({
+    chatKind: 'group-news',
+    messageText: '@gameclubbot que puedes hacer',
+    messageThreadId: 42,
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(mentioned), false);
+  assert.equal(mentioned.servicePrompts.length, 0);
+
+  const replied = createContext({
+    chatKind: 'group',
+    messageText: 'No me deja participar',
+    replyToBotMessage: true,
+    replyToBotMessageContext: {
+      messageId: 77,
+      text: 'Ruinas de Arnak: la Expedición Perdida. Miguel ha confirmado.',
+    },
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(replied), false);
+  assert.equal(replied.servicePrompts.length, 0);
+});
+
+test('handleTelegramLlmFallbackText silently handles only leading group mentions and delivers the result privately', async () => {
   const ignored = createContext({
     chatKind: 'group',
     messageText: 'que actividades hay hoy',
+    groupInteractionsEnabled: true,
   });
 
   assert.equal(await handleTelegramLlmFallbackText(ignored), false);
@@ -189,21 +217,24 @@ test('handleTelegramLlmFallbackText only handles group text when it mentions or 
     chatKind: 'group-news',
     messageText: '@gameclubbot que puedes hacer',
     messageThreadId: 42,
+    groupInteractionsEnabled: true,
   });
 
   assert.equal(await handleTelegramLlmFallbackText(mentioned), true);
   assert.match(mentioned.servicePrompts[0] ?? '', /que puedes hacer/);
   assert.doesNotMatch(mentioned.servicePrompts[0] ?? '', /@gameclubbot/);
-  assert.deepEqual(mentioned.replyOptions.at(-1), {
-    messageThreadId: 42,
-    inlineKeyboard: [[{ text: 'Abrir privado', url: 'https://t.me/gameclubbot?start=llm_ask' }]],
-  });
+  assert.equal(mentioned.replies.length, 0);
+  assert.deepEqual(mentioned.privateMessages, [{
+    telegramUserId: 123,
+    message: 'Puedes preguntarme por actividades, catálogo, Storage, compras, avisos y LFG.',
+    options: undefined,
+  }]);
 
   for (const messageText of [
     'información: para usar el bot tenéis que escribir a @gameclubbot',
     'comparte esto con @gameclubbot por si acaso',
   ]) {
-    const mentionInsideText = createContext({ chatKind: 'group', messageText });
+    const mentionInsideText = createContext({ chatKind: 'group', messageText, groupInteractionsEnabled: true });
     assert.equal(await handleTelegramLlmFallbackText(mentionInsideText), false);
     assert.equal(mentionInsideText.servicePrompts.length, 0);
   }
@@ -211,13 +242,17 @@ test('handleTelegramLlmFallbackText only handles group text when it mentions or 
   const leadingWhitespaceMention = createContext({
     chatKind: 'group',
     messageText: '   @gameclubbot que puedes hacer',
+    groupInteractionsEnabled: true,
   });
   assert.equal(await handleTelegramLlmFallbackText(leadingWhitespaceMention), true);
   assert.match(leadingWhitespaceMention.servicePrompts[0] ?? '', /que puedes hacer/);
+  assert.equal(leadingWhitespaceMention.replies.length, 0);
+  assert.equal(leadingWhitespaceMention.privateMessages.length, 1);
 
   const emptyMention = createContext({
     chatKind: 'group',
     messageText: '@gameclubbot',
+    groupInteractionsEnabled: true,
   });
   assert.equal(await handleTelegramLlmFallbackText(emptyMention), false);
   assert.equal(emptyMention.servicePrompts.length, 0);
@@ -225,6 +260,7 @@ test('handleTelegramLlmFallbackText only handles group text when it mentions or 
   const replied = createContext({
     chatKind: 'group',
     messageText: '¿y alguno disponible?',
+    groupInteractionsEnabled: true,
     replyToBotMessage: true,
     replyToBotMessageContext: {
       messageId: 77,
@@ -232,9 +268,23 @@ test('handleTelegramLlmFallbackText only handles group text when it mentions or 
     },
   });
 
-  assert.equal(await handleTelegramLlmFallbackText(replied), true);
-  assert.match(replied.servicePrompts[0] ?? '', /Mensaje del bot al que responde el usuario/);
-  assert.match(replied.servicePrompts[0] ?? '', /Resultados del catálogo/);
+  assert.equal(await handleTelegramLlmFallbackText(replied), false);
+  assert.equal(replied.servicePrompts.length, 0);
+  assert.equal(replied.replies.length, 0);
+  assert.equal(replied.privateMessages.length, 0);
+});
+
+test('handleTelegramLlmFallbackText stays silent everywhere when a group mention cannot be interpreted', async () => {
+  const context = createContext({
+    chatKind: 'group',
+    messageText: '@gameclubbot que puedes hacer',
+    groupInteractionsEnabled: true,
+    serviceError: new LlmCommandServiceError('invalid_json', 'invalid response'),
+  });
+
+  assert.equal(await handleTelegramLlmFallbackText(context), true);
+  assert.equal(context.replies.length, 0);
+  assert.equal(context.privateMessages.length, 0);
 });
 
 test('handleTelegramLlmAskCommand records sanitized failure metrics without leaking prompts', async () => {
@@ -485,6 +535,7 @@ function createContext({
   decision = helpDecision(),
   llmEnabled = true,
   privateFallbackEnabled = true,
+  groupInteractionsEnabled = false,
   chatKind = 'private',
   messageThreadId,
   replyToBotMessage = false,
@@ -498,6 +549,7 @@ function createContext({
   decision?: LlmCommandDecision;
   llmEnabled?: boolean;
   privateFallbackEnabled?: boolean;
+  groupInteractionsEnabled?: boolean;
   chatKind?: 'private' | 'group' | 'group-news';
   messageThreadId?: number;
   replyToBotMessage?: boolean;
@@ -512,6 +564,7 @@ function createContext({
   edits: Array<{ chatId: number; messageId: number; text: string; options?: unknown }>;
   servicePrompts: string[];
   metrics: LlmCommandMetricInput[];
+  privateMessages: Array<{ telegramUserId: number; message: string; options: unknown }>;
   session: ConversationSessionRuntime;
 } {
   const replies: string[] = [];
@@ -519,6 +572,7 @@ function createContext({
   const edits: Array<{ chatId: number; messageId: number; text: string; options?: unknown }> = [];
   const servicePrompts: string[] = [];
   const metrics: LlmCommandMetricInput[] = [];
+  const privateMessages: Array<{ telegramUserId: number; message: string; options: unknown }> = [];
   const session = createSessionRuntime();
   return {
     messageText,
@@ -540,7 +594,9 @@ function createContext({
         clubName: 'Game Club',
         language: 'es',
         username: 'gameclubbot',
-        async sendPrivateMessage() {},
+        async sendPrivateMessage(telegramUserId, message, options) {
+          privateMessages.push({ telegramUserId, message, options });
+        },
         ...(editableProgress
           ? {
               async editMessageText(input: { chatId: number; messageId: number; text: string; options?: unknown }) {
@@ -571,6 +627,7 @@ function createContext({
         ...defaultLlmCommandConfig,
         enabled: llmEnabled,
         privateFallbackEnabled,
+        groupInteractionsEnabled,
       },
       llmCommandService: {
         async interpret(prompt) {
@@ -599,6 +656,7 @@ function createContext({
     edits,
     servicePrompts,
     metrics,
+    privateMessages,
     session,
     ...overrides,
   };

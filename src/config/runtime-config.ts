@@ -168,6 +168,7 @@ export const runtimeConfigSchema = z.object({
     .object({
       enabled: booleanFromEnvSchema.default(false),
       privateFallbackEnabled: booleanFromEnvSchema.default(true),
+      groupInteractionsEnabled: booleanFromEnvSchema.default(false),
       provider: z.enum(['codex', 'opencode']).default('codex'),
       opencodeBin: z.string().trim().min(1).optional(),
       codexBin: z.string().trim().min(1).optional(),

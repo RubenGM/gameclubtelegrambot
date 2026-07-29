@@ -3,6 +3,7 @@ import type { RuntimeConfig } from '../config/runtime-config.js';
 export interface ResolvedLlmCommandConfig {
   enabled: boolean;
   privateFallbackEnabled: boolean;
+  groupInteractionsEnabled: boolean;
   provider: 'codex' | 'opencode';
   opencodeBin?: string | undefined;
   codexBin?: string | undefined;
@@ -20,6 +21,7 @@ export interface ResolvedLlmCommandConfig {
 export const defaultLlmCommandConfig: ResolvedLlmCommandConfig = {
   enabled: false,
   privateFallbackEnabled: true,
+  groupInteractionsEnabled: false,
   provider: 'codex',
   codexBin: './scripts/codex-cawa.sh',
   model: 'gpt-5.6-luna',

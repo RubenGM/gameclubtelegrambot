@@ -367,6 +367,16 @@ export const runtimeConfigFieldSpecs: RuntimeConfigFieldSpec[] = [
   },
   {
     section: 'LLM Commands',
+    path: ['llmCommands', 'groupInteractionsEnabled'],
+    label: 'Group interactions enabled',
+    type: 'boolean',
+    destination: 'env',
+    envKey: 'GAMECLUB_LLM_COMMANDS_GROUP_INTERACTIONS_ENABLED',
+    optional: true,
+    description: 'Allow group and topic mentions or replies to invoke the natural-language interpreter. Defaults to false.',
+  },
+  {
+    section: 'LLM Commands',
     path: ['llmCommands', 'provider'],
     label: 'LLM command provider',
     type: 'string',

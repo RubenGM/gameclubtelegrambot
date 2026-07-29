@@ -80,6 +80,27 @@ export async function handleTelegramLlmFallbackText(context: TelegramLlmCommandC
     return false;
   }
 
+  if (context.runtime.chat.kind !== 'private') {
+    const config = getLlmCommandConfig(context);
+    const groupMentionText = stripBotMention(context, text);
+    if (
+      config?.enabled &&
+      config.groupInteractionsEnabled &&
+      isExplicitGroupLlmMention(context, text) &&
+      groupMentionText.length > 0 &&
+      context.runtime.actor.isApproved &&
+      !context.runtime.actor.isBlocked
+    ) {
+      await handleTelegramLlmCommandText(context, {
+        source: 'group_mention',
+        text: groupMentionText,
+        force: true,
+      });
+      return true;
+    }
+    return false;
+  }
+
   const activeSession = await getActiveLlmCommandSession(context);
   if (activeSession === 'expired') {
     await context.reply(resolveLlmCommandTexts(context).sessionExpired);
@@ -95,22 +116,6 @@ export async function handleTelegramLlmFallbackText(context: TelegramLlmCommandC
   }
 
   const config = getLlmCommandConfig(context);
-  const groupMentionText = stripBotMention(context, text);
-  if (
-    config?.enabled &&
-    isExplicitGroupLlmRequest(context, text) &&
-    groupMentionText.length > 0 &&
-    context.runtime.actor.isApproved &&
-    !context.runtime.actor.isBlocked
-  ) {
-    await handleTelegramLlmCommandText(context, {
-      source: 'group_mention',
-      text: groupMentionText,
-      force: true,
-    });
-    return true;
-  }
-
   if (
     !config?.enabled ||
     !config.privateFallbackEnabled ||
@@ -177,14 +182,21 @@ async function handleTelegramLlmCommandText(
     force: boolean;
   },
 ): Promise<void> {
+  const silentGroupMention = input.source === 'group_mention';
   const config = getLlmCommandConfig(context);
   if (!config?.enabled) {
+    if (silentGroupMention) {
+      return;
+    }
     await context.reply(resolveLlmCommandTexts(context).disabled);
     return;
   }
 
   const service = context.runtime.llmCommandService;
   if (!service) {
+    if (silentGroupMention) {
+      return;
+    }
     await context.reply(resolveLlmCommandTexts(context).serviceMissing);
     return;
   }
@@ -193,17 +205,19 @@ async function handleTelegramLlmCommandText(
   const texts = createTelegramI18n(language).llmCommand;
   const startedAt = Date.now();
   const progressOptions = context.messageThreadId ? { messageThreadId: context.messageThreadId } : undefined;
-  const progress = await startTelegramEditableProgress(
-    context,
-    buildLlmProgressMessage({
-      percent: 10,
-      phase: texts.progressReceivedPhase,
-      detail: texts.progressReceivedDetail,
-      userText: input.text,
-    }),
-    { editFailedEvent: 'llm-command.progress-edit.failed' },
-    progressOptions,
-  );
+  const progress = silentGroupMention
+    ? undefined
+    : await startTelegramEditableProgress(
+      context,
+      buildLlmProgressMessage({
+        percent: 10,
+        phase: texts.progressReceivedPhase,
+        detail: texts.progressReceivedDetail,
+        userText: input.text,
+      }),
+      { editFailedEvent: 'llm-command.progress-edit.failed' },
+      progressOptions,
+    );
   const prompt = buildLlmCommandPrompt({
     userText: input.text,
     language,
@@ -219,37 +233,20 @@ async function handleTelegramLlmCommandText(
   const modelSettings = await loadLlmModelSettings(context);
   let decision: Awaited<ReturnType<typeof service.interpret>>;
   try {
-    decision = await runWithProgressHeartbeat(
-      () => service.interpret(prompt, selectionToGenerateJsonOptions(modelSettings.normal)),
-      progress,
-      [
-        buildLlmProgressMessage({
-          percent: 25,
-          phase: texts.progressAnalyzingPhase,
-          detail: texts.progressAnalyzingDetail,
-          userText: input.text,
-        }),
-        buildLlmProgressMessage({
-          percent: 40,
-          phase: texts.progressWaitingPhase,
-          detail: texts.progressWaitingDetail,
-          userText: input.text,
-        }),
-        buildLlmProgressMessage({
-          percent: 55,
-          phase: texts.progressValidatingPhase,
-          detail: texts.progressValidatingDetail,
-          userText: input.text,
-        }),
-        buildLlmProgressMessage({
-          percent: 60,
-          phase: texts.progressAlmostPhase,
-          detail: texts.progressAlmostDetail,
-          userText: input.text,
-        }),
-      ],
-      progressOptions,
-    );
+    const interpret = () => service.interpret(prompt, selectionToGenerateJsonOptions(modelSettings.normal));
+    decision = progress
+      ? await runWithProgressHeartbeat(
+        interpret,
+        progress,
+        [
+          buildLlmProgressMessage({ percent: 25, phase: texts.progressAnalyzingPhase, detail: texts.progressAnalyzingDetail, userText: input.text }),
+          buildLlmProgressMessage({ percent: 40, phase: texts.progressWaitingPhase, detail: texts.progressWaitingDetail, userText: input.text }),
+          buildLlmProgressMessage({ percent: 55, phase: texts.progressValidatingPhase, detail: texts.progressValidatingDetail, userText: input.text }),
+          buildLlmProgressMessage({ percent: 60, phase: texts.progressAlmostPhase, detail: texts.progressAlmostDetail, userText: input.text }),
+        ],
+        progressOptions,
+      )
+      : await interpret();
   } catch (error) {
     await recordLlmCommandMetric(context, {
       source: input.source,
@@ -259,7 +256,9 @@ async function handleTelegramLlmCommandText(
       result: metricResultForError(error),
       reason: metricReasonForError(error),
     });
-    await progress.complete(resolveLlmInterpretFailureMessage(error, texts));
+    if (progress) {
+      await progress.complete(resolveLlmInterpretFailureMessage(error, texts));
+    }
     return;
   }
   const outcome = routeLlmCommandDecision(decision, {
@@ -286,7 +285,54 @@ async function handleTelegramLlmCommandText(
     result: metricResultForOutcome(outcome),
     reason: metricReasonForOutcome(outcome),
   });
-  await replyWithOutcome(context, outcome, progress, input.text, readDecisionProgressMessages(decision), resolveNextStepModelOptions(decision, outcome, modelSettings));
+  try {
+    if (silentGroupMention) {
+      await replyWithPrivateGroupMentionOutcome(
+        context,
+        outcome,
+        input.text,
+        resolveNextStepModelOptions(decision, outcome, modelSettings),
+      );
+      return;
+    }
+    await replyWithOutcome(context, outcome, progress, input.text, readDecisionProgressMessages(decision), resolveNextStepModelOptions(decision, outcome, modelSettings));
+  } catch (error) {
+    if (silentGroupMention) {
+      console.warn(JSON.stringify({
+        event: 'telegram.llm_command.group_mention.delivery_failed',
+        error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+      }));
+      return;
+    }
+    throw error;
+  }
+}
+
+async function replyWithPrivateGroupMentionOutcome(
+  context: TelegramLlmCommandContext,
+  outcome: LlmCommandRouteOutcome,
+  userText: string,
+  nextStepModelOptions?: LlmCommandGenerateJsonOptions,
+): Promise<void> {
+  const texts = resolveLlmCommandTexts(context);
+  if (outcome.type === 'execute_read') {
+    const message = await executeTelegramLlmReadAction(context, {
+      ...outcome,
+      userText,
+      ...(nextStepModelOptions ? { modelOptions: nextStepModelOptions } : {}),
+    });
+    await context.runtime.bot.sendPrivateMessage(
+      context.runtime.actor.telegramUserId,
+      message,
+      { parseMode: 'HTML' },
+    );
+    return;
+  }
+
+  const message = outcome.type === 'feedback_offer'
+    ? feedbackTexts[resolveLlmCommandLanguage(context)].privateHandoff
+    : resolveOutcomeReply(outcome, texts);
+  await context.runtime.bot.sendPrivateMessage(context.runtime.actor.telegramUserId, message);
 }
 
 async function replyWithOutcome(
@@ -902,12 +948,9 @@ function isBlockingLlmFallbackSession(session: TelegramLlmCommandContext['runtim
   return session.flowKey !== 'catalog-read';
 }
 
-function isExplicitGroupLlmRequest(context: TelegramLlmCommandContext, text: string): boolean {
+function isExplicitGroupLlmMention(context: TelegramLlmCommandContext, text: string): boolean {
   if (context.runtime.chat.kind === 'private') {
     return false;
-  }
-  if (context.replyToBotMessage) {
-    return true;
   }
 
   const username = context.runtime.bot.username;
