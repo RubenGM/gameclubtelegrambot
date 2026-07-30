@@ -25,6 +25,22 @@ import { createNotionWebhookHandler, type NotionWebhookEvent } from '../notion/n
 import { decryptNotionCredential, encryptNotionCredential } from '../notion/notion-credential-crypto.js';
 import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalog-store.js';
 import type { RoleGameNotionSourceRecord } from '../role-games/role-game-catalog.js';
+import {
+  createAppMetadataScheduleWebCreateSettingsStore,
+  type ScheduleWebCreateSettings,
+  type ScheduleWebCreateSettingsStore,
+} from '../schedule/schedule-web-create-settings.js';
+import {
+  createDatabaseScheduleWebCreateTokenStore,
+  type ScheduleWebCreateTokenStore,
+} from '../schedule/schedule-web-create-token.js';
+import {
+  createDatabaseScheduleWebCreator,
+  type ScheduleWebCreateInput,
+  type ScheduleWebCreator,
+  type ScheduleWebTelegramSender,
+} from '../schedule/schedule-web-creator.js';
+import { buildStartsAt } from '../telegram/schedule-parsing.js';
 
 export interface AdminHttpServer {
   start(): Promise<void>;
@@ -46,6 +62,9 @@ export interface CreateAdminHttpServerOptions {
   webSettingsStore?: WebSettingsStore;
   memberSignupStore?: MemberSignupStore;
   telegramSender?: HttpTelegramSender;
+  scheduleWebCreateSettingsStore?: ScheduleWebCreateSettingsStore;
+  scheduleWebCreateTokenStore?: ScheduleWebCreateTokenStore;
+  scheduleWebCreator?: ScheduleWebCreator;
 }
 
 interface Session {
@@ -60,10 +79,7 @@ interface LoginAttempt {
   firstAttemptAt: number;
 }
 
-interface HttpTelegramSender {
-  sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
-  sendGroupMessage?(chatId: number, message: string, options?: { parseMode?: 'HTML' }): Promise<void>;
-}
+interface HttpTelegramSender extends ScheduleWebTelegramSender {}
 
 interface CatalogStorageMediaRow {
   telegram_file_id: string;
@@ -257,6 +273,9 @@ export function createAdminHttpServer({
   webSettingsStore,
   memberSignupStore,
   telegramSender,
+  scheduleWebCreateSettingsStore,
+  scheduleWebCreateTokenStore,
+  scheduleWebCreator,
 }: CreateAdminHttpServerOptions): AdminHttpServer {
   const httpConfig = {
     ...defaultHttpServerConfig,
@@ -283,6 +302,18 @@ export function createAdminHttpServer({
   const signups = memberSignupStore ?? createDatabaseMemberSignupStore({
     database: services.database.db,
   });
+  const scheduleWebSettings = scheduleWebCreateSettingsStore
+    ?? createAppMetadataScheduleWebCreateSettingsStore({
+      storage: createDatabaseAppMetadataSessionStorage({ database: services.database.db }),
+    });
+  const scheduleWebTokens = scheduleWebCreateTokenStore
+    ?? createDatabaseScheduleWebCreateTokenStore({ database: services.database.db });
+  const webScheduleCreator = scheduleWebCreator
+    ?? createDatabaseScheduleWebCreator({
+      database: services.database,
+      config,
+      ...(telegramSender ? { telegramSender } : {}),
+    });
   let server: Server | undefined;
 
   const handler = async (request: IncomingMessage, response: ServerResponse) => {
@@ -303,6 +334,9 @@ export function createAdminHttpServer({
         webAssetsDir,
         appRoot,
         memberSignupStore: signups,
+        scheduleWebCreateSettingsStore: scheduleWebSettings,
+        scheduleWebCreateTokenStore: scheduleWebTokens,
+        scheduleWebCreator: webScheduleCreator,
         ...(telegramSender ? { telegramSender } : {}),
       });
     } catch (error) {
@@ -366,6 +400,9 @@ async function routeRequest(options: {
   webAssetsDir: string;
   appRoot: string;
   memberSignupStore: MemberSignupStore;
+  scheduleWebCreateSettingsStore: ScheduleWebCreateSettingsStore;
+  scheduleWebCreateTokenStore: ScheduleWebCreateTokenStore;
+  scheduleWebCreator: ScheduleWebCreator;
   telegramSender?: HttpTelegramSender;
 }): Promise<void> {
   const { request, response } = options;
@@ -385,6 +422,15 @@ async function routeRequest(options: {
   const brandAssetMatch = url.pathname.match(/^\/brand\/([A-Za-z0-9][A-Za-z0-9._-]{0,80}\.svg)$/);
   if (request.method === 'GET' && brandAssetMatch?.[1]) {
     await sendBundledBrandAsset(response, options.appRoot, brandAssetMatch[1]);
+    return;
+  }
+
+  const scheduleWebCreateMatch = /^\/actividad\/nueva\/([A-Za-z0-9_-]{32,128})$/.exec(url.pathname);
+  if (scheduleWebCreateMatch?.[1] && (request.method === 'GET' || request.method === 'POST')) {
+    await handleScheduleWebCreateRequest({
+      ...options,
+      token: scheduleWebCreateMatch[1],
+    });
     return;
   }
 
@@ -555,8 +601,43 @@ async function routeRequest(options: {
   }
 
   if (request.method === 'GET' && url.pathname === '/admin/config') {
-    const status = await options.operations.readBackupConsoleStatus();
-    sendHtml(response, 200, adminConfigPage(status, adminSession.csrfToken));
+    const [status, scheduleWebCreateSettings] = await Promise.all([
+      options.operations.readBackupConsoleStatus(),
+      options.scheduleWebCreateSettingsStore.load(),
+    ]);
+    sendHtml(response, 200, adminConfigPage(status, adminSession.csrfToken, scheduleWebCreateSettings));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/admin/config/activity-form') {
+    const form = await readForm(request);
+    if (!isValidCsrf(form, adminSession)) {
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      return;
+    }
+    try {
+      await options.scheduleWebCreateSettingsStore.save({
+        enabled: form.get('enabled') === 'true',
+        publicBaseUrl: form.get('publicBaseUrl') ?? '',
+      });
+    } catch (error) {
+      const [status, currentSettings] = await Promise.all([
+        options.operations.readBackupConsoleStatus(),
+        options.scheduleWebCreateSettingsStore.load(),
+      ]);
+      sendHtml(response, 400, adminConfigPage(
+        status,
+        adminSession.csrfToken,
+        {
+          ...currentSettings,
+          enabled: form.get('enabled') === 'true',
+          publicBaseUrl: form.get('publicBaseUrl') ?? currentSettings.publicBaseUrl,
+        },
+        error instanceof Error ? error.message : 'No se ha podido guardar la configuración.',
+      ));
+      return;
+    }
+    redirect(response, '/admin/config');
     return;
   }
 
@@ -1035,6 +1116,302 @@ async function routeRequest(options: {
   }
 
   sendHtml(response, 404, page('No trobat', '<p>Pàgina no trobada.</p>'));
+}
+
+interface ScheduleWebCreatorUser {
+  telegram_user_id: number;
+  display_name: string;
+}
+
+interface ScheduleWebCreatorUserRow {
+  telegram_user_id: number | string;
+  display_name: string;
+}
+
+interface ScheduleWebTableRow {
+  id: number;
+  display_name: string;
+  description: string | null;
+  recommended_capacity: number | null;
+}
+
+interface ScheduleWebAgendaRow {
+  id: number | string;
+  title: string;
+  starts_at: string | Date;
+  duration_minutes: number | string;
+  table_id: number | string | null;
+  table_name: string | null;
+  organizer_telegram_user_id: number | string;
+  organizer_display_name: string | null;
+  organizer_username: string | null;
+}
+
+interface ScheduleWebFormValues {
+  title: string;
+  description: string;
+  date: string;
+  time: string;
+  durationMinutes: string;
+  attendanceMode: string;
+  isPublic: boolean;
+  capacity: string;
+  initialOccupiedSeats: string;
+  tableId: string;
+}
+
+async function handleScheduleWebCreateRequest(options: {
+  request: IncomingMessage;
+  response: ServerResponse;
+  services: InfrastructureRuntimeServices;
+  webSettingsStore: WebSettingsStore;
+  scheduleWebCreateSettingsStore: ScheduleWebCreateSettingsStore;
+  scheduleWebCreateTokenStore: ScheduleWebCreateTokenStore;
+  scheduleWebCreator: ScheduleWebCreator;
+  logger: CreateAdminHttpServerOptions['logger'];
+  token: string;
+}): Promise<void> {
+  const settings = await options.scheduleWebCreateSettingsStore.load();
+  if (!settings.enabled) {
+    sendHtml(options.response, 404, scheduleWebCreateUnavailablePage());
+    return;
+  }
+
+  const tokenRecord = await options.scheduleWebCreateTokenStore.inspect(options.token);
+  if (!tokenRecord) {
+    sendHtml(options.response, 410, scheduleWebCreateExpiredPage());
+    return;
+  }
+
+  const [creator, tables, agenda, webSettings] = await Promise.all([
+    fetchScheduleWebCreatorUser(options.services, tokenRecord.telegramUserId),
+    fetchScheduleWebTables(options.services),
+    fetchScheduleWebAgenda(options.services),
+    options.webSettingsStore.load(),
+  ]);
+  if (!creator) {
+    sendHtml(options.response, 403, scheduleWebCreateUnauthorizedPage());
+    return;
+  }
+
+  if (options.request.method === 'GET') {
+    sendHtml(options.response, 200, scheduleWebCreatePage({
+      token: options.token,
+      creator,
+      tables,
+      agenda,
+      settings: webSettings,
+      values: defaultScheduleWebFormValues(),
+    }));
+    return;
+  }
+
+  const form = await readForm(options.request);
+  const values = scheduleWebFormValues(form);
+  const validation = validateScheduleWebCreateForm(values, tables);
+  if (!validation.ok) {
+    sendHtml(options.response, 400, scheduleWebCreatePage({
+      token: options.token,
+      creator,
+      tables,
+      agenda,
+      settings: webSettings,
+      values,
+      error: validation.message,
+    }));
+    return;
+  }
+
+  const consumed = await options.scheduleWebCreateTokenStore.consume(options.token);
+  if (!consumed || consumed.telegramUserId !== creator.telegram_user_id) {
+    sendHtml(options.response, 410, scheduleWebCreateExpiredPage());
+    return;
+  }
+
+  try {
+    const created = await options.scheduleWebCreator.create({
+      ...validation.value,
+      organizerTelegramUserId: creator.telegram_user_id,
+    });
+    if (consumed.sessionKey) {
+      await options.services.database.pool.query(
+        'delete from app_metadata where key = $1',
+        [consumed.sessionKey],
+      );
+    }
+    sendHtml(options.response, 201, scheduleWebCreateSuccessPage(webSettings, created.title));
+  } catch (error) {
+    try {
+      await options.scheduleWebCreateTokenStore.restore(options.token, consumed);
+    } catch (restoreError) {
+      options.logger.error({
+        telegramUserId: creator.telegram_user_id,
+        error: restoreError instanceof Error ? restoreError.message : String(restoreError),
+      }, 'Schedule web create token restore failed');
+    }
+    options.logger.error({
+      telegramUserId: creator.telegram_user_id,
+      error: error instanceof Error ? error.message : String(error),
+    }, 'Schedule web activity creation failed');
+    sendHtml(options.response, 500, scheduleWebCreateFailedPage(webSettings));
+  }
+}
+
+async function fetchScheduleWebCreatorUser(
+  services: InfrastructureRuntimeServices,
+  telegramUserId: number,
+): Promise<ScheduleWebCreatorUser | null> {
+  const result = await services.database.pool.query<ScheduleWebCreatorUserRow>(
+    `select telegram_user_id, display_name
+       from users
+      where telegram_user_id = $1
+        and is_approved = true
+        and status = 'approved'
+      limit 1`,
+    [telegramUserId],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  const normalizedTelegramUserId = Number(row.telegram_user_id);
+  if (!Number.isSafeInteger(normalizedTelegramUserId) || normalizedTelegramUserId <= 0) {
+    return null;
+  }
+  return {
+    telegram_user_id: normalizedTelegramUserId,
+    display_name: row.display_name,
+  };
+}
+
+async function fetchScheduleWebTables(
+  services: InfrastructureRuntimeServices,
+): Promise<ScheduleWebTableRow[]> {
+  const result = await services.database.pool.query<ScheduleWebTableRow>(
+    `select id, display_name, description, recommended_capacity
+       from club_tables
+      where lifecycle_status = 'active'
+      order by display_name asc`,
+  );
+  return result.rows;
+}
+
+async function fetchScheduleWebAgenda(
+  services: InfrastructureRuntimeServices,
+): Promise<ScheduleWebAgendaRow[]> {
+  const result = await services.database.pool.query<ScheduleWebAgendaRow>(
+    `select events.id,
+            events.title,
+            events.starts_at,
+            events.duration_minutes,
+            events.table_id,
+            tables.display_name as table_name,
+            events.organizer_telegram_user_id,
+            organizers.display_name as organizer_display_name,
+            organizers.username as organizer_username
+       from schedule_events events
+       left join club_tables tables on tables.id = events.table_id
+       left join users organizers on organizers.telegram_user_id = events.organizer_telegram_user_id
+      where events.lifecycle_status = 'scheduled'
+        and events.starts_at >= now() - interval '1 day'
+        and events.starts_at < now() + interval '1 year'
+      order by events.starts_at asc`,
+  );
+  return result.rows;
+}
+
+function scheduleWebFormValues(form: URLSearchParams): ScheduleWebFormValues {
+  return {
+    title: form.get('title') ?? '',
+    description: form.get('description') ?? '',
+    date: form.get('date') ?? '',
+    time: form.get('time') ?? '',
+    durationMinutes: form.get('durationMinutes') ?? '',
+    attendanceMode: form.get('attendanceMode') ?? '',
+    isPublic: form.get('isPublic') === 'true',
+    capacity: form.get('capacity') ?? '',
+    initialOccupiedSeats: form.get('initialOccupiedSeats') ?? '',
+    tableId: form.get('tableId') ?? '',
+  };
+}
+
+function validateScheduleWebCreateForm(
+  values: ScheduleWebFormValues,
+  tables: ScheduleWebTableRow[],
+): { ok: true; value: Omit<ScheduleWebCreateInput, 'organizerTelegramUserId'> } | { ok: false; message: string } {
+  const title = values.title.trim();
+  if (!title || title.length > 255) {
+    return { ok: false, message: 'Escribe un título de entre 1 y 255 caracteres.' };
+  }
+  const description = values.description.trim();
+  if (description.length > 5000) {
+    return { ok: false, message: 'La descripción no puede superar los 5.000 caracteres.' };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date) || !/^\d{2}:\d{2}$/.test(values.time)) {
+    return { ok: false, message: 'Selecciona una fecha y una hora válidas.' };
+  }
+  const year = Number(values.date.slice(0, 4));
+  const month = Number(values.date.slice(5, 7));
+  const day = Number(values.date.slice(8, 10));
+  const hour = Number(values.time.slice(0, 2));
+  const minute = Number(values.time.slice(3, 5));
+  const localCandidate = new Date(year, month - 1, day, hour, minute);
+  if (
+    localCandidate.getFullYear() !== year
+    || localCandidate.getMonth() !== month - 1
+    || localCandidate.getDate() !== day
+    || localCandidate.getHours() !== hour
+    || localCandidate.getMinutes() !== minute
+  ) {
+    return { ok: false, message: 'La fecha y la hora no forman un momento válido.' };
+  }
+  const startsAt = buildStartsAt(values.date, values.time);
+  if (Number.isNaN(new Date(startsAt).getTime())) {
+    return { ok: false, message: 'La fecha y la hora no forman un momento válido.' };
+  }
+  const durationMinutes = Number(values.durationMinutes);
+  if (!Number.isInteger(durationMinutes) || durationMinutes < 15 || durationMinutes > 1440) {
+    return { ok: false, message: 'La duración debe estar entre 15 minutos y 24 horas.' };
+  }
+  if (values.attendanceMode !== 'open' && values.attendanceMode !== 'closed') {
+    return { ok: false, message: 'Selecciona si la mesa es abierta o cerrada.' };
+  }
+  const capacity = Number(values.capacity);
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100) {
+    return { ok: false, message: 'Las plazas deben ser un número entero entre 1 y 100.' };
+  }
+  const initialOccupiedSeats = values.attendanceMode === 'closed'
+    ? 0
+    : Number(values.initialOccupiedSeats);
+  if (
+    !Number.isInteger(initialOccupiedSeats)
+    || initialOccupiedSeats < 0
+    || initialOccupiedSeats > capacity
+  ) {
+    return { ok: false, message: 'Las plazas ya ocupadas deben estar entre 0 y el total de plazas.' };
+  }
+  const tableId = values.tableId ? Number(values.tableId) : null;
+  if (
+    tableId !== null
+    && (!Number.isInteger(tableId) || !tables.some((table) => table.id === tableId))
+  ) {
+    return { ok: false, message: 'La mesa seleccionada ya no está disponible.' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      title,
+      description: description || null,
+      startsAt,
+      durationMinutes,
+      tableId,
+      attendanceMode: values.attendanceMode,
+      isPublic: values.attendanceMode === 'open' && values.isPublic,
+      initialOccupiedSeats,
+      capacity,
+    },
+  };
 }
 
 async function handleNotionWebhookRequest(options: {
@@ -3321,6 +3698,271 @@ function notFoundPage(): string {
   return page('No encontrado', '<p>No hemos encontrado la página solicitada.</p><p><a href="/">Volver al inicio</a></p>');
 }
 
+function scheduleWebCreatePage({
+  token,
+  creator,
+  tables,
+  agenda,
+  settings,
+  values,
+  error = '',
+}: {
+  token: string;
+  creator: ScheduleWebCreatorUser;
+  tables: ScheduleWebTableRow[];
+  agenda: ScheduleWebAgendaRow[];
+  settings: WebSettings;
+  values: ScheduleWebFormValues;
+  error?: string;
+}): string {
+  const tableOptions = [
+    '<option value="">Sin mesa reservada</option>',
+    ...tables.map((table) => {
+      const capacity = table.recommended_capacity ? ` · recomendada para ${table.recommended_capacity}` : '';
+      return `<option value="${table.id}"${values.tableId === String(table.id) ? ' selected' : ''}>${escapeHtml(table.display_name)}${escapeHtml(capacity)}</option>`;
+    }),
+  ].join('');
+  const errorHtml = error
+    ? `<div class="schedule-form-alert" role="alert"><strong>Revisa el formulario</strong><span>${escapeHtml(error)}</span></div>`
+    : '';
+  const agendaJson = JSON.stringify(agenda.map(scheduleWebAgendaClientRow))
+    .replaceAll('<', '\\u003c')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029');
+
+  return renderHttpPage({
+    title: 'Crear actividad',
+    themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
+    body: `<style>
+      .schedule-create-intro{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:16px 18px;border:1px solid var(--cawa-line);border-radius:12px;background:linear-gradient(135deg,var(--cawa-surface),var(--cawa-brand-soft));box-shadow:var(--cawa-shadow)}
+      .schedule-create-intro p{margin:3px 0}.schedule-create-intro strong{font-family:var(--font-heading);color:var(--cawa-brand)}
+      .schedule-create-layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(270px,.75fr);gap:20px;align-items:start}
+      .schedule-create-form{padding:20px;border:1px solid var(--cawa-line);border-radius:12px;background:color-mix(in srgb,var(--cawa-surface) 94%,transparent);box-shadow:var(--cawa-shadow)}
+      .schedule-form-section{border-top:0;margin:0 0 22px;padding:0}.schedule-form-section+section{border-top:1px solid var(--cawa-line);padding-top:20px}
+      .schedule-form-section>p{margin:-4px 0 14px;color:var(--cawa-muted)}
+      .schedule-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}.schedule-form-grid .span-2{grid-column:1/-1}
+      .schedule-checkbox{display:flex;align-items:flex-start;gap:8px;padding:12px;border:1px solid var(--cawa-line);border-radius:8px;background:var(--cawa-surface-alt);font-weight:650}.schedule-checkbox input{margin:4px 0 0}
+      .schedule-checkbox small{display:block;font-weight:400}.schedule-submit{width:100%;min-height:48px;font-size:17px}
+      .schedule-form-alert,.schedule-conflict{display:grid;gap:3px;padding:12px 14px;margin:0 0 16px;border-radius:8px;color:var(--cawa-text)}
+      .schedule-form-alert{border:1px solid color-mix(in srgb,#b42318 42%,var(--cawa-line));background:color-mix(in srgb,#f04438 9%,var(--cawa-surface))}
+      .schedule-conflict{gap:10px;padding:15px 16px;border:2px solid #b42318;border-left-width:7px;background:color-mix(in srgb,#f04438 14%,var(--cawa-surface));box-shadow:0 6px 18px color-mix(in srgb,#b42318 18%,transparent)}
+      .schedule-conflict>strong{color:#8f1c13;font-size:17px}.schedule-conflict-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}.schedule-conflict-item{padding-top:8px;border-top:1px solid color-mix(in srgb,#b42318 28%,transparent)}.schedule-conflict-item:first-child{padding-top:0;border-top:0}.schedule-conflict-item span{display:block}.schedule-conflict-item a{font-weight:700}
+      .schedule-conflict[hidden]{display:none}
+      .schedule-context{position:sticky;top:96px;padding:17px;border:1px solid var(--cawa-line);border-radius:12px;background:color-mix(in srgb,var(--cawa-surface) 94%,transparent);box-shadow:var(--cawa-shadow)}
+      .schedule-context h2{margin-bottom:4px}.schedule-context-date{margin:0 0 14px;color:var(--cawa-muted)}
+      .schedule-day-events{display:grid;gap:9px}.schedule-day-event{padding:10px 11px;border:1px solid var(--cawa-line);border-radius:8px;background:var(--cawa-surface-alt)}
+      .schedule-day-event strong,.schedule-day-event span{display:block}.schedule-day-event span{font-size:13px;color:var(--cawa-muted)}
+      @media(max-width:820px){.schedule-create-layout{grid-template-columns:1fr}.schedule-context{position:static;order:-1}.schedule-create-intro{display:block}}
+      @media(max-width:540px){.schedule-form-grid{grid-template-columns:1fr}.schedule-form-grid .span-2{grid-column:auto}.schedule-create-form{padding:15px}.schedule-create-intro{padding:14px}}
+    </style>
+    <div class="schedule-create-intro"><div><strong>Formulario personal de ${escapeHtml(creator.display_name)}</strong><p>Completa todos los datos en una sola pantalla. Este enlace caduca y sólo permite una creación.</p></div><span class="admin-badge admin-badge-ok">Conectado con Telegram</span></div>
+    <div class="schedule-create-layout">
+      <form class="schedule-create-form" method="post" action="/actividad/nueva/${escapeHtml(token)}">
+        ${errorHtml}
+        <section class="schedule-form-section"><h2>Qué vas a organizar</h2><p>El título aparecerá en Agenda y en las publicaciones del club.</p>
+          <div class="schedule-form-grid">
+            <label class="span-2">Título<input name="title" value="${escapeHtml(values.title)}" maxlength="255" autocomplete="off" required></label>
+            <label class="span-2">Descripción<textarea name="description" maxlength="5000" placeholder="Juego, requisitos, material, nivel, notas para participantes…">${escapeHtml(values.description)}</textarea></label>
+          </div>
+        </section>
+        <section class="schedule-form-section"><h2>Cuándo</h2><p>Usa el calendario y el selector de hora. La Agenda del día se actualiza al lado.</p>
+          <div class="schedule-form-grid">
+            <label>Fecha<input id="schedule-date" name="date" type="date" value="${escapeHtml(values.date)}" required></label>
+            <label>Hora<input id="schedule-time" name="time" type="time" value="${escapeHtml(values.time)}" step="900" required></label>
+            <label class="span-2">Duración en minutos<input id="schedule-duration" name="durationMinutes" type="number" min="15" max="1440" step="15" list="schedule-duration-presets" value="${escapeHtml(values.durationMinutes)}" required><datalist id="schedule-duration-presets"><option value="60"><option value="90"><option value="120"><option value="180"><option value="240"></datalist><small>120 minutos se muestra como «sin duración» en algunas vistas de Agenda.</small></label>
+          </div>
+        </section>
+        <section class="schedule-form-section"><h2>Mesa y participación</h2><p>La disponibilidad y los posibles cruces se muestran antes de guardar.</p>
+          <div class="schedule-form-grid">
+            <label class="span-2">Mesa<select id="schedule-table" name="tableId">${tableOptions}</select></label>
+            <label>Tipo de actividad<select id="schedule-attendance" name="attendanceMode"><option value="open"${values.attendanceMode === 'open' ? ' selected' : ''}>Mesa abierta</option><option value="closed"${values.attendanceMode === 'closed' ? ' selected' : ''}>Mesa cerrada</option></select></label>
+            <label>Plazas totales<input id="schedule-capacity" name="capacity" type="number" min="1" max="100" value="${escapeHtml(values.capacity)}" required></label>
+            <label>Ya ocupadas<input id="schedule-occupied" name="initialOccupiedSeats" type="number" min="0" max="${escapeHtml(values.capacity)}" value="${escapeHtml(values.initialOccupiedSeats)}" required></label>
+            <label class="schedule-checkbox"><input id="schedule-public" name="isPublic" type="checkbox" value="true"${values.isPublic ? ' checked' : ''}><span>Actividad pública<small>Podrá publicarse fuera del espacio de socios y aceptar personas no socias. Sólo disponible para mesas abiertas.</small></span></label>
+          </div>
+        </section>
+        <div id="schedule-conflict" class="schedule-conflict" role="alert" aria-live="assertive" hidden></div>
+        <button class="schedule-submit" type="submit">Crear actividad</button>
+        <p class="muted">Al guardar, el token quedará consumido. Recibirás la confirmación también por Telegram.</p>
+      </form>
+      <aside class="schedule-context" aria-live="polite"><h2>Agenda del día</h2><p id="schedule-context-date" class="schedule-context-date">Selecciona una fecha.</p><div id="schedule-day-events" class="schedule-day-events"><p class="muted">Aquí verás las actividades ya programadas.</p></div></aside>
+    </div>
+    <script>
+      (() => {
+        const events = ${agendaJson};
+        const date = document.querySelector('#schedule-date');
+        const time = document.querySelector('#schedule-time');
+        const duration = document.querySelector('#schedule-duration');
+        const table = document.querySelector('#schedule-table');
+        const attendance = document.querySelector('#schedule-attendance');
+        const capacity = document.querySelector('#schedule-capacity');
+        const occupied = document.querySelector('#schedule-occupied');
+        const publicActivity = document.querySelector('#schedule-public');
+        const contextDate = document.querySelector('#schedule-context-date');
+        const dayEvents = document.querySelector('#schedule-day-events');
+        const conflict = document.querySelector('#schedule-conflict');
+        const escape = (value) => String(value).replace(/[&<>"']/g, (character) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+        const selectedStart = () => {
+          if (!date.value || !time.value) return null;
+          const [year, month, day] = date.value.split('-').map(Number);
+          const [hour, minute] = time.value.split(':').map(Number);
+          return Date.UTC(year, month - 1, day, hour, minute);
+        };
+        const update = () => {
+          occupied.max = capacity.value || '100';
+          const isOpen = attendance.value === 'open';
+          occupied.disabled = !isOpen;
+          occupied.required = isOpen;
+          publicActivity.disabled = !isOpen;
+          if (!isOpen) publicActivity.checked = false;
+          const matching = events.filter((event) => event.date === date.value);
+          contextDate.textContent = date.value ? new Intl.DateTimeFormat('es-ES', {dateStyle:'full', timeZone:'UTC'}).format(new Date(date.value + 'T12:00:00Z')) : 'Selecciona una fecha.';
+          dayEvents.innerHTML = matching.length
+            ? matching.map((event) => '<article class="schedule-day-event"><strong>' + escape(event.title) + '</strong><span>' + escape(event.time) + (event.tableName ? ' · ' + escape(event.tableName) : ' · Sin mesa') + '</span></article>').join('')
+            : '<p class="muted">No hay otras actividades programadas para este día.</p>';
+          const start = selectedStart();
+          const end = start === null ? null : start + Number(duration.value || 0) * 60000;
+          const tableId = Number(table.value || 0);
+          const overlaps = start === null || end === null || !tableId
+            ? []
+            : events.filter((event) => event.tableId === tableId && start < event.end && event.start < end);
+          conflict.hidden = overlaps.length === 0;
+          conflict.innerHTML = overlaps.length
+            ? '<strong>⚠ Conflicto de mesa</strong><span>La mesa ya está reservada durante este horario:</span><ul class="schedule-conflict-list">' + overlaps.map((event) => '<li class="schedule-conflict-item"><span><b>Actividad:</b> ' + escape(event.title) + ' (' + escape(event.time) + ')</span><span><b>Organiza:</b> <a href="' + escape(event.organizerUrl) + '">' + escape(event.organizerName) + '</a></span></li>').join('') + '</ul><span>Puedes crearla igualmente, pero coordínalo antes con la persona organizadora.</span>'
+            : '';
+        };
+        [date, time, duration, table, attendance, capacity].forEach((field) => field.addEventListener('input', update));
+        update();
+      })();
+    </script>`,
+  });
+}
+
+function scheduleWebAgendaClientRow(row: ScheduleWebAgendaRow): {
+  id: number;
+  title: string;
+  date: string;
+  time: string;
+  start: number;
+  end: number;
+  tableId: number | null;
+  tableName: string | null;
+  organizerName: string;
+  organizerUrl: string;
+} {
+  const startsAt = new Date(row.starts_at);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone: 'Europe/Madrid',
+  }).formatToParts(startsAt);
+  const part = (type: string) => Number(parts.find((candidate) => candidate.type === type)?.value ?? 0);
+  const year = part('year');
+  const month = part('month');
+  const day = part('day');
+  const hour = part('hour');
+  const minute = part('minute');
+  const start = Date.UTC(year, month - 1, day, hour, minute);
+  const organizerTelegramUserId = Number(row.organizer_telegram_user_id);
+  const normalizedUsername = row.organizer_username?.trim().replace(/^@/, '') ?? '';
+  const organizerName = row.organizer_display_name?.trim()
+    || `Usuario ${Number.isSafeInteger(organizerTelegramUserId) ? organizerTelegramUserId : ''}`.trim();
+  const organizerLabel = normalizedUsername
+    ? `${organizerName} (@${normalizedUsername})`
+    : organizerName;
+  const organizerUrl = /^[A-Za-z0-9_]{5,32}$/.test(normalizedUsername)
+    ? `https://t.me/${normalizedUsername}`
+    : `tg://user?id=${Number.isSafeInteger(organizerTelegramUserId) ? organizerTelegramUserId : 0}`;
+  const eventId = Number(row.id);
+  const tableId = row.table_id === null ? null : Number(row.table_id);
+  const durationMinutes = Number(row.duration_minutes);
+  return {
+    id: Number.isSafeInteger(eventId) ? eventId : 0,
+    title: row.title,
+    date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    time: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+    start,
+    end: start + (Number.isFinite(durationMinutes) ? durationMinutes : 0) * 60_000,
+    tableId: Number.isSafeInteger(tableId) ? tableId : null,
+    tableName: row.table_name,
+    organizerName: organizerLabel,
+    organizerUrl,
+  };
+}
+
+function defaultScheduleWebFormValues(): ScheduleWebFormValues {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+    timeZone: 'Europe/Madrid',
+  }).formatToParts(now);
+  const part = (type: string) => Number(parts.find((candidate) => candidate.type === type)?.value ?? 0);
+  const nextHour = Math.min(23, part('hour') + 1);
+  return {
+    title: '',
+    description: '',
+    date: `${part('year')}-${String(part('month')).padStart(2, '0')}-${String(part('day')).padStart(2, '0')}`,
+    time: `${String(nextHour).padStart(2, '0')}:00`,
+    durationMinutes: '120',
+    attendanceMode: 'closed',
+    isPublic: false,
+    capacity: '4',
+    initialOccupiedSeats: '0',
+    tableId: '',
+  };
+}
+
+function scheduleWebCreateUnavailablePage(): string {
+  return page({
+    title: 'Formulario no disponible',
+    body: '<p>La creación web de actividades no está activa.</p><p>Vuelve a Telegram para crear la actividad desde Agenda.</p>',
+  });
+}
+
+function scheduleWebCreateExpiredPage(): string {
+  return page({
+    title: 'Enlace caducado',
+    body: '<p>Este enlace ya se ha utilizado o ha superado sus 30 minutos de validez.</p><p>Abre Agenda en Telegram y solicita un enlace nuevo.</p>',
+  });
+}
+
+function scheduleWebCreateUnauthorizedPage(): string {
+  return page({
+    title: 'Acceso no disponible',
+    body: '<p>Este usuario ya no tiene permiso para crear actividades.</p><p>Vuelve a Telegram para revisar tu acceso.</p>',
+  });
+}
+
+function scheduleWebCreateSuccessPage(settings: WebSettings, title: string): string {
+  return renderHttpPage({
+    title: 'Actividad creada',
+    themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
+    body: `<section><h2>${escapeHtml(title)}</h2><p>La actividad se ha guardado correctamente en Agenda y el enlace ya ha quedado consumido.</p><p><a href="/actividades">Ver actividades públicas</a> · Puedes cerrar esta página y volver a Telegram.</p></section>`,
+  });
+}
+
+function scheduleWebCreateFailedPage(settings: WebSettings): string {
+  return renderHttpPage({
+    title: 'No se ha podido crear',
+    themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
+    body: '<p>No se ha podido guardar la actividad y el enlace se ha invalidado por seguridad.</p><p>Vuelve a Agenda en Telegram para generar uno nuevo.</p>',
+  });
+}
+
 function feedbackPage(): string {
   return page({ title: 'Feedback', body: '<form method="post"><label>Sobre que es?<select name="topic"><option value="bot">Bot</option><option value="club">Club</option><option value="both">Bot i club</option></select></label><label>Nom opciónal<input name="name" autocomplete="name"></label><label>Contacte opciónal<input name="contact" autocomplete="email"></label><label>Feedback<textarea name="message" required maxlength="4000"></textarea></label><button type="submit">Enviar feedback</button></form>' });
 }
@@ -3967,7 +4609,7 @@ function adminDashboardPage(
     ['Comunicacion', 'Noticias y feeds', 'Suscripciones por feed, incluido nuevos_miembros.', '/admin/news'],
     ['Sistema', 'Backups', 'Copias, restauración protegida y borrado confirmado.', '/admin/backups'],
     ['Sistema', 'Servicio y logs', 'Estado systemd, logs recientes y acciones de servicio.', '/admin/service'],
-    ['Sistema', 'Configuración técnica', 'Token Telegram y ajustes sensibles con confirmacion.', '/admin/config'],
+    ['Sistema', 'Configuración general', 'Creación web de actividades, token de Telegram y ajustes del bot.', '/admin/config'],
     ['Avanzado', 'Recursos avanzados', 'Edicion directa de tablas permitidas para administracion puntual.', '/admin/resources'],
     ['Vista publica', 'Ver actividades', 'Comprobar la agenda como la ve un visitante.', '/actividades'],
     ['Vista publica', 'Ver catalogo', 'Comprobar el catalogo publico publicado.', '/catalogo'],
@@ -4392,11 +5034,17 @@ function adminMaintenancePage(status: Awaited<ReturnType<BackupOperations['readB
   return page({ title: 'Servicio y logs', body: `<form method="post" action="/admin/logout">${csrfInput(csrfToken)}<button type="submit">Sortir</button></form><section><h2>Servei</h2><p>${escapeHtml(status.service.serviceName)}: ${escapeHtml(status.service.state)}</p><form class="row" method="post" action="/admin/service">${csrfInput(csrfToken)}<button name="action" value="start">Arrencar</button><button name="action" value="restart">Reiniciar</button><a href="/admin/service/confirm?action=stop">Aturar</a></form></section><section><h2>Base de dades</h2><p>${databaseSummary}</p>${tableCounts}</section><section><h2>Dependencies</h2><ul>${status.dependencies.map((item) => `<li>${escapeHtml(item.command)}: ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Logs</h2><pre>${escapeHtml(logs)}</pre></section>`, shell: 'admin' });
 }
 
-function adminConfigPage(status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>, csrfToken: string): string {
+function adminConfigPage(
+  status: Awaited<ReturnType<BackupOperations['readBackupConsoleStatus']>>,
+  csrfToken: string,
+  scheduleWebCreateSettings: ScheduleWebCreateSettings,
+  error = '',
+): string {
+  const errorHtml = error ? `<p role="alert">${escapeHtml(error)}</p>` : '';
   return page({
-    title: 'Configuración técnica',
+    title: 'Configuración general',
     shell: 'admin',
-    body: `<section><h2>Runtime config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Token de Telegram</h2><p>Cambiar este token reinicia la conexión real del bot con Telegram. Revisa el valor antes de confirmar.</p><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section>`,
+    body: `${errorHtml}<section><h2>Creación web de actividades</h2><p>Cuando está activa, el flujo completo de Agenda ofrece un enlace personal de un solo uso. El formulario no aparece en la navegación pública.</p><form method="post" action="/admin/config/activity-form">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Estado<select name="enabled"><option value="false"${scheduleWebCreateSettings.enabled ? '' : ' selected'}>Desactivada</option><option value="true"${scheduleWebCreateSettings.enabled ? ' selected' : ''}>Activada</option></select></label><label>URL pública del bot<input name="publicBaseUrl" type="url" value="${escapeHtml(scheduleWebCreateSettings.publicBaseUrl)}" placeholder="https://cawa.hopto.org" required></label></div><p class="muted">Cada enlace caduca en 30 minutos, queda vinculado al usuario de Telegram y se consume al crear una actividad.</p><button type="submit">Guardar configuración</button></form></section><section><h2>Runtime config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Token de Telegram</h2><p>Cambiar este token reinicia la conexión real del bot con Telegram. Revisa el valor antes de confirmar.</p><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section>`,
   });
 }
 

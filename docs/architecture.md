@@ -107,9 +107,13 @@ El backend escucha únicamente en `127.0.0.1:8787`. Nginx publica las rutas
 permitidas mediante HTTPS; el puerto 8787 no debe exponerse en el router.
 
 Las rutas públicas incluyen `/`, `/feedback`, `/alta`, `/club`,
-`/actividades` y `/catalogo`. `/admin` y sus subsecciones requieren sesión
-firmada y contraseña de elevación. Las acciones POST administrativas usan CSRF y
-las acciones destructivas relevantes añaden confirmación textual.
+`/actividades` y `/catalogo`. La ruta no anunciada
+`/actividad/nueva/<token>` requiere un token personal de Telegram, de un solo
+uso y con 30 minutos de caducidad; el token se persiste únicamente como hash y
+el permiso de socio se vuelve a comprobar al abrirla. `/admin` y sus
+subsecciones requieren sesión firmada y contraseña de elevación. Las acciones
+POST administrativas usan CSRF y las acciones destructivas relevantes añaden
+confirmación textual.
 
 ## Integraciones externas
 

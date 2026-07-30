@@ -10,6 +10,10 @@ import { hashSecret } from '../security/password-hash.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { MemberSignupInput, MemberSignupRecord, MemberSignupStore } from './member-signup-store.js';
 import { defaultWebSettings, normalizeWebSettings, type WebSettings, type WebSettingsStore } from './web-settings-store.js';
+import { createAppMetadataScheduleWebCreateSettingsStore } from '../schedule/schedule-web-create-settings.js';
+import { createScheduleWebCreateTokenStore } from '../schedule/schedule-web-create-token.js';
+import type { ScheduleWebCreateInput, ScheduleWebCreator } from '../schedule/schedule-web-creator.js';
+import type { AppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
 
 test('admin http server exposes public feedback and protects admin pages', async () => {
   const tmp = await mkdtemp(join(tmpdir(), 'gameclub-http-'));
@@ -48,6 +52,38 @@ test('admin http server exposes public feedback and protects admin pages', async
     pool: {
       query: async (sql: string, params: unknown[] = []) => {
         queries.push({ sql, params });
+        if (sql.includes('where telegram_user_id = $1') && sql.includes('is_approved = true')) {
+          return {
+            rows: Number(params[0]) === 77
+              ? [{ telegram_user_id: '77', display_name: 'Marta' }]
+              : [],
+          };
+        }
+        if (sql.includes('from club_tables') && sql.includes("lifecycle_status = 'active'")) {
+          return {
+            rows: [{
+              id: 4,
+              display_name: 'Mesa grande',
+              description: 'Zona central',
+              recommended_capacity: 6,
+            }],
+          };
+        }
+        if (sql.includes("events.starts_at >= now() - interval '1 day'")) {
+          return {
+            rows: [{
+              id: '31',
+              title: 'Terraforming Mars',
+              starts_at: '2030-08-10T16:00:00.000Z',
+              duration_minutes: '180',
+              table_id: '4',
+              table_name: 'Mesa grande',
+              organizer_telegram_user_id: '55',
+              organizer_display_name: 'Carla',
+              organizer_username: 'carla_games',
+            }],
+          };
+        }
         if (sql.includes('from "users"') && sql.includes('order by')) {
           return {
             rows: [{
@@ -330,6 +366,42 @@ test('admin http server exposes public feedback and protects admin pages', async
   };
   const webSettingsStore = createMemoryWebSettingsStore();
   const memberSignupStore = createMemoryMemberSignupStore();
+  const scheduleWebStorage = createMemoryAppMetadataStorage();
+  const scheduleWebCreateSettingsStore = createAppMetadataScheduleWebCreateSettingsStore({
+    storage: scheduleWebStorage,
+  });
+  const scheduleWebCreateTokenStore = createScheduleWebCreateTokenStore({
+    storage: scheduleWebStorage,
+  });
+  const scheduleWebCreated: ScheduleWebCreateInput[] = [];
+  const scheduleWebCreator: ScheduleWebCreator = {
+    async create(input) {
+      scheduleWebCreated.push(input);
+      return {
+        id: 91,
+        title: input.title,
+        description: input.description,
+        detailsMessageChatId: null,
+        detailsMessageId: null,
+        startsAt: input.startsAt,
+        durationMinutes: input.durationMinutes,
+        organizerTelegramUserId: input.organizerTelegramUserId,
+        createdByTelegramUserId: input.organizerTelegramUserId,
+        tableId: input.tableId,
+        catalogItemId: null,
+        attendanceMode: input.attendanceMode,
+        isPublic: input.isPublic,
+        initialOccupiedSeats: input.initialOccupiedSeats,
+        capacity: input.capacity,
+        lifecycleStatus: 'scheduled',
+        createdAt: '2026-07-30T10:00:00.000Z',
+        updatedAt: '2026-07-30T10:00:00.000Z',
+        cancelledAt: null,
+        cancelledByTelegramUserId: null,
+        cancellationReason: null,
+      };
+    },
+  };
 
   const server = createAdminHttpServer({
     config,
@@ -340,6 +412,9 @@ test('admin http server exposes public feedback and protects admin pages', async
     serviceControl,
     webSettingsStore,
     memberSignupStore,
+    scheduleWebCreateSettingsStore,
+    scheduleWebCreateTokenStore,
+    scheduleWebCreator,
     telegramSender: {
       async sendPrivateMessage(telegramUserId, message) {
         if (telegramUserId === 1002) {
@@ -514,10 +589,100 @@ test('admin http server exposes public feedback and protects admin pages', async
     const configPage = await fetch(`${baseUrl}/admin/config`, { headers: { cookie } });
     assert.equal(configPage.status, 200);
     const configHtml = await configPage.text();
-    assert.match(configHtml, /Configuración técnica/);
+    assert.match(configHtml, /Configuración general/);
     assert.match(configHtml, /Runtime config/);
     assert.match(configHtml, /Nou token de Telegram/);
+    assert.match(configHtml, /Creación web de actividades/);
+    assert.match(configHtml, /Desactivada/);
     assert.doesNotMatch(configHtml, /Logs/);
+
+    const enableScheduleWebResponse = await fetch(`${baseUrl}/admin/config/activity-form`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({
+        csrfToken,
+        enabled: 'true',
+        publicBaseUrl: 'https://cawa.hopto.org/',
+      }),
+    });
+    assert.equal(enableScheduleWebResponse.status, 303);
+    assert.deepEqual(await scheduleWebCreateSettingsStore.load(), {
+      enabled: true,
+      publicBaseUrl: 'https://cawa.hopto.org',
+    });
+
+    const issuedScheduleToken = await scheduleWebCreateTokenStore.issue({
+      telegramUserId: 77,
+      sessionKey: 'telegram.session:77:77',
+    });
+    const scheduleFormResponse = await fetch(`${baseUrl}/actividad/nueva/${issuedScheduleToken.token}`);
+    assert.equal(scheduleFormResponse.status, 200);
+    const scheduleFormHtml = await scheduleFormResponse.text();
+    assert.match(scheduleFormHtml, /Formulario personal de Marta/);
+    assert.match(scheduleFormHtml, /type="date"/);
+    assert.match(scheduleFormHtml, /type="time"/);
+    assert.match(scheduleFormHtml, /Mesa grande/);
+    assert.match(scheduleFormHtml, /Agenda del día/);
+    assert.match(scheduleFormHtml, /Terraforming Mars/);
+    assert.match(scheduleFormHtml, /Carla \(@carla_games\)/);
+    assert.match(scheduleFormHtml, /Organiza:/);
+    assert.match(scheduleFormHtml, /"tableId":4/);
+    assert.doesNotMatch(scheduleFormHtml, /actividad\/nueva.*href=/);
+
+    const invalidScheduleResponse = await fetch(`${baseUrl}/actividad/nueva/${issuedScheduleToken.token}`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        title: '',
+        date: '2030-08-10',
+        time: '18:30',
+        durationMinutes: '180',
+        attendanceMode: 'open',
+        capacity: '6',
+        initialOccupiedSeats: '1',
+      }),
+    });
+    assert.equal(invalidScheduleResponse.status, 400);
+    assert.match(await invalidScheduleResponse.text(), /Revisa el formulario/);
+    assert.ok(await scheduleWebCreateTokenStore.inspect(issuedScheduleToken.token));
+
+    const createScheduleResponse = await fetch(`${baseUrl}/actividad/nueva/${issuedScheduleToken.token}`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        title: 'Tarde de estrategia',
+        description: 'Partida abierta para aprender.',
+        date: '2030-08-10',
+        time: '18:30',
+        durationMinutes: '180',
+        attendanceMode: 'open',
+        isPublic: 'true',
+        capacity: '6',
+        initialOccupiedSeats: '1',
+        tableId: '4',
+      }),
+    });
+    assert.equal(createScheduleResponse.status, 201);
+    assert.match(await createScheduleResponse.text(), /Actividad creada/);
+    assert.equal(scheduleWebCreated.length, 1);
+    assert.deepEqual(scheduleWebCreated[0], {
+      title: 'Tarde de estrategia',
+      description: 'Partida abierta para aprender.',
+      startsAt: new Date(2030, 7, 10, 18, 30).toISOString(),
+      durationMinutes: 180,
+      organizerTelegramUserId: 77,
+      tableId: 4,
+      attendanceMode: 'open',
+      isPublic: true,
+      initialOccupiedSeats: 1,
+      capacity: 6,
+    });
+    assert.ok(queries.some((query) =>
+      query.sql.includes('delete from app_metadata where key = $1')
+      && query.params[0] === 'telegram.session:77:77'));
+
+    const replayScheduleResponse = await fetch(`${baseUrl}/actividad/nueva/${issuedScheduleToken.token}`);
+    assert.equal(replayScheduleResponse.status, 410);
+    assert.match(await replayScheduleResponse.text(), /Enlace caducado/);
 
     const backupsPage = await fetch(`${baseUrl}/admin/backups`, { headers: { cookie } });
     assert.equal(backupsPage.status, 200);
@@ -971,6 +1136,33 @@ function createMemoryWebSettingsStore(): WebSettingsStore {
     },
     async save(nextSettings) {
       settings = normalizeWebSettings(nextSettings);
+    },
+  };
+}
+
+function createMemoryAppMetadataStorage(): AppMetadataSessionStorage & {
+  take(key: string): Promise<string | null>;
+} {
+  const values = new Map<string, string>();
+  return {
+    async get(key) {
+      return values.get(key) ?? null;
+    },
+    async set(key, value) {
+      values.set(key, value);
+    },
+    async delete(key) {
+      return values.delete(key);
+    },
+    async listByPrefix(prefix) {
+      return [...values.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, value]) => ({ key, value }));
+    },
+    async take(key) {
+      const value = values.get(key) ?? null;
+      values.delete(key);
+      return value;
     },
   };
 }

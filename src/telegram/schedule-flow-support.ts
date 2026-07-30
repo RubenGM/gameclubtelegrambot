@@ -26,6 +26,14 @@ import {
   resolveScheduleTableReference,
 } from '../schedule/schedule-table-selection.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
+import {
+  createAppMetadataScheduleWebCreateSettingsStore,
+  type ScheduleWebCreateSettingsStore,
+} from '../schedule/schedule-web-create-settings.js';
+import {
+  createDatabaseScheduleWebCreateTokenStore,
+  type ScheduleWebCreateTokenStore,
+} from '../schedule/schedule-web-create-token.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
@@ -232,6 +240,8 @@ export interface TelegramScheduleContext {
   auditRepository?: AuditLogRepository;
   membershipRepository?: MembershipAccessRepository;
   newsGroupRepository?: NewsGroupRepository;
+  scheduleWebCreateSettingsStore?: ScheduleWebCreateSettingsStore;
+  scheduleWebCreateTokenStore?: ScheduleWebCreateTokenStore;
 }
 
 export async function handleTelegramScheduleText(context: TelegramScheduleContext): Promise<boolean> {
@@ -261,6 +271,7 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
 
   if (text === texts.create || text === scheduleLabels.create || text === '/schedule_create') {
     await context.runtime.session.start({ flowKey: createFlowKey, stepKey: 'title', data: {} });
+    await replyScheduleWebCreateOffer(context, language);
     await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
     return true;
   }
@@ -284,6 +295,43 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
   }
 
   return false;
+}
+
+async function replyScheduleWebCreateOffer(
+  context: TelegramScheduleContext,
+  language: 'ca' | 'es' | 'en',
+): Promise<void> {
+  try {
+    const storage = createDatabaseAppMetadataSessionStorage({
+      database: context.runtime.services.database.db,
+    });
+    const settingsStore = context.scheduleWebCreateSettingsStore
+      ?? createAppMetadataScheduleWebCreateSettingsStore({ storage });
+    const settings = await settingsStore.load();
+    if (!settings.enabled) {
+      return;
+    }
+
+    const tokenStore = context.scheduleWebCreateTokenStore
+      ?? createDatabaseScheduleWebCreateTokenStore({
+        database: context.runtime.services.database.db,
+      });
+    const issued = await tokenStore.issue({
+      telegramUserId: context.runtime.actor.telegramUserId,
+      sessionKey: context.runtime.session.current?.key ?? null,
+    });
+    const texts = createTelegramI18n(language).schedule;
+    const url = `${settings.publicBaseUrl}/actividad/nueva/${encodeURIComponent(issued.token)}`;
+    await context.reply(texts.webCreateOffer, {
+      inlineKeyboard: [[{
+        text: texts.webCreateButton,
+        url,
+        semanticRole: 'primary',
+      }]],
+    });
+  } catch {
+    // El flujo conversacional sigue disponible aunque no se pueda emitir el enlace web.
+  }
 }
 
 export async function handleTelegramScheduleStartText(context: TelegramScheduleContext): Promise<boolean> {

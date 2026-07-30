@@ -157,7 +157,8 @@ export function createApp({
       services,
       telegramSender: {
         sendPrivateMessage: telegram.sendPrivateMessage.bind(telegram),
-        ...(telegram.sendGroupMessage ? { sendGroupMessage: async (chatId, message, options) => { await telegram.sendGroupMessage?.(chatId, message, options); } } : {}),
+        ...(telegram.sendGroupMessage ? { sendGroupMessage: telegram.sendGroupMessage.bind(telegram) } : {}),
+        ...(telegram.deleteMessage ? { deleteMessage: telegram.deleteMessage.bind(telegram) } : {}),
       },
       logger: {
         info: logger.info.bind(logger),

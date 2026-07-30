@@ -1665,6 +1665,56 @@ test('handleTelegramScheduleText goes back from the first create step to the act
   });
 });
 
+test('handleTelegramScheduleText offers a one-use web form when the general setting is enabled', async () => {
+  const { context, replies, getCurrentSession } = createContext({
+    actorTelegramUserId: 42,
+    language: 'es',
+  });
+  const issuedFor: number[] = [];
+  context.scheduleWebCreateSettingsStore = {
+    async load() {
+      return { enabled: true, publicBaseUrl: 'https://cawa.hopto.org' };
+    },
+    async save(settings) {
+      return settings;
+    },
+  };
+  context.scheduleWebCreateTokenStore = {
+    async issue({ telegramUserId }) {
+      issuedFor.push(telegramUserId);
+      return {
+        token: 'w'.repeat(43),
+        record: {
+          telegramUserId,
+          sessionKey: 'telegram.session:1:99',
+          createdAt: '2026-04-05T09:00:00.000Z',
+          expiresAt: '2026-04-05T09:30:00.000Z',
+        },
+      };
+    },
+    async inspect() {
+      return null;
+    },
+    async consume() {
+      return null;
+    },
+    async restore() {},
+  };
+
+  context.messageText = 'Crear actividad';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(issuedFor, [42]);
+  assert.equal(getCurrentSession()?.stepKey, 'title');
+  assert.match(replies[0]?.message ?? '', /formulario web/);
+  assert.deepEqual(replies[0]?.options?.inlineKeyboard, [[{
+    text: 'Abrir formulario web',
+    url: `https://cawa.hopto.org/actividad/nueva/${'w'.repeat(43)}`,
+    semanticRole: 'primary',
+  }]]);
+  assert.equal(replies[1]?.message, 'Escribe el título de la actividad.');
+  assert.ok(replies[1]?.options?.replyKeyboard);
+});
+
 test('handleTelegramScheduleText localizes the back button for spanish create flow', async () => {
   const { context, replies, getCurrentSession } = createContext({ actorTelegramUserId: 42, language: 'es' });
 

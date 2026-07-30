@@ -41,7 +41,7 @@ const adminNavItems: PageNavItem[] = [
   { href: '/admin/news', label: 'Noticias' },
   { href: '/admin/backups', label: 'Backups' },
   { href: '/admin/service', label: 'Servicio y logs' },
-  { href: '/admin/config', label: 'Config tecnica' },
+  { href: '/admin/config', label: 'Configuración general' },
   { href: '/admin/resources', label: 'Recursos' },
   { href: '/', label: 'Ver web' },
 ];
