@@ -1135,6 +1135,13 @@ interface ScheduleWebTableRow {
   recommended_capacity: number | null;
 }
 
+interface ScheduleWebTableDatabaseRow {
+  id: number | string;
+  display_name: string;
+  description: string | null;
+  recommended_capacity: number | string | null;
+}
+
 interface ScheduleWebAgendaRow {
   id: number | string;
   title: string;
@@ -1287,13 +1294,31 @@ async function fetchScheduleWebCreatorUser(
 async function fetchScheduleWebTables(
   services: InfrastructureRuntimeServices,
 ): Promise<ScheduleWebTableRow[]> {
-  const result = await services.database.pool.query<ScheduleWebTableRow>(
+  const result = await services.database.pool.query<ScheduleWebTableDatabaseRow>(
     `select id, display_name, description, recommended_capacity
        from club_tables
       where lifecycle_status = 'active'
       order by display_name asc`,
   );
-  return result.rows;
+  return result.rows.flatMap((row) => {
+    const id = Number(row.id);
+    const recommendedCapacity = row.recommended_capacity === null
+      ? null
+      : Number(row.recommended_capacity);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return [];
+    }
+    return [{
+      id,
+      display_name: row.display_name,
+      description: row.description,
+      recommended_capacity: recommendedCapacity !== null
+        && Number.isSafeInteger(recommendedCapacity)
+        && recommendedCapacity > 0
+        ? recommendedCapacity
+        : null,
+    }];
+  });
 }
 
 async function fetchScheduleWebAgenda(

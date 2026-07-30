@@ -62,10 +62,10 @@ test('admin http server exposes public feedback and protects admin pages', async
         if (sql.includes('from club_tables') && sql.includes("lifecycle_status = 'active'")) {
           return {
             rows: [{
-              id: 4,
+              id: '4',
               display_name: 'Mesa grande',
               description: 'Zona central',
-              recommended_capacity: 6,
+              recommended_capacity: '6',
             }],
           };
         }
