@@ -91,23 +91,28 @@ export function buildScheduleDayButtons({
 export function formatScheduleEventDetails({
   event,
   tableName,
+  creatorLabel,
+  showInitialOccupiedSeats = true,
   language = 'ca',
 }: {
   event: ScheduleEventRecord;
   tableName: string | null;
+  creatorLabel?: string;
+  showInitialOccupiedSeats?: boolean;
   language?: BotLanguage;
 }): string {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule;
   const attendanceLabel = event.attendanceMode === 'open' ? texts.openDetailTag : texts.closedDetailTag;
   return [
     `<b>${escapeHtml(event.title)}</b>`,
+    ...(creatorLabel ? [formatHtmlField(texts.detailsCreatedBy, creatorLabel)] : []),
     ...(event.catalogItemId ? [formatHtmlField(resolveLinkedGameLabel(language), `<a href="${escapeHtml(buildTelegramStartUrl(`catalog_read_item_${event.catalogItemId}`))}">${escapeHtml(event.title)}</a>`)] : []),
     formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
     formatHtmlField(texts.detailsDuration, formatDurationMinutes(event.durationMinutes)),
     formatHtmlField(texts.detailsAttendanceMode, escapeHtml(attendanceLabel)),
     formatHtmlField(texts.detailsVisibility, escapeHtml(event.isPublic ? texts.publicActivityTag : texts.memberOnlyActivityTag)),
     formatHtmlField(texts.detailsSeats, String(event.capacity)),
-    ...(event.attendanceMode === 'open'
+    ...(event.attendanceMode === 'open' && showInitialOccupiedSeats
       ? [formatHtmlField(texts.detailsInitialOccupiedSeats, String(event.initialOccupiedSeats))]
       : []),
     formatHtmlField(texts.detailsTable, escapeHtml(tableName ?? texts.noTable)),
@@ -152,6 +157,7 @@ export function buildScheduleDetailActionOptions({
     leave: string;
     selectEdit: string;
     selectCancel: string;
+    promote: string;
   };
 }): TelegramReplyOptions {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule;
@@ -167,6 +173,9 @@ export function buildScheduleDetailActionOptions({
     rows.push([
       { text: texts.editButton, callbackData: `${callbackPrefixes.selectEdit}${event.id}` },
       { text: texts.deleteButton, callbackData: `${callbackPrefixes.selectCancel}${event.id}` },
+    ]);
+    rows.push([
+      { text: texts.promoteButton, callbackData: `${callbackPrefixes.promote}${event.id}` },
     ]);
   }
 

@@ -1,0 +1,2 @@
+ALTER TABLE "news_group_subscriptions" ADD COLUMN "is_default" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "news_group_subscriptions_one_default_per_category_idx" ON "news_group_subscriptions" USING btree ("category_key") WHERE "news_group_subscriptions"."is_default" = true;

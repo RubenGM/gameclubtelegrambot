@@ -13,6 +13,7 @@ type CatalogLoanCategoryItemType = 'board-game' | 'book' | 'rpg-book';
 export type NewsGroupCategoryKey =
   | 'events'
   | 'public-events'
+  | 'promotions'
   | 'avisos'
   | 'group-purchases'
   | 'lfg:players'
@@ -60,6 +61,21 @@ export const newsGroupCategories: readonly NewsGroupCategoryDescriptor[] = [
       ca: 'activitats públiques obertes a persones no sòcies',
       es: 'actividades públicas abiertas a personas no socias',
       en: 'public activities open to non-members',
+    },
+    defaultSubscribed: false,
+  },
+  {
+    key: 'promotions',
+    aliases: ['promotions', 'promotion', 'promociones', 'promocion', 'promoción', 'promocions', 'promoció'],
+    label: {
+      ca: 'promotions',
+      es: 'promotions',
+      en: 'promotions',
+    },
+    description: {
+      ca: "promocions puntuals d'activitats creades pels socis",
+      es: 'promociones puntuales de actividades creadas por los socios',
+      en: 'one-off promotions for activities created by members',
     },
     defaultSubscribed: false,
   },
@@ -198,6 +214,8 @@ export const lfgPlayerNewsCategory = 'lfg:players' as const;
 export const lfgGroupNewsCategory = 'lfg:groups' as const;
 export const eventsNewsGroupCategory = 'events' as const;
 export const publicEventsNewsGroupCategory = 'public-events' as const;
+export const promotionsNewsGroupCategory = 'promotions' as const;
+const promotionDestinationNamesMetadataKey = 'promotionDestinationNames';
 export const noticesNewsGroupCategory = 'avisos' as const;
 export const groupPurchaseNewsGroupCategory = 'group-purchases' as const;
 export const newMembersNewsGroupCategory = 'nuevos_miembros' as const;
@@ -251,12 +269,14 @@ export interface NewsGroupSubscriptionRecord {
   chatId: number;
   messageThreadId: number | null;
   categoryKey: string;
+  isDefault?: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface NewsGroupDeliveryTarget extends NewsGroupRecord {
   messageThreadId: number | null;
+  isDefault?: boolean;
 }
 
 export interface NewsGroupRepository {
@@ -268,7 +288,12 @@ export interface NewsGroupRepository {
     metadata?: Record<string, unknown> | null;
   }): Promise<NewsGroupRecord>;
   listSubscriptionsByChatId(chatId: number, input?: { messageThreadId?: number | null }): Promise<NewsGroupSubscriptionRecord[]>;
-  upsertSubscription(input: { chatId: number; categoryKey: string; messageThreadId?: number | null }): Promise<NewsGroupSubscriptionRecord>;
+  upsertSubscription(input: {
+    chatId: number;
+    categoryKey: string;
+    messageThreadId?: number | null;
+    isDefault?: boolean;
+  }): Promise<NewsGroupSubscriptionRecord>;
   deleteSubscription(input: { chatId: number; categoryKey: string; messageThreadId?: number | null }): Promise<boolean>;
   listSubscribedGroupsByCategory(categoryKey: string): Promise<NewsGroupDeliveryTarget[]>;
   isNewsEnabledGroup(chatId: number): Promise<boolean>;
@@ -365,6 +390,42 @@ export function normalizeMessageThreadId(messageThreadId: number | null | undefi
   }
 
   return messageThreadId;
+}
+
+export function resolvePromotionDestinationDisplayName(
+  metadata: Record<string, unknown> | null,
+  messageThreadId: number | null,
+): string | null {
+  const names = metadata?.[promotionDestinationNamesMetadataKey];
+  if (!names || typeof names !== 'object' || Array.isArray(names)) {
+    return null;
+  }
+  const value = (names as Record<string, unknown>)[String(messageThreadId ?? 0)];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+export function setPromotionDestinationDisplayName(
+  metadata: Record<string, unknown> | null,
+  messageThreadId: number | null,
+  displayName: string | null,
+): Record<string, unknown> | null {
+  const currentNames = metadata?.[promotionDestinationNamesMetadataKey];
+  const names = currentNames && typeof currentNames === 'object' && !Array.isArray(currentNames)
+    ? { ...(currentNames as Record<string, unknown>) }
+    : {};
+  const key = String(messageThreadId ?? 0);
+  if (displayName?.trim()) {
+    names[key] = displayName.trim();
+  } else {
+    delete names[key];
+  }
+  const nextMetadata = { ...(metadata ?? {}) };
+  if (Object.keys(names).length > 0) {
+    nextMetadata[promotionDestinationNamesMetadataKey] = names;
+  } else {
+    delete nextMetadata[promotionDestinationNamesMetadataKey];
+  }
+  return Object.keys(nextMetadata).length > 0 ? nextMetadata : null;
 }
 
 function normalizeMetadata(metadata: Record<string, unknown> | null): Record<string, unknown> | null {

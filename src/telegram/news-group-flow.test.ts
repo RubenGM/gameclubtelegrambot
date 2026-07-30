@@ -58,10 +58,18 @@ function createRepository(initialGroup: NewsGroupRecord | null = null): NewsGrou
 
       const messageThreadId = input.messageThreadId ?? null;
       const key = `${input.chatId}:${messageThreadId ?? 0}:${input.categoryKey}`;
+      if (input.isDefault) {
+        for (const [subscriptionKey, subscription] of subscriptions) {
+          if (subscription.categoryKey === input.categoryKey && subscription.isDefault) {
+            subscriptions.set(subscriptionKey, { ...subscription, isDefault: false, updatedAt: now });
+          }
+        }
+      }
       const subscription: NewsGroupSubscriptionRecord = {
         chatId: input.chatId,
         messageThreadId,
         categoryKey: input.categoryKey,
+        ...(input.isDefault !== undefined ? { isDefault: input.isDefault } : {}),
         createdAt: subscriptions.get(key)?.createdAt ?? now,
         updatedAt: now,
       };
@@ -219,6 +227,53 @@ test('handleTelegramNewsGroupText enables and subscribes a group with clear stat
   assert.match(replies.at(-1) ?? '', /Mode news: activat/);
   assert.match(replies.at(-1) ?? '', /Categories subscrites: events/);
   assert.equal((await repository.findGroupByChatId(-200))?.isEnabled, true);
+});
+
+test('handleTelegramNewsGroupText registers the independent promotions destination', async () => {
+  const { context, replies, repository } = createContext({ botLanguage: 'es', chatTitle: 'CAWA Girona' });
+
+  context.messageText = '/news suscribir promociones';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+  assert.match(replies.at(-1) ?? '', /Suscrito correctamente para promotions en CAWA Girona\./);
+  assert.deepEqual(await repository.listSubscriptionsByChatId(-200, { messageThreadId: null }), [
+    {
+      chatId: -200,
+      messageThreadId: null,
+      categoryKey: 'promotions',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    },
+  ]);
+});
+
+test('handleTelegramNewsGroupText marks one promotions destination as default and replaces the previous default', async () => {
+  const { context, replies, repository } = createContext({
+    botLanguage: 'es',
+    chatTitle: 'CAWA Girona',
+    messageThreadId: 3,
+  });
+
+  context.messageText = '/news suscribir promociones default';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+  assert.match(replies.at(-1) ?? '', /marcado como destino predeterminado/);
+  assert.equal((await repository.listSubscriptionsByChatId(-200, { messageThreadId: 3 }))[0]?.isDefault, true);
+
+  context.messageThreadId = 8;
+  context.messageText = '/news suscribir promociones default';
+  assert.equal(await handleTelegramNewsGroupText(context), true);
+  assert.equal((await repository.listSubscriptionsByChatId(-200, { messageThreadId: 3 }))[0]?.isDefault, false);
+  assert.equal((await repository.listSubscriptionsByChatId(-200, { messageThreadId: 8 }))[0]?.isDefault, true);
+  assert.match(replies.at(-1) ?? '', /promotions \(predeterminado\)/);
+});
+
+test('handleTelegramNewsGroupText rejects default for non-promotion categories', async () => {
+  const { context } = createContext({ botLanguage: 'es' });
+
+  context.messageText = '/news suscribir events default';
+  await assert.rejects(
+    handleTelegramNewsGroupText(context),
+    /La opción default solo está disponible para la categoría promociones/,
+  );
 });
 
 test('handleTelegramNewsGroupText autodeletes subscription replies after one minute', async (t: any) => {

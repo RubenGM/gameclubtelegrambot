@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   cancelScheduleEvent,
+  assignScheduleInitialOccupiedSeat,
   createScheduleEvent,
   detectScheduleConflicts,
   getScheduleCapacitySnapshot,
@@ -293,6 +294,47 @@ test('getScheduleCapacitySnapshot for open activities counts initial occupied se
   assert.deepEqual(snapshot, {
     capacity: 5,
     occupiedSeats: 3,
+    availableSeats: 2,
+    isFull: false,
+  });
+});
+
+test('assignScheduleInitialOccupiedSeat replaces one generic reservation with a named participant', async () => {
+  const repository = createRepository([
+    {
+      id: 7,
+      title: 'Pathfinder',
+      description: null,
+      startsAt: '2026-07-31T16:00:00.000Z',
+      durationMinutes: 240,
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      attendanceMode: 'open',
+      isPublic: false,
+      initialOccupiedSeats: 2,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-07-29T10:00:00.000Z',
+      updatedAt: '2026-07-29T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+
+  await assignScheduleInitialOccupiedSeat({
+    repository,
+    eventId: 7,
+    participantTelegramUserId: 55,
+    actorTelegramUserId: 42,
+  });
+
+  assert.equal((await repository.findEventById(7))?.initialOccupiedSeats, 1);
+  assert.equal((await repository.findParticipant(7, 55))?.status, 'active');
+  assert.deepEqual(await getScheduleCapacitySnapshot({ repository, eventId: 7 }), {
+    capacity: 4,
+    occupiedSeats: 2,
     availableSeats: 2,
     isFull: false,
   });

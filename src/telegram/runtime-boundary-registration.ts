@@ -130,6 +130,7 @@ import {
   handleTelegramNewsGroupText,
   newsGroupCallbackPrefixes,
 } from './news-group-flow.js';
+import { handleTelegramPromotionDestinationText } from './promotion-destination-flow.js';
 import {
   buildNoticeStartSummary,
   handleTelegramNoticeCallback,
@@ -1918,6 +1919,19 @@ function createDefaultCommands({
       description: 'Gestiona el mode news i les subscripcions del grup',
       handle: async (context) => {
         await handleTelegramNewsGroupText(context);
+      },
+    },
+    {
+      command: 'promociones',
+      contexts: ['private'],
+      access: 'admin',
+      descriptionByLanguage: {
+        ca: 'Configura destinacions de promocions',
+        es: 'Configura destinos de promociones',
+        en: 'Configure promotion destinations',
+      },
+      handle: async (context) => {
+        await handleTelegramPromotionDestinationText(context);
       },
     },
     {

@@ -449,7 +449,7 @@ const newsGroupTexts = {
     buttonRefresh: '🔄 Refrescar',
     subscriptions: 'Categories subscrites: {list}',
     noSubscriptions: 'Categories subscrites: cap',
-    commands: 'Comandes: /news estat, /news ajuda, /news activar, /news desactivar, /news subscriure <categoria>, /news desubscriure <categoria>',
+    commands: 'Comandes: /news estat, /news ajuda, /news activar, /news desactivar, /news subscriure <categoria> [default], /news desubscriure <categoria>',
     help: [
       "Només els administradors del bot poden gestionar les news d'un grup.",
       '',
@@ -459,6 +459,7 @@ const newsGroupTexts = {
       "- /news activar: permet que aquest grup rebi avisos de les categories subscrites.",
       "- /news desactivar: atura els avisos d'aquest grup sense esborrar les subscripcions.",
       '- /news subscriure <categoria>: afegeix una categoria al grup complet o al topic actual.',
+      '- /news subscriure promocions default: subscriu el destí actual i el marca com a preferit.',
       "- /news desubscriure <categoria>: elimina una categoria del grup complet o del topic actual.",
       '',
       'Categories disponibles:',
@@ -470,6 +471,8 @@ const newsGroupTexts = {
     categoryNotSubscribed: 'La categoria "{category}" no estava subscrita.',
     categoryUnknown: 'Categoria desconeguda: "{category}".',
     categoryRequired: "Has d'indicar una categoria amb /news subscriure <categoria>.",
+    defaultLabel: 'per defecte',
+    defaultOnlyPromotions: "L'opció default només està disponible per a la categoria promocions.",
   },
   es: {
     modeOn: 'Modo news: activado',
@@ -483,7 +486,7 @@ const newsGroupTexts = {
     buttonRefresh: '🔄 Refrescar',
     subscriptions: 'Categorías suscritas: {list}',
     noSubscriptions: 'Categorías suscritas: ninguna',
-    commands: 'Comandos: /news estado, /news ayuda, /news activar, /news desactivar, /news suscribir <categoría>, /news desuscribir <categoría>',
+    commands: 'Comandos: /news estado, /news ayuda, /news activar, /news desactivar, /news suscribir <categoría> [default], /news desuscribir <categoría>',
     help: [
       'Solo los administradores del bot pueden gestionar las news de un grupo.',
       '',
@@ -493,6 +496,7 @@ const newsGroupTexts = {
       '- /news activar: permite que este grupo reciba avisos de las categorías suscritas.',
       '- /news desactivar: detiene los avisos de este grupo sin borrar las suscripciones.',
       '- /news suscribir <categoría>: añade una categoría al grupo completo o al topic actual.',
+      '- /news suscribir promociones default: suscribe el destino actual y lo marca como preferido.',
       '- /news desuscribir <categoría>: elimina una categoría del grupo completo o del topic actual.',
       '',
       'Categorías disponibles:',
@@ -504,6 +508,8 @@ const newsGroupTexts = {
     categoryNotSubscribed: 'La categoría "{category}" no estaba suscrita.',
     categoryUnknown: 'Categoría desconocida: "{category}".',
     categoryRequired: 'Debes indicar una categoría con /news suscribir <categoría>.',
+    defaultLabel: 'predeterminado',
+    defaultOnlyPromotions: 'La opción default solo está disponible para la categoría promociones.',
   },
   en: {
     modeOn: 'News mode: on',
@@ -517,7 +523,7 @@ const newsGroupTexts = {
     buttonRefresh: '🔄 Refresh',
     subscriptions: 'Subscribed categories: {list}',
     noSubscriptions: 'Subscribed categories: none',
-    commands: 'Commands: /news status, /news help, /news enable, /news disable, /news subscribe <category>, /news unsubscribe <category>',
+    commands: 'Commands: /news status, /news help, /news enable, /news disable, /news subscribe <category> [default], /news unsubscribe <category>',
     help: [
       'Only bot administrators can manage group news settings.',
       '',
@@ -527,6 +533,7 @@ const newsGroupTexts = {
       '- /news enable: lets this group receive broadcasts for subscribed categories.',
       '- /news disable: stops broadcasts for this group without removing subscriptions.',
       '- /news subscribe <category>: adds a category to the whole group or current topic.',
+      '- /news subscribe promotions default: subscribes the current destination and marks it as preferred.',
       '- /news unsubscribe <category>: removes a category from the whole group or current topic.',
       '',
       'Available categories:',
@@ -538,6 +545,8 @@ const newsGroupTexts = {
     categoryNotSubscribed: 'The category "{category}" was not subscribed.',
     categoryUnknown: 'Unknown category: "{category}".',
     categoryRequired: 'You must provide a category with /news subscribe <category>.',
+    defaultLabel: 'default',
+    defaultOnlyPromotions: 'The default option is only available for the promotions category.',
   },
 } as const;
 

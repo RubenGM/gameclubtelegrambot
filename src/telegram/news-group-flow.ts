@@ -2,6 +2,7 @@ import type { AuthorizationService } from '../authorization/service.js';
 import {
   eventsNewsGroupCategory,
   newsGroupCategoryLabel,
+  promotionsNewsGroupCategory,
   type NewsGroupCategoryKey,
   listNewsGroupCategories,
   normalizeMessageThreadId,
@@ -208,10 +209,14 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
   }
 
   if (action === 'subscribe') {
-    const rawCategoryKey = args.slice(1).join(' ');
-    const categoryKey = parseCategoryKey(rawCategoryKey, i18n);
+    const { categoryKey, isDefault } = parseSubscriptionArguments(args.slice(1), i18n);
     await ensureNewsGroupExists(repository, chatId);
-    await repository.upsertSubscription({ chatId, messageThreadId, categoryKey });
+    await repository.upsertSubscription({
+      chatId,
+      messageThreadId,
+      categoryKey,
+      ...(isDefault ? { isDefault: true } : {}),
+    });
     await replyWithNewsGroupStatus(
       context,
       repository,
@@ -219,7 +224,7 @@ export async function handleTelegramNewsGroupText(context: TelegramNewsGroupCont
       messageThreadId,
       language,
       i18n,
-      buildNewsGroupSubscriptionConfirmation(context, categoryKey, messageThreadId, language),
+      buildNewsGroupSubscriptionConfirmation(context, categoryKey, messageThreadId, language, isDefault),
     );
     return true;
   }
@@ -402,7 +407,10 @@ function formatSubscriptions(
     return i18n.newsGroup.noSubscriptions;
   }
 
-  return subscriptions.map((subscription) => formatCategoryLabelFromKey(subscription.categoryKey, language)).join(', ');
+  return subscriptions.map((subscription) => {
+    const category = formatCategoryLabelFromKey(subscription.categoryKey, language);
+    return subscription.isDefault ? `${category} (${i18n.newsGroup.defaultLabel})` : category;
+  }).join(', ');
 }
 
 function formatCategoryLabelFromKey(categoryKey: string, language: 'ca' | 'es' | 'en'): string {
@@ -417,10 +425,14 @@ function buildNewsGroupSubscriptionConfirmation(
   categoryKey: string,
   messageThreadId: number | null,
   language: 'ca' | 'es' | 'en',
+  isDefault = false,
 ): string {
   const category = formatCategoryLabelFromKey(categoryKey, language);
   const destination = formatNewsGroupDestinationName(context, messageThreadId);
 
+  if (isDefault) {
+    return i18nDefaultSubscriptionConfirmation(language, category, destination);
+  }
   if (language === 'ca') {
     return `Subscrit correctament a ${category} a ${destination}.`;
   }
@@ -428,6 +440,20 @@ function buildNewsGroupSubscriptionConfirmation(
     return `Subscribed successfully to ${category} in ${destination}.`;
   }
   return `Suscrito correctamente para ${category} en ${destination}.`;
+}
+
+function i18nDefaultSubscriptionConfirmation(
+  language: 'ca' | 'es' | 'en',
+  category: string,
+  destination: string,
+): string {
+  if (language === 'ca') {
+    return `Subscrit correctament a ${category} a ${destination} i marcat com a destinació per defecte.`;
+  }
+  if (language === 'en') {
+    return `Subscribed successfully to ${category} in ${destination} and marked as the default destination.`;
+  }
+  return `Suscrito correctamente para ${category} en ${destination} y marcado como destino predeterminado.`;
 }
 
 function formatNewsGroupDestinationName(context: TelegramNewsGroupContext, messageThreadId: number | null): string {
@@ -503,6 +529,22 @@ function parseCategoryKey(value: string, i18n: ReturnType<typeof createTelegramI
   }
 
   return category.key;
+}
+
+function parseSubscriptionArguments(
+  args: string[],
+  i18n: ReturnType<typeof createTelegramI18n>,
+): { categoryKey: NewsGroupCategoryKey; isDefault: boolean } {
+  const normalizedArgs = [...args];
+  const isDefault = normalizedArgs.at(-1)?.toLowerCase() === 'default';
+  if (isDefault) {
+    normalizedArgs.pop();
+  }
+  const categoryKey = parseCategoryKey(normalizedArgs.join(' '), i18n);
+  if (isDefault && categoryKey !== promotionsNewsGroupCategory) {
+    throw new Error(i18n.newsGroup.defaultOnlyPromotions);
+  }
+  return { categoryKey, isDefault };
 }
 
 function isNewsGroupChat(kind: TelegramChatContext['kind']): boolean {

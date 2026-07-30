@@ -106,6 +106,11 @@ export interface ScheduleRepository {
     reminderLeadHours?: number | null;
     reminderPreferenceConfigured?: boolean;
   }): Promise<ScheduleParticipantRecord>;
+  assignInitialOccupiedSeat?(input: {
+    eventId: number;
+    participantTelegramUserId: number;
+    actorTelegramUserId: number;
+  }): Promise<ScheduleParticipantRecord>;
 }
 
 export async function createScheduleEvent({
@@ -319,6 +324,68 @@ export async function setScheduleEventParticipantStatus({
     actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
     status,
   });
+}
+
+export async function assignScheduleInitialOccupiedSeat({
+  repository,
+  eventId,
+  participantTelegramUserId,
+  actorTelegramUserId,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+  participantTelegramUserId: number;
+  actorTelegramUserId: number;
+}): Promise<ScheduleParticipantRecord> {
+  const event = await repository.findEventById(eventId);
+  if (!event) {
+    throw new Error(`Schedule event ${eventId} not found`);
+  }
+  if (event.lifecycleStatus === 'cancelled') {
+    throw new Error('No es poden assignar reserves en una activitat cancel·lada');
+  }
+  if (event.attendanceMode !== 'open' || event.initialOccupiedSeats <= 0) {
+    throw new Error("L'activitat no té places reservades pendents d'assignar");
+  }
+
+  const normalizedParticipantTelegramUserId = normalizeTelegramUserId(participantTelegramUserId, 'participant');
+  const normalizedActorTelegramUserId = normalizeTelegramUserId(actorTelegramUserId, 'actor');
+  const existing = await repository.findParticipant(eventId, normalizedParticipantTelegramUserId);
+  if (existing?.status === 'active') {
+    throw new Error('Aquesta persona ja està apuntada a l’activitat');
+  }
+
+  if (repository.assignInitialOccupiedSeat) {
+    return repository.assignInitialOccupiedSeat({
+      eventId,
+      participantTelegramUserId: normalizedParticipantTelegramUserId,
+      actorTelegramUserId: normalizedActorTelegramUserId,
+    });
+  }
+
+  const participant = await repository.upsertParticipant({
+    eventId,
+    participantTelegramUserId: normalizedParticipantTelegramUserId,
+    actorTelegramUserId: normalizedActorTelegramUserId,
+    status: 'active',
+  });
+  await repository.updateEvent({
+    eventId,
+    title: event.title,
+    description: event.description,
+    detailsMessageChatId: event.detailsMessageChatId,
+    detailsMessageId: event.detailsMessageId,
+    startsAt: event.startsAt,
+    durationMinutes: event.durationMinutes,
+    organizerTelegramUserId: event.organizerTelegramUserId,
+    tableId: event.tableId,
+    ...(event.catalogItemId !== undefined ? { catalogItemId: event.catalogItemId } : {}),
+    attendanceMode: event.attendanceMode,
+    isPublic: event.isPublic,
+    initialOccupiedSeats: event.initialOccupiedSeats - 1,
+    capacity: event.capacity,
+  });
+  return participant;
 }
 
 export async function getScheduleCapacitySnapshot({

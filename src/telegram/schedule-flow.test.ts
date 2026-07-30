@@ -470,6 +470,7 @@ function createContext({
         publicName: 'Game Club Bot',
         clubName: 'Game Club',
         language,
+        getChat: async (chatId: number) => ({ id: chatId, type: 'supergroup', title: `Canal ${chatId}` }),
         sendPrivateMessage: async () => {},
         sendGroupMessage: async (chatId: number, message: string, options?: TelegramReplyOptions) => {
           groupMessages.push({ chatId, message, ...(options ? { options } : {}) });
@@ -723,6 +724,384 @@ test('handleTelegramScheduleStartText opens an activity detail from a deep link 
   assert.equal(await handleTelegramScheduleStartText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Wingspan<\/b>/);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar activitat'));
+});
+
+test('activity detail shows creator card, named attendees and assignable reserved seats in the selected language', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Partida de rol Pathfinder',
+      description: null,
+      startsAt: '2026-07-31T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 240,
+      attendanceMode: 'open',
+      isPublic: true,
+      initialOccupiedSeats: 2,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-07-29T10:00:00.000Z',
+      updatedAt: '2026-07-29T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await scheduleRepository.upsertParticipant({
+    eventId: 4,
+    participantTelegramUserId: 55,
+    actorTelegramUserId: 55,
+    status: 'active',
+  });
+  const { context, replies } = createContext({
+    scheduleRepository,
+    actorTelegramUserId: 42,
+    language: 'es',
+  });
+
+  context.messageText = '/start schedule_event_4';
+  assert.equal(await handleTelegramScheduleStartText(context), true);
+
+  const message = replies.at(-1)?.message ?? '';
+  assert.match(message, /<b>Creada por:<\/b> <a href="tg:\/\/user\?id=42">Ada \(@ada\)<\/a>/);
+  assert.match(message, /<b>Asistentes:<\/b>\s*\n- <a href="https:\/\/t\.me\/carla">Carla \(@carla\)<\/a>/);
+  assert.equal((message.match(/- Reservado - <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_reserve_4">Asignar<\/a>/g) ?? []).length, 2);
+  assert.doesNotMatch(message, /Plazas ocupadas iniciales/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Promocionar actividad'));
+  assert.doesNotMatch(message, /Places ocupades|Assistents|<b>Inici:<\/b>/);
+});
+
+test('creator assigns a reserved seat from the paginated approved-member selector without increasing occupancy', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Pathfinder',
+      description: null,
+      startsAt: '2026-07-31T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 240,
+      attendanceMode: 'open',
+      isPublic: false,
+      initialOccupiedSeats: 2,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-07-29T10:00:00.000Z',
+      updatedAt: '2026-07-29T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const auditRepository = createAuditRepository();
+  const { context, replies, privateMessages } = createContext({
+    scheduleRepository,
+    auditRepository,
+    actorTelegramUserId: 42,
+    language: 'es',
+  });
+
+  context.messageText = '/start schedule_reserve_4';
+  assert.equal(await handleTelegramScheduleStartText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Elige el socio/);
+  assert.match(replies.at(-1)?.message ?? '', /Mostrando 1-4 de 4\. Página 1\/1\./);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) =>
+    button.callbackData === `${scheduleCallbackPrefixes.assignReservedSeat}4:55`,
+  ));
+
+  context.callbackData = `${scheduleCallbackPrefixes.assignReservedSeat}4:55`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.equal((await scheduleRepository.findEventById(4))?.initialOccupiedSeats, 1);
+  assert.equal((await scheduleRepository.findParticipant(4, 55))?.status, 'active');
+  assert.match(replies.at(-1)?.message ?? '', /Plaza reservada asignada a Carla/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Plazas ocupadas:<\/b> 2\/4/);
+  assert.match(replies.at(-1)?.message ?? '', /- <a href="https:\/\/t\.me\/carla">Carla \(@carla\)<\/a>/);
+  assert.equal(privateMessages.at(-1)?.telegramUserId, 55);
+  assert.match(privateMessages.at(-1)?.message ?? '', /te ha asignado una plaza reservada/);
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.reserved-seat.assigned');
+});
+
+test('reserved-seat member selector paginates approved members with links and bounded navigation', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Pathfinder',
+      description: null,
+      startsAt: '2026-07-31T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 240,
+      attendanceMode: 'open',
+      isPublic: false,
+      initialOccupiedSeats: 1,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-07-29T10:00:00.000Z',
+      updatedAt: '2026-07-29T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const users: MembershipUserRecord[] = [
+    { telegramUserId: 42, username: 'creator42', displayName: 'Creator', status: 'approved', isAdmin: false },
+    ...Array.from({ length: 11 }, (_, index): MembershipUserRecord => ({
+      telegramUserId: 100 + index,
+      username: `member${index + 1}`,
+      displayName: `Member ${String(index + 1).padStart(2, '0')}`,
+      status: 'approved',
+      isAdmin: false,
+    })),
+  ];
+  const { context, replies } = createContext({
+    scheduleRepository,
+    membershipRepository: createMembershipRepository(users),
+    actorTelegramUserId: 42,
+    language: 'es',
+  });
+
+  context.messageText = '/start schedule_reserve_4';
+  assert.equal(await handleTelegramScheduleStartText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Mostrando 1-8 de 12\. Página 1\/2\./);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) =>
+    button.callbackData === `${scheduleCallbackPrefixes.reservedSeatPage}4:2`,
+  ));
+
+  context.callbackData = `${scheduleCallbackPrefixes.reservedSeatPage}4:99`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Mostrando 9-12 de 12\. Página 2\/2\./);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) =>
+    button.callbackData === `${scheduleCallbackPrefixes.reservedSeatPage}4:1`,
+  ));
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Member 01/);
+});
+
+test('another member cannot open the reserved-seat assignment selector', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Pathfinder',
+      description: null,
+      startsAt: '2026-07-31T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 240,
+      attendanceMode: 'open',
+      isPublic: false,
+      initialOccupiedSeats: 1,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-07-29T10:00:00.000Z',
+      updatedAt: '2026-07-29T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({
+    scheduleRepository,
+    actorTelegramUserId: 55,
+    language: 'es',
+  });
+
+  context.messageText = '/start schedule_reserve_4';
+  assert.equal(await handleTelegramScheduleStartText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /No puedes modificar una actividad/);
+  assert.equal((await scheduleRepository.findEventById(4))?.initialOccupiedSeats, 1);
+});
+
+test('promotion auto-selects the only known destination and publishes an easy join action', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 4,
+      title: 'Pathfinder',
+      description: null,
+      startsAt: '2026-07-31T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 240,
+      attendanceMode: 'open',
+      isPublic: false,
+      initialOccupiedSeats: 1,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-07-29T10:00:00.000Z',
+      updatedAt: '2026-07-29T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const promotionGroup: NewsGroupRecord = {
+      chatId: -1001,
+      isEnabled: true,
+      metadata: null,
+      createdAt: '2026-07-01T10:00:00.000Z',
+      updatedAt: '2026-07-01T10:00:00.000Z',
+      enabledAt: '2026-07-01T10:00:00.000Z',
+      disabledAt: null,
+  };
+  const newsGroupRepository = createNewsGroupRepository(
+    [promotionGroup],
+    new Map([['promotions', new Set([-1001])]]),
+  );
+  const auditRepository = createAuditRepository();
+  const { context, replies, groupMessages, getCurrentSession } = createContext({
+    scheduleRepository,
+    newsGroupRepository,
+    auditRepository,
+    actorTelegramUserId: 42,
+    language: 'es',
+  });
+
+  context.callbackData = `${scheduleCallbackPrefixes.promote}4`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'custom-message');
+  assert.match(replies.at(-1)?.message ?? '', /mensaje personalizado/);
+
+  context.messageText = '¡Quedan plazas para este viernes!';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.chatId, -1001);
+  assert.match(groupMessages[0]?.message ?? '', /¡Quedan plazas para este viernes!/);
+  assert.match(groupMessages[0]?.message ?? '', /<b>Plazas libres:<\/b> 3/);
+  assert.deepEqual(groupMessages[0]?.options?.inlineKeyboard, [[{
+    text: 'Ver y apuntarme',
+    url: 'https://t.me/cawa_management_bot?start=schedule_event_4',
+  }]]);
+  assert.match(replies.at(-1)?.message ?? '', /Promoción publicada en Canal -1001/);
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.promotion.published');
+});
+
+test('promotion asks for a destination when the bot knows more than one', async () => {
+  const event: ScheduleEventFixture = {
+    id: 4,
+    title: 'Pathfinder',
+    description: null,
+    startsAt: '2026-07-31T16:00:00.000Z',
+    organizerTelegramUserId: 42,
+    createdByTelegramUserId: 42,
+    tableId: null,
+    durationMinutes: 240,
+    attendanceMode: 'open',
+    isPublic: false,
+    initialOccupiedSeats: 0,
+    capacity: 4,
+    lifecycleStatus: 'scheduled',
+    createdAt: '2026-07-29T10:00:00.000Z',
+    updatedAt: '2026-07-29T10:00:00.000Z',
+    cancelledAt: null,
+    cancelledByTelegramUserId: null,
+    cancellationReason: null,
+  };
+  const groups = [-1001, -1002].map((chatId): NewsGroupRecord => ({
+    chatId,
+    isEnabled: true,
+    metadata: null,
+    createdAt: '2026-07-01T10:00:00.000Z',
+    updatedAt: '2026-07-01T10:00:00.000Z',
+    enabledAt: '2026-07-01T10:00:00.000Z',
+    disabledAt: null,
+  }));
+  const newsGroupRepository = createNewsGroupRepository(
+    groups,
+    new Map([['promotions', new Set([-1001, -1002])]]),
+  );
+  newsGroupRepository.listSubscribedGroupsByCategory = async (categoryKey) =>
+    categoryKey === 'promotions'
+      ? [
+          { ...groups[0]!, messageThreadId: null, isDefault: false },
+          { ...groups[1]!, messageThreadId: null, isDefault: true },
+        ]
+      : [];
+  const { context, replies, groupMessages, getCurrentSession } = createContext({
+    scheduleRepository: createScheduleRepository([event]),
+    newsGroupRepository,
+    actorTelegramUserId: 42,
+    language: 'es',
+  });
+
+  context.callbackData = `${scheduleCallbackPrefixes.promote}4`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  context.messageText = 'Sin mensaje';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'select-destination');
+  assert.deepEqual(replies.at(-1)?.options?.inlineKeyboard?.map((row) => row[0]?.text), ['Canal -1002', 'Canal -1001']);
+
+  context.callbackData = `${scheduleCallbackPrefixes.promoteTo}4:-1002:0`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.equal(groupMessages.length, 1);
+  assert.equal(groupMessages[0]?.chatId, -1002);
+});
+
+test('promotion offers a forum General destination separately from known subscribed topics', async () => {
+  const event: ScheduleEventFixture = {
+    id: 4,
+    title: 'Pathfinder',
+    description: null,
+    startsAt: '2026-07-31T16:00:00.000Z',
+    organizerTelegramUserId: 42,
+    createdByTelegramUserId: 42,
+    tableId: null,
+    durationMinutes: 240,
+    attendanceMode: 'open',
+    isPublic: false,
+    initialOccupiedSeats: 0,
+    capacity: 4,
+    lifecycleStatus: 'scheduled',
+    createdAt: '2026-07-29T10:00:00.000Z',
+    updatedAt: '2026-07-29T10:00:00.000Z',
+    cancelledAt: null,
+    cancelledByTelegramUserId: null,
+    cancellationReason: null,
+  };
+  const group: NewsGroupRecord = {
+    chatId: -1001,
+    isEnabled: true,
+    metadata: { promotionDestinationNames: { '3': 'Info i Agenda' } },
+    createdAt: '2026-07-01T10:00:00.000Z',
+    updatedAt: '2026-07-01T10:00:00.000Z',
+    enabledAt: '2026-07-01T10:00:00.000Z',
+    disabledAt: null,
+  };
+  const newsGroupRepository = createNewsGroupRepository([group]);
+  newsGroupRepository.listSubscribedGroupsByCategory = async (categoryKey) =>
+    categoryKey === 'promotions'
+      ? [{ ...group, messageThreadId: null }, { ...group, messageThreadId: 3 }]
+      : [];
+  const { context, replies, groupMessages } = createContext({
+    scheduleRepository: createScheduleRepository([event]),
+    newsGroupRepository,
+    actorTelegramUserId: 42,
+    language: 'es',
+  });
+  context.runtime.bot.getChat = async (chatId: number) => ({
+    id: chatId,
+    type: 'supergroup',
+    title: 'CAWA Girona',
+    isForum: true,
+  });
+
+  context.callbackData = `${scheduleCallbackPrefixes.promote}4`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  context.messageText = 'Sin mensaje';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(
+    replies.at(-1)?.options?.inlineKeyboard?.map((row) => row[0]?.text),
+    ['CAWA Girona · General', 'CAWA Girona · Info i Agenda'],
+  );
+
+  context.callbackData = `${scheduleCallbackPrefixes.promoteTo}4:-1001:0`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.equal(groupMessages[0]?.chatId, -1001);
+  assert.equal(groupMessages[0]?.options?.messageThreadId, undefined);
 });
 
 test('handleTelegramScheduleStartText lets non-approved users open and join public schedule events', async () => {
@@ -2525,7 +2904,7 @@ test('handleTelegramScheduleCallback shows activity attendance and allows joinin
   const handled = await handleTelegramScheduleCallback(context);
 
   assert.equal(handled, true);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\)/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b>\s*\n- <a href="tg:\/\/user\?id=42">Ada \(@ada\)<\/a>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Places ocupades:<\/b> 1\/3/);
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
@@ -2606,12 +2985,12 @@ test('handleTelegramScheduleCallback joins and leaves an activity updating atten
   context.callbackData = `${scheduleCallbackPrefixes.join}12`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /T'has apuntat correctament a <b>Root<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\), Biel/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b>\s*\n- <a href="tg:\/\/user\?id=42">Ada \(@ada\)<\/a>\n- <a href="tg:\/\/user\?id=77">Biel<\/a>/);
 
   context.callbackData = `${scheduleCallbackPrefixes.leave}12`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /Has sortit correctament de <b>Root<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b> Ada \(@ada\)/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b>\s*\n- <a href="tg:\/\/user\?id=42">Ada \(@ada\)<\/a>/);
 });
 
 test('handleTelegramScheduleCallback asks and stores a reminder preference after joining', async () => {
@@ -2687,6 +3066,7 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
     inlineKeyboard: [
       [{ text: 'Apuntar-me', callbackData: 'schedule:join:3' }],
       [{ text: 'Editar activitat', callbackData: 'schedule:select_edit:3' }, { text: 'Eliminar activitat', callbackData: 'schedule:select_cancel:3' }],
+      [{ text: 'Promocionar activitat', callbackData: 'schedule:promote:3' }],
     ],
   });
 
@@ -2957,6 +3337,7 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
     inlineKeyboard: [
       [{ text: 'Apuntar-me', callbackData: 'schedule:join:8' }],
       [{ text: 'Editar activitat', callbackData: 'schedule:select_edit:8' }, { text: 'Eliminar activitat', callbackData: 'schedule:select_cancel:8' }],
+      [{ text: 'Promocionar activitat', callbackData: 'schedule:promote:8' }],
     ],
   });
 

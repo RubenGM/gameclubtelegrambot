@@ -75,21 +75,37 @@ export function createDatabaseNewsGroupRepository({
     async upsertSubscription(input) {
       const now = new Date();
       const messageThreadId = toStoredMessageThreadId(input.messageThreadId);
-      const created = await database
-        .insert(newsGroupSubscriptions)
-        .values({
-          chatId: input.chatId,
-          messageThreadId,
-          categoryKey: input.categoryKey,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [newsGroupSubscriptions.chatId, newsGroupSubscriptions.categoryKey, newsGroupSubscriptions.messageThreadId],
-          set: {
+      const persist = async (transaction: typeof database) => {
+        if (input.isDefault) {
+          await transaction
+            .update(newsGroupSubscriptions)
+            .set({ isDefault: false, updatedAt: now })
+            .where(and(
+              eq(newsGroupSubscriptions.categoryKey, input.categoryKey),
+              eq(newsGroupSubscriptions.isDefault, true),
+            ));
+        }
+        return transaction
+          .insert(newsGroupSubscriptions)
+          .values({
+            chatId: input.chatId,
+            messageThreadId,
+            categoryKey: input.categoryKey,
+            isDefault: input.isDefault ?? false,
             updatedAt: now,
-          },
-        })
-        .returning();
+          })
+          .onConflictDoUpdate({
+            target: [newsGroupSubscriptions.chatId, newsGroupSubscriptions.categoryKey, newsGroupSubscriptions.messageThreadId],
+            set: {
+              ...(input.isDefault !== undefined ? { isDefault: input.isDefault } : {}),
+              updatedAt: now,
+            },
+          })
+          .returning();
+      };
+      const created = input.isDefault
+        ? await database.transaction(async (transaction) => persist(transaction as typeof database))
+        : await persist(database);
 
       const row = created[0];
       if (!row) {
@@ -117,6 +133,7 @@ export function createDatabaseNewsGroupRepository({
         .select({
           chatId: newsGroups.chatId,
           messageThreadId: newsGroupSubscriptions.messageThreadId,
+          isDefault: newsGroupSubscriptions.isDefault,
           isEnabled: newsGroups.isEnabled,
           metadata: newsGroups.metadata,
           createdAt: newsGroups.createdAt,
@@ -142,7 +159,7 @@ export function createDatabaseNewsGroupRepository({
         .orderBy(asc(newsGroups.chatId));
       const explicitChatIds = new Set(explicitGroups.map((group) => group.chatId));
       const defaultSubscribedGroups = enabledGroups
-        .map((group): NewsGroupDeliveryTarget => ({ ...mapNewsGroupRow(group), messageThreadId: null }))
+        .map((group): NewsGroupDeliveryTarget => ({ ...mapNewsGroupRow(group), messageThreadId: null, isDefault: false }))
         .filter((group) => !explicitChatIds.has(group.chatId));
 
       return [...explicitGroups, ...defaultSubscribedGroups].sort((left, right) =>
@@ -181,6 +198,7 @@ function mapNewsGroupSubscriptionRow(row: typeof newsGroupSubscriptions.$inferSe
     chatId: row.chatId,
     messageThreadId: row.messageThreadId > 0 ? row.messageThreadId : null,
     categoryKey: row.categoryKey,
+    isDefault: row.isDefault,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -189,6 +207,7 @@ function mapNewsGroupSubscriptionRow(row: typeof newsGroupSubscriptions.$inferSe
 function mapNewsGroupDeliveryTargetRow(row: {
   chatId: number;
   messageThreadId: number;
+  isDefault: boolean;
   isEnabled: boolean;
   metadata: unknown;
   createdAt: Date;
@@ -199,6 +218,7 @@ function mapNewsGroupDeliveryTargetRow(row: {
   return {
     chatId: row.chatId,
     messageThreadId: row.messageThreadId > 0 ? row.messageThreadId : null,
+    isDefault: row.isDefault,
     isEnabled: row.isEnabled,
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
     createdAt: row.createdAt.toISOString(),

@@ -216,6 +216,80 @@ export function createDatabaseScheduleRepository({
 
       return mapScheduleParticipantRow(row);
     },
+    async assignInitialOccupiedSeat({
+      eventId,
+      participantTelegramUserId,
+      actorTelegramUserId,
+    }) {
+      return database.transaction(async (tx) => {
+        const lockedEvents = await tx
+          .select()
+          .from(scheduleEvents)
+          .where(eq(scheduleEvents.id, eventId))
+          .for('update');
+        const event = lockedEvents[0];
+        if (!event) {
+          throw new Error(`Schedule event ${eventId} not found`);
+        }
+        if (event.lifecycleStatus === 'cancelled') {
+          throw new Error('No es poden assignar reserves en una activitat cancel·lada');
+        }
+        if (event.attendanceMode !== 'open' || event.initialOccupiedSeats <= 0) {
+          throw new Error("L'activitat no té places reservades pendents d'assignar");
+        }
+
+        const existingParticipants = await tx
+          .select()
+          .from(scheduleEventParticipants)
+          .where(
+            and(
+              eq(scheduleEventParticipants.scheduleEventId, eventId),
+              eq(scheduleEventParticipants.participantTelegramUserId, participantTelegramUserId),
+            ),
+          );
+        if (existingParticipants[0]?.status === 'active') {
+          throw new Error('Aquesta persona ja està apuntada a l’activitat');
+        }
+
+        const now = new Date();
+        const updatedParticipants = await tx
+          .insert(scheduleEventParticipants)
+          .values({
+            scheduleEventId: eventId,
+            participantTelegramUserId,
+            status: 'active',
+            addedByTelegramUserId: actorTelegramUserId,
+            removedByTelegramUserId: null,
+            leftAt: null,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [scheduleEventParticipants.scheduleEventId, scheduleEventParticipants.participantTelegramUserId],
+            set: {
+              status: 'active',
+              addedByTelegramUserId: actorTelegramUserId,
+              removedByTelegramUserId: null,
+              leftAt: null,
+              updatedAt: now,
+            },
+          })
+          .returning();
+
+        await tx
+          .update(scheduleEvents)
+          .set({
+            initialOccupiedSeats: event.initialOccupiedSeats - 1,
+            updatedAt: now,
+          })
+          .where(eq(scheduleEvents.id, eventId));
+
+        const participant = updatedParticipants[0];
+        if (!participant) {
+          throw new Error(`Schedule participant ${participantTelegramUserId} for event ${eventId} not found`);
+        }
+        return mapScheduleParticipantRow(participant);
+      });
+    },
   };
 }
 

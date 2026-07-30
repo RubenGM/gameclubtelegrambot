@@ -787,6 +787,7 @@ export const newsGroupSubscriptions = pgTable(
       .references(() => newsGroups.chatId),
     messageThreadId: integer('message_thread_id').notNull().default(0),
     categoryKey: varchar('category_key', { length: 128 }).notNull(),
+    isDefault: boolean('is_default').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -797,6 +798,9 @@ export const newsGroupSubscriptions = pgTable(
       table.messageThreadId,
     ),
     categoryLookup: index('news_group_subscriptions_category_key_idx').on(table.categoryKey),
+    oneDefaultPerCategory: uniqueIndex('news_group_subscriptions_one_default_per_category_idx')
+      .on(table.categoryKey)
+      .where(sql`${table.isDefault} = true`),
   }),
 );
 

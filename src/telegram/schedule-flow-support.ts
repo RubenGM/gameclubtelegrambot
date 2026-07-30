@@ -8,6 +8,7 @@ import type { GoogleCalendarServiceAccountConfig } from '../google-calendar/goog
 import { buildTelegramStartUrl } from './deep-links.js';
 import {
   cancelScheduleEvent,
+  assignScheduleInitialOccupiedSeat,
   createScheduleEvent,
   getScheduleEventAttendance,
   getScheduleEventEndsAt,
@@ -41,7 +42,14 @@ import type { ConversationSessionRuntime } from './conversation-session.js';
 import { createDatabaseAppMetadataSessionStorage } from './conversation-session-store.js';
 import type { TelegramReplyOptions, TelegramSentMessage } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
-import type { NewsGroupRepository } from '../news/news-group-catalog.js';
+import type {
+  NewsGroupDeliveryTarget,
+  NewsGroupRepository,
+} from '../news/news-group-catalog.js';
+import {
+  promotionsNewsGroupCategory,
+  resolvePromotionDestinationDisplayName,
+} from '../news/news-group-catalog.js';
 import { formatMembershipDisplayName } from '../membership/display-name.js';
 import {
   buildScheduleDayButtons,
@@ -116,8 +124,10 @@ const simpleCreateFlowKey = 'schedule-create-simple';
 const editFlowKey = 'schedule-edit';
 const cancelFlowKey = 'schedule-cancel';
 const joinReminderFlowKey = 'schedule-join-reminder';
+const promotionFlowKey = 'schedule-promotion';
 const scheduleStartPayloadPrefix = 'schedule_event_';
 const scheduleDetailsStartPayloadPrefix = 'schedule_details_';
+const scheduleReservedSeatStartPayloadPrefix = 'schedule_reserve_';
 
 export const scheduleCallbackPrefixes = {
   inspect: 'schedule:inspect:',
@@ -126,8 +136,13 @@ export const scheduleCallbackPrefixes = {
   day: 'schedule:day:',
   selectEdit: 'schedule:select_edit:',
   selectCancel: 'schedule:select_cancel:',
+  assignReservedSeat: 'schedule:reserve_user:',
+  reservedSeatPage: 'schedule:reserve_page:',
+  promote: 'schedule:promote:',
+  promoteTo: 'schedule:promote_to:',
   tableSelection: 'schedule:table:',
 } as const;
+const scheduleMemberSelectorPageSize = 8;
 
 const defaultScheduleDurationMinutes = 180;
 const defaultCreateScheduleValues = {
@@ -203,6 +218,7 @@ export interface TelegramScheduleContext {
       clubName: string;
       language?: string;
       sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
+      getChat?(chatId: number): Promise<{ id: number; type: string; title?: string; isForum?: boolean }>;
       sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
       deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
       editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
@@ -271,6 +287,20 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
 }
 
 export async function handleTelegramScheduleStartText(context: TelegramScheduleContext): Promise<boolean> {
+  const reservedSeatEventId = parseScheduleStartPayload(context.messageText, scheduleReservedSeatStartPayloadPrefix);
+  if (reservedSeatEventId !== null && context.runtime.chat.kind === 'private') {
+    if (!context.runtime.actor.isApproved) {
+      return false;
+    }
+    const event = await loadEventOrThrow(context, reservedSeatEventId);
+    if (!canAssignReservedSeats(context.runtime.actor, event)) {
+      await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule.noEditOthers);
+      return true;
+    }
+    await replyWithReservedSeatMemberSelector(context, event, 1);
+    return true;
+  }
+
   const detailsEventId = parseScheduleStartPayload(context.messageText, scheduleDetailsStartPayloadPrefix);
   if (detailsEventId !== null && context.runtime.chat.kind === 'private') {
     const event = await loadEventOrThrow(context, detailsEventId);
@@ -356,6 +386,68 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
         callbackPrefixes: scheduleCallbackPrefixes,
       }),
       parseMode: 'HTML',
+    });
+    return true;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.reservedSeatPage)) {
+    if (!context.runtime.actor.isApproved) {
+      return false;
+    }
+    const { eventId, page } = parseSchedulePairCallback(callbackData, scheduleCallbackPrefixes.reservedSeatPage);
+    const event = await loadEventOrThrow(context, eventId);
+    if (!canAssignReservedSeats(context.runtime.actor, event)) {
+      await context.reply(texts.noEditOthers);
+      return true;
+    }
+    await replyWithReservedSeatMemberSelector(context, event, page);
+    return true;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.assignReservedSeat)) {
+    if (!context.runtime.actor.isApproved) {
+      return false;
+    }
+    const { eventId, second: participantTelegramUserId } = parseSchedulePairCallback(
+      callbackData,
+      scheduleCallbackPrefixes.assignReservedSeat,
+    );
+    await assignReservedSeatToMember(context, eventId, participantTelegramUserId);
+    return true;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.promoteTo)) {
+    if (!context.runtime.actor.isApproved) {
+      return false;
+    }
+    await publishSchedulePromotionFromCallback(context, callbackData);
+    return true;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.promote)) {
+    if (!context.runtime.actor.isApproved) {
+      return false;
+    }
+    const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.promote, 'activitat');
+    const event = await loadEventOrThrow(context, eventId);
+    if (!canPromoteEvent(context.runtime.actor, event)) {
+      await context.reply(texts.noEditOthers);
+      return true;
+    }
+    const targets = await listSchedulePromotionTargets(context, event);
+    if (targets.length === 0) {
+      await context.reply(texts.promotionNoTargets);
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: promotionFlowKey,
+      stepKey: 'custom-message',
+      data: { eventId },
+    });
+    await context.reply(texts.promotionCustomMessagePrompt, {
+      replyKeyboard: [[texts.promotionSkipMessage], [{ text: scheduleLabels.cancelFlow, semanticRole: 'danger' }]],
+      resizeKeyboard: true,
+      persistentKeyboard: true,
     });
     return true;
   }
@@ -481,7 +573,12 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
 }
 
 function isScheduleSession(flowKey: string | undefined): boolean {
-  return flowKey === createFlowKey || flowKey === simpleCreateFlowKey || flowKey === editFlowKey || flowKey === cancelFlowKey || flowKey === joinReminderFlowKey;
+  return flowKey === createFlowKey
+    || flowKey === simpleCreateFlowKey
+    || flowKey === editFlowKey
+    || flowKey === cancelFlowKey
+    || flowKey === joinReminderFlowKey
+    || flowKey === promotionFlowKey;
 }
 
 async function handleActiveScheduleSession(context: TelegramScheduleContext, text: string): Promise<boolean> {
@@ -502,8 +599,59 @@ async function handleActiveScheduleSession(context: TelegramScheduleContext, tex
   if (session.flowKey === joinReminderFlowKey) {
     return handleJoinReminderSession(context, text, session.stepKey, session.data);
   }
+  if (session.flowKey === promotionFlowKey) {
+    return handlePromotionSession(context, text, session.stepKey, session.data);
+  }
 
   return false;
+}
+
+async function handlePromotionSession(
+  context: TelegramScheduleContext,
+  text: string,
+  stepKey: string,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  if (stepKey !== 'custom-message') {
+    return false;
+  }
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  const eventId = Number(data.eventId);
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    return false;
+  }
+  const event = await loadEventOrThrow(context, eventId);
+  if (!canPromoteEvent(context.runtime.actor, event)) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.noEditOthers);
+    return true;
+  }
+
+  const customMessage = text === texts.promotionSkipMessage ? null : text;
+  const targets = await listSchedulePromotionTargets(context, event);
+  if (targets.length === 0) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.promotionNoTargets);
+    return true;
+  }
+  if (targets.length === 1) {
+    await publishSchedulePromotion(context, event, targets[0]!, customMessage);
+    return true;
+  }
+
+  await context.runtime.session.advance({
+    stepKey: 'select-destination',
+    data: { eventId, customMessage },
+  });
+  const labelledTargets = await labelSchedulePromotionTargets(context, targets);
+  await context.reply(texts.promotionSelectDestination, {
+    inlineKeyboard: labelledTargets.map(({ target, label }) => [{
+      text: label,
+      callbackData: buildPromotionTargetCallback(event.id, target),
+    }]),
+  });
+  return true;
 }
 
 async function handleCreateSession(
@@ -1738,6 +1886,14 @@ function canManageEvent(actor: TelegramActor, authorization: AuthorizationServic
   return actor.isAdmin || authorization.can('schedule.manage') || event.organizerTelegramUserId === actor.telegramUserId;
 }
 
+function canAssignReservedSeats(actor: TelegramActor, event: ScheduleEventRecord): boolean {
+  return actor.isAdmin || event.createdByTelegramUserId === actor.telegramUserId;
+}
+
+function canPromoteEvent(actor: TelegramActor, event: ScheduleEventRecord): boolean {
+  return actor.isAdmin || event.createdByTelegramUserId === actor.telegramUserId;
+}
+
 function resolveScheduleRepository(context: TelegramScheduleContext): ScheduleRepository {
   if (context.scheduleRepository) {
     return context.scheduleRepository;
@@ -1798,29 +1954,28 @@ async function formatParticipantLabels(context: TelegramScheduleContext, telegra
     })),
   );
 
-  return participants.map(({ telegramUserId, user }) => formatParticipantLabel(telegramUserId, user));
+  return participants.map(({ telegramUserId, user }) => formatParticipantLabel(context, telegramUserId, user));
 }
 
 function formatParticipantLabel(
+  context: TelegramScheduleContext,
   telegramUserId: number,
-  user: { displayName: string; username?: string | null } | null,
+  user: MembershipUserRecord | null,
 ): string {
   if (!user) {
-    return `Usuari ${telegramUserId}`;
+    const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule;
+    return `<a href="tg://user?id=${telegramUserId}">${escapeHtml(texts.userFallback.replace('{id}', String(telegramUserId)))}</a>`;
   }
 
-  if (user.username) {
-    return `${user.displayName} (@${user.username})`;
-  }
-
-  return user.displayName;
+  return formatTelegramUserLink(user);
 }
 
 async function formatScheduleEventView(
   context: TelegramScheduleContext,
   event: ScheduleEventRecord,
 ): Promise<string> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
   const attendance = await getScheduleEventAttendance({
     repository: resolveScheduleRepository(context),
     eventId: event.id,
@@ -1828,14 +1983,31 @@ async function formatScheduleEventView(
 
   const relevantVenueEvents = await listRelevantVenueEventsForScheduleEvent(context, event);
   const participantLabels = await formatParticipantLabels(context, attendance.activeParticipantTelegramUserIds);
+  const creator = await resolveMembershipRepository(context).findUserByTelegramUserId(event.createdByTelegramUserId);
+  const creatorLabel = formatParticipantLabel(context, event.createdByTelegramUserId, creator);
+  const attendeeLines = participantLabels.map((label) => `- ${label}`);
+  for (let index = 0; index < event.initialOccupiedSeats; index += 1) {
+    const assignLink = canAssignReservedSeats(context.runtime.actor, event)
+      ? ` - <a href="${escapeHtml(buildTelegramStartUrl(`${scheduleReservedSeatStartPayloadPrefix}${event.id}`))}">${escapeHtml(texts.assignReservedSeat)}</a>`
+      : '';
+    attendeeLines.push(`- ${escapeHtml(texts.reservedSeat)}${assignLink}`);
+  }
   const detailLines = [
-    formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId) }),
+    formatScheduleEventDetails({
+      event,
+      tableName: await loadTableName(context, event.tableId),
+      creatorLabel,
+      showInitialOccupiedSeats: false,
+      language,
+    }),
     formatHtmlField(texts.detailsEnd, formatTimestamp(getScheduleEventEndsAt(event))),
     ...(event.attendanceMode === 'open'
       ? [
           formatHtmlField(texts.detailsOccupiedSeats, `${attendance.snapshot.occupiedSeats}/${attendance.snapshot.capacity}`),
           formatHtmlField(texts.detailsFreeSeats, String(attendance.snapshot.availableSeats)),
-          formatHtmlField(texts.detailsAttendees, participantLabels.length > 0 ? participantLabels.map(escapeHtml).join(', ') : texts.none),
+          attendeeLines.length > 0
+            ? `<b>${escapeHtml(texts.detailsAttendees)}:</b>\n${attendeeLines.join('\n')}`
+            : formatHtmlField(texts.detailsAttendees, escapeHtml(texts.none)),
         ]
       : []),
   ];
@@ -1853,6 +2025,316 @@ async function formatScheduleEventView(
         ]
       : []),
   ].join('\n');
+}
+
+async function replyWithReservedSeatMemberSelector(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+  requestedPage: number,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  const freshEvent = await loadEventOrThrow(context, event.id);
+  if (freshEvent.attendanceMode !== 'open' || freshEvent.initialOccupiedSeats <= 0) {
+    await context.reply(texts.noReservedSeats);
+    return;
+  }
+
+  const membershipRepository = resolveMembershipRepository(context);
+  const users = (membershipRepository.listManageableUsers
+    ? await membershipRepository.listManageableUsers()
+    : [...(await membershipRepository.listApprovedAdminUsers()), ...(await membershipRepository.listRevocableUsers())])
+    .filter((user) => user.status === 'approved')
+    .sort((left, right) => left.displayName.localeCompare(right.displayName) || left.telegramUserId - right.telegramUserId);
+  const activeParticipantIds = new Set(
+    (await resolveScheduleRepository(context).listParticipants(event.id))
+      .filter((participant) => participant.status === 'active')
+      .map((participant) => participant.participantTelegramUserId),
+  );
+  const candidates = users.filter((user) => !activeParticipantIds.has(user.telegramUserId));
+  if (candidates.length === 0) {
+    await context.reply(texts.noReservedSeats);
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(candidates.length / scheduleMemberSelectorPageSize));
+  const page = Math.min(Math.max(requestedPage, 1), totalPages);
+  const firstIndex = (page - 1) * scheduleMemberSelectorPageSize;
+  const pageUsers = candidates.slice(firstIndex, firstIndex + scheduleMemberSelectorPageSize);
+  const pageFooter = language === 'ca'
+    ? `Mostrant ${firstIndex + 1}-${firstIndex + pageUsers.length} de ${candidates.length}. Pàgina ${page}/${totalPages}.`
+    : language === 'es'
+      ? `Mostrando ${firstIndex + 1}-${firstIndex + pageUsers.length} de ${candidates.length}. Página ${page}/${totalPages}.`
+      : `Showing ${firstIndex + 1}-${firstIndex + pageUsers.length} of ${candidates.length}. Page ${page}/${totalPages}.`;
+  const inlineKeyboard: NonNullable<TelegramReplyOptions['inlineKeyboard']> = pageUsers.map((user) => [{
+    text: user.displayName,
+    callbackData: `${scheduleCallbackPrefixes.assignReservedSeat}${event.id}:${user.telegramUserId}`,
+  }]);
+  if (totalPages > 1) {
+    const navigation = [];
+    if (page > 1) {
+      navigation.push({
+        text: language === 'en' ? 'Previous' : 'Anterior',
+        callbackData: `${scheduleCallbackPrefixes.reservedSeatPage}${event.id}:${page - 1}`,
+      });
+    }
+    if (page < totalPages) {
+      navigation.push({
+        text: language === 'ca' ? 'Següent' : language === 'es' ? 'Siguiente' : 'Next',
+        callbackData: `${scheduleCallbackPrefixes.reservedSeatPage}${event.id}:${page + 1}`,
+      });
+    }
+    inlineKeyboard.push(navigation);
+  }
+
+  await context.reply(
+    [
+      escapeHtml(texts.reservedSeatSelectorTitle),
+      '',
+      ...pageUsers.map((user) => `- ${formatTelegramUserLink(user)}`),
+      '',
+      pageFooter,
+    ].join('\n'),
+    { parseMode: 'HTML', inlineKeyboard },
+  );
+}
+
+async function assignReservedSeatToMember(
+  context: TelegramScheduleContext,
+  eventId: number,
+  participantTelegramUserId: number,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  const event = await loadEventOrThrow(context, eventId);
+  if (!canAssignReservedSeats(context.runtime.actor, event)) {
+    await context.reply(texts.noEditOthers);
+    return;
+  }
+  const membershipRepository = resolveMembershipRepository(context);
+  const participant = await membershipRepository.findUserByTelegramUserId(participantTelegramUserId);
+  if (!participant || participant.status !== 'approved') {
+    await context.reply(texts.reservedSeatSelectorTitle);
+    return;
+  }
+
+  await assignScheduleInitialOccupiedSeat({
+    repository: resolveScheduleRepository(context),
+    eventId,
+    participantTelegramUserId,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'schedule.reserved-seat.assigned',
+    targetType: 'schedule-event',
+    targetId: String(eventId),
+    summary: 'Plaça reservada assignada',
+    details: { participantTelegramUserId },
+  });
+
+  const actorName = await resolveMemberDisplayName(context, context.runtime.actor.telegramUserId);
+  try {
+    await context.runtime.bot.sendPrivateMessage(
+      participantTelegramUserId,
+      `${texts.reservedSeatAssignedNotification
+        .replace('{actor}', actorName)
+        .replace('{title}', event.title)}\n${buildTelegramStartUrl(`${scheduleStartPayloadPrefix}${event.id}`)}`,
+    );
+  } catch {
+    // The assignment is authoritative; a Telegram delivery failure must not roll it back.
+  }
+  const updated = await loadEventOrThrow(context, eventId);
+  await context.reply(
+    `${escapeHtml(texts.reservedSeatAssigned.replace('{user}', formatMembershipDisplayName(participant)))}\n\n${await formatScheduleEventView(context, updated)}`,
+    {
+      ...buildScheduleDetailActionOptions({
+        actor: context.runtime.actor,
+        event: updated,
+        isAttending: await isActorAttending(context, updated.id),
+        language,
+        callbackPrefixes: scheduleCallbackPrefixes,
+      }),
+      parseMode: 'HTML',
+    },
+  );
+}
+
+interface LabelledSchedulePromotionTarget {
+  target: NewsGroupDeliveryTarget;
+  label: string;
+}
+
+async function listSchedulePromotionTargets(
+  context: TelegramScheduleContext,
+  _event: ScheduleEventRecord,
+): Promise<NewsGroupDeliveryTarget[]> {
+  return resolveNewsGroupRepository(context).listSubscribedGroupsByCategory(promotionsNewsGroupCategory);
+}
+
+async function labelSchedulePromotionTargets(
+  context: TelegramScheduleContext,
+  targets: NewsGroupDeliveryTarget[],
+): Promise<LabelledSchedulePromotionTarget[]> {
+  const labelledTargets = await Promise.all(targets.map(async (target) => {
+    let chatName = `chat ${target.chatId}`;
+    let isForum = false;
+    if (context.runtime.bot.getChat) {
+      try {
+        const chat = await context.runtime.bot.getChat(target.chatId);
+        chatName = chat.title?.trim() || chatName;
+        isForum = chat.isForum === true;
+      } catch {
+        // A persisted destination may no longer be readable; publication will surface the real send error.
+      }
+    }
+    const destinationName = resolvePromotionDestinationDisplayName(target.metadata, target.messageThreadId);
+    return {
+      target,
+      label: destinationName
+        ? `${chatName} · ${destinationName}`
+        : target.messageThreadId
+          ? `${chatName} · topic ${target.messageThreadId}`
+          : isForum
+            ? `${chatName} · General`
+            : chatName,
+    };
+  }));
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  return labelledTargets.sort((left, right) => {
+    if (Boolean(left.target.isDefault) !== Boolean(right.target.isDefault)) {
+      return left.target.isDefault ? -1 : 1;
+    }
+    return left.label.localeCompare(right.label, language, { sensitivity: 'base' });
+  });
+}
+
+function buildPromotionTargetCallback(eventId: number, target: NewsGroupDeliveryTarget): string {
+  return `${scheduleCallbackPrefixes.promoteTo}${eventId}:${target.chatId}:${target.messageThreadId ?? 0}`;
+}
+
+async function publishSchedulePromotionFromCallback(
+  context: TelegramScheduleContext,
+  callbackData: string,
+): Promise<void> {
+  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule;
+  const parts = callbackData.slice(scheduleCallbackPrefixes.promoteTo.length).split(':');
+  const [eventIdText, chatIdText, messageThreadIdText] = parts;
+  const eventId = Number(eventIdText);
+  const chatId = Number(chatIdText);
+  const messageThreadId = Number(messageThreadIdText);
+  if (
+    parts.length !== 3
+    || !Number.isInteger(eventId)
+    || eventId <= 0
+    || !Number.isInteger(chatId)
+    || chatId === 0
+    || !Number.isInteger(messageThreadId)
+    || messageThreadId < 0
+  ) {
+    throw new Error('Invalid schedule promotion destination');
+  }
+
+  const session = context.runtime.session.current;
+  if (
+    session?.flowKey !== promotionFlowKey
+    || session.stepKey !== 'select-destination'
+    || Number(session.data.eventId) !== eventId
+  ) {
+    await context.reply(texts.promotionSelectDestination);
+    return;
+  }
+  const event = await loadEventOrThrow(context, eventId);
+  if (!canPromoteEvent(context.runtime.actor, event)) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.noEditOthers);
+    return;
+  }
+  const targets = await listSchedulePromotionTargets(context, event);
+  const target = targets.find(
+    (candidate) => candidate.chatId === chatId && (candidate.messageThreadId ?? 0) === messageThreadId,
+  );
+  if (!target) {
+    await context.reply(texts.promotionNoTargets);
+    return;
+  }
+  const customMessage = typeof session.data.customMessage === 'string' ? session.data.customMessage : null;
+  await publishSchedulePromotion(context, event, target, customMessage);
+}
+
+async function publishSchedulePromotion(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+  target: NewsGroupDeliveryTarget,
+  customMessage: string | null,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  const sendGroupMessage = context.runtime.bot.sendGroupMessage;
+  if (!sendGroupMessage) {
+    throw new Error('Telegram group delivery is unavailable');
+  }
+  const attendance = await getScheduleEventAttendance({
+    repository: resolveScheduleRepository(context),
+    eventId: event.id,
+  });
+  const creator = await resolveMembershipRepository(context).findUserByTelegramUserId(event.createdByTelegramUserId);
+  const creatorLabel = formatParticipantLabel(context, event.createdByTelegramUserId, creator);
+  const lines = [
+    ...(customMessage ? [escapeHtml(customMessage), ''] : []),
+    `<b>${escapeHtml(texts.promotionTitle)}</b>`,
+    `<b>${escapeHtml(event.title)}</b>`,
+    formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
+    formatHtmlField(texts.detailsCreatedBy, creatorLabel),
+    formatHtmlField(texts.detailsFreeSeats, String(attendance.snapshot.availableSeats)),
+  ];
+  await sendGroupMessage(target.chatId, lines.join('\n'), {
+    parseMode: 'HTML',
+    ...(target.messageThreadId ? { messageThreadId: target.messageThreadId } : {}),
+    inlineKeyboard: [[{
+      text: event.attendanceMode === 'open' ? texts.promotionJoinButton : texts.detailsButton,
+      url: buildTelegramStartUrl(`${scheduleStartPayloadPrefix}${event.id}`),
+    }]],
+  });
+  await appendAuditEvent({
+    repository: resolveAuditRepository(context),
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    actionKey: 'schedule.promotion.published',
+    targetType: 'schedule-event',
+    targetId: String(event.id),
+    summary: 'Promoció d’activitat publicada',
+    details: {
+      chatId: target.chatId,
+      messageThreadId: target.messageThreadId,
+      hasCustomMessage: Boolean(customMessage),
+    },
+  });
+  await context.runtime.session.cancel();
+  const [labelledTarget] = await labelSchedulePromotionTargets(context, [target]);
+  await context.reply(
+    texts.promotionPublished.replace('{destination}', labelledTarget?.label ?? String(target.chatId)),
+    buildScheduleMenuOptions(language),
+  );
+}
+
+function parseSchedulePairCallback(
+  callbackData: string,
+  prefix: string,
+): { eventId: number; second: number; page: number } {
+  const [eventIdText, secondText, ...extra] = callbackData.slice(prefix.length).split(':');
+  const eventId = Number(eventIdText);
+  const second = Number(secondText);
+  if (
+    extra.length > 0
+    || !Number.isInteger(eventId)
+    || eventId <= 0
+    || !Number.isInteger(second)
+    || second <= 0
+  ) {
+    throw new Error('Invalid schedule callback target');
+  }
+  return { eventId, second, page: second };
 }
 
 async function sendScheduleDetailsMessage(
