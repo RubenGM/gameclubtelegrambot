@@ -78,8 +78,8 @@ test('handleTelegramRoleGameText shows an empty my-games list', async () => {
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.flat().map(buttonText), [
     'Mis partidas',
     'Partidas visibles',
-    'Crear partida',
-    'Cancelar',
+    'Crear partida de rol',
+    'Cancelar partida de rol',
     'Inicio',
     'Ayuda',
   ]);
@@ -1193,7 +1193,7 @@ test('handleTelegramRoleGameCallback blocks fabricated private-game details for 
 test('handleTelegramRoleGameText creates a role game with guided prompts', async () => {
   let createdGame: RoleGameRecord | null = null;
   const context = createRoleGameTestContext({
-    messageText: 'Crear partida',
+    messageText: 'Crear partida de rol',
     roleGameRepository: createFakeRoleGameRepository({
       onCreateGame: async (input) => {
         createdGame = sampleRoleGame({ ...input, id: 50 });
@@ -1205,7 +1205,7 @@ test('handleTelegramRoleGameText creates a role game with guided prompts', async
   assert.equal(await handleTelegramRoleGameText(context), true);
   assert.equal(getCurrentSession(context)?.flowKey, 'role-game-create');
   assert.match(lastReply(context).message, /tipo/i);
-  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar'));
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar partida de rol'));
 
   await sendRoleGameText(context, 'Campaña');
   await sendRoleGameText(context, 'La campaña de prueba');
@@ -1251,7 +1251,7 @@ test('handleTelegramRoleGameText creates a recurring campaign with recurrence se
     },
   });
   const context = createRoleGameTestContext({
-    messageText: 'Crear partida',
+    messageText: 'Crear partida de rol',
     scheduleRepository,
     roleGameRepository,
   });
@@ -1317,7 +1317,7 @@ test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event
     },
   });
   const context = createRoleGameTestContext({
-    messageText: 'Crear partida',
+    messageText: 'Crear partida de rol',
     roleGameRepository,
     scheduleRepository,
     newsGroupRepository: createRoleGameNewsRepository(),
@@ -1338,11 +1338,11 @@ test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event
   await sendRoleGameText(context, 'Solicitud');
   await sendRoleGameText(context, 'Revisión manual');
   assert.match(lastReply(context).message, /fecha/i);
-  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar'));
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar partida de rol'));
 
   await sendRoleGameText(context, '06/08/2026');
   assert.match(lastReply(context).message, /hora/i);
-  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar'));
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar partida de rol'));
 
   await sendRoleGameText(context, '18:00');
   assert.match(lastReply(context).message, /Confirmar/i);
@@ -1369,7 +1369,7 @@ test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event
 test('handleTelegramRoleGameText cancels role game creation without orphan keyboard', async () => {
   let createCalls = 0;
   const context = createRoleGameTestContext({
-    messageText: 'Crear partida',
+    messageText: 'Crear partida de rol',
     roleGameRepository: createFakeRoleGameRepository({
       onCreateGame: async (input) => {
         createCalls += 1;
@@ -1381,7 +1381,7 @@ test('handleTelegramRoleGameText cancels role game creation without orphan keybo
   assert.equal(await handleTelegramRoleGameText(context), true);
   assert.equal(getCurrentSession(context)?.flowKey, 'role-game-create');
 
-  await sendRoleGameText(context, 'Cancelar');
+  await sendRoleGameText(context, 'Cancelar partida de rol');
 
   assert.equal(getCurrentSession(context), null);
   assert.equal(createCalls, 0);
@@ -1389,8 +1389,8 @@ test('handleTelegramRoleGameText cancels role game creation without orphan keybo
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.flat().map(buttonText), [
     'Mis partidas',
     'Partidas visibles',
-    'Crear partida',
-    'Cancelar',
+    'Crear partida de rol',
+    'Cancelar partida de rol',
     'Inicio',
     'Ayuda',
   ]);
@@ -1531,7 +1531,7 @@ test('handleTelegramRoleGameCallback lets a manager schedule the next manual ses
   assert.equal(await handleTelegramRoleGameCallback(context), true);
   assert.equal(getCurrentSession(context)?.flowKey, 'role-game-manual-session');
   assert.match(lastReply(context).message, /fecha/i);
-  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar'));
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar partida de rol'));
 
   delete context.callbackData;
   await sendRoleGameText(context, '06/08/2026');
@@ -1578,7 +1578,7 @@ test('cancelling the Agenda confirmation leaves a manual role-game session unwri
   await sendRoleGameText(context, '18:00');
   assert.match(lastReply(context).message, /CONFIRMACIÓN DE AGENDA/);
 
-  await sendRoleGameText(context, 'Cancelar');
+  await sendRoleGameText(context, 'Cancelar partida de rol');
 
   assert.equal(await scheduleRepository.findEventById(1), null);
   assert.equal(getCurrentSession(context), null);

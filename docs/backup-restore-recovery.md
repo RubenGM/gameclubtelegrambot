@@ -22,17 +22,29 @@ Mínim imprescindible:
 - `/etc/default/gameclubtelegrambot`
 - un dump PostgreSQL de la base de dades configurada al runtime
 
+El backup complet actual empaqueta exactament aquests fitxers de configuració,
+el dump i, quan existeixen, la unitat `systemd` i la regla `polkit`. No és una
+còpia completa de tots els fitxers persistents de l'aplicació.
+
 Molt recomanable guardar també:
 
 - el commit desplegat o un paquet/export de la versió instal·lada
 - qualsevol canvi local sobre unitats `systemd` o fitxers de `deploy/`
 - una còpia d'aquest runbook junt amb els últims dumps disponibles
+- `data/feedback.jsonl`, si cal conservar l'historial de feedback web i Telegram
+- `data/http-assets/`, si la web pública utilitza imatges pujades des del panell
+
+`data/feedback.jsonl` i `data/http-assets/` no s'inclouen actualment a
+`backup-full.sh`. Cal copiar-los per separat abans d'una migració o recuperació
+si són dades que s'han de conservar. Els directoris `data/http-cache/` i
+`data/llm-model-tests/` són reconstruïbles i no formen part del backup operatiu.
+Els adjunts canònics de Storage continuen a Telegram i tampoc es dupliquen al
+zip.
 
 ## Freqüència recomanada
 
 Per un club petit o mitjà amb màquina Debian pròpia:
 
-- `runtime.json` i `/etc/default`: backup cada cop que es modifiquin
 - `runtime.json`, `.env` i `/etc/default`: backup cada cop que es modifiquin
 - PostgreSQL: almenys un cop al dia si hi ha ús regular del bot
 - backup extra abans de:
@@ -56,7 +68,8 @@ Els scripts que toquen PostgreSQL llegeixen la connexió des de `GAMECLUB_CONFIG
 
 Per executar backup o restore de base de dades cal tenir disponibles `pg_dump` i `psql`, habitualment via el paquet `postgresql-client`.
 
-Els scripts de backup/restore intenten ara auto-instal.lar aquestes dependencies a Debian quan falten, usant `apt-get` i `sudo` si cal.
+Els scripts de backup/restore intenten ara autoinstal·lar aquestes dependències a
+Debian quan falten, usant `apt-get` i `sudo` si cal.
 
 ## Consola TUI de backup
 
@@ -72,7 +85,7 @@ La TUI mostra:
 - estat dels fitxers runtime requerits
 - resum de la base de dades
 - llista de backups `.zip` disponibles
-- log de l'ultima operacio
+- log de l'última operació
 
 També hi ha un wrapper shell senzill per a operacions des de terminal:
 
@@ -84,9 +97,15 @@ També hi ha un wrapper shell senzill per a operacions des de terminal:
 ./scripts/backup-cli.sh restore /var/backups/gameclub/gameclub-backup-YYYYMMDD-HHMMSS.zip
 ```
 
-La consola de administracion `./scripts/admin-console.sh` incluye la vista `Backups` para ver, crear, eliminar y restaurar estos archivos.
+La consola d'administració `./scripts/admin-console.sh` inclou la vista
+`Backups` per veure, crear, eliminar i restaurar aquests arxius.
 
-En instalaciones Debian hechas con `./scripts/install-debian-stack.sh`, se instala tambien `gameclubtelegrambot-backup.timer`. Este timer ejecuta cada noche `gameclubtelegrambot-backup.service` y guarda backups completos en `/var/backups/gameclubtelegrambot`. Los adjuntos no se descargan ni se duplican: el backup cubre configuracion y base de datos.
+En instal·lacions Debian fetes amb `./scripts/install-debian-stack.sh`,
+s'instal·la també `gameclubtelegrambot-backup.timer`. Aquest timer executa cada
+nit `gameclubtelegrambot-backup.service` i guarda el zip operatiu a
+`/var/backups/gameclubtelegrambot`. Els adjunts no es descarreguen ni es
+dupliquen: el backup cobreix configuració i base de dades, però no
+`data/feedback.jsonl` ni `data/http-assets/`.
 
 Accions disponibles a la v1:
 
@@ -153,6 +172,10 @@ El resultat és un fitxer `gameclub-backup-YYYYMMDD-HHMMSS.zip` que conté:
 
 Aquest és ara el camí recomanat per a backups operatius perquè empaqueta en un únic arxiu tant la configuració com la base de dades.
 
+El nom «backup complet» identifica el paquet restaurable de configuració i base
+de dades; no vol dir que inclogui tots els fitxers sota `data/`. Conserva per
+separat el feedback i els assets web quan siguin necessaris.
+
 ### Restore complet des del zip
 
 Exemple habitual:
@@ -200,7 +223,20 @@ Si no es fa servir `backup-full.sh`, executar:
 ./scripts/backup-postgres.sh --config /etc/gameclubtelegrambot/runtime.json --output-dir /var/backups/gameclubtelegrambot
 ```
 
-### 3. Verificació mínima
+### 3. Dades persistents fora del zip
+
+Si cal conservar feedback i assets web, copia'ls separadament des de
+l'aplicació desplegada:
+
+```bash
+sudo install -d -m 0750 /var/backups/gameclubtelegrambot/files
+sudo cp -a /opt/gameclubtelegrambot/data/feedback.jsonl /var/backups/gameclubtelegrambot/files/ 2>/dev/null || true
+sudo cp -a /opt/gameclubtelegrambot/data/http-assets /var/backups/gameclubtelegrambot/files/ 2>/dev/null || true
+```
+
+Aquest pas és manual i no queda representat al manifest del zip.
+
+### 4. Verificació mínima
 
 Comprovar que existeix com a mínim:
 
@@ -245,6 +281,16 @@ sudo cp /var/backups/gameclubtelegrambot/runtime.env /etc/gameclubtelegrambot/.e
 sudo cp /var/backups/gameclubtelegrambot/default.env /etc/default/gameclubtelegrambot
 ```
 
+Si vas conservar dades fora del zip, restaura-les també i torna a assignar-les
+a l'usuari del servei:
+
+```bash
+sudo install -d -o gameclubbot -g gameclubbot /opt/gameclubtelegrambot/data
+sudo cp -a /var/backups/gameclubtelegrambot/files/feedback.jsonl /opt/gameclubtelegrambot/data/ 2>/dev/null || true
+sudo cp -a /var/backups/gameclubtelegrambot/files/http-assets /opt/gameclubtelegrambot/data/ 2>/dev/null || true
+sudo chown -R gameclubbot:gameclubbot /opt/gameclubtelegrambot/data/feedback.jsonl /opt/gameclubtelegrambot/data/http-assets 2>/dev/null || true
+```
+
 ### 3. Validar la configuració
 
 ```bash
@@ -277,7 +323,7 @@ GAMECLUB_CONFIG_PATH=/etc/gameclubtelegrambot/runtime.json node dist/scripts/mig
 ```bash
 sudo systemctl start gameclubtelegrambot.service
 sudo systemctl status gameclubtelegrambot.service
-journalctl -u gameclubtelegrambot.service -n 50 --no-pager
+./scripts/service-journal.sh -n 50
 ```
 
 ## Recuperació per incidències habituals
@@ -288,7 +334,7 @@ Comprovacions immediates:
 
 ```bash
 sudo systemctl status gameclubtelegrambot.service
-journalctl -u gameclubtelegrambot.service -n 100 --no-pager
+./scripts/service-journal.sh -n 100
 ```
 
 Motius habituals a revisar:
@@ -345,6 +391,8 @@ Abans de considerar la recuperació tancada:
 
 - `runtime.json` restaurat i validat
 - base de dades restaurada
+- `data/feedback.jsonl` i `data/http-assets/` restaurats per separat, si es
+  conservaven
 - migracions aplicades si feien falta
 - servei `gameclubtelegrambot.service` en estat `active`
 - logs recents sense errors crítics d'arrencada

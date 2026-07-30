@@ -12,14 +12,18 @@ demasiado bajo para PDFs de rol, manuales y fichas grandes. Telegram permite
 ejecutar un servidor Bot API local; en ese modo `getFile` puede devolver una ruta
 local absoluta y no hace falta descargar el archivo desde `api.telegram.org`.
 
-En este bot la integración se mantiene aislada:
+En este bot la integración se mantiene aislada y cada consumidor debe
+solicitarla de forma explícita:
 
-- Sólo el flujo de impresión llama a `downloadFile` con `allowLocalBotApi: true`.
+- El flujo de impresión llama a `downloadFile` con `allowLocalBotApi: true` para
+  admitir documentos grandes.
+- La generación de imágenes también lo solicita al descargar imágenes de
+  referencia. No lo necesita para subir el PNG generado.
 - Si `telegram.localBotApi.enabled` no está activo, el comportamiento sigue igual
   que antes y los archivos de más de 20 MB se rechazan con explicación.
 - Si el servidor local falla, el bot registra el fallo y cae al método cloud
   normal. Esto conserva compatibilidad para archivos pequeños.
-- Ningún otro flujo queda obligado a depender del servidor local.
+- Ningún otro flujo queda obligado a depender del servidor local por defecto.
 
 ## Configuración runtime
 
@@ -72,6 +76,10 @@ El límite de 20 MB sólo se aplica cuando el runtime no anuncia soporte de
 descargas grandes. Con Bot API local activo, impresión intenta preparar también
 archivos superiores a 20 MB.
 
+La generación de imágenes sigue la misma ruta sólo para sus referencias. Si el
+servicio local falla, conserva el fallback cloud para referencias pequeñas. La
+ejecución de Codex y la subida de la imagen final no dependen del Bot API local.
+
 ## Servicio local instalado con el bot
 
 El despliegue instala una unidad systemd hermana:
@@ -113,7 +121,9 @@ Checklist de activación:
 4. Reiniciar con `./startup.sh`.
 5. Probar un PDF pequeño en `Modo prueba`.
 6. Probar un PDF de más de 20 MB en `Modo prueba`.
-7. Revisar `./scripts/service-journal.sh -n 200` si hay fallback al cloud.
+7. Añadir una referencia a una generación de imágenes, si la feature está
+   habilitada.
+8. Revisar `./scripts/service-journal.sh -n 200` si hay fallback al cloud.
 
 Si el binario no existe todavía, el primer `./startup.sh` con
 `telegram.localBotApi.enabled=true` puede tardar varios minutos porque compila

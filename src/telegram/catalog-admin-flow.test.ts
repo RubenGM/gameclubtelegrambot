@@ -1473,7 +1473,10 @@ test('handleTelegramCatalogAdminText localizes the wikipedia import handoff', as
   assert.match(replies.at(-1)?.message ?? '', /He importado datos externos para A &amp; B\./);
   assert.match(replies.at(-1)?.message ?? '', /Elige un campo del teclado o guarda los cambios cuando hayas terminado\./);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.[0]?.[0], 'Nombre visible');
-  assert.equal(buttonText(replies.at(-1)?.options?.replyKeyboard?.at(-2)?.[0] as string | { text: string }), 'Guardar cambios');
+  assert.equal(
+    buttonText(replies.at(-1)?.options?.replyKeyboard?.at(-2)?.[0] as string | { text: string }),
+    'Guardar cambios del ítem',
+  );
 });
 
 test('handleTelegramCatalogAdminText shows a URL fallback when Wikipedia import fails', async () => {
@@ -2557,7 +2560,7 @@ test('handleTelegramCatalogAdminCallback shows item details with localized admin
   assert.ok(buttons.some((button) => buttonText(button) === 'Editar ítem'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Autocorregir datos'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Traducir descripción'));
-  assert.ok(buttons.some((button) => buttonText(button) === 'Crear partida'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Crear actividad con este juego'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Volver al catálogo'));
   assert.ok(buttons.some((button) => buttonText(button) === 'R'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Eliminar ítem'));
@@ -3624,7 +3627,7 @@ test('handleTelegramCatalogAdminCallback starts activity creation from a board g
   assert.match(replies.at(-1)?.message ?? '', /Escribe la fecha de inicio/i);
   assert.equal(replies.at(-1)?.options?.resizeKeyboard, true);
   assert.equal(replies.at(-1)?.options?.persistentKeyboard, true);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-2), ['Volver']);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-2), ['Volver a Agenda']);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-1), [dangerButton('/cancel')]);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.slice(0, 3).every((row) => row.length === 2), true);
 });
@@ -3790,7 +3793,7 @@ test('handleTelegramCatalogAdminCallback hides admin-only item actions for appro
   assert.ok(!buttons.some((button) => button === 'Eliminar ítem'));
   assert.ok(!buttons.some((button) => button === 'Guardar cambios de media #8'));
   assert.ok(!buttons.some((button) => button === 'Confirmar eliminación de media #8'));
-  assert.ok(buttons.some((button) => button === 'Crear partida'));
+  assert.ok(buttons.some((button) => button === 'Crear actividad con este juego'));
   assert.ok(buttons.some((button) => button === 'Tomar prestado'));
   assert.ok(buttons.some((button) => button === 'Ver préstamos'));
 });

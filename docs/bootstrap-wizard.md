@@ -37,7 +37,7 @@ Rao:
 
 - evita conversions posteriors
 - evita divergència entre el wizard i el loader runtime
-- prepara `GAM-19` perquè només hagi de persistir i aplicar el mateix contracte
+- permet persistir i aplicar directament el mateix contracte validat
 
 ### 2. Validació primerenca per camp
 
@@ -218,18 +218,12 @@ Es comprova:
 - hash no reversible del secret d'elevació
 - seeding i rollback del primer administrador
 
-## Decisions obertes per al següent ticket
-
-`GAM-19` haurà de decidir i implementar:
-
-`GAM-20` haurà de reforçar sobretot:
-
-- protecció contra reinitialització accidental abans fins i tot d'arribar al wizard
-- detecció explícita d'instal·lació ja inicialitzada
-- UX de rerun i recuperació més guiada per a l'operador
-
-Estat actual després de `GAM-20`:
+## Estat actual i límits
 
 - `src/main.ts` resol l'estat `fresh` / `initialized` / `ambiguous` abans d'arrencar
 - `src/scripts/bootstrap-wizard.ts` també fa preflight i bloqueja reruns sobre sistemes ja inicialitzats o ambigus
 - el marcador durable de bootstrap viu a `app_metadata` i es valida contra el primer administrador persistit
+- el wizard està pensat per al primer arrencada; no és un editor general de la
+  configuració d'una instal·lació existent
+- la recuperació d'una configuració o base de dades existent s'ha de fer amb el
+  runbook `docs/backup-restore-recovery.md`, no forçant un nou bootstrap

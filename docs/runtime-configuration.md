@@ -58,10 +58,20 @@ El contracte runtime actual inclou:
 - `schemaVersion` amb valor actual `1`
 - `bot.publicName`
 - `bot.clubName`
+- `bot.language` amb valors `ca`, `es` o `en` i default `ca`
 - `bot.iconPath` opcional
+- `telegram.buttonAppearance` opcional per assignar estil semàntic i custom emoji
+  als botons
 - `telegram.token`
+- `telegram.localBotApi.enabled` amb default `false`
+- `telegram.localBotApi.baseUrl` amb default `http://127.0.0.1:8081`
+- `telegram.localBotApi.apiId` i `telegram.localBotApi.apiHash`, obligatoris només
+  quan el servidor Bot API local està actiu
+- `telegram.localBotApi.dataDir` amb default
+  `/var/lib/gameclubtelegrambot/telegram-bot-api`
 - `bgg.apiKey` opcional per activar BoardGameGeek com a font principal d'importacio de jocs de taula; es fa servir com a bearer token HTTP
 - `translation.deeplApiKey` opcional per activar DeepL com a traductor ràpid de descripcions importades
+- `translation.deeplApiUrl` opcional per sobreescriure l'endpoint de DeepL
 - `notion.enabled` opcional; activa les fonts Notion exclusives de cada partida de Rol
 - `notion.credentialEncryptionKey` secret obligatori quan Notion està actiu; xifra localment els tokens que aporta cada DM, no és un token de Notion del club
 - `googleCalendar.serviceAccountJson` opcional; JSON complet d'una compte de servei amb accés d'escriptura al calendari del club
@@ -72,12 +82,33 @@ El contracte runtime actual inclou:
 - `database.password`
 - `database.ssl`
 - `adminElevation.passwordHash`
+- `httpServer.enabled` amb default `true`
+- `httpServer.host` amb default `127.0.0.1`
+- `httpServer.port` amb default `8787`
+- `httpServer.feedbackFile` amb default `data/feedback.jsonl`
+- `httpServer.sessionSecret` opcional; si no s'indica, el procés genera una clau
+  aleatòria a cada arrencada
 - `bootstrap.firstAdmin.telegramUserId`
 - `bootstrap.firstAdmin.username` opcional
 - `bootstrap.firstAdmin.displayName`
 - `notifications.defaults.groupAnnouncementsEnabled` amb default `true`
 - `notifications.defaults.eventRemindersEnabled` amb default `true`
 - `notifications.defaults.eventReminderLeadHours` amb default `24`
+- `llmCommands.enabled` amb default `false`
+- `llmCommands.privateFallbackEnabled` amb default `true`
+- `llmCommands.groupInteractionsEnabled` amb default `false`
+- `llmCommands.provider` amb valors `codex` o `opencode` i default `codex`
+- `llmCommands.opencodeBin` i `llmCommands.codexBin` opcionals
+- `llmCommands.model` amb default `gpt-5.4-mini`
+- `llmCommands.reasoningEffort` amb default `low`
+- `llmCommands.timeoutMs` entre `1000` i `120000`, amb default `60000`
+- `llmCommands.maxHistory` entre `0` i `50`, amb default `8`
+- `llmCommands.sessionTtlMinutes` entre `1` i `120`, amb default `15`
+- `llmCommands.maxPromptChars` entre `1000` i `100000`, amb default `12000`
+- `llmCommands.readConfidenceThreshold` i
+  `llmCommands.writeConfidenceThreshold`, entre `0` i `1`, amb defaults `0.75`
+  i `0.9`
+- `llmCommands.dryRun` amb default `false`
 - `featureFlags` com a mapa de claus booleanes
 
 La impressió Telegram no afegeix camps obligatoris al JSON runtime. L'estat
@@ -92,7 +123,44 @@ Els permisos d'usuari no viuen al JSON runtime: els admins poden imprimir
 sempre, i els socis no-admin necessiten una assignació global `printing.use` a
 `user_permission_assignments`, gestionada des de `Admin` -> `Impresora`.
 
-Els camps secrets es poden aportar des de `.env` o des de variables d'entorn reals. Quan existeixen tots dos, la variable d'entorn real preval.
+Els camps secrets es poden aportar des de `.env` o des de variables d'entorn
+reals. Quan existeixen tots dos, la variable d'entorn real preval. L'editor
+`npm run config:edit` separa els secrets coneguts del JSON i els persisteix al
+fitxer `.env`.
+
+Les variables reconegudes actualment són:
+
+- `GAMECLUB_TELEGRAM_TOKEN`
+- `GAMECLUB_TELEGRAM_LOCAL_BOT_API_ID`
+- `GAMECLUB_TELEGRAM_LOCAL_BOT_API_HASH`
+- `GAMECLUB_BGG_API_KEY`
+- `GAMECLUB_DEEPL_API_KEY`
+- `GAMECLUB_DEEPL_API_URL`
+- `GAMECLUB_NOTION_CREDENTIAL_ENCRYPTION_KEY`
+- `GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON`
+- `GAMECLUB_DATABASE_PASSWORD`
+- `GAMECLUB_ADMIN_PASSWORD_HASH`
+- `GAMECLUB_LLM_COMMANDS_ENABLED`
+- `GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED`
+- `GAMECLUB_LLM_COMMANDS_GROUP_INTERACTIONS_ENABLED`
+- `GAMECLUB_LLM_COMMANDS_PROVIDER`
+- `GAMECLUB_OPENCODE_BIN`
+- `GAMECLUB_CODEX_BIN`
+- `GAMECLUB_LLM_COMMANDS_MODEL`
+- `GAMECLUB_LLM_COMMANDS_REASONING_EFFORT`
+- `GAMECLUB_LLM_COMMANDS_TIMEOUT_MS`
+- `GAMECLUB_LLM_COMMANDS_MAX_HISTORY`
+- `GAMECLUB_LLM_COMMANDS_SESSION_TTL_MINUTES`
+- `GAMECLUB_LLM_COMMANDS_MAX_PROMPT_CHARS`
+- `GAMECLUB_LLM_COMMANDS_READ_CONFIDENCE_THRESHOLD`
+- `GAMECLUB_LLM_COMMANDS_WRITE_CONFIDENCE_THRESHOLD`
+- `GAMECLUB_LLM_COMMANDS_DRY_RUN`
+
+`httpServer.sessionSecret` no té actualment una variable d'entorn ni un camp a
+l'editor TUI. Si s'afegeix manualment al JSON, s'ha de tractar com un secret.
+No fa persistents les sessions: el servidor les conserva només en memòria i un
+reinici les invalida igualment. La guia operativa completa del servidor és a
+`docs/admin-http-server.md`.
 
 ## Exemple de configuració
 
@@ -102,14 +170,28 @@ Els camps secrets es poden aportar des de `.env` o des de variables d'entorn rea
   "bot": {
     "publicName": "Game Club Bot",
     "clubName": "Game Club",
-    "iconPath": "/opt/gameclub/assets/icon.png"
+    "language": "es",
+    "iconPath": "/opt/gameclubtelegrambot/assets/icon.png"
+  },
+  "telegram": {
+    "localBotApi": {
+      "enabled": false,
+      "baseUrl": "http://127.0.0.1:8081",
+      "dataDir": "/var/lib/gameclubtelegrambot/telegram-bot-api"
+    }
   },
   "database": {
-    "host": "localhost",
-    "port": 5432,
+    "host": "127.0.0.1",
+    "port": 55432,
     "name": "gameclub",
     "user": "gameclub_user",
     "ssl": false
+  },
+  "httpServer": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8787,
+    "feedbackFile": "data/feedback.jsonl"
   },
   "bootstrap": {
     "firstAdmin": {
@@ -125,9 +207,26 @@ Els camps secrets es poden aportar des de `.env` o des de variables d'entorn rea
       "eventReminderLeadHours": 24
     }
   },
+  "notion": {
+    "enabled": false
+  },
+  "llmCommands": {
+    "enabled": false,
+    "privateFallbackEnabled": true,
+    "groupInteractionsEnabled": false,
+    "provider": "codex",
+    "model": "gpt-5.4-mini",
+    "reasoningEffort": "low",
+    "timeoutMs": 60000,
+    "maxHistory": 8,
+    "sessionTtlMinutes": 15,
+    "maxPromptChars": 12000,
+    "readConfidenceThreshold": 0.75,
+    "writeConfidenceThreshold": 0.9,
+    "dryRun": false
+  },
   "featureFlags": {
-    "bootstrapWizard": true,
-    "newsGroups": false
+    "bootstrapWizard": true
   }
 }
 ```
@@ -143,6 +242,12 @@ GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 GAMECLUB_DATABASE_PASSWORD="super-secret"
 GAMECLUB_ADMIN_PASSWORD_HASH="scrypt:16384:8:1:..."
 ```
+
+El JSON anterior no inclou `telegram.token`, `database.password` ni
+`adminElevation.passwordHash` perquè el loader els fusiona des de `.env` abans
+de validar el contracte complet. Tampoc cal afegir blocs opcionals com
+`translation` o `googleCalendar` quan només es configuren mitjançant variables
+d'entorn.
 
 L'editor TUI pot escriure aquest split automàticament:
 

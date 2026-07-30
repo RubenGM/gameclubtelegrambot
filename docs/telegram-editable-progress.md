@@ -1,11 +1,17 @@
-# Telegram editable progress messages
+# Mensajes de progreso editables en Telegram
 
-Use `src/telegram/editable-progress.ts` when a Telegram flow needs one status
-message that updates itself instead of sending a new message at every step.
+Usa `src/telegram/editable-progress.ts` cuando una acción media o lenta necesite
+un único mensaje de estado que se actualice, en vez de enviar un mensaje nuevo
+en cada paso.
+
+No todos los procesos largos pueden publicar progreso en el chat de origen. La
+excepción más importante son las menciones LLM en grupos/topics: se ejecutan
+silenciosamente y nunca deben crear progreso público; si se interpretan bien, el
+resultado se entrega por privado.
 
 ## Helper
 
-Start a new editable message with:
+Inicia un mensaje editable:
 
 ```ts
 const progress = await startTelegramEditableProgress(context, initialText, {
@@ -16,7 +22,7 @@ await progress.update(nextText);
 await progress.complete(finalText, finalOptions);
 ```
 
-Resume a previously sent progress or receipt message stored in session data:
+Reanuda un recibo o progreso cuyo ID esté guardado en la sesión:
 
 ```ts
 const progress = resumeTelegramEditableProgress(context, receiptMessageId, {
@@ -31,34 +37,38 @@ if (!(await progress.update(nextText))) {
 }
 ```
 
-`update(...)` returns `true` when Telegram accepted the edit. `complete(...)`
-edits when possible and falls back to `context.reply(...)` when editing is not
-available.
+`update(...)` devuelve `true` si Telegram aceptó la edición. El error
+`message is not modified` también cuenta como éxito/no-op: no desactiva las
+ediciones posteriores. Cualquier otro fallo desactiva nuevas ediciones para esa
+instancia, emite el warning JSON indicado por `editFailedEvent` y devuelve
+`false`.
 
-## Reply keyboards
+`complete(...)` edita cuando puede y, si no, envía el resultado final mediante
+`context.reply(...)`. Un fallo de edición no debe convertir una operación de
+negocio correcta en un error para el usuario.
 
-Telegram `editMessageText` cannot attach normal reply keyboards. Do not create
-an editable receipt or progress message with `replyKeyboard` if that same
-message must later be edited.
+## Teclados de respuesta
 
-Use this split instead:
+Telegram `editMessageText` no puede adjuntar un reply keyboard normal. No crees
+un recibo o progreso editable con `replyKeyboard` si después habrá que editar
+ese mismo mensaje.
 
-- Send control prompts with `replyKeyboard` when the user needs buttons such as
-  `Terminar adjuntos`, `Añadir a almacenamiento` or `/cancel`.
-- Send the editable receipt/progress message without `replyKeyboard`.
-- When editing the receipt/progress message, pass no `replyKeyboard` options.
-- Inline keyboards are acceptable only when the edited message really needs
-  inline buttons and Telegram accepts that flow.
+Separa los mensajes:
 
-If a message was originally sent with a normal reply keyboard, Telegram may
-return `400: Bad Request: message can't be edited`. Treat that as a signal to
-create a new editable receipt without a reply keyboard and store its new
-`messageId`.
+- Envía los controles con `replyKeyboard` cuando el usuario necesite botones
+  como `Terminar adjuntos`, `Añadir a almacenamiento` o `/cancel`.
+- Envía el recibo/progreso editable sin `replyKeyboard`.
+- No pases `replyKeyboard` al editar el recibo.
+- Usa inline keyboard sólo cuando el propio mensaje editable necesite acciones
+  inline y el flujo haya sido diseñado para ello.
 
-## Session pattern
+Si el mensaje original tenía reply keyboard, Telegram puede devolver
+`400: Bad Request: message can't be edited`. Crea entonces un recibo editable
+nuevo sin ese teclado y guarda su nuevo `messageId`.
 
-For flows that receive many updates, store the editable receipt id in session
-data:
+## Patrón de sesión
+
+Para flujos con muchas actualizaciones, guarda el ID del recibo en la sesión:
 
 ```ts
 data: {
@@ -68,20 +78,34 @@ data: {
 }
 ```
 
-Keep the stored id flow-specific, for example `uploadReceiptMessageId` or
-`forwardedReceiptMessageId`, so unrelated progress messages do not overwrite
-each other.
+Usa un nombre específico del flujo, como `uploadReceiptMessageId` o
+`forwardedReceiptMessageId`, para no sobrescribir progresos no relacionados.
+
+## Referencias actuales
+
+Además de Storage, el helper se usa en el intérprete LLM privado, `/adminai`,
+modelos IA, generación de imágenes, Google Calendar, Notion, materiales de Rol,
+eventos del local y operaciones de catálogo. Cada consumidor debe aportar un
+`editFailedEvent` estable y estructurado.
+
+La presencia del helper no sustituye el diseño del progreso: el texto debe
+mostrar pasos concretos, no exponer secretos ni la petición completa y terminar
+en un resultado accionable.
 
 ## Tests
 
-Add focused tests for:
+Cubre como mínimo:
 
-- The first receipt being sent normally.
-- Later updates editing the same `messageId`.
-- Edit calls not carrying `replyKeyboard`.
-- Fallback creating and storing a replacement `messageId` when editing fails.
+- envío inicial y extracción de `messageId`;
+- actualizaciones posteriores sobre el mismo mensaje;
+- ausencia de `replyKeyboard` en las ediciones;
+- `message is not modified` como éxito sin warning;
+- warning estructurado y fallback tras otro fallo de edición;
+- creación y persistencia de un `messageId` de sustitución;
+- ausencia total de progreso público para menciones LLM de grupo/topic.
 
-Existing reference tests live in:
+Referencias:
 
 - `src/telegram/editable-progress.test.ts`
 - `src/telegram/storage-flow.test.ts`
+- `src/telegram/llm-command-flow.test.ts`

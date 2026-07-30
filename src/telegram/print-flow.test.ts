@@ -57,7 +57,7 @@ test('handleTelegramPrintMessage prepares a PDF attachment and asks for pages', 
   assert.deepEqual(downloads, [{ fileId: 'telegram-file', destinationPath: '/tmp/gameclub-print/telegram-file', allowLocalBotApi: true }]);
   assert.equal(getCurrentSession()?.stepKey, 'pages');
   assert.match(replies.at(-1)?.message ?? '', /12 páginas/i);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Todas'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Todas'], ['Cancelar impresión']]);
 });
 
 test('handleTelegramPrintMessage prepares a Telegram photo and asks directly for copies', async () => {
@@ -87,7 +87,7 @@ test('handleTelegramPrintMessage prepares a Telegram photo and asks directly for
   assert.match(replies.at(-1)?.message ?? '', /1 página/i);
   assert.match(replies.at(-1)?.message ?? '', /copias/i);
   assert.match(replies.at(-1)?.message ?? '', /foto/i);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar impresión']]);
 });
 
 test('handleTelegramPrintMessage rejects files over Telegram download limit before getFile', async () => {
@@ -201,7 +201,7 @@ test('handleTelegramPrintMessage keeps file step retryable after transient downl
   assert.equal(getCurrentSession()?.stepKey, 'file');
   assert.match(replies.at(-1)?.message ?? '', /no he podido descargar/i);
   assert.match(replies.at(-1)?.message ?? '', /vuelve a enviarlo/i);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Cancelar impresión']]);
   assert.deepEqual(cleanups, [['/tmp/gameclub-print/telegram-fetch-failed']]);
 });
 
@@ -223,23 +223,23 @@ test('handleTelegramPrintText submits after extra confirmations for many copies'
     },
   });
   await handleTelegramPrintText({ ...context, messageText: '1-4' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2', '4'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2', '4'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: '2' });
   assert.match(replies.at(-1)?.message ?? '', /escribir cualquier número/i);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: '12' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Horizontal' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Una cara', 'Doble cara'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Una cara', 'Doble cara'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Doble cara' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Confirmar copias'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Confirmar copias'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Confirmar copias' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
 
@@ -278,14 +278,14 @@ test('handleTelegramPrintText only offers useful pages-per-sheet options', async
 
   await handleTelegramPrintText({ ...context, messageText: '1-2' });
   assert.match(replies.at(-1)?.message ?? '', /páginas por hoja/i);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: '4' });
   assert.match(replies.at(-1)?.message ?? '', /páginas por hoja/i);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: '2' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: '1' });
   await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
@@ -323,28 +323,28 @@ test('handleTelegramPrintText keeps cancel available after validation errors and
   });
 
   await handleTelegramPrintText({ ...context, messageText: '999' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Todas'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Todas'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Todas' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2', '4'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2', '4'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'abc' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2', '4'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1', '2', '4'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: '1' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: '1' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'algo raro' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Una cara', 'Doble cara'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Una cara', 'Doble cara'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Una cara' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Confirmar páginas'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Confirmar páginas'], ['Cancelar impresión']]);
 });
 
 test('handleTelegramPrintText skips side selection for one selected page and one copy', async () => {
@@ -365,13 +365,13 @@ test('handleTelegramPrintText skips side selection for one selected page and one
   });
 
   await handleTelegramPrintText({ ...context, messageText: '3' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['1'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: '1' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Vertical', 'Horizontal'], ['Cancelar impresión']]);
 
   await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar impresión']]);
   assert.match(replies.at(-1)?.message ?? '', /Páginas: 3/);
   assert.match(replies.at(-1)?.message ?? '', /Orientación: Vertical/);
   assert.match(replies.at(-1)?.message ?? '', /Modo: Una cara/);
@@ -419,7 +419,7 @@ test('handleTelegramPrintText skips side selection when printer duplex support i
   await handleTelegramPrintText({ ...context, messageText: '2' });
   await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
 
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar impresión']]);
   assert.match(replies.at(-1)?.message ?? '', /Modo: Una cara/);
 
   await handleTelegramPrintText({ ...context, messageText: 'Imprimir ahora' });
@@ -462,7 +462,7 @@ test('handleTelegramPrintText skips side selection when printer status cannot be
   await handleTelegramPrintText({ ...context, messageText: '2' });
   await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
 
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar']]);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [['Imprimir ahora'], ['Cancelar impresión']]);
   assert.match(replies.at(-1)?.message ?? '', /Modo: Una cara/);
 });
 
@@ -516,7 +516,7 @@ test('handleTelegramPrintText cancels with the visible cancel button', async () 
     },
   });
 
-  assert.equal(await handleTelegramPrintText({ ...context, messageText: 'Cancelar' }), true);
+  assert.equal(await handleTelegramPrintText({ ...context, messageText: 'Cancelar impresión' }), true);
   assert.equal(getCurrentSession(), null);
   assert.deepEqual(cleanups, [['/tmp/gameclub-print/telegram-file', '/tmp/gameclub-print/telegram-file']]);
   assert.match(replies.at(-1)?.message ?? '', /cancelado/i);

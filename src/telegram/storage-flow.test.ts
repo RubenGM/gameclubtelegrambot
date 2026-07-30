@@ -612,7 +612,7 @@ test('handleTelegramStorageText lists available categories for approved users', 
   );
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
-  context.messageText = 'Listar categorías';
+  context.messageText = 'Listar categorías de almacenamiento';
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
@@ -667,7 +667,7 @@ test('persisting a private storage upload notifies subscribers with open and uns
     storageCategorySubscriptionRepository: subscriptionRepository,
   });
 
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -746,7 +746,7 @@ test('handleTelegramStorageText renders only root category navigation links with
   });
   const { context, replies } = createContext(repository, { canReadCategoryIds: [7, 8], canUploadCategoryIds: [7, 8] });
 
-  context.messageText = 'Listar categorías';
+  context.messageText = 'Listar categorías de almacenamiento';
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
@@ -807,7 +807,7 @@ test('handleTelegramStorageText omits zero values in category summaries', async 
   });
   const { context, replies } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [7] });
 
-  context.messageText = 'Listar categorías';
+  context.messageText = 'Listar categorías de almacenamiento';
   assert.equal(await handleTelegramStorageText(context as never), true);
 
   assert.equal(
@@ -1347,7 +1347,7 @@ test('handleTelegramStorageText hides role game handout categories from storage 
   assert.equal(await handleTelegramStorageText(context as never), true);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Handouts de rol|Secreto del villano|storage_entry_1/);
 
-  context.messageText = 'Buscar archivos';
+  context.messageText = 'Búsqueda en almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'villano';
   assert.equal(await handleTelegramStorageText(context as never), true);
@@ -1456,13 +1456,13 @@ test('handleTelegramStorageText searches entries inside readable categories', as
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
-  context.messageText = 'Buscar archivos';
+  context.messageText = 'Búsqueda en almacenamiento';
   await handleTelegramStorageText(context as never);
   assert.match(replies.at(-1)?.message ?? '', /Telegram no siempre puede buscar dentro del Storage archivado/);
   assert.match(replies.at(-1)?.message ?? '', /Puedes escribir tags con o sin #/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 2), [
-    [successButton('Buscar palabra o tag')],
+    [successButton('Buscar en almacenamiento por palabra o etiqueta')],
     [secondaryButton('Explorar categorías')],
   ]);
 
@@ -1481,13 +1481,13 @@ test('handleTelegramStorageText searches entries inside readable categories', as
     ].join('\n'),
   );
 
-  context.messageText = 'Buscar archivos';
+  context.messageText = 'Búsqueda en almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = '#rol';
   await handleTelegramStorageText(context as never);
   assert.match(replies.at(-1)?.message ?? '', /Manual de campana/);
 
-  context.messageText = 'Buscar archivos';
+  context.messageText = 'Búsqueda en almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -1563,7 +1563,7 @@ test('handleTelegramStorageText lists tags and opens tag results from deep links
   }
   const { context, replies } = createContext(repository, { canReadCategoryIds: [7] });
 
-  context.messageText = 'Listar tags';
+  context.messageText = 'Listar etiquetas de almacenamiento';
   await handleTelegramStorageText(context as never);
 
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
@@ -1679,7 +1679,7 @@ test('handleTelegramStorageText can scope searches to a selected category', asyn
   }
   const { context, replies, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7, 8, 9], canUploadCategoryIds: [7, 8, 9] });
 
-  context.messageText = 'Buscar archivos';
+  context.messageText = 'Búsqueda en almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Explorar categorías';
   await handleTelegramStorageText(context as never);
@@ -1694,12 +1694,12 @@ test('handleTelegramStorageText can scope searches to a selected category', asyn
   assert.match(replies.at(-1)?.message ?? '', /<b>Mapas<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /storage_select_category_9/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => typeof button === 'string' ? button : button.text), [
-    'Buscar aquí',
-    'Volver',
+    'Buscar en esta categoría de almacenamiento',
+    'Volver a almacenamiento',
     '/cancel',
   ]);
 
-  context.messageText = 'Buscar aquí';
+  context.messageText = 'Buscar en esta categoría de almacenamiento';
   await handleTelegramStorageText(context as never);
 
   assert.equal(getCurrentSession()?.stepKey, 'search-query');
@@ -1724,7 +1724,7 @@ test('handleTelegramStorageMessage lets admins create a storage category with gu
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
-  context.messageText = 'Crear categoría';
+  context.messageText = 'Crear categoría de almacenamiento';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'create-category-name');
 
@@ -1830,7 +1830,7 @@ test('handleTelegramStorageText creates new categories in the configured default
     storageDefaultChatStore: metadataStore,
   });
 
-  context.messageText = 'Crear categoría';
+  context.messageText = 'Crear categoría de almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -1854,7 +1854,7 @@ test('handleTelegramStorageText keeps manual category creation as a fallback', a
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
-  for (const messageText of ['Crear categoría', 'Manuales', 'Omitir']) {
+  for (const messageText of ['Crear categoría de almacenamiento', 'Manuales', 'Omitir']) {
     context.messageText = messageText;
     await handleTelegramStorageText(context as never);
   }
@@ -1896,7 +1896,7 @@ test('handleTelegramStorageText lets admins create a storage subcategory', async
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  for (const messageText of ['Crear categoría', 'Monstruos']) {
+  for (const messageText of ['Crear categoría de almacenamiento', 'Monstruos']) {
     context.messageText = messageText;
     await handleTelegramStorageText(context as never);
   }
@@ -1933,7 +1933,7 @@ test('handleTelegramStorageText builds category slugs from the full parent path'
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  for (const messageText of ['Crear categoría', 'Dungeons and Dragons 5', 'Books', 'Entrada manual', '-100123', '44']) {
+  for (const messageText of ['Crear categoría de almacenamiento', 'Dungeons and Dragons 5', 'Books', 'Entrada manual', '-100123', '44']) {
     context.messageText = messageText;
     await handleTelegramStorageText(context as never);
   }
@@ -1950,7 +1950,7 @@ test('handleTelegramStorageText asks for a manual slug when the generated one al
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  for (const messageText of ['Crear categoría', 'Manuales', 'Omitir']) {
+  for (const messageText of ['Crear categoría de almacenamiento', 'Manuales', 'Omitir']) {
     context.messageText = messageText;
     await handleTelegramStorageText(context as never);
   }
@@ -1977,7 +1977,7 @@ test('handleTelegramStorageMessage explains invalid guided storage chats', async
     storageChat: { id: -100555, type: 'group', title: 'Grupo normal', isForum: false },
   });
 
-  for (const messageText of ['Almacenamiento', 'Crear categoría', 'Manuales', 'Omitir']) {
+  for (const messageText of ['Almacenamiento', 'Crear categoría de almacenamiento', 'Manuales', 'Omitir']) {
     context.messageText = messageText;
     await handleTelegramStorageText(context as never);
   }
@@ -1998,7 +1998,7 @@ test('handleTelegramStorageText uses cancel-only keyboards for storage category 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
-  context.messageText = 'Crear categoría';
+  context.messageText = 'Crear categoría de almacenamiento';
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
@@ -2012,7 +2012,7 @@ test('handleTelegramStorageText shows cancel while uploading attachments and opt
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
 
@@ -2300,7 +2300,7 @@ test('handleTelegramStorageText hides archived categories from normal category l
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Listar categorías';
+  context.messageText = 'Listar categorías de almacenamiento';
 
   const handled = await handleTelegramStorageText(context as never);
 
@@ -2314,7 +2314,7 @@ test('handleTelegramStorageText hides archived categories from DM upload choices
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   const handled = await handleTelegramStorageText(context as never);
 
   assert.equal(handled, true);
@@ -2329,7 +2329,7 @@ test('handleTelegramStorageText accepts a category deep link while choosing an u
   ]);
   const { context, replies, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7, 8], canUploadCategoryIds: [7, 8] });
 
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
 
   assert.equal(getCurrentSession()?.stepKey, 'upload-category');
@@ -2347,7 +2347,7 @@ test('handleTelegramStorageText accepts a category deep link while choosing an u
   assert.match(replies.at(-1)?.message ?? '', /storage_select_category_8"><b>Libros<\/b>/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => typeof button === 'string' ? button : button.text), [
     'Guardar aquí',
-    'Volver',
+    'Volver a almacenamiento',
     '/cancel',
   ]);
 
@@ -2367,7 +2367,7 @@ test('handleTelegramStorageStartText selects a category deep link while choosing
   ]);
   const { context, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7, 8], canUploadCategoryIds: [7, 8] });
 
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'upload-category');
 
@@ -2391,7 +2391,7 @@ test('handleTelegramStorageText hides archived categories from admins in categor
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Listar categorías';
+  context.messageText = 'Listar categorías de almacenamiento';
 
   const handled = await handleTelegramStorageText(context as never);
 
@@ -2451,14 +2451,14 @@ test('handleTelegramStorageText hides catalog media category from storage naviga
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Imágenes de catálogo/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_category_8/);
 
-  context.messageText = 'Listar categorías';
+  context.messageText = 'Listar categorías de almacenamiento';
   await handleTelegramStorageText(context as never);
 
   assert.match(replies.at(-1)?.message ?? '', /Manuales/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Imágenes de catálogo/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /storage_category_8/);
 
-  context.messageText = 'Listar tags';
+  context.messageText = 'Listar etiquetas de almacenamiento';
   await handleTelegramStorageText(context as never);
 
   assert.equal(replies.at(-1)?.message, 'Todavía no hay tags en ningún archivo visible.');
@@ -2701,7 +2701,7 @@ test('handleTelegramStorageText cleans copied topic messages when DM upload fail
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -2755,7 +2755,7 @@ test('handleTelegramStorageText forwards large DM uploads to storage instead of 
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -2795,7 +2795,7 @@ test('handleTelegramStorageText rejects DM uploads above Telegram storage limit 
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -2827,7 +2827,7 @@ test('handleTelegramStorageText falls back to forwarding when Telegram copy fail
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -2999,7 +2999,7 @@ test('handleTelegramStorageText edits storage entry metadata', async () => {
   });
   const { context, replies, getCurrentSession } = createContext(repository);
 
-  context.messageText = 'Editar detalles';
+  context.messageText = 'Editar entrada de almacenamiento';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'edit-category');
   assert.match(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_edit_category_7/);
@@ -3036,15 +3036,15 @@ test('handleTelegramStorageText edits storage entry metadata', async () => {
   assert.equal(getCurrentSession(), null);
   assert.equal(replies.at(-1)?.message, 'Almacenamiento: elige una acción.');
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => typeof button === 'string' ? button : button.text), [
-    'Listar categorías',
-    'Listar tags',
-    'Buscar archivos',
+    'Listar categorías de almacenamiento',
+    'Listar etiquetas de almacenamiento',
+    'Búsqueda en almacenamiento',
     'Mis suscripciones',
     'Suscribir categoría',
     'Desuscribir categoría',
-    'Subir archivos',
+    'Subir archivos al almacenamiento',
     'Añadir imágenes',
-    'Editar detalles',
+    'Editar entrada de almacenamiento',
     'Inicio',
     'Ayuda',
   ]);
@@ -3102,7 +3102,7 @@ test('handleTelegramStorageText moves an entry to another category with tree lin
   assert.match(replies.at(-1)?.message ?? '', /https:\/\/t\.me\/cawatest_bot\?start=storage_select_category_9/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     [successButton('Seleccionar Juegos')],
-    [secondaryButton('Volver')],
+    [secondaryButton('Volver a almacenamiento')],
     [dangerButton('/cancel')],
   ]);
 
@@ -3278,8 +3278,8 @@ test('sendStorageEntryDetail hides uploader for admins', async () => {
   assert.doesNotMatch(replies[0]?.message ?? '', /<b>Adjuntos:<\/b>/);
   assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
     [
-      { text: 'Editar', callbackData: `${storageCallbackPrefixes.editEntry}1` },
-      { text: 'Eliminar', callbackData: `${storageCallbackPrefixes.deleteEntry}1`, semanticRole: 'danger' },
+      { text: 'Editar entrada de almacenamiento', callbackData: `${storageCallbackPrefixes.editEntry}1` },
+      { text: 'Eliminar entrada de almacenamiento', callbackData: `${storageCallbackPrefixes.deleteEntry}1`, semanticRole: 'danger' },
     ],
     [
       { text: 'Añadir tags', callbackData: `${storageCallbackPrefixes.addEntryTags}1`, semanticRole: 'success' },
@@ -3290,8 +3290,8 @@ test('sendStorageEntryDetail hides uploader for admins', async () => {
     reply_markup: {
       inline_keyboard: [
         [
-          { text: 'Editar', callback_data: `${storageCallbackPrefixes.editEntry}1` },
-          { text: 'Eliminar', callback_data: `${storageCallbackPrefixes.deleteEntry}1` },
+          { text: 'Editar entrada de almacenamiento', callback_data: `${storageCallbackPrefixes.editEntry}1` },
+          { text: 'Eliminar entrada de almacenamiento', callback_data: `${storageCallbackPrefixes.deleteEntry}1` },
         ],
         [
           { text: 'Añadir tags', callback_data: `${storageCallbackPrefixes.addEntryTags}1` },
@@ -3331,8 +3331,8 @@ test('sendStorageEntryDetail shows edit action to the original uploader', async 
 
   assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
     [
-      { text: 'Editar', callbackData: `${storageCallbackPrefixes.editEntry}1` },
-      { text: 'Eliminar', callbackData: `${storageCallbackPrefixes.deleteEntry}1`, semanticRole: 'danger' },
+      { text: 'Editar entrada de almacenamiento', callbackData: `${storageCallbackPrefixes.editEntry}1` },
+      { text: 'Eliminar entrada de almacenamiento', callbackData: `${storageCallbackPrefixes.deleteEntry}1`, semanticRole: 'danger' },
     ],
     [
       { text: 'Añadir tags', callbackData: `${storageCallbackPrefixes.addEntryTags}1`, semanticRole: 'success' },
@@ -3604,7 +3604,7 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
 
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   assert.equal(getCurrentSession()?.stepKey, 'upload-category');
 
@@ -3687,9 +3687,9 @@ test('handleTelegramStorageText collects a DM upload, copies it to the category 
     uploadProgressEdits[5]?.text,
     '<a href="https://t.me/cawatest_bot?start=storage_entry_1">Manual de campana</a> guardado en <a href="https://t.me/cawatest_bot?start=storage_category_7">Manuales</a> con 2 adjunto(s).',
   );
-  assert.deepEqual(uploadProgressEdits[5]?.options?.replyKeyboard?.[0], [{ text: 'Listar categorías', semanticRole: 'primary' }]);
+  assert.deepEqual(uploadProgressEdits[5]?.options?.replyKeyboard?.[0], [{ text: 'Listar categorías de almacenamiento', semanticRole: 'primary' }]);
   assert.deepEqual(uploadProgressEdits[5]?.options?.replyKeyboard?.[4], [
-    { text: 'Subir archivos', semanticRole: 'success' },
+    { text: 'Subir archivos al almacenamiento', semanticRole: 'success' },
     { text: 'Añadir imágenes', semanticRole: 'success' },
   ]);
   assert.equal(uploadProgressEdits[5]?.options?.parseMode, 'HTML');
@@ -3701,7 +3701,7 @@ test('handleTelegramStorageText keeps large upload previews below Telegram messa
   const repository = createRepository([createCategory()]);
   const { context, replies, getCurrentSession } = createContext(repository);
 
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -3775,7 +3775,7 @@ test('handleTelegramStorageMessage imports forwarded text messages into storage'
   assert.match(replies.at(-1)?.message ?? '', /storage_select_category_8/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.flat().map((button) => typeof button === 'string' ? button : button.text), [
     'Seleccionar Manuales',
-    'Volver',
+    'Volver a almacenamiento',
     '/cancel',
   ]);
 
@@ -3906,7 +3906,7 @@ test('handleTelegramStorageText uses the normalized file name as the default upl
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -3950,7 +3950,7 @@ test('handleTelegramStorageText adds images to the upload draft from the preview
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -4019,7 +4019,7 @@ test('handleTelegramStorageText asks whether multiple DM uploads should be store
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);
@@ -4083,7 +4083,7 @@ test('handleTelegramStorageText reports partial progress when separate uploads f
 
   context.messageText = 'Almacenamiento';
   await handleTelegramStorageText(context as never);
-  context.messageText = 'Subir archivos';
+  context.messageText = 'Subir archivos al almacenamiento';
   await handleTelegramStorageText(context as never);
   context.messageText = 'Manuales';
   await handleTelegramStorageText(context as never);

@@ -66,7 +66,7 @@ test('printer admin flow grants and revokes print permission for approved users'
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=printer_grant_77">Ada Lovelace \(@ada\) · 77<\/a>/);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
-    ['Volver'],
+    ['Volver a impresión'],
   ]);
 
   assert.equal(await handleTelegramPrinterAdminStartText({ ...context, messageText: '/start printer_grant_77' }), true);
@@ -106,7 +106,7 @@ test('printer admin permission selector paginates users with links and footer', 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Siguiente'],
     ['Ir a página'],
-    ['Volver'],
+    ['Volver a impresión'],
   ]);
 
   assert.equal(await handleTelegramPrinterAdminText({ ...context, messageText: 'Siguiente' }), true);
@@ -116,7 +116,7 @@ test('printer admin permission selector paginates users with links and footer', 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Anterior'],
     ['Ir a página'],
-    ['Volver'],
+    ['Volver a impresión'],
   ]);
 
   assert.equal(await handleTelegramPrinterAdminText({ ...context, messageText: 'Ir a página' }), true);

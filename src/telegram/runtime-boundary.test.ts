@@ -1238,7 +1238,7 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Rol'], ['Avisos', 'Canviar nom'], ['Admin'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Rol'], ['Avisos', 'Canviar nom'], ['Admin'], ['Generació d’imatges'], ['Idioma', 'Ajuda']]);
   assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
   assert.match(replies[0]?.message ?? '', /sol·licituds/i);
   assert.match(replies[1]?.message ?? '', /Què pots fer ara/);
@@ -3259,6 +3259,7 @@ test('an empty leading bot mention opens Inicio privately for a known user and g
     ['Compras conjuntas', 'LFG (buscar grupo)'],
     ['Rol', 'Avisos'],
     ['Cambiar nombre de usuario'],
+    ['Generación de imágenes'],
     ['Idioma', 'Ayuda'],
   ]);
 });

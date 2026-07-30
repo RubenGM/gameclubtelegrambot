@@ -1,54 +1,93 @@
+<div align="center">
+
+<img src="./cawa_logo.svg" alt="CAWA Girona" width="220">
+
 # Game Club Telegram Bot
 
-Servicio de Telegram para gestionar un club de juegos con PostgreSQL, Drizzle y despliegue en Debian.
+Bot de Telegram y portal web integrado para gestionar el día a día de un club
+de juegos.
 
-## Resumen
+[Funciones](#funciones) · [Inicio rápido](#inicio-rápido) ·
+[Arquitectura](#arquitectura) · [Operación](#despliegue-y-operación) ·
+[Documentación](#documentación)
 
-El proyecto ya funciona como servicio Node.js + TypeScript con:
+</div>
 
-- PostgreSQL real y migraciones con Drizzle ORM
-- validación de runtime con `zod`
-- integración con Telegram mediante `grammY` y `long polling`
-- bootstrap interactivo de primer arranque
-- menú dinámico por rol, contexto de chat y sesión activa
-- control Debian con `systemd` y bandeja de escritorio
+## Visión general
+
+El proyecto es un servicio Node.js y TypeScript con PostgreSQL, Drizzle y
+grammY. El mismo proceso mantiene:
+
+- el bot privado y de grupos mediante long polling;
+- la web pública y el panel administrativo;
+- los recordatorios, expiraciones y sincronizaciones periódicas;
+- la integración con servicios como Google Calendar, Notion, Codex y CUPS.
+
+Está diseñado para ejecutarse como `gameclubtelegrambot.service` en Debian. La
+fuente de verdad funcional es
+[`docs/feature-status.md`](docs/feature-status.md).
+
+## Funciones
+
+| Área | Capacidades principales |
+| --- | --- |
+| Acceso y administración | Solicitudes, aprobación, bloqueo, autojoin, permisos globales, elevación admin y bienvenidas de grupo |
+| Agenda y local | Actividades, asistentes, reservas, mesas, conflictos, promociones, recordatorios y eventos del local |
+| Catálogo | Juegos, libros, expansiones, familias, media, préstamos y enriquecimiento desde BGG, Open Library o Wikipedia |
+| Comunidad | Noticias por grupos/topics, Avisos, compras conjuntas y búsqueda de jugadores LFG |
+| Rol | Campañas, miembros, personajes, sesiones, recurrencia, handouts privados y fuentes Notion revisadas |
+| Storage | Archivo de adjuntos, categorías, búsquedas, permisos y reutilización desde otros módulos |
+| IA | Consultas en lenguaje natural, planificación admin separada, modelos configurables y generación de imágenes |
+| Impresión | PDF, Office e imágenes desde Telegram o Storage, permisos, modo prueba, CUPS y Bot API local opcional |
+| Web integrada | Portada, club, actividades, catálogo, feedback, alta de socios y panel admin protegido |
+| Operación | Configuración guiada, migraciones, backups, restauración, TUI, bandeja Debian y métricas de UX |
+
+El bot adapta menús, ayuda y permisos al estado del usuario, al chat y al flujo
+activo. Los textos y teclados principales soportan catalán, español e inglés.
 
 > [!NOTE]
-> Si no existe `config/runtime.json` y el proceso corre en una TTY interactiva, el arranque entra automáticamente en el wizard de bootstrap. Sin TTY, el arranque falla con un error claro.
+> No todas las capacidades tienen el mismo alcance. El inventario documenta
+> expresamente qué está operativo, parcial o pendiente y separa las pruebas
+> automatizadas de las validaciones externas o físicas.
 
-> [!NOTE]
-> Los secretos runtime viven en `config/.env` por defecto y el proceso los carga en tiempo de ejecución.
+## Arquitectura
 
-## Funcionalidad actual
+```text
+Telegram ──> grammY / runtime boundary ──> flujos de dominio ──> PostgreSQL
+                         │                       │
+                         │                       ├── Google Calendar / Notion
+                         │                       ├── BGG / Open Library / Wikipedia
+                         │                       ├── Codex / DeepL
+                         │                       └── CUPS / Bot API local
+                         │
+Nginx + HTTPS ──> Admin HTTP server (127.0.0.1:8787)
+```
 
-- acceso cerrado con usuarios aprobados y elevación de administradores
-- agenda de actividades con participantes, mesa opcional y avisos de conflicto
-- sincronización opcional de Agenda hacia un Google Calendar administrado desde Telegram
-- gestión de mesas del club
-- catálogo de juegos, libros, expansiones y material asociado
-- altas manuales y asistidas desde Telegram
-- préstamos y devoluciones de elementos del catálogo
-- eventos del local que afectan a la ocupación
-- grupos de noticias con suscripciones por categoría
-- soporte de idioma `ca`, `es` y `en`
+`src/main.ts` arranca el ciclo de vida definido en `src/bootstrap/create-app.ts`.
+Los dominios viven en módulos propios bajo `src/`; el registro y la precedencia
+de handlers de Telegram se concentran en `src/telegram/`; el Admin HTTP server
+vive en `src/http/`.
 
-## Importación de catálogo
-
-La carga asistida de catálogo usa fuentes distintas según el tipo de item:
-
-- juegos de mesa: Wikipedia
-- libros y libros de rol: Open Library
-
-El catálogo local sigue siendo la fuente de verdad final y siempre se puede editar a mano.
+Consulta [`docs/architecture.md`](docs/architecture.md) para el detalle de
+componentes, persistencia, workers, seguridad e integraciones.
 
 ## Requisitos
 
-- `Node.js >= 20.19.0`
-- `npm`
-- `PostgreSQL`
-- `Docker` y `Docker Compose` para la preparación local rápida
+- Node.js 20.19 o posterior.
+- npm.
+- PostgreSQL.
+- Docker y Docker Compose para la preparación local automatizada.
+- Un token de bot de Telegram.
 
-## Puesta en marcha local
+Algunas funciones requieren dependencias o credenciales adicionales:
+
+- cuenta de servicio de Google Calendar;
+- integración de Notion y clave de cifrado;
+- Codex para lenguaje natural y generación de imágenes;
+- CUPS, LibreOffice e ImageMagick para impresión;
+- Telegram Bot API local para descargar documentos grandes.
+
+## Inicio rápido
 
 ```bash
 npm install
@@ -56,173 +95,162 @@ npm run init:local
 npm run start:local
 ```
 
-`npm run init:local` deja preparado:
+`npm run init:local` prepara PostgreSQL en `127.0.0.1:55432`, genera
+`config/runtime.local.json`, crea el entorno local y aplica migraciones.
 
-- PostgreSQL local en Docker en `127.0.0.1:55432`
-- `config/runtime.local.json`
-- migraciones aplicadas
+Si ya tienes token:
 
-> [!TIP]
-> Si ya tienes `GAMECLUB_TELEGRAM_TOKEN`, puedes exportarlo antes de ejecutar `npm run init:local` para evitar editar `config/.env` a mano.
+```bash
+GAMECLUB_TELEGRAM_TOKEN="..." npm run init:local
+```
 
-Para editar configuración y secretos desde terminal:
-
-- `npm run config:edit`
-- `npm run config:init`
-
-## Comandos útiles
+Para desarrollo con recarga:
 
 ```bash
 npm run dev
-npm test
+```
+
+> [!IMPORTANT]
+> Si no existe configuración y el proceso tiene una TTY, el arranque abre el
+> wizard de bootstrap. Sin TTY, falla de forma explícita para no iniciar un
+> servicio sin identidad ni primer administrador.
+
+## Configuración
+
+La configuración no secreta vive normalmente en:
+
+```text
+config/runtime.json
+```
+
+Los secretos viven en el fichero hermano:
+
+```text
+config/.env
+```
+
+La ruta puede cambiarse con `GAMECLUB_CONFIG_PATH` y `GAMECLUB_ENV_PATH`.
+`startup.sh` despliega ambos archivos a `/etc/gameclubtelegrambot/`; por tanto,
+la copia de `/etc` no debe editarse como fuente habitual si el siguiente
+despliegue volverá a generarla desde `config/`.
+
+Comandos principales:
+
+```bash
+npm run config:init
+npm run config:edit
+npm run config:check
+```
+
+La referencia completa, incluidos defaults, secretos y features opcionales, está
+en [`docs/runtime-configuration.md`](docs/runtime-configuration.md).
+
+## Desarrollo y pruebas
+
+```bash
+npm run lint
 npm run typecheck
 npm run build
-npm run start
-npm run bootstrap:wizard
-npm run config:check
+npm run test:unit
+npm run test:integration
+npm test
+```
+
+Base de datos:
+
+```bash
 npm run db:generate
 npm run db:check
+npm run db:check:state
 npm run db:migrate
-npm run admin:console
-npm run backup:console
-./scripts/backup-cli.sh status
-./scripts/backup-cli.sh backup [--output-dir /path]
-./scripts/backup-cli.sh list [--output-dir /path]
-./scripts/backup-cli.sh restore /ruta/al/backup.zip
-./scripts/backup-full.sh
-./scripts/restore-full.sh --input /ruta/al/backup.zip
 ```
 
-Otros comandos de entorno local:
-
-- `npm run db:up`
-- `npm run db:down`
-- `npm run db:logs`
-- `npm run db:migrate:local`
-- `npm run config:check:local`
-- `npm run catalog:wikipedia:boardgame`
-
-## Configuración runtime
-
-Ruta por defecto:
-
-- `config/runtime.json`
-
-Se puede sobreescribir con:
-
-- `GAMECLUB_CONFIG_PATH`
-
-Campos principales:
-
-- `schemaVersion`
-- `bot.publicName`
-- `bot.clubName`
-- `bot.language` (`ca`, `es`, `en`)
-- `bot.iconPath` opcional
-- `telegram.token`
-- `database.host`, `database.port`, `database.name`, `database.user`, `database.password`, `database.ssl`
-- `adminElevation.passwordHash`
-- `bootstrap.firstAdmin.telegramUserId`
-- `bootstrap.firstAdmin.username` opcional
-- `bootstrap.firstAdmin.displayName`
-- `notifications.defaults.*`
-- `featureFlags`
-- `googleCalendar.serviceAccountJson` opcional, guardado como secreto en `GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON`
-
-> [!NOTE]
-> La contraseña de elevación administrativa no se guarda en claro. El bootstrap la transforma en `adminElevation.passwordHash`.
-
-La referencia completa está en `docs/runtime-configuration.md` y el ejemplo en `config/runtime.example.json`.
-
-La preparación de la cuenta de servicio, la selección de calendario y la sincronización están en `docs/google-calendar.md`.
-
-## Arranque y operación en Debian
-
-La instalación Debian incorpora `postgresql-client` para que los scripts `backup-full`, `restore-full`, `backup-postgres` y `restore-postgres` puedan ejecutar `pg_dump` y `psql` en la propia máquina del bot.
-
-También hay una consola TUI para gestionar backups sobre el CLI existente:
-
-```bash
-npm run backup:console
-```
-
-La TUI muestra:
-
-- estado del servicio
-- estado de ficheros runtime
-- resumen de la base de datos
-- backups `.zip` disponibles
-- acciones para crear o restaurar backups
-
-Si faltan dependencias soportadas como `pg_dump` o `psql`, la herramienta intenta instalarlas automáticamente en Debian con `apt-get` y `sudo` cuando hace falta.
-
-La consola TUI de administración permite revisar el servicio, consultar logs, ver configuración y gestionar usuarios y contenido de base de datos:
+Herramientas operativas y de análisis:
 
 ```bash
 npm run admin:console
+npm run backup:console
+npm run telegram:ux
+npm run telegram:ux:tui
+npm run codex:image
+npm run codex:benchmark
+./scripts/service-journal.sh -n 200
 ```
 
-Desde SSH usa una pseudo-terminal:
+Después de cualquier cambio funcional se actualiza el inventario, se ejecuta
+`./scripts/feature-status-audit.sh` y se cierra la validación con `./startup.sh`.
+El procedimiento completo está en
+[`docs/development-and-validation.md`](docs/development-and-validation.md).
 
-```bash
-ssh -t usuario@host 'cd /home/cawa/telegrambot/gameclubtelegrambot && npm run admin:console'
-```
+## Despliegue y operación
 
-Guía completa: `docs/admin-console-tui.md`.
-
-Per a una gestió operativa ràpida també hi ha un wrapper shell:
-
-```bash
-./scripts/backup-cli.sh backup
-./scripts/backup-cli.sh list
-./scripts/backup-cli.sh restore /ruta/al/backup.zip
-```
-
-Entrada central recomendada:
+Entrada recomendada para construir, migrar, instalar y reiniciar:
 
 ```bash
 ./startup.sh --config-source ./config/runtime.json --operator-user "$USER"
 ```
 
-Ese flujo prepara o actualiza la instalación, puede levantar PostgreSQL local si procede, abre la bandeja de escritorio y arranca o reinicia el servicio.
-
-Instalación completa de producción:
+Instalación explícita de la pila Debian:
 
 ```bash
-./scripts/install-debian-stack.sh --app-root /opt/gameclubtelegrambot --config-source ./config/runtime.json --operator-user "$USER"
+./scripts/install-debian-stack.sh \
+  --app-root /opt/gameclubtelegrambot \
+  --config-source ./config/runtime.json \
+  --operator-user "$USER"
 ```
 
-Desinstalacion de servicio y autoarranque:
+La instalación gestiona la unidad principal, backups programados, wrappers IA,
+permisos operativos, bandeja de escritorio y, cuando se activa, el servicio
+Telegram Bot API local.
+
+Diagnóstico:
 
 ```bash
-./scripts/uninstall-debian-stack.sh --operator-user "$USER"
+systemctl is-active gameclubtelegrambot.service
+./scripts/service-journal.sh --since "2026-07-30 10:00:00"
+curl --fail --silent --show-error --output /dev/null http://127.0.0.1:8787/
 ```
 
-Safata de escritorio:
+Backups:
 
 ```bash
-./scripts/enable-debian-tray.sh --install-autostart --app-root /opt/gameclubtelegrambot
+./scripts/backup-cli.sh status
+./scripts/backup-cli.sh backup
+./scripts/backup-cli.sh list
+./scripts/backup-cli.sh restore /ruta/al/backup.zip
 ```
 
-Control del tray compilado:
-
-```bash
-npm run tray:debian
-```
+Consulta [`docs/debian-service-operations.md`](docs/debian-service-operations.md)
+y [`docs/backup-restore-recovery.md`](docs/backup-restore-recovery.md) antes de
+operar o restaurar producción.
 
 ## Estructura
 
-- `src/` código fuente TypeScript
-- `docs/` guías operativas y de despliegue
-- `deploy/` unidad `systemd`, reglas `polkit` y autostart
-- `scripts/` utilidades de instalación, backup y restauración
-- `startup.sh` entrypoint operativo principal en Debian
+```text
+src/          código TypeScript por dominio
+drizzle/      migraciones y snapshots del schema
+docs/         documentación mantenida y diseños históricos
+scripts/      instalación, diagnóstico, IA, backup y restauración
+deploy/       unidades systemd y autostart Debian
+config/       configuración runtime local, no secretos versionados
+data/         datos runtime no almacenados en PostgreSQL
+startup.sh    entrada principal de despliegue
+```
 
-## Documentación relacionada
+## Documentación
 
-- `docs/feature-status.md`
-- `docs/bootstrap-wizard.md`
-- `docs/runtime-configuration.md`
-- `docs/debian-service-operations.md`
-- `docs/debian-tray-operations.md`
-- `docs/backup-restore-recovery.md`
+El índice completo está en [`docs/README.md`](docs/README.md).
+
+Referencias principales:
+
+- [`Estado real de features`](docs/feature-status.md)
+- [`Arquitectura`](docs/architecture.md)
+- [`Desarrollo y validación`](docs/development-and-validation.md)
+- [`Configuración runtime`](docs/runtime-configuration.md)
+- [`Admin HTTP server`](docs/admin-http-server.md)
+- [`Interacción LLM`](docs/llm-natural-language.md)
+- [`Google Calendar`](docs/google-calendar.md)
+- [`Notion para campañas de Rol`](docs/role-game-notion.md)
+- [`Generación de imágenes`](docs/image-generation.md)
+- [`Operación Debian`](docs/debian-service-operations.md)
+- [`Backup y recuperación`](docs/backup-restore-recovery.md)

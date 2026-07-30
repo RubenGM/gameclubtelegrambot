@@ -14,6 +14,13 @@ Telegram. Léela antes de añadir o cambiar vistas paginadas.
 - Las listas admin de plantillas de bienvenida deben seguir el estilo de
   Storage porque se navegan desde un teclado privado persistente y las acciones
   de cada item son deep links en el cuerpo del mensaje.
+- Las listas de Rol y Notion son referencias para navegación jerárquica con
+  enlaces HTML en el cuerpo y reply keyboard reservado para volver, importar y
+  paginar.
+- Los selectores de socios de Agenda y catálogo son referencias para paginación
+  inline ligada a un mensaje concreto.
+- Los listados de permisos de impresión e imágenes usan reply keyboard y deben
+  conservar listas y sesiones independientes.
 
 ## Texto del mensaje
 
@@ -45,6 +52,13 @@ Telegram. Léela antes de añadir o cambiar vistas paginadas.
   si hay página siguiente.
 - Incluye `Ir a página` / `Anar a pàgina` / `Go to page` en listas largas donde
   saltar de página sea útil.
+- Las etiquetas de reply keyboard atraviesan un dispatcher secuencial compartido
+  por varios módulos. Deben ser contextuales y únicas por idioma cuando puedan
+  coexistir flujos; no reutilices una etiqueta genérica si otro handler puede
+  apropiársela antes.
+- Escapa todo texto dinámico antes de insertarlo en HTML. Un deep link sólo abre
+  el destino: el handler debe volver a validar actor, permisos, entidad y
+  contexto al resolverlo.
 
 ## Estado y límites
 
@@ -59,3 +73,7 @@ Telegram. Léela antes de añadir o cambiar vistas paginadas.
 - Cubre primera página, página siguiente, página anterior y límites de página
   para cada flujo paginado.
 - Comprueba tanto el footer visible como los botones de navegación disponibles.
+- Para reply keyboards, prueba también el routing con una sesión competidora
+  activa y las tres traducciones `ca`/`es`/`en`.
+- Para callbacks y deep links, prueba datos caducados, página fuera de rango y
+  pérdida de permisos entre la lista y el detalle.

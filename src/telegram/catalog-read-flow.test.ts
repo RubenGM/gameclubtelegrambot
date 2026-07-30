@@ -558,7 +558,7 @@ test('catalog read item detail prioritizes return and create game keyboard actio
 
   assert.deepEqual(replies[0]?.options?.replyKeyboard?.slice(0, 3), [
     [successButton('Retornar')],
-    [successButton('Crear partida')],
+    [successButton('Crear activitat amb aquest joc')],
     ['Veure préstecs'],
   ]);
 });

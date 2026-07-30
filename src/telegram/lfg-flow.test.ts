@@ -295,14 +295,14 @@ test('handleTelegramLfgCommand opens the LFG submenu', async () => {
     ['Grups buscant jugadors'],
     ['Busco grup', 'Busquem jugadors'],
     ['Els meus anuncis'],
-    ['Tornar'],
+    ['Tornar a LFG'],
     ['Inici', 'Ajuda'],
   ]);
 });
 
 test('handleTelegramLfgText returns from the LFG submenu to the main menu', async () => {
   const { context, replies } = createContext(createRepository());
-  context.messageText = 'Tornar';
+  context.messageText = 'Tornar a LFG';
 
   const handled = await handleTelegramLfgText(context);
 

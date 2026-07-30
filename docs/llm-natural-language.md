@@ -174,6 +174,12 @@ El flujo Telegram vive en `src/telegram/llm-command-flow.ts`.
 7. Ejecuta una lectura, pide aclaración, pide confirmación o rechaza la petición.
 8. Completa el mismo mensaje editable con el resultado final cuando sea posible.
 
+Este patrón de progreso se aplica a entradas privadas. Una mención válida en
+grupo/topic es la excepción deliberada: no envía progreso, confirmación ni
+errores al grupo. Si la primera interpretación falla, no escribe nada tampoco
+por privado; si tiene éxito, construye y entrega el resultado exclusivamente por
+DM.
+
 El mensaje de progreso debe ser breve: barra aproximada, fase y detalle
 separados por líneas en blanco. No debe mostrar la petición completa del usuario.
 Si la LLM falla o caduca, el mismo mensaje debe editarse con el error final
@@ -492,7 +498,7 @@ también `docs/feature-status.md`.
 Para cambios en esta feature ejecuta como mínimo:
 
 ```bash
-node --import tsx --test src/telegram/llm-command-schema.test.ts src/telegram/llm-command-prompt.test.ts src/telegram/llm-command-flow.test.ts src/telegram/llm-command-router.test.ts src/telegram/llm-command-service.test.ts src/telegram/llm-command-read-actions.test.ts src/telegram/editable-progress.test.ts
+node --import tsx --test src/telegram/llm-command-schema.test.ts src/telegram/llm-command-prompt.test.ts src/telegram/llm-command-flow.test.ts src/telegram/llm-command-router.test.ts src/telegram/llm-command-service.test.ts src/telegram/llm-command-read-actions.test.ts src/telegram/llm-command-metrics.test.ts src/telegram/llm-model-settings.test.ts src/telegram/llm-model-admin-flow.test.ts src/telegram/admin-ai-flow.test.ts src/telegram/editable-progress.test.ts
 npm run typecheck
 ./scripts/feature-status-audit.sh
 ./startup.sh

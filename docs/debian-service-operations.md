@@ -4,11 +4,16 @@ Aquest document descriu com desplegar i operar `gameclubtelegrambot` com a serve
 
 ## Objectiu
 
-Aquest paquet de desplegament prepara tres peces:
+Aquest paquet de desplegament prepara i manté aquestes peces:
 
-- una unitat `systemd` per executar el bot de forma persistent
+- la unitat principal `gameclubtelegrambot.service`
+- la unitat opcional `gameclubtelegrambot-local-bot-api.service`
+- la unitat `gameclubtelegrambot-backup.service` i el timer nocturn
+  `gameclubtelegrambot-backup.timer`
 - una regla `polkit` limitada al servei del bot
-- convencions d'entorn perquè futures eines d'operació, com la safata Debian, el puguin controlar amb seguretat
+- dues regles `sudoers` limitades als binaris OpenCode i Codex de l'operador
+- l'autostart i les convencions d'entorn de la safata Debian
+- els fitxers runtime instal·lats sota `/etc/gameclubtelegrambot`
 
 ## Instal·lació ràpida de tota la pila
 
@@ -44,7 +49,12 @@ Aquest script:
 - crea `/etc/default/gameclubtelegrambot`
 - valida la configuració runtime instal·lada
 - aplica les migracions pendents abans d'arrencar el servei
-- instal·la `systemd`, `polkit` i autostart de la safata
+- instal·la la unitat principal, el servei Bot API local opcional, el servei i
+  timer de backup, `polkit` i l'autostart de la safata
+- valida amb `visudo` i instal·la les regles limitades per executar OpenCode i
+  Codex com l'usuari operador
+- habilita `gameclubtelegrambot-backup.timer`
+- activa o desactiva el Bot API local d'acord amb el runtime
 - arrenca el servei si no s'indica `--no-start`
 
 La safata que instal·la aquest procés és l'app de system tray Debian documentada a `docs/debian-tray-operations.md`, no un dashboard web separat.
@@ -57,9 +67,21 @@ La proposta actual assumeix aquestes rutes i identitats:
 - usuari del servei: `gameclubbot`
 - grup del servei: `gameclubbot`
 - grup d'operadors amb permís de control: `gameclubbot-operators`
-- unitat de sistema: `gameclubtelegrambot.service`
+- unitat principal: `gameclubtelegrambot.service`
+- unitat opcional del Bot API local:
+  `gameclubtelegrambot-local-bot-api.service`
+- backup nocturn: `gameclubtelegrambot-backup.service` i
+  `gameclubtelegrambot-backup.timer`
 - fitxer d'entorn: `/etc/default/gameclubtelegrambot`
 - fitxer secrets runtime: `/etc/gameclubtelegrambot/.env`
+- configuració runtime: `/etc/gameclubtelegrambot/runtime.json`
+- configuració calculada del Bot API local:
+  `/etc/default/gameclubtelegrambot-local-bot-api`
+- backups complets: `/var/backups/gameclubtelegrambot`
+- regla `polkit`:
+  `/etc/polkit-1/rules.d/50-gameclubtelegrambot.rules`
+- regles IA: `/etc/sudoers.d/gameclubtelegrambot-opencode` i
+  `/etc/sudoers.d/gameclubtelegrambot-codex`
 
 El servei assumeix que l'aplicació ja està construïda i que existeix:
 
@@ -67,6 +89,32 @@ El servei assumeix que l'aplicació ja està construïda i que existeix:
 - `dist/scripts/check-runtime-config.js`
 - `dist/scripts/migrate.js`
 - `node_modules/`
+
+La instal·lació amb els valors per defecte copia `config/runtime.json` a
+`/etc/gameclubtelegrambot/runtime.json` i el fitxer `.env` que hi ha al costat a
+`/etc/gameclubtelegrambot/.env`. Per tant, els canvis manuals fets només sota
+`/etc` es poden perdre al següent `./startup.sh`. Mantén la font desplegable al
+repositori ignorat per Git o passa explícitament una altra ruta amb
+`--config-source`.
+
+## Wrappers d'IA i límit de privilegis
+
+El servei corre com `gameclubbot`, però les credencials i els models de Codex i
+OpenCode viuen al compte de l'usuari operador. El desplegament configura:
+
+```text
+GAMECLUB_OPENCODE_BIN=/opt/gameclubtelegrambot/scripts/opencode-cawa.sh
+GAMECLUB_CODEX_BIN=/opt/gameclubtelegrambot/scripts/codex-cawa.sh
+```
+
+Els wrappers executen el binari real amb `sudo -n -H -u <operador>`. Les regles
+`sudoers` generades no permeten executar ordres arbitràries com l'operador:
+autoritzen exclusivament el path concret del binari OpenCode o Codex detectat
+durant la instal·lació. `install-debian-stack.sh` valida les dues regles amb
+`visudo` abans d'instal·lar-les.
+
+No invoquis `opencode` ni `codex` directament des del procés del bot. Les
+integracions han de llegir `GAMECLUB_OPENCODE_BIN` o `GAMECLUB_CODEX_BIN`.
 
 ## Expectatives de runtime
 
@@ -171,7 +219,17 @@ Per retirar les peces que fan que el bot arrenqui al sistema:
 ./scripts/uninstall-debian-stack.sh --operator-user "$USER"
 ```
 
-Aquest script atura i deshabilita `gameclubtelegrambot.service`, elimina la unitat instal·lada a `/etc/systemd/system/`, elimina la regla `polkit` del projecte i elimina l'autostart de safata de l'usuari operador.
+Aquest script:
+
+- atura i deshabilita `gameclubtelegrambot.service`
+- atura i elimina el servei opcional del Bot API local
+- atura i elimina el servei i timer de backup
+- elimina les unitats instal·lades sota `/etc/systemd/system`
+- elimina la configuració calculada del Bot API local
+- elimina la regla `polkit`
+- elimina les regles `sudoers` d'OpenCode i Codex
+- elimina l'autostart de safata de l'usuari operador
+- recarrega `systemd` i neteja l'estat fallit de la unitat principal
 
 Abans d'executar canvis reals es pot revisar la seqüència:
 
@@ -179,7 +237,8 @@ Abans d'executar canvis reals es pot revisar la seqüència:
 ./scripts/uninstall-debian-stack.sh --dry-run --operator-user "$USER"
 ```
 
-No elimina `/opt/gameclubtelegrambot`, `/etc/gameclubtelegrambot`, bases de dades, paquets del sistema, usuaris ni grups.
+No elimina `/opt/gameclubtelegrambot`, `/etc/gameclubtelegrambot`, els backups,
+bases de dades, paquets del sistema, usuaris ni grups.
 
 Comandes bàsiques d'operació:
 
@@ -190,10 +249,10 @@ sudo systemctl stop gameclubtelegrambot.service
 sudo systemctl start gameclubtelegrambot.service
 ```
 
-## Recuperar comandos de Telegram que no responden
+## Recuperar comandes de Telegram que no responen
 
-Si el bot recibe mensajes pero algunas acciones no generan respuesta, comprobar primero si
-hay procesos duplicados o validaciones colgadas:
+Si el bot rep missatges però algunes accions no generen resposta, comprova
+primer si hi ha processos duplicats o validacions bloquejades:
 
 ```bash
 pgrep -af "gameclubtelegrambot|node --import tsx --test|npm run typecheck|tsc --noEmit|tsx|dist/main.js" || true
@@ -201,16 +260,16 @@ systemctl status gameclubtelegrambot.service --no-pager
 ./scripts/service-journal.sh -n 120
 ```
 
-El estado correcto en producción es un único proceso del servicio:
+L'estat correcte en producció és un únic procés del servei:
 
 ```text
 /usr/bin/node /opt/gameclubtelegrambot/dist/main.js
 ```
 
-La safata Debian puede tener procesos propios (`debian-tray.js` y
-`debian-tray-host.py`), pero no debe existir otro `dist/main.js` ni procesos de
-test/build activos. Si quedan procesos de validación (`node --test`, `tsc`,
-`npm run typecheck`), esperar a que terminen o pararlos antes de seguir.
+La safata Debian pot tenir processos propis (`debian-tray.js` i
+`debian-tray-host.py`), però no hi ha d'haver cap altre `dist/main.js` ni
+processos de test/build actius. Si queden processos de validació (`node --test`,
+`tsc`, `npm run typecheck`), espera que acabin o atura'ls abans de continuar.
 
 Si el journal muestra `Telegram update received` pero no aparece respuesta ni error,
 revisar si hay sesiones conversacionales atascadas en `app_metadata`:
@@ -229,25 +288,25 @@ psql -h 127.0.0.1 -p 55432 -U gameclub_user -d gameclub \
   -c "delete from app_metadata where key like 'telegram.session:%' and (value::jsonb->>'expiresAt')::timestamptz <= now() returning key;"
 ```
 
-Si el bot sigue recibiendo updates pero no responde, reiniciar el servicio para limpiar
-estado en memoria y reabrir el long polling:
+Si el bot continua rebent updates però no respon, reinicia el servei per netejar
+l'estat en memòria i reobrir el long polling:
 
 ```bash
 systemctl restart gameclubtelegrambot.service
 ./scripts/service-journal.sh -n 50
 ```
 
-Desde Telegram, un admin tambien puede ejecutar `/restart` en privado. Ese comando
-borra las sesiones conversacionales `telegram.session:%`, limpia estado temporal en
-memoria y fuerza una salida con fallo controlado para que systemd levante un proceso
-nuevo mediante `Restart=on-failure`. Si el bot no llega a procesar ningun comando,
-usar el reinicio por `systemctl` desde la maquina.
+Des de Telegram, un admin també pot executar `/restart` en privat. Aquesta
+comanda esborra les sessions conversacionals `telegram.session:%`, neteja
+l'estat temporal en memòria i força una sortida amb error controlat perquè
+systemd aixequi un procés nou mitjançant `Restart=on-failure`. Si el bot no
+arriba a processar cap comanda, usa el reinici per `systemctl` des de la
+màquina.
 
-El runtime mantiene un canario interno de Telegram API. Si una llamada a Telegram
-falla de forma transitoria (`timeout`, red, 429 o 5xx), los mensajes de texto normales
-añaden temporalmente un aviso indicando desde cuando se detecto la incidencia y
-recomendando reintentar mas tarde si el bot deja de responder. El aviso se retira
-automaticamente tras varios envios correctos y una ventana sin nuevos fallos.
+El runtime manté un canari intern de Telegram API. Si una crida a Telegram falla
+de manera transitòria (`timeout`, xarxa, 429 o 5xx), l'estat degradat queda
+disponible per al diagnòstic intern. Es retira automàticament després de diversos
+enviaments correctes i una finestra sense nous errors.
 
 Cuando el bloqueo aparece durante autocorrecciones de catálogo, revisar en el journal
 las duraciones de `catalog.external-image.telegram-upload.completed` y de traducción.
@@ -282,24 +341,40 @@ Comprovar que un operador autoritzat pot reiniciar-lo sense `sudo`:
 systemctl restart gameclubtelegrambot.service
 ```
 
-Comprovar logs recents:
+Comprovar logs recents amb el wrapper del projecte:
 
 ```bash
-journalctl -u gameclubtelegrambot.service -n 50 --no-pager
+./scripts/service-journal.sh -n 50
 ```
 
 Comprovar denegació de permisos en un usuari fora del grup operador.
 
 ## Relació amb la safata Debian
 
-La futura safata Debian assumirà exactament aquesta convenció:
+La safata Debian actual assumeix exactament aquesta convenció:
 
 - nom de servei `gameclubtelegrambot.service`
 - control via `systemctl`
-- logs via `journalctl`
+- logs del servei via `./scripts/service-journal.sh` en operació manual
 - permisos delegats a `polkit`
 
-Si aquestes convencions canvien, també caldrà actualitzar la capa `service-control` i la futura UI de safata.
+La implementació interna de la safata consulta el journal mitjançant la seva
+capa de control. Si aquestes convencions canvien, també caldrà actualitzar
+`service-control` i la UI de safata.
+
+## Límits de seguretat de la unitat principal
+
+La unitat principal aplica `PrivateTmp=yes` i `ProtectSystem=full`, però manté
+`NoNewPrivileges=no` i `ProtectHome=no`. Això és necessari en el desplegament
+actual perquè els wrappers d'IA puguin canviar a l'usuari operador i accedir a
+les seves credencials. No s'ha de descriure la unitat com un sandbox complet.
+
+El servidor HTTP integrat forma part del mateix procés i, per tant, comparteix
+aquest usuari i aquests límits. Ha de romandre lligat a loopback i exposar-se
+només mitjançant un reverse proxy HTTPS administrat. La configuració del
+reverse proxy no està versionada en aquest repositori; consulta
+`docs/admin-http-server.md` per al contracte i les comprovacions que sí són
+verificables.
 
 ## Backup i recuperació
 

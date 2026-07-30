@@ -107,3 +107,29 @@ campaña, pero los materiales ya importados se conservan como handouts internos.
   firma se valida sobre bytes sin volver a serializar JSON.
 - `Cambios pendientes` no implica envío: es una señal de revisión, no un
   sincronizador automático.
+
+Revisa fallos runtime con:
+
+```bash
+./scripts/service-journal.sh -n 200
+```
+
+## Validación y límites
+
+Para cambios en esta integración, ejecuta como mínimo:
+
+```bash
+node --import tsx --test src/notion/*.test.ts src/role-games/role-game-notion-store.test.ts src/telegram/role-game-notion-flow.test.ts
+npm run db:check
+npm run typecheck
+./scripts/feature-status-audit.sh
+./startup.sh
+```
+
+Estas comprobaciones validan el cliente simulado, el renderizado, el cifrado,
+los webhooks, la persistencia, el flujo Telegram y el despliegue. No demuestran
+una importación real con un workspace de Notion. Antes de declarar una
+verificación externa completa hay que vincular una integración real, navegar
+páginas compartidas, importar texto y un adjunto alojado por Notion, recibir un
+webhook firmado y confirmar que el cambio queda pendiente sin publicarse a los
+jugadores. Esta prueba real continúa pendiente.

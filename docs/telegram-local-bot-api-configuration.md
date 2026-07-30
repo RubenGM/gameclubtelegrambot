@@ -4,8 +4,9 @@ Este documento explica cómo activar el servidor local de Telegram Bot API para
 que el bot pueda imprimir adjuntos grandes, como PDFs de 72 MB, sin el límite
 cloud de 20 MB.
 
-La integración sólo se usa en impresión. El resto del bot sigue usando el Bot
-API público de Telegram.
+La integración se usa de forma explícita en impresión y al descargar imágenes
+de referencia para la generación de imágenes. El resto del bot sigue usando el
+Bot API público de Telegram.
 
 ## Estado esperado
 
@@ -43,10 +44,10 @@ Necesitas una aplicación de Telegram para obtener:
 Se obtienen en `https://my.telegram.org` con una cuenta de Telegram. No son el
 token del bot de BotFather.
 
-Guárdalos sólo en el `.env` runtime. En despliegue real:
+Guárdalos en el fichero fuente de secretos del despliegue:
 
 ```bash
-sudoedit /etc/gameclubtelegrambot/.env
+${EDITOR:-nano} config/.env
 ```
 
 Añade estas líneas, sustituyendo los valores:
@@ -57,14 +58,15 @@ GAMECLUB_TELEGRAM_LOCAL_BOT_API_HASH="api_hash_real"
 ```
 
 No guardes estas credenciales en `runtime.json`, commits, issues ni mensajes de
-Telegram.
+Telegram. `/etc/gameclubtelegrambot/.env` es la copia desplegada: no la uses
+como fuente manual porque `./startup.sh` la regenera desde `config/.env`.
 
 ## Activar runtime
 
-Edita el runtime desplegado:
+Edita el runtime fuente:
 
 ```bash
-sudoedit /etc/gameclubtelegrambot/runtime.json
+${EDITOR:-nano} config/runtime.json
 ```
 
 Dentro de `telegram`, añade o ajusta:
@@ -81,6 +83,10 @@ Dentro de `telegram`, añade o ajusta:
 
 El `baseUrl` debe quedarse en loopback (`127.0.0.1` o `localhost`). No lo
 publiques por Nginx, LAN, VPN ni router.
+
+También puedes usar `npm run config:edit`. El fichero
+`/etc/gameclubtelegrambot/runtime.json` es una copia de despliegue y no se edita
+manualmente.
 
 ## Instalar y arrancar
 
@@ -123,6 +129,8 @@ admin-http-ok
 4. Envía el PDF grande que antes fallaba por 20 MB.
 5. Confirma que el bot llega al resumen de impresión y responde que el trabajo
    se ha preparado en modo prueba.
+6. Si la generación de imágenes está habilitada, añade una imagen de referencia
+   y comprueba que el flujo la acepta.
 
 Revisa logs si algo no cuadra:
 
@@ -142,7 +150,7 @@ Busca entradas relacionadas con:
 Para volver al comportamiento anterior:
 
 1. Cambia `telegram.localBotApi.enabled` a `false` en
-   `/etc/gameclubtelegrambot/runtime.json`.
+   `config/runtime.json`.
 2. Ejecuta `./startup.sh`.
 
 El startup dejará `gameclubtelegrambot-local-bot-api.service` parado y
