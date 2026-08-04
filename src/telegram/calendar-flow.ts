@@ -12,6 +12,7 @@ import type { TelegramReplyOptions } from './runtime-boundary.js';
 import { resolveTelegramActionMenu } from './action-menu.js';
 import { createTelegramI18n } from './i18n.js';
 import { buildTelegramStartUrl } from './deep-links.js';
+import { formatScheduleDescriptionSummary } from './schedule-presentation.js';
 
 export const calendarLabels = {
   openMenu: 'Calendari',
@@ -119,19 +120,22 @@ function formatCalendarMessage(entries: CalendarEntry[], language: string): stri
       rows.push('');
       rows.push(`<b>${escapeHtml(formatCalendarDayHeader(dayKey, language))}</b>`);
     }
-    rows.push(formatCalendarEntry(entry));
+    rows.push(formatCalendarEntry(entry, language));
   }
 
   return rows.join('\n');
 }
 
-function formatCalendarEntry(entry: CalendarEntry): string {
-  const descriptionLine = entry.description ? `\n  <i>${escapeHtml(entry.description)}</i>` : '';
-
+function formatCalendarEntry(entry: CalendarEntry, language: string): string {
   if (entry.kind === 'schedule') {
+    const descriptionLine = entry.description
+      ? `\n  ${formatScheduleDescriptionSummary({ description: entry.description, eventId: entry.id, language })}`
+      : '';
     const tableSuffix = entry.tableName ? ` · Taula ${escapeHtml(entry.tableName)}` : '';
     return `- ${formatTimeRange(entry.startsAt, entry.endsAt)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${entry.id}`))}"><b>${escapeHtml(entry.title)}</b></a> · ${entry.capacity}p${tableSuffix}${descriptionLine}`;
   }
+
+  const descriptionLine = entry.description ? `\n  <i>${escapeHtml(entry.description)}</i>` : '';
 
   if (entry.allDay) {
     return `- Tot el dia ${escapeHtml(entry.title)}${descriptionLine}`;

@@ -17,6 +17,38 @@ export function formatHtmlField(label: string, value: string): string {
   return `<b>${escapeHtml(label)}:</b> ${value}`;
 }
 
+const scheduleDescriptionSummaryMaxLength = 30;
+
+export function truncateScheduleDescription(description: string): string {
+  const characters = Array.from(description);
+  if (characters.length <= scheduleDescriptionSummaryMaxLength) {
+    return description;
+  }
+
+  const ellipsis = '...';
+  return `${characters.slice(0, scheduleDescriptionSummaryMaxLength - ellipsis.length).join('')}${ellipsis}`;
+}
+
+export function formatScheduleDescriptionSummary({
+  description,
+  eventId,
+  language = 'ca',
+}: {
+  description: string;
+  eventId: number;
+  language?: string;
+}): string {
+  const summary = truncateScheduleDescription(description);
+  const formattedSummary = `<i>${escapeHtml(summary)}</i>`;
+  if (summary === description) {
+    return formattedSummary;
+  }
+
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule;
+  const detailUrl = buildTelegramStartUrl(`schedule_event_${eventId}`);
+  return `${formattedSummary} · <a href="${escapeHtml(detailUrl)}">${escapeHtml(texts.viewDescription)}</a>`;
+}
+
 export function formatDayHeading(dayKey: string, language: string = 'ca'): string {
   const date = buildLocalDateFromDayKey(dayKey);
   const locale = resolveLanguageLocale(language);
@@ -63,7 +95,7 @@ export function formatScheduleListMessage(events: ScheduleEventRecord[], languag
     for (const event of dayEvents) {
       lines.push(`- <b>${escapeHtml(event.title)}</b> (${formatEventTime(event.startsAt)}) · ${event.capacity} places`);
       if (event.description && !hasScheduleDetailsMessage(event)) {
-        lines.push(`  <i>${escapeHtml(event.description)}</i>`);
+        lines.push(`  ${formatScheduleDescriptionSummary({ description: event.description, eventId: event.id, language })}`);
       }
       const detailsLink = formatScheduleDetailsLink(event, language);
       if (detailsLink) {

@@ -3,6 +3,7 @@ import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
 import type { VenueEventRecord } from '../venue-events/venue-event-catalog.js';
 import {
   escapeHtml,
+  formatScheduleDescriptionSummary,
   formatScheduleDetailsLink,
   formatDayHeading,
   formatEventTimeRange,
@@ -42,7 +43,7 @@ export async function formatScheduleListWithVenueImpact({
       lines.push(`- ${formatEventTimeRange(event.startsAt, event.durationMinutes)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${event.id}`))}"><b>${escapeHtml(event.title)}</b></a>${modeSummary} · ${attendanceSummary}${tableSummary}`);
       const detailsLink = formatScheduleDetailsLink(event, language);
       if (event.description && !detailsLink) {
-        lines.push(`  <i>${escapeHtml(event.description)}</i>`);
+        lines.push(`  ${formatScheduleDescriptionSummary({ description: event.description, eventId: event.id, language })}`);
       }
       if (detailsLink) {
         lines.push(`  ${detailsLink}`);

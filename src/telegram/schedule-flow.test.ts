@@ -2059,7 +2059,7 @@ test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapsho
     {
       id: 1,
       title: 'Dune Imperium',
-      description: null,
+      description: 'Cementiri i vampirs sota una lluna plena',
       startsAt: '2026-04-05T16:00:00.000Z',
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
@@ -2114,6 +2114,9 @@ test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapsho
   });
 
   assert.equal(groupMessages.length, 1);
+  assert.match(groupMessages[0]?.message ?? '', /<i>Cementiri i vampirs sota un\.\.\.<\/i>/);
+  assert.match(groupMessages[0]?.message ?? '', /schedule_event_1">Veure descripció<\/a>/);
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /lluna plena/);
   assert.deepEqual(deletedMessages, [{ chatId: -200, messageId: 901 }]);
   assert.deepEqual(editedMessages, []);
   assert.equal(
@@ -2659,7 +2662,7 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
     {
       id: 6,
       title: 'Ravenloft',
-      description: 'Cementiri i vampirs',
+      description: 'Cementiri i vampirs sota una lluna plena',
       startsAt: '2026-04-05T18:30:00.000Z',
       organizerTelegramUserId: 42,
       createdByTelegramUserId: 42,
@@ -2698,6 +2701,9 @@ test('handleTelegramScheduleText lists activities with inline detail actions for
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_details_4">Veure detalls<\/a>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ocells i engines/);
   assert.match(replies.at(-1)?.message ?? '', /20:30h-23:30h <a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_6"><b>Ravenloft<\/b><\/a> · Mesa abierta · 4p \(3 libres\)/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Cementiri i vampirs sota un\.\.\.<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /schedule_event_6">Veure descripció<\/a>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /lluna plena/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /schedule_details_6/);
   assert.deepEqual(replies.at(-1)?.options, { parseMode: 'HTML' });
 });

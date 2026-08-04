@@ -85,7 +85,7 @@ test('handleTelegramCalendarText shows upcoming activities and venue events grou
         {
           id: 1,
           title: 'Final de "La Copa"',
-          description: 'Partida final del torneig',
+          description: 'Partida final del torneig amb públic convidat',
           detailsMessageChatId: null,
           detailsMessageId: null,
           startsAt: '2026-04-04T10:00:00.000Z',
@@ -202,7 +202,9 @@ test('handleTelegramCalendarText shows upcoming activities and venue events grou
       `- ${formatCalendarRange('2026-04-04T10:00:00.000Z', '2026-04-04T12:00:00.000Z')} <a href="https:\\/\\/t\\.me\\/cawa_management_bot\\?start=schedule_event_1"><b>Final de "La Copa"<\\/b><\\/a> · 2p · Taula Taula de l entrada`,
     ),
   );
-  assert.match(replies.at(-1)?.message ?? '', /<i>Partida final del torneig<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Partida final del torneig a\.\.\.<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /schedule_event_1">Veure descripció<\/a>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /públic convidat/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Diumenge 5 abril<\/b>/);
   assert.match(
     replies.at(-1)?.message ?? '',

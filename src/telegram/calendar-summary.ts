@@ -12,6 +12,7 @@ import { createDatabaseClubTableRepository } from '../tables/table-catalog-store
 import type { ClubTableRepository } from '../tables/table-catalog.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+import { formatScheduleDescriptionSummary } from './schedule-presentation.js';
 
 export type CalendarEntry =
   | {
@@ -122,7 +123,9 @@ function formatCalendarEntry(entry: CalendarEntry, language: string): string {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
 
   if (entry.kind === 'schedule') {
-    const descriptionLine = entry.description && !entry.hasDetails ? `\n  <i>${escapeHtml(entry.description)}</i>` : '';
+    const descriptionLine = entry.description && !entry.hasDetails
+      ? `\n  ${formatScheduleDescriptionSummary({ description: entry.description, eventId: entry.id, language })}`
+      : '';
     const modeSuffix = entry.attendanceMode === 'open' ? ' · Mesa abierta' : '';
     const seatsSuffix = entry.attendanceMode === 'open'
       ? ` · ${entry.capacity}p (${entry.availableSeats} libres)`
