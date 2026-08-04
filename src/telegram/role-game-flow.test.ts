@@ -1215,20 +1215,16 @@ test('handleTelegramRoleGameText creates a role game with guided prompts', async
   await sendRoleGameText(context, 'Socios');
   await sendRoleGameText(context, 'Solicitud');
   await sendRoleGameText(context, 'Revisión manual');
-  assert.deepEqual(lastReply(context).options?.replyKeyboard?.slice(0, 2).map((row) => row.map(buttonText)), [
-    ['Sin días fijos'],
-    ['1', '2'],
-  ]);
-  await sendRoleGameText(context, 'Sin días fijos');
+  assert.match(lastReply(context).message, /publicar ahora/i);
+  await sendRoleGameText(context, 'Crear sin publicar en Agenda');
 
-  assert.match(lastReply(context).message, /Confirmar/i);
   assert.ok(
     lastReply(context).options?.replyKeyboard
       ?.flat()
-      .some((button) => typeof button !== 'string' && button.text === 'Confirmar' && button.semanticRole === 'success'),
+      .some((button) => typeof button !== 'string' && button.text === 'Crear sin publicar en Agenda' && button.semanticRole === 'success'),
   );
 
-  await sendRoleGameText(context, 'Confirmar');
+  await sendRoleGameText(context, 'Crear sin publicar en Agenda');
 
   const created = assertRoleGame(createdGame);
   assert.equal(created.title, 'La campaña de prueba');
@@ -1238,6 +1234,7 @@ test('handleTelegramRoleGameText creates a role game with guided prompts', async
   assert.equal(created.entryMode, 'request');
   assert.equal(created.acceptanceMode, 'manual_review');
   assert.equal(created.schedulingMode, 'manual');
+  assert.equal((await context.scheduleRepository.listEvents({ includeCancelled: true })).length, 0);
   assert.match(lastReply(context).message, /Partida creada/);
 });
 
@@ -1265,6 +1262,8 @@ test('handleTelegramRoleGameText creates a recurring campaign with recurrence se
   await sendRoleGameText(context, 'Socios');
   await sendRoleGameText(context, 'Solicitud');
   await sendRoleGameText(context, 'Revisión manual');
+  assert.match(lastReply(context).message, /publicar ahora/i);
+  await sendRoleGameText(context, 'Configurar y publicar en Agenda');
   assert.match(lastReply(context).message, /frecuencia/i);
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.slice(0, 2).map((row) => row.map(buttonText)), [
     ['Sin días fijos'],
@@ -1286,10 +1285,12 @@ test('handleTelegramRoleGameText creates a recurring campaign with recurrence se
   await sendRoleGameText(context, '18:30');
   assert.match(lastReply(context).message, /sesiones futuras/i);
   await sendRoleGameText(context, '3');
-  assert.match(lastReply(context).message, /Confirmar/i);
-  assert.match(lastReply(context).message, /No se escribirá ninguna actividad nueva en Agenda/i);
+  assert.match(lastReply(context).message, /actividad(?:es)? en Agenda/i);
+  const agendaPreviewCount = ((getCurrentSession(context)?.data as { agendaPreviewStartsAt?: string[] }).agendaPreviewStartsAt ?? []).length;
+  assert.ok(agendaPreviewCount > 0);
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Crear y publicar en Agenda'));
   assert.equal((await scheduleRepository.listEvents({ includeCancelled: true })).length, 0);
-  await sendRoleGameText(context, 'Confirmar');
+  await sendRoleGameText(context, 'Crear y publicar en Agenda');
 
   const created = assertRoleGame(createdGame);
   assert.equal(created.schedulingMode, 'recurring');
@@ -1301,8 +1302,8 @@ test('handleTelegramRoleGameText creates a recurring campaign with recurrence se
   });
   assert.match(created.recurrenceRule?.startsOn ?? '', /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(created.recurrenceWindowCount, 3);
-  assert.equal((await scheduleRepository.listEvents({ includeCancelled: true })).length, 0);
-  assert.equal(roleGameRepository.createdSessionLinks.filter((link) => link.source === 'recurring').length, 0);
+  assert.equal((await scheduleRepository.listEvents({ includeCancelled: true })).length, agendaPreviewCount);
+  assert.equal(roleGameRepository.createdSessionLinks.filter((link) => link.source === 'recurring').length, agendaPreviewCount);
   assert.match(lastReply(context).message, /Partida creada/);
 });
 
@@ -1337,6 +1338,8 @@ test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event
   await sendRoleGameText(context, 'Socios');
   await sendRoleGameText(context, 'Solicitud');
   await sendRoleGameText(context, 'Revisión manual');
+  assert.match(lastReply(context).message, /publicar ahora/i);
+  await sendRoleGameText(context, 'Configurar y publicar en Agenda');
   assert.match(lastReply(context).message, /fecha/i);
   assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar partida de rol'));
 
@@ -1345,13 +1348,13 @@ test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event
   assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Cancelar partida de rol'));
 
   await sendRoleGameText(context, '18:00');
-  assert.match(lastReply(context).message, /Confirmar/i);
   assert.match(lastReply(context).message, /¿quieres escribir 1 actividad en Agenda\?/i);
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Crear y publicar en Agenda'));
   assert.match(lastReply(context).message, /<b>Nombre:<\/b> La partida única/);
   assert.match(lastReply(context).message, /<b>Día:<\/b> Jueves 6 de agosto de 2026/);
   assert.match(lastReply(context).message, /<b>Hora:<\/b> 18h-21h/);
   assert.equal(await scheduleRepository.findEventById(1), null);
-  await sendRoleGameText(context, 'Confirmar');
+  await sendRoleGameText(context, 'Crear y publicar en Agenda');
 
   const created = assertRoleGame(createdGame);
   const event = await scheduleRepository.findEventById(1);
@@ -1364,6 +1367,41 @@ test('handleTelegramRoleGameText creates a one-shot with an initial Agenda event
   assert.equal(groupMessages[0]?.chatId, -100700);
   assert.equal(groupMessages[0]?.messageThreadId, 77);
   assert.match(groupMessages[0]?.message ?? '', /La partida única/);
+});
+
+test('handleTelegramRoleGameText creates a one-shot without publishing to Agenda when explicitly selected', async () => {
+  let createdGame: RoleGameRecord | null = null;
+  const scheduleRepository = createFakeScheduleRepository();
+  const context = createRoleGameTestContext({
+    messageText: 'Crear partida de rol',
+    scheduleRepository,
+    roleGameRepository: createFakeRoleGameRepository({
+      onCreateGame: async (input) => {
+        createdGame = sampleRoleGame({ ...input, id: 53, type: 'one_shot' });
+        return createdGame;
+      },
+    }),
+  });
+
+  await handleTelegramRoleGameText(context);
+  await sendRoleGameText(context, 'One-shot');
+  await sendRoleGameText(context, 'One-shot sin fecha');
+  await sendRoleGameText(context, 'Cairn');
+  await sendRoleGameText(context, 'Se publicará más adelante');
+  await sendRoleGameText(context, '4');
+  await sendRoleGameText(context, 'Socios');
+  await sendRoleGameText(context, 'Solicitud');
+  await sendRoleGameText(context, 'Revisión manual');
+
+  assert.match(lastReply(context).message, /publicar ahora/i);
+  await sendRoleGameText(context, 'Crear sin publicar en Agenda');
+  assert.equal(getCurrentSession(context)?.stepKey, 'confirm');
+  assert.doesNotMatch(lastReply(context).message, /¿Qué fecha tendrá la primera sesión\?/i);
+  await sendRoleGameText(context, 'Crear sin publicar en Agenda');
+
+  assert.equal(assertRoleGame(createdGame).type, 'one_shot');
+  assert.equal((await scheduleRepository.listEvents({ includeCancelled: true })).length, 0);
+  assert.match(lastReply(context).message, /Partida creada/);
 });
 
 test('handleTelegramRoleGameText cancels role game creation without orphan keyboard', async () => {
@@ -1644,37 +1682,36 @@ test('Agenda confirmation is shown again when exact manual-session details chang
   assert.equal((await scheduleRepository.findEventById(1))?.durationMinutes, 240);
 });
 
-test('handleTelegramRoleGameCallback hides manual scheduling for one-shots and paused campaigns', async () => {
-  const games = [
-    sampleRoleGame({ id: 85, title: 'One-shot', type: 'one_shot', schedulingMode: 'manual' }),
-    sampleRoleGame({ id: 86, title: 'Pausada', status: 'paused', schedulingMode: 'manual' }),
-  ];
+test('handleTelegramRoleGameCallback lets managers publish an active one-shot later', async () => {
+  const game = sampleRoleGame({ id: 85, title: 'One-shot', type: 'one_shot', schedulingMode: 'manual' });
+  const roleGameRepository = createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, []]]) });
+  const scheduleRepository = createFakeScheduleRepository();
+  const scheduleContext = createRoleGameTestContext({
+    messageText: '',
+    callbackData: `role_game:schedule:${game.id}`,
+    roleGameRepository,
+    scheduleRepository,
+  });
 
-  for (const game of games) {
-    const roleGameRepository = createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, []]]) });
-    const scheduleRepository = createFakeScheduleRepository();
-    const detailContext = createRoleGameTestContext({
-      messageText: '',
-      callbackData: `role_game:detail:${game.id}`,
-      roleGameRepository,
-      scheduleRepository,
-    });
+  assert.equal(await handleTelegramRoleGameCallback(scheduleContext), true);
+  assert.equal(getCurrentSession(scheduleContext)?.stepKey, 'date');
+  assert.match(lastReply(scheduleContext).message, /fecha/i);
+});
 
-    assert.equal(await handleTelegramRoleGameCallback(detailContext), true);
-    assert.equal(lastReply(detailContext).options?.inlineKeyboard?.flat().some((button) => button.text === 'Programar siguiente sesión') ?? false, false);
+test('handleTelegramRoleGameCallback hides manual scheduling for paused campaigns', async () => {
+  const game = sampleRoleGame({ id: 86, title: 'Pausada', status: 'paused', schedulingMode: 'manual' });
+  const roleGameRepository = createFakeRoleGameRepository({ gamesById: [game], membersByGameId: new Map([[game.id, []]]) });
+  const scheduleRepository = createFakeScheduleRepository();
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: `role_game:schedule:${game.id}`,
+    roleGameRepository,
+    scheduleRepository,
+  });
 
-    const scheduleContext = createRoleGameTestContext({
-      messageText: '',
-      callbackData: `role_game:schedule:${game.id}`,
-      roleGameRepository,
-      scheduleRepository,
-    });
-
-    assert.equal(await handleTelegramRoleGameCallback(scheduleContext), true);
-    assert.equal(getCurrentSession(scheduleContext), null);
-    assert.equal(await scheduleRepository.findEventById(1), null);
-    assert.match(lastReply(scheduleContext).message, /No tienes permisos/);
-  }
+  assert.equal(await handleTelegramRoleGameCallback(context), true);
+  assert.equal(getCurrentSession(context), null);
+  assert.match(lastReply(context).message, /No tienes permisos/);
 });
 
 test('handleTelegramRoleGameCallback lets managers configure recurrence with confirmation', async () => {

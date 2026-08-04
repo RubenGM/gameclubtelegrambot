@@ -79,6 +79,7 @@ import {
 import {
   buildRoleGameHomeKeyboard,
   buildRoleGameCreateConfirmationKeyboard,
+  buildRoleGameCreationConfirmationKeyboard,
   buildRoleGameCreateStepKeyboard,
   buildRoleGameConfigurationKeyboard,
   buildRoleGameDashboardKeyboard,
@@ -174,6 +175,7 @@ type RoleGameCreateStep =
   | 'visibility'
   | 'entry-mode'
   | 'acceptance-mode'
+  | 'agenda-publication'
   | 'scheduling-mode'
   | 'recurrence-interval'
   | 'recurrence-weekday'
@@ -222,6 +224,7 @@ interface RoleGameCreateDraft {
   initialSessionTime?: string;
   agendaPreviewStartsAt?: string[];
   agendaPreviewSignature?: string;
+  publishToAgendaOnCreate?: boolean;
 }
 
 interface RoleGameManualSessionDraft {
@@ -773,6 +776,25 @@ async function handleRoleGameCreateStep(
         manual_review: texts.optionManualReview,
         auto_until_full: texts.optionAutoUntilFull,
       });
+      return advanceRoleGameCreate(context, language, 'agenda-publication', draft, texts.promptAgendaPublication, [
+        [{ text: texts.optionCreateWithoutAgenda, semanticRole: 'primary' }],
+        [{ text: texts.optionConfigureAgenda, semanticRole: 'success' }],
+      ]);
+    }
+    if (step === 'agenda-publication') {
+      draft.publishToAgendaOnCreate = parseCreateOption(text, {
+        without_agenda: texts.optionCreateWithoutAgenda,
+        with_agenda: texts.optionConfigureAgenda,
+      }) === 'with_agenda';
+      if (!draft.publishToAgendaOnCreate) {
+        draft.schedulingMode = 'manual';
+        draft.recurrenceRule = null;
+        draft.recurrenceWindowCount = 0;
+        delete draft.initialSessionDate;
+        delete draft.initialSessionTime;
+        await replyWithRoleGameCreateConfirmation(context, draft, language);
+        return true;
+      }
       if (draft.type === 'campaign') {
         return advanceRoleGameCreate(
           context,
@@ -810,6 +832,7 @@ async function handleRoleGameCreateStep(
     if (step === 'recurrence-interval') {
       const intervalWeeks = parseRoleGameFrequency(text, texts.optionNoFixedDays);
       if (intervalWeeks === null) {
+        draft.publishToAgendaOnCreate = false;
         draft.schedulingMode = 'manual';
         draft.recurrenceRule = null;
         draft.recurrenceWindowCount = 0;
@@ -890,7 +913,11 @@ async function handleRoleGameCreateStep(
       await replyWithRoleGameCreateConfirmation(context, draft, language);
       return true;
     }
-    if (step === 'confirm' && text === texts.confirmCreate) {
+    if (step === 'confirm' && text === (
+      draft.publishToAgendaOnCreate && (draft.agendaPreviewStartsAt?.length ?? 0) > 0
+        ? texts.confirmCreateWithAgenda
+        : texts.confirmCreateWithoutAgenda
+    )) {
       if (!await refreshRoleGameCreateAgendaPreviewIfChanged(context, draft, language)) {
         return true;
       }
@@ -918,7 +945,7 @@ async function handleRoleGameCreateStep(
         recurrenceRule: draft.recurrenceRule ?? null,
         recurrenceWindowCount: draft.recurrenceWindowCount ?? 0,
       });
-      const initialSession = draft.type === 'one_shot' && draft.initialSessionDate && draft.initialSessionTime
+      const initialSession = draft.publishToAgendaOnCreate && draft.type === 'one_shot' && draft.initialSessionDate && draft.initialSessionTime
         ? await createRoleGameScheduleSession({
           roleGameRepository: repository,
           scheduleRepository: resolveScheduleRepository(context),
@@ -932,8 +959,7 @@ async function handleRoleGameCreateStep(
         await runAfterScheduleSaveSideEffects(context, initialSession.event, 'created');
       }
       const recurringSessions: Awaited<ReturnType<typeof createRoleGameScheduleSession>>[] = [];
-      const autoSchedulingEnabled = await resolveRoleGameAutoSchedulingStore(context).isEnabled();
-      for (const startsAt of autoSchedulingEnabled && draft.schedulingMode === 'recurring' ? draft.agendaPreviewStartsAt ?? [] : []) {
+      for (const startsAt of draft.publishToAgendaOnCreate && draft.schedulingMode === 'recurring' ? draft.agendaPreviewStartsAt ?? [] : []) {
         const session = await createRoleGameScheduleSession({
           roleGameRepository: repository,
           scheduleRepository: resolveScheduleRepository(context),
@@ -3804,7 +3830,7 @@ function canScheduleManualRoleGameSession(
   game: RoleGameRecord,
   actorMember: RoleGameMemberRecord | null,
 ): boolean {
-  if (game.type !== 'campaign' || game.status !== 'active') {
+  if (game.status !== 'active') {
     return false;
   }
   const actor = {
@@ -3815,7 +3841,8 @@ function canScheduleManualRoleGameSession(
   if (canManageRoleGameOperationally(actor, game, actorMember)) {
     return true;
   }
-  return game.allowPlayerManualScheduling &&
+  return game.type === 'campaign' &&
+    game.allowPlayerManualScheduling &&
     actorMember?.role === 'player' &&
     actorMember.status === 'confirmed';
 }
@@ -4217,7 +4244,7 @@ async function replyWithRoleGameCreateConfirmation(
   draft.agendaPreviewStartsAt = buildRoleGameCreateAgendaPreview(
     draft,
     new Date(),
-    autoSchedulingSettings.enabled,
+    draft.publishToAgendaOnCreate === true,
     autoSchedulingSettings.maxFutureWeeks,
   );
   const game = buildRoleGameRecordFromCreateDraft(draft);
@@ -4235,7 +4262,10 @@ async function replyWithRoleGameCreateConfirmation(
     formatRoleGameDetailMessage({ game, language }),
     agendaConfirmation,
   ].filter((line): line is string => Boolean(line)).join('\n\n'), {
-    ...buildRoleGameCreateConfirmationKeyboard(language),
+    ...buildRoleGameCreationConfirmationKeyboard({
+      language,
+      publishToAgenda: draft.publishToAgendaOnCreate === true && draft.agendaPreviewStartsAt.length > 0,
+    }),
     parseMode: 'HTML',
   });
 }
@@ -4249,7 +4279,7 @@ async function refreshRoleGameCreateAgendaPreviewIfChanged(
   const currentPreview = buildRoleGameCreateAgendaPreview(
     draft,
     new Date(),
-    autoSchedulingSettings.enabled,
+    draft.publishToAgendaOnCreate === true,
     autoSchedulingSettings.maxFutureWeeks,
   );
   const game = buildRoleGameRecordFromCreateDraft(draft);
@@ -4269,6 +4299,9 @@ function buildRoleGameCreateAgendaPreview(
   includeRecurring = true,
   maxFutureWeeks = defaultRoleGameAutoSchedulingMaxFutureWeeks,
 ): string[] {
+  if (draft.publishToAgendaOnCreate !== true) {
+    return [];
+  }
   if (draft.type === 'one_shot' && draft.initialSessionDate && draft.initialSessionTime) {
     return [buildStartsAt(draft.initialSessionDate, draft.initialSessionTime)];
   }

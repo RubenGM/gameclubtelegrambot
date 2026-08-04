@@ -78,6 +78,20 @@ export function buildRoleGameCreateConfirmationKeyboard(language: BotLanguage = 
   ]);
 }
 
+export function buildRoleGameCreationConfirmationKeyboard({
+  language = 'ca',
+  publishToAgenda,
+}: {
+  language?: BotLanguage;
+  publishToAgenda: boolean;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [successButton(publishToAgenda ? texts.confirmCreateWithAgenda : texts.confirmCreateWithoutAgenda)],
+    [dangerButton(texts.cancel)],
+  ]);
+}
+
 export function buildRoleGameDashboardKeyboard({
   canManageParticipants = false,
   canViewCharacters = false,
