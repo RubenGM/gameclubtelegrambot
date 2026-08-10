@@ -91,7 +91,7 @@ Los secretos no se guardan en tablas ni en `runtime.json`:
 
 El proceso inicia workers internos para:
 
-- recordatorios de Agenda, préstamos y compras conjuntas cada minuto;
+- recordatorios de Agenda y compras conjuntas, y recordatorios semanales de préstamos, comprobados cada minuto;
 - expiración de Avisos, comprobada como máximo una vez cada quince minutos;
 - materialización automática de sesiones recurrentes de Rol cada minuto, si la
   feature está activada;

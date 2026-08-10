@@ -2870,6 +2870,21 @@ function registerCatalogReadCallbacks({
   bot.onCallback(catalogLoanCallbackPrefixes.create, async (context) => {
     await handleTelegramCatalogLoanCallback(context);
   });
+  bot.onCallback(catalogLoanCallbackPrefixes.adminCreate, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
+  bot.onCallback(catalogLoanCallbackPrefixes.adminBorrowerPage, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
+  bot.onCallback(catalogLoanCallbackPrefixes.adminSelectBorrower, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
+  bot.onCallback(catalogLoanCallbackPrefixes.adminConfirmCreate, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
+  bot.onCallback(catalogLoanCallbackPrefixes.adminCancelCreate, async (context) => {
+    await handleTelegramCatalogLoanCallback(context);
+  });
   bot.onCallback(catalogLoanCallbackPrefixes.return, async (context) => {
     await handleTelegramCatalogLoanCallback(context);
   });

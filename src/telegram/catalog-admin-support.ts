@@ -375,6 +375,9 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const i18n = createTelegramI18n(language);
   const texts = i18n.catalogAdmin;
+  const activeCatalogSession = context.runtime.session.current;
+  const isBrowseMenuSession = activeCatalogSession?.flowKey === browseFlowKey
+    && activeCatalogSession.stepKey === 'menu';
 
   if (updateBggCommandPattern.test(text)) {
     if (!canAdministerCatalog(context)) {
@@ -385,7 +388,7 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
     return true;
   }
 
-  if (isCatalogAdminSession(context.runtime.session.current?.flowKey)) {
+  if (isCatalogAdminSession(activeCatalogSession?.flowKey) && !isBrowseMenuSession) {
     return handleActiveCatalogSession(context, text);
   }
 
@@ -468,6 +471,9 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
     await context.runtime.session.start({ flowKey: bggCollectionImportFlowKey, stepKey: 'bgg-username', data: {} });
     await context.reply(texts.askBggCollectionUsername, buildSingleCancelKeyboard());
     return true;
+  }
+  if (isBrowseMenuSession) {
+    return handleActiveCatalogSession(context, text);
   }
   return false;
 }
@@ -2486,6 +2492,7 @@ async function showCatalogFamilyBrowse(context: TelegramCatalogAdminContext, fam
     const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
     return buildLoanItemButton(loan, item.id, item.displayName, catalogAdminCallbackPrefixes.inspect, language, loan ? canReturnLoan(context, loan) : true);
   }));
+  await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
   await context.reply(formatCatalogAdminFamilyBrowseMessage({
     family,
     texts,
@@ -2513,6 +2520,7 @@ async function showCatalogLettersBrowse(context: TelegramCatalogAdminContext, in
     .filter((item) => initialSet.has(getCatalogAdminItemInitial(item)));
 
   if (items.length === 0) {
+    await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
     await context.reply(`No he trobat cap item per a ${normalizedInitials}.`, {
       inlineKeyboard: [[{ text: texts.browseBack, callbackData: catalogAdminCallbackPrefixes.browseMenu }]],
     });
@@ -2527,6 +2535,7 @@ async function showCatalogLettersBrowse(context: TelegramCatalogAdminContext, in
   const itemLines = await Promise.all(sortedItems
     .map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)));
 
+  await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
   await context.reply([`<b>${formatCatalogInitialsLabel(normalizedInitials)}</b>`, ...itemLines].join('\n'), {
     parseMode: 'HTML',
   });
@@ -2551,7 +2560,7 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
   if (stepKey === 'detail') {
     return handleCatalogAdminDetailKeyboardText(context, text, data, language);
   }
-  if (stepKey !== 'search-query') {
+  if (stepKey !== 'search-query' && stepKey !== 'menu') {
     return false;
   }
 
@@ -2568,7 +2577,7 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
   const matches = searchCatalogItemsByName({ items, groups, families, query });
   const loanRepository = resolveCatalogLoanRepository(context);
 
-  await context.runtime.session.cancel();
+  await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
 
   if (matches.length === 0) {
     await context.reply(`No he trobat cap coincidencia per a "${query}".`, {
@@ -2615,6 +2624,7 @@ async function handleCatalogAdminDetailKeyboardText(
   const previousCallbackData = context.callbackData;
   context.callbackData = action.callbackData;
   if (action.callbackData.startsWith(catalogLoanCallbackPrefixes.create)
+    || action.callbackData.startsWith(catalogLoanCallbackPrefixes.adminCreate)
     || action.callbackData.startsWith(catalogLoanCallbackPrefixes.return)
     || action.callbackData === catalogLoanCallbackPrefixes.openMyLoans) {
     try {
@@ -2646,6 +2656,9 @@ async function replyWithCatalogList(
   itemTypeFilter?: CatalogItemType,
 ): Promise<void> {
   const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
+  if (mode === 'list') {
+    await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
+  }
   const items = (await listCatalogItems({ repository: resolveCatalogRepository(context), includeDeactivated: false }))
     .filter((item) => itemTypeFilter ? item.itemType === itemTypeFilter : item.itemType !== 'expansion');
   if (items.length === 0) {
@@ -2889,6 +2902,7 @@ async function buildCatalogItemDetailButtons(
       media,
       language,
       canAdminister: canAdministerCatalog(context),
+      isAdmin: context.runtime.actor.isAdmin,
       canReturnLoan: loan ? canReturnLoan(context, loan) : true,
       editPrefix: catalogAdminCallbackPrefixes.edit,
       createActivityPrefix: catalogAdminCallbackPrefixes.createActivity,

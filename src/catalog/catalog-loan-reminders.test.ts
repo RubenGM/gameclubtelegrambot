@@ -6,43 +6,44 @@ import { sendDueCatalogLoanReminders, type CatalogLoanReminderRepository } from 
 
 const now = new Date('2026-05-09T10:00:00.000Z');
 
-test('sendDueCatalogLoanReminders sends due-soon reminders inside the lead window', async () => {
+test('sendDueCatalogLoanReminders sends the first weekly reminder after seven days with a return button', async () => {
   const reminderRepository = createReminderRepository();
-  const sent: Array<{ telegramUserId: number; message: string }> = [];
+  const sent: Array<{ telegramUserId: number; message: string; options?: unknown }> = [];
 
   const result = await sendDueCatalogLoanReminders({
     catalogLoanRepository: createLoanRepository([
-      createLoan({ id: 1, dueAt: '2026-05-10T09:00:00.000Z', itemDisplayName: 'Catan' }),
+      createLoan({ id: 1, createdAt: '2026-05-02T09:00:00.000Z', dueAt: null, itemDisplayName: 'Catan' }),
     ]),
     reminderRepository,
     now,
-    leadHours: 24,
     language: 'es',
-    sendPrivateMessage: async (telegramUserId, message) => {
-      sent.push({ telegramUserId, message });
+    sendPrivateMessage: async (telegramUserId, message, options) => {
+      sent.push({ telegramUserId, message, options });
     },
   });
 
   assert.deepEqual(result, { consideredLoans: 1, sentReminders: 1, skippedReminders: 0, failedReminders: 0 });
   assert.deepEqual(reminderRepository.records, [
-    { loanId: 1, borrowerTelegramUserId: 77, reminderKind: 'due_soon', leadHours: 24 },
+    { loanId: 1, borrowerTelegramUserId: 77, reminderKind: 'weekly', leadHours: 168 },
   ]);
   assert.equal(sent[0]?.telegramUserId, 77);
   assert.match(sent[0]?.message ?? '', /Catan/);
-  assert.match(sent[0]?.message ?? '', /debe devolverse/);
+  assert.match(sent[0]?.message ?? '', /Aún tienes/);
+  assert.deepEqual(sent[0]?.options, {
+    inlineKeyboard: [[{ text: '✅ Ya lo he devuelto', callbackData: 'catalog_loan:return:1' }]],
+  });
 });
 
-test('sendDueCatalogLoanReminders sends overdue reminders once', async () => {
+test('sendDueCatalogLoanReminders sends one reminder for each reached week', async () => {
   const reminderRepository = createReminderRepository();
   const sent: string[] = [];
 
   const result = await sendDueCatalogLoanReminders({
     catalogLoanRepository: createLoanRepository([
-      createLoan({ id: 2, dueAt: '2026-05-08T09:00:00.000Z', itemDisplayName: 'Dune' }),
+      createLoan({ id: 2, createdAt: '2026-04-25T09:00:00.000Z', dueAt: '2026-05-08T09:00:00.000Z', itemDisplayName: 'Dune' }),
     ]),
     reminderRepository,
     now,
-    leadHours: 24,
     language: 'en',
     sendPrivateMessage: async (_telegramUserId, message) => {
       sent.push(message);
@@ -51,23 +52,22 @@ test('sendDueCatalogLoanReminders sends overdue reminders once', async () => {
 
   assert.deepEqual(result, { consideredLoans: 1, sentReminders: 1, skippedReminders: 0, failedReminders: 0 });
   assert.deepEqual(reminderRepository.records, [
-    { loanId: 2, borrowerTelegramUserId: 77, reminderKind: 'overdue', leadHours: null },
+    { loanId: 2, borrowerTelegramUserId: 77, reminderKind: 'weekly', leadHours: 336 },
   ]);
   assert.match(sent[0] ?? '', /was due back/);
 });
 
 test('sendDueCatalogLoanReminders skips reminders already recorded', async () => {
   const reminderRepository = createReminderRepository([
-    { loanId: 1, borrowerTelegramUserId: 77, reminderKind: 'due_soon', leadHours: 24 },
+    { loanId: 1, borrowerTelegramUserId: 77, reminderKind: 'weekly', leadHours: 168 },
   ]);
 
   const result = await sendDueCatalogLoanReminders({
     catalogLoanRepository: createLoanRepository([
-      createLoan({ id: 1, dueAt: '2026-05-10T09:00:00.000Z' }),
+      createLoan({ id: 1, createdAt: '2026-05-02T09:00:00.000Z' }),
     ]),
     reminderRepository,
     now,
-    leadHours: 24,
     language: 'ca',
     sendPrivateMessage: async () => {
       throw new Error('should not send');
@@ -76,7 +76,7 @@ test('sendDueCatalogLoanReminders skips reminders already recorded', async () =>
 
   assert.deepEqual(result, { consideredLoans: 1, sentReminders: 0, skippedReminders: 1, failedReminders: 0 });
   assert.deepEqual(reminderRepository.records, [
-    { loanId: 1, borrowerTelegramUserId: 77, reminderKind: 'due_soon', leadHours: 24 },
+    { loanId: 1, borrowerTelegramUserId: 77, reminderKind: 'weekly', leadHours: 168 },
   ]);
 });
 
@@ -86,12 +86,11 @@ test('sendDueCatalogLoanReminders does not record failed sends and continues the
 
   const result = await sendDueCatalogLoanReminders({
     catalogLoanRepository: createLoanRepository([
-      createLoan({ id: 1, borrowerTelegramUserId: 77, dueAt: '2026-05-10T09:00:00.000Z' }),
-      createLoan({ id: 2, borrowerTelegramUserId: 88, dueAt: '2026-05-10T09:00:00.000Z' }),
+      createLoan({ id: 1, borrowerTelegramUserId: 77, createdAt: '2026-05-02T09:00:00.000Z' }),
+      createLoan({ id: 2, borrowerTelegramUserId: 88, createdAt: '2026-05-02T09:00:00.000Z' }),
     ]),
     reminderRepository,
     now,
-    leadHours: 24,
     language: 'ca',
     sendPrivateMessage: async (telegramUserId) => {
       if (telegramUserId === 77) {
@@ -104,20 +103,19 @@ test('sendDueCatalogLoanReminders does not record failed sends and continues the
   assert.deepEqual(result, { consideredLoans: 2, sentReminders: 1, skippedReminders: 0, failedReminders: 1 });
   assert.deepEqual(sent, [88]);
   assert.deepEqual(reminderRepository.records, [
-    { loanId: 2, borrowerTelegramUserId: 88, reminderKind: 'due_soon', leadHours: 24 },
+    { loanId: 2, borrowerTelegramUserId: 88, reminderKind: 'weekly', leadHours: 168 },
   ]);
 });
 
-test('sendDueCatalogLoanReminders skips defensive records without due date', async () => {
+test('sendDueCatalogLoanReminders skips loans younger than seven days', async () => {
   const reminderRepository = createReminderRepository();
 
   const result = await sendDueCatalogLoanReminders({
     catalogLoanRepository: createLoanRepository([
-      createLoan({ id: 1, dueAt: null }),
+      createLoan({ id: 1, createdAt: '2026-05-03T10:00:00.000Z', dueAt: null }),
     ]),
     reminderRepository,
     now,
-    leadHours: 24,
     language: 'ca',
     sendPrivateMessage: async () => {
       throw new Error('should not send');
@@ -130,7 +128,7 @@ test('sendDueCatalogLoanReminders skips defensive records without due date', asy
 
 function createLoanRepository(loans: CatalogLoanWithItemRecord[]): CatalogLoanRepository {
   return {
-    listActiveLoansDueBefore: async () => loans,
+    listActiveLoansWithItems: async () => loans,
   } as unknown as CatalogLoanRepository;
 }
 

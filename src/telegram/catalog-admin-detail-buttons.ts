@@ -10,6 +10,7 @@ export function buildCatalogAdminItemDetailButtons({
   media,
   language,
   canAdminister,
+  isAdmin,
   canReturnLoan,
   editPrefix,
   createActivityPrefix,
@@ -30,6 +31,7 @@ export function buildCatalogAdminItemDetailButtons({
   media: CatalogMediaRecord[];
   language: 'ca' | 'es' | 'en';
   canAdminister: boolean;
+  isAdmin: boolean;
   canReturnLoan: boolean;
   editPrefix: string;
   createActivityPrefix: string;
@@ -50,7 +52,7 @@ export function buildCatalogAdminItemDetailButtons({
     : [];
 
   if (!canAdminister) {
-    return [...createActivityButtons, ...buildLoanDetailButtons({ loan, itemId, language, canReturn: canReturnLoan })];
+    return [...createActivityButtons, ...buildLoanDetailButtons({ loan, itemId, language, canReturn: canReturnLoan, canCreateForMember: isAdmin })];
   }
 
   return [
@@ -69,6 +71,6 @@ export function buildCatalogAdminItemDetailButtons({
       { text: `${texts.confirmMediaEdit} #${entry.id}`, callbackData: `${editMediaPrefix}${entry.id}` },
       { text: `${texts.confirmMediaDelete} #${entry.id}`, callbackData: `${deleteMediaPrefix}${entry.id}` },
     ]]),
-    ...buildLoanDetailButtons({ loan, itemId, language, deleteCallbackData: `${deactivatePrefix}${itemId}`, canReturn: canReturnLoan }),
+    ...buildLoanDetailButtons({ loan, itemId, language, deleteCallbackData: `${deactivatePrefix}${itemId}`, canReturn: canReturnLoan, canCreateForMember: isAdmin }),
   ];
 }

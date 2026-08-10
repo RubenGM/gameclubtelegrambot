@@ -114,7 +114,6 @@ export function createApp({
           await sendDueCatalogLoanReminders({
             catalogLoanRepository: createDatabaseCatalogLoanRepository({ database: services.database.db }),
             reminderRepository: createDatabaseCatalogLoanReminderRepository({ database: services.database.db }),
-            leadHours: config.notifications.defaults.eventReminderLeadHours,
             language: config.bot.language,
             sendPrivateMessage: telegram.sendPrivateMessage,
           });

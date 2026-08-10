@@ -6,6 +6,7 @@ import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { NewsGroupRecord, NewsGroupRepository } from '../news/news-group-catalog.js';
+import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import {
   catalogLoanCallbackPrefixes,
   buildLoanDetailButtons,
@@ -130,6 +131,7 @@ function createContext({
   catalogLoanRepository,
   loanSession = null,
   newsGroupRepository = createNewsGroupRepository(),
+  membershipRepository,
   isAdmin = false,
   language = 'ca',
 }: {
@@ -137,6 +139,7 @@ function createContext({
   catalogLoanRepository: CatalogLoanRepository;
   loanSession?: ConversationSessionRecord | null;
   newsGroupRepository?: NewsGroupRepository;
+  membershipRepository?: MembershipAccessRepository;
   isAdmin?: boolean;
   language?: 'ca' | 'es' | 'en';
 }): {
@@ -209,10 +212,22 @@ function createContext({
       catalogRepository,
       catalogLoanRepository,
       newsGroupRepository,
+      ...(membershipRepository ? { membershipRepository } : {}),
     } as unknown as TelegramCommandHandlerContext,
     replies,
     groupMessages,
   };
+}
+
+function createMembershipRepository(users: MembershipUserRecord[]): MembershipAccessRepository {
+  const userMap = new Map(users.map((user) => [user.telegramUserId, user]));
+  return {
+    async findUserByTelegramUserId(telegramUserId: number) { return userMap.get(telegramUserId) ?? null; },
+    async listManageableUsers() { return Array.from(userMap.values()); },
+    async listPendingUsers() { return []; },
+    async listRevocableUsers() { return Array.from(userMap.values()).filter((user) => user.status === 'approved' && !user.isAdmin); },
+    async listApprovedAdminUsers() { return Array.from(userMap.values()).filter((user) => user.status === 'approved' && user.isAdmin); },
+  } as unknown as MembershipAccessRepository;
 }
 
 function createNewsGroupRepository(
@@ -393,6 +408,162 @@ test('catalog loan callback blocks returns from unrelated normal users', async (
   assert.equal((await catalogLoanRepository.findLoanById(1))?.returnedAt, null);
 });
 
+test('admin can select an approved member, confirm, and register a loan on their behalf', async () => {
+  const catalogRepository = createCatalogRepository([{
+    id: 1,
+    familyId: null,
+    groupId: null,
+    itemType: 'board-game',
+    displayName: 'Catan',
+    originalName: null,
+    description: null,
+    language: null,
+    publisher: null,
+    publicationYear: null,
+    playerCountMin: null,
+    playerCountMax: null,
+    recommendedAge: null,
+    playTimeMinutes: null,
+    externalRefs: null,
+    metadata: null,
+    lifecycleStatus: 'active',
+    createdAt: '2026-08-10T10:00:00.000Z',
+    updatedAt: '2026-08-10T10:00:00.000Z',
+    deactivatedAt: null,
+  }]);
+  const catalogLoanRepository = createLoanRepository();
+  const users: MembershipUserRecord[] = [
+    { telegramUserId: 7, username: 'admin', displayName: 'Admin', status: 'approved', isAdmin: true },
+    { telegramUserId: 77, username: 'albert', displayName: 'Albert', status: 'approved', isAdmin: false },
+    { telegramUserId: 88, displayName: 'Pending', status: 'pending', isAdmin: false },
+  ];
+  const { context, replies } = createContext({
+    catalogRepository,
+    catalogLoanRepository,
+    membershipRepository: createMembershipRepository(users),
+    isAdmin: true,
+    language: 'es',
+  });
+
+  context.callbackData = `${catalogLoanCallbackPrefixes.adminCreate}1`;
+  await handleTelegramCatalogLoanCallback(context);
+
+  assert.match(replies[0]?.message ?? '', /¿Quién se lleva Catan\?/);
+  assert.match(replies[0]?.message ?? '', /Albert/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Pending/);
+  assert.ok(replies[0]?.options?.inlineKeyboard?.flat().some((button) => (
+    button.callbackData === `${catalogLoanCallbackPrefixes.adminSelectBorrower}1:77`
+  )));
+
+  replies.length = 0;
+  context.callbackData = `${catalogLoanCallbackPrefixes.adminSelectBorrower}1:77`;
+  await handleTelegramCatalogLoanCallback(context);
+
+  assert.match(replies[0]?.message ?? '', /Confirma el préstamo/);
+  assert.match(replies[0]?.message ?? '', /Albert/);
+
+  replies.length = 0;
+  context.callbackData = `${catalogLoanCallbackPrefixes.adminConfirmCreate}1:77`;
+  await handleTelegramCatalogLoanCallback(context);
+
+  const loan = await catalogLoanRepository.findActiveLoanByItemId(1);
+  assert.equal(loan?.borrowerTelegramUserId, 77);
+  assert.equal(loan?.borrowerDisplayName, 'Albert (@albert)');
+  assert.equal(loan?.loanedByTelegramUserId, 7);
+  assert.match(replies[0]?.message ?? '', /Préstamo registrado: Catan para Albert/);
+});
+
+test('admin borrower selector paginates and non-admins cannot open it', async () => {
+  const catalogRepository = createCatalogRepository([{
+    id: 1,
+    familyId: null,
+    groupId: null,
+    itemType: 'board-game',
+    displayName: 'Catan',
+    originalName: null,
+    description: null,
+    language: null,
+    publisher: null,
+    publicationYear: null,
+    playerCountMin: null,
+    playerCountMax: null,
+    recommendedAge: null,
+    playTimeMinutes: null,
+    externalRefs: null,
+    metadata: null,
+    lifecycleStatus: 'active',
+    createdAt: '2026-08-10T10:00:00.000Z',
+    updatedAt: '2026-08-10T10:00:00.000Z',
+    deactivatedAt: null,
+  }]);
+  const members = Array.from({ length: 10 }, (_, index): MembershipUserRecord => ({
+    telegramUserId: 100 + index,
+    displayName: `Member ${String(index + 1).padStart(2, '0')}`,
+    status: 'approved',
+    isAdmin: false,
+  }));
+  const membershipRepository = createMembershipRepository(members);
+  const catalogLoanRepository = createLoanRepository();
+  const admin = createContext({ catalogRepository, catalogLoanRepository, membershipRepository, isAdmin: true, language: 'en' });
+  admin.context.callbackData = `${catalogLoanCallbackPrefixes.adminCreate}1`;
+  await handleTelegramCatalogLoanCallback(admin.context);
+
+  assert.match(admin.replies[0]?.message ?? '', /Showing 1-8 of 10\. Page 1\/2\./);
+  assert.deepEqual(admin.replies[0]?.options?.inlineKeyboard?.at(-2), [{
+    text: 'Next',
+    callbackData: `${catalogLoanCallbackPrefixes.adminBorrowerPage}1:2`,
+  }]);
+
+  const member = createContext({ catalogRepository, catalogLoanRepository, membershipRepository, language: 'es' });
+  member.context.callbackData = `${catalogLoanCallbackPrefixes.adminCreate}1`;
+  await handleTelegramCatalogLoanCallback(member.context);
+  assert.equal(member.replies[0]?.message, 'Solo los admins pueden registrar un préstamo para otro socio.');
+});
+
+test('return callback is idempotent and does not publish a second return', async () => {
+  const catalogRepository = createCatalogRepository([{
+    id: 1,
+    familyId: null,
+    groupId: null,
+    itemType: 'board-game',
+    displayName: 'Catan',
+    originalName: null,
+    description: null,
+    language: null,
+    publisher: null,
+    publicationYear: null,
+    playerCountMin: null,
+    playerCountMax: null,
+    recommendedAge: null,
+    playTimeMinutes: null,
+    externalRefs: null,
+    metadata: null,
+    lifecycleStatus: 'active',
+    createdAt: '2026-08-10T10:00:00.000Z',
+    updatedAt: '2026-08-10T10:00:00.000Z',
+    deactivatedAt: null,
+  }]);
+  const catalogLoanRepository = createLoanRepository([{
+    id: 1,
+    itemId: 1,
+    borrowerTelegramUserId: 7,
+    borrowerDisplayName: 'Anna',
+    loanedByTelegramUserId: 7,
+    dueAt: null,
+    notes: null,
+    returnedAt: '2026-08-10T11:00:00.000Z',
+    returnedByTelegramUserId: 7,
+    createdAt: '2026-08-01T10:00:00.000Z',
+    updatedAt: '2026-08-10T11:00:00.000Z',
+  }]);
+  const { context, replies, groupMessages } = createContext({ catalogRepository, catalogLoanRepository, language: 'es' });
+  context.callbackData = `${catalogLoanCallbackPrefixes.return}1`;
+  await handleTelegramCatalogLoanCallback(context);
+
+  assert.equal(replies[0]?.message, 'Este préstamo ya constaba como devuelto.');
+  assert.equal(groupMessages.length, 0);
+});
+
 test('loan detail buttons use the updated borrow and delete labels', async () => {
   const loan: CatalogLoanRecord = {
     id: 7,
@@ -418,6 +589,14 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
   assert.equal(availableRows[0]?.[0]?.text, 'Prendre prestat');
   assert.equal(availableRows[1]?.[0]?.text, 'Eliminar ítem');
   assert.equal(availableRows[2]?.[0]?.text, 'Veure préstecs');
+  const adminAvailableRows = buildLoanDetailButtons({
+    loan: null,
+    itemId: 11,
+    language: 'es',
+    canCreateForMember: true,
+  });
+  assert.equal(adminAvailableRows[1]?.[0]?.text, 'Registrar préstamo');
+  assert.equal(adminAvailableRows[1]?.[0]?.callbackData, `${catalogLoanCallbackPrefixes.adminCreate}11`);
 
   const borrowedRows = buildLoanDetailButtons({
     loan,

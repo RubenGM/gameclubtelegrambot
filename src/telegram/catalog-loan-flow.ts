@@ -29,11 +29,17 @@ export const catalogLoanCallbackPrefixes = {
   adminDashboard: 'catalog_loan:admin_dashboard',
   adminDashboardPage: 'catalog_loan:admin_dashboard:',
   create: 'catalog_loan:create:',
+  adminCreate: 'catalog_loan:admin_create:',
+  adminBorrowerPage: 'catalog_loan:borrower_page:',
+  adminSelectBorrower: 'catalog_loan:select_borrower:',
+  adminConfirmCreate: 'catalog_loan:confirm_create:',
+  adminCancelCreate: 'catalog_loan:cancel_create:',
   return: 'catalog_loan:return:',
   edit: 'catalog_loan:edit:',
 } as const;
 
 const adminLoanDashboardPageSize = 5;
+const adminBorrowerSelectorPageSize = 8;
 
 export type TelegramCatalogLoanContext = TelegramCommandHandlerContext & {
   catalogRepository?: CatalogRepository;
@@ -112,6 +118,51 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
     return true;
   }
 
+  if (callbackData.startsWith(catalogLoanCallbackPrefixes.adminCreate)) {
+    if (!await ensureAdminLoanCreationAccess(context)) {
+      return true;
+    }
+    const itemId = parseEntityId(callbackData, catalogLoanCallbackPrefixes.adminCreate);
+    await showAdminBorrowerSelector(context, itemId, 1);
+    return true;
+  }
+
+  if (callbackData.startsWith(catalogLoanCallbackPrefixes.adminBorrowerPage)) {
+    if (!await ensureAdminLoanCreationAccess(context)) {
+      return true;
+    }
+    const [itemId, page] = parseEntityIdPair(callbackData, catalogLoanCallbackPrefixes.adminBorrowerPage);
+    await showAdminBorrowerSelector(context, itemId, page);
+    return true;
+  }
+
+  if (callbackData.startsWith(catalogLoanCallbackPrefixes.adminSelectBorrower)) {
+    if (!await ensureAdminLoanCreationAccess(context)) {
+      return true;
+    }
+    const [itemId, borrowerTelegramUserId] = parseEntityIdPair(callbackData, catalogLoanCallbackPrefixes.adminSelectBorrower);
+    await showAdminLoanConfirmation(context, itemId, borrowerTelegramUserId);
+    return true;
+  }
+
+  if (callbackData.startsWith(catalogLoanCallbackPrefixes.adminConfirmCreate)) {
+    if (!await ensureAdminLoanCreationAccess(context)) {
+      return true;
+    }
+    const [itemId, borrowerTelegramUserId] = parseEntityIdPair(callbackData, catalogLoanCallbackPrefixes.adminConfirmCreate);
+    await createAdminLoanForMember(context, itemId, borrowerTelegramUserId);
+    return true;
+  }
+
+  if (callbackData.startsWith(catalogLoanCallbackPrefixes.adminCancelCreate)) {
+    if (!await ensureAdminLoanCreationAccess(context)) {
+      return true;
+    }
+    const itemId = parseEntityId(callbackData, catalogLoanCallbackPrefixes.adminCancelCreate);
+    await replyWithItemDetail(context, itemId, language);
+    return true;
+  }
+
   if (callbackData.startsWith(catalogLoanCallbackPrefixes.create)) {
     const itemId = parseEntityId(callbackData, catalogLoanCallbackPrefixes.create);
     const repository = resolveLoanRepository(context);
@@ -147,6 +198,10 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
     }
     if (!canReturnLoan(context, loan)) {
       await context.reply(texts.noPermission);
+      return true;
+    }
+    if (loan.returnedAt) {
+      await context.reply(texts.alreadyReturned);
       return true;
     }
     const item = await resolveCatalogItem(context, loan.itemId);
@@ -330,6 +385,7 @@ export function buildLoanDetailButtons({
   deleteCallbackData,
   includeAdminDashboard = false,
   canReturn = true,
+  canCreateForMember = false,
 }: {
   loan: CatalogLoanRecord | null;
   itemId: number;
@@ -337,6 +393,7 @@ export function buildLoanDetailButtons({
   deleteCallbackData?: string;
   includeAdminDashboard?: boolean;
   canReturn?: boolean;
+  canCreateForMember?: boolean;
 }): TelegramInlineButton[][] {
   const texts = createTelegramI18n(language).catalogLoan;
   const rows: TelegramInlineButton[][] = [];
@@ -344,6 +401,9 @@ export function buildLoanDetailButtons({
     rows.push([{ text: texts.retornar, callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` }]);
   } else if (!loan) {
     rows.push([{ text: texts.prendrePrestat, callbackData: `${catalogLoanCallbackPrefixes.create}${itemId}` }]);
+    if (canCreateForMember) {
+      rows.push([{ text: texts.adminCreate, callbackData: `${catalogLoanCallbackPrefixes.adminCreate}${itemId}` }]);
+    }
   }
 
   if (deleteCallbackData) {
@@ -428,6 +488,178 @@ function buildSingleCancelKeyboard(): TelegramReplyOptions {
   };
 }
 
+async function ensureAdminLoanCreationAccess(context: TelegramCatalogLoanContext): Promise<boolean> {
+  if (context.runtime.chat.kind === 'private' && context.runtime.actor.isAdmin) {
+    return true;
+  }
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  await context.reply(createTelegramI18n(language).catalogLoan.adminCreateNoPermission);
+  return false;
+}
+
+async function showAdminBorrowerSelector(
+  context: TelegramCatalogLoanContext,
+  itemId: number,
+  requestedPage: number,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogLoan;
+  const item = await resolveCatalogItem(context, itemId);
+  if (!item) {
+    throw new Error(`Catalog item ${itemId} not found`);
+  }
+  if (await resolveLoanRepository(context).findActiveLoanByItemId(itemId)) {
+    await context.reply(texts.adminCreateAlreadyLoaned);
+    return;
+  }
+
+  const users = await listApprovedLoanBorrowers(context);
+  if (users.length === 0) {
+    await context.reply(texts.adminBorrowerSelectorEmpty);
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(users.length / adminBorrowerSelectorPageSize));
+  const page = Math.min(Math.max(1, requestedPage), totalPages);
+  const firstIndex = (page - 1) * adminBorrowerSelectorPageSize;
+  const pageUsers = users.slice(firstIndex, firstIndex + adminBorrowerSelectorPageSize);
+  const footer = language === 'ca'
+    ? `Mostrant ${firstIndex + 1}-${firstIndex + pageUsers.length} de ${users.length}. Pàgina ${page}/${totalPages}.`
+    : language === 'es'
+      ? `Mostrando ${firstIndex + 1}-${firstIndex + pageUsers.length} de ${users.length}. Página ${page}/${totalPages}.`
+      : `Showing ${firstIndex + 1}-${firstIndex + pageUsers.length} of ${users.length}. Page ${page}/${totalPages}.`;
+  const inlineKeyboard: NonNullable<TelegramReplyOptions['inlineKeyboard']> = pageUsers.map((user) => [{
+    text: user.displayName,
+    callbackData: `${catalogLoanCallbackPrefixes.adminSelectBorrower}${itemId}:${user.telegramUserId}`,
+  }]);
+  const navigation: NonNullable<TelegramReplyOptions['inlineKeyboard']>[number] = [];
+  if (page > 1) {
+    navigation.push({
+      text: texts.adminDashboardPrev,
+      callbackData: `${catalogLoanCallbackPrefixes.adminBorrowerPage}${itemId}:${page - 1}`,
+    });
+  }
+  if (page < totalPages) {
+    navigation.push({
+      text: texts.adminDashboardNext,
+      callbackData: `${catalogLoanCallbackPrefixes.adminBorrowerPage}${itemId}:${page + 1}`,
+    });
+  }
+  if (navigation.length > 0) {
+    inlineKeyboard.push(navigation);
+  }
+  inlineKeyboard.push([{
+    text: texts.adminCreateCancel,
+    callbackData: `${catalogLoanCallbackPrefixes.adminCancelCreate}${itemId}`,
+  }]);
+
+  await context.reply([
+    texts.adminBorrowerSelectorTitle.replace('{item}', escapeHtml(item.displayName)),
+    '',
+    ...pageUsers.map((user) => `- ${formatTelegramUserLink(user)}`),
+    '',
+    footer,
+  ].join('\n'), { parseMode: 'HTML', inlineKeyboard });
+}
+
+async function showAdminLoanConfirmation(
+  context: TelegramCatalogLoanContext,
+  itemId: number,
+  borrowerTelegramUserId: number,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogLoan;
+  const item = await resolveCatalogItem(context, itemId);
+  if (!item) {
+    throw new Error(`Catalog item ${itemId} not found`);
+  }
+  const borrower = await loadApprovedLoanBorrower(context, borrowerTelegramUserId);
+  if (!borrower) {
+    await context.reply(texts.adminBorrowerUnavailable);
+    return;
+  }
+  if (await resolveLoanRepository(context).findActiveLoanByItemId(itemId)) {
+    await context.reply(texts.adminCreateAlreadyLoaned);
+    return;
+  }
+
+  await context.reply(
+    texts.adminCreateConfirm
+      .replace('{item}', escapeHtml(item.displayName))
+      .replace('{borrower}', formatTelegramUserLink(borrower)),
+    {
+      parseMode: 'HTML',
+      inlineKeyboard: [[
+        {
+          text: texts.adminCreateConfirmButton,
+          callbackData: `${catalogLoanCallbackPrefixes.adminConfirmCreate}${itemId}:${borrowerTelegramUserId}`,
+        },
+        {
+          text: texts.adminCreateCancel,
+          callbackData: `${catalogLoanCallbackPrefixes.adminCancelCreate}${itemId}`,
+        },
+      ]],
+    },
+  );
+}
+
+async function createAdminLoanForMember(
+  context: TelegramCatalogLoanContext,
+  itemId: number,
+  borrowerTelegramUserId: number,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogLoan;
+  const item = await resolveCatalogItem(context, itemId);
+  if (!item) {
+    throw new Error(`Catalog item ${itemId} not found`);
+  }
+  const borrower = await loadApprovedLoanBorrower(context, borrowerTelegramUserId);
+  if (!borrower) {
+    await context.reply(texts.adminBorrowerUnavailable);
+    return;
+  }
+
+  await resolveLoanRepository(context).createLoan({
+    itemId,
+    borrowerTelegramUserId,
+    borrowerDisplayName: formatMembershipDisplayName(borrower),
+    loanedByTelegramUserId: context.runtime.actor.telegramUserId,
+    dueAt: null,
+    notes: null,
+  });
+  await context.reply(texts.adminCreated
+    .replace('{item}', item.displayName)
+    .replace('{borrower}', formatMembershipDisplayName(borrower)));
+  await replyWithItemDetail(context, itemId, language);
+  await publishCatalogLoanNewsGroups(context, {
+    action: 'borrowed',
+    item,
+    userName: formatMembershipDisplayName(borrower),
+  });
+}
+
+async function listApprovedLoanBorrowers(context: TelegramCatalogLoanContext): Promise<MembershipUserRecord[]> {
+  const repository = resolveMembershipRepository(context);
+  if (!repository) {
+    return [];
+  }
+  const users = repository.listManageableUsers
+    ? await repository.listManageableUsers()
+    : [...await repository.listApprovedAdminUsers(), ...await repository.listRevocableUsers()];
+  return users
+    .filter((user) => user.status === 'approved')
+    .sort((left, right) => left.displayName.localeCompare(right.displayName) || left.telegramUserId - right.telegramUserId);
+}
+
+async function loadApprovedLoanBorrower(
+  context: TelegramCatalogLoanContext,
+  telegramUserId: number,
+): Promise<MembershipUserRecord | null> {
+  const user = await loadMembershipUser(context, telegramUserId);
+  return user?.status === 'approved' ? user : null;
+}
+
 async function buildItemLoanNavigationOptions(
   context: TelegramCatalogLoanContext,
   itemId: number,
@@ -439,6 +671,7 @@ async function buildItemLoanNavigationOptions(
     itemId,
     language,
     canReturn: loan ? canReturnLoan(context, loan) : true,
+    canCreateForMember: context.runtime.actor.isAdmin,
   });
   return { inlineKeyboard };
 }
@@ -461,6 +694,7 @@ async function replyWithItemDetail(
     language,
     ...(context.runtime.actor.isAdmin ? { deleteCallbackData: `${catalogAdminDeactivateCallbackPrefix}${itemId}` } : {}),
     canReturn: loan ? canReturnLoan(context, loan) : true,
+    canCreateForMember: context.runtime.actor.isAdmin,
   });
 
   if (context.runtime.actor.isAdmin) {
@@ -604,6 +838,18 @@ function parseEntityId(callbackData: string, prefix: string): number {
     throw new Error('No s ha pogut identificar l element seleccionat.');
   }
   return value;
+}
+
+function parseEntityIdPair(callbackData: string, prefix: string): [number, number] {
+  const [firstValue, secondValue, ...extraValues] = callbackData.slice(prefix.length).split(':').map(Number);
+  if (extraValues.length > 0
+    || !Number.isInteger(firstValue)
+    || !Number.isInteger(secondValue)
+    || (firstValue ?? 0) <= 0
+    || (secondValue ?? 0) <= 0) {
+    throw new Error('No s han pogut identificar els elements seleccionats.');
+  }
+  return [firstValue as number, secondValue as number];
 }
 
 function parseDashboardPage(callbackData: string): number {

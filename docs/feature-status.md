@@ -24,7 +24,7 @@ Este documento refleja lo que existe en el código actual, no solo lo que aparec
 | Google Calendar                              | 🟢 Operativo        | Selección admin, acceso público/privado, sincronización Agenda → Google y enlace limpio desde grupos/topics.                          |
 | Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
 | Catálogo                                     | 🟢 Operativo        | CRUD, familias, búsqueda, media URL/adjunto con Storage, BGG/Open Library/Wikipedia y procesos con progreso editable.                 |
-| Préstamos                                    | 🟢 Operativo        | Flujo principal, recordatorios privados, dashboard admin de préstamos activos y avisos de fecha prevista/vencimiento.                 |
+| Préstamos                                    | 🟢 Operativo        | Recordatorios privados semanales con devolución directa, alta admin para otro socio y dashboard de préstamos activos.                |
 | Grupos de noticias                           | 🟢 Operativo        | `/news` por categoría para grupo completo o topic, incluido `public-events`; `/admin/news` resume feeds activos.                      |
 | LFG / buscar grupo                           | 🟢 Operativo        | Anuncios persistentes de jugadores y grupos, gestión propia y publicación en feeds/topics específicos.                                |
 | Feedback web y Telegram                      | 🟢 Operativo        | Formulario público y flujo privado voluntario con consentimiento, persistencia compartida y consulta admin.                           |
@@ -288,7 +288,7 @@ Implementado:
 - Las acciones del detalle de item se muestran en teclado de respuesta persistente para mantener libres los enlaces HTML dentro del mensaje; los detalles de lectura, préstamo y admin mantienen siempre `Inicio` y `Ayuda` al final del teclado para poder salir del contexto.
 - En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; Codex sugiere el título y, si se crea el item, el bot pregunta si se guarda esa portada como imagen principal.
 - `/catalog_search` como consulta para usuarios aprobados.
-- Los botones de acción con texto natural usan nombres específicos por módulo en catalán, español e inglés: `Cerca al catàleg`/`Búsqueda en catálogo`/`Search catalog` y `Cerca a l'emmagatzematge`/`Búsqueda en almacenamiento`/`Search storage`, entre otros. El dispatcher deja siempre la búsqueda de Catálogo en su flujo incluso si existe una búsqueda activa de Storage, y las etiquetas contextuales se prueban sin colisiones en los tres idiomas.
+- Los botones de acción con texto natural usan nombres específicos por módulo en catalán, español e inglés: `Cerca al catàleg`/`Búsqueda en catálogo`/`Search catalog` y `Cerca a l'emmagatzematge`/`Búsqueda en almacenamiento`/`Search storage`, entre otros. El dispatcher deja siempre la búsqueda de Catálogo en su flujo incluso si existe una búsqueda activa de Storage; al volver desde el detalle de un ítem mantiene una sesión de navegación limpia. Mientras el usuario siga en el menú, una lista o los resultados del catálogo, cualquier texto libre se interpreta como una nueva búsqueda y los botones conocidos conservan su acción normal. Las etiquetas contextuales y esas transiciones se prueban en regresión.
 - Vista de lectura con indice por rangos de tres iniciales: cada bloque muestra total de articulos y desglose por juegos de mesa, libros y accesorios, con enlaces normales `t.me?...start=` en el texto; los grupos internos no aparecen en la navegación principal.
 - Vista pública `/catalogo` con búsqueda por título/original/editorial, filtros por tipo, número de jugadores y disponibilidad, paginación, agrupacion por inicial, tarjetas con portada, descripción, familia/grupo, propietario, disponibilidad/préstamo y datos principales, detalle publico por item con descripción completa y enlace a BoardGameGeek cuando el item conserva referencia BGG.
 - Creación de actividad desde item del catálogo y aviso si el item está prestado.
@@ -313,12 +313,13 @@ Estado: `operativo`.
 
 Implementado:
 
-- Crear préstamo desde botones del detalle/listado de catálogo.
+- Crear un préstamo propio desde los botones del detalle/listado de catálogo.
+- Registrar como admin un préstamo para otro socio aprobado: selector paginado, resumen de confirmación y persistencia del admin que hizo el alta.
 - Devolver préstamo desde botones, visible solo para admins, quien tiene el item prestado o quien registro el préstamo.
 - Consultar préstamos activos propios.
 - Consultar todos los préstamos activos desde dashboard admin accesible por `/loan_admin` y por el menú de catálogo, con item y prestatario enlazados, fecha prevista y estado vencido.
 - Editar notas y fecha prevista de devolución.
-- Enviar recordatorios privados cuando se acerca o vence la fecha prevista de devolución.
+- Enviar un recordatorio privado cada 7 días desde el alta mientras el préstamo siga activo, aunque no tenga fecha prevista, con botón `Ya lo he devuelto` para cerrarlo directamente.
 - Publicar eventos de préstamo/devolución a grupos de noticias por categoría, con el item enlazado al detalle de catálogo.
 - Restriccion persistente de un préstamo activo por item.
 
@@ -592,7 +593,7 @@ Pendiente:
 | Mesas | `src/telegram/table-admin-flow.test.ts`, `src/telegram/table-read-flow.test.ts` |
 | Eventos del local | `src/telegram/venue-event-admin-flow.test.ts`, `src/venue-events/venue-event-catalog.test.ts`, `src/venue-events/venue-event-catalog-store.test.ts`, `src/venue-events/venue-event-impact-signals.test.ts`, `src/telegram/today-at-club-summary.test.ts` |
 | Catálogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-admin-browse-ui.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
-| Préstamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
+| Préstamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-reminders.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
 | LFG | `src/telegram/lfg-flow.test.ts`, `src/lfg/lfg-catalog.test.ts`, `src/lfg/lfg-catalog-store.test.ts` |
 | Compras conjuntas | `src/telegram/group-purchase-flow.test.ts`, `src/group-purchases/*.test.ts` |
 | Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-notion-store.test.ts`, `src/notion/notion-client.test.ts`, `src/notion/notion-renderer.test.ts`, `src/notion/notion-webhook.test.ts`, `src/role-games/role-game-character-catalog.test.ts`, `src/role-games/role-game-character-store.test.ts`, `src/role-games/role-game-character-store.integration.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/role-games/role-game-auto-scheduling-store.test.ts`, `src/role-games/role-game-recurrence-worker.test.ts`, `src/telegram/role-game-participants.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/telegram/role-game-notion-flow.test.ts`, `src/telegram/role-game-character-flow.test.ts`, `src/telegram/role-game-auto-scheduling-admin-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |

@@ -610,6 +610,83 @@ test('handleTelegramCatalogAdminText accepts every localized catalog-search butt
   }
 });
 
+test('catalog search works after returning from an item detail', async () => {
+  const repository = createRepository({
+    items: [
+      {
+        id: 1,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Zombicide',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-08-10T10:00:00.000Z',
+        updatedAt: '2026-08-10T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+      {
+        id: 2,
+        familyId: null,
+        groupId: null,
+        itemType: 'board-game',
+        displayName: 'Splendor',
+        originalName: null,
+        description: null,
+        language: null,
+        publisher: null,
+        publicationYear: null,
+        playerCountMin: null,
+        playerCountMax: null,
+        recommendedAge: null,
+        playTimeMinutes: null,
+        externalRefs: null,
+        metadata: null,
+        lifecycleStatus: 'active',
+        createdAt: '2026-08-10T10:00:00.000Z',
+        updatedAt: '2026-08-10T10:00:00.000Z',
+        deactivatedAt: null,
+      },
+    ],
+  });
+  const { context, replies, getCurrentSession } = createContext({ repository, language: 'es' });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'detail');
+
+  context.messageText = 'Volver al catálogo';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'menu');
+
+  context.messageText = 'splendor';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'menu');
+  assert.match(replies.at(-1)?.message ?? '', /Splendor/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Zombicide/);
+
+  context.messageText = 'Búsqueda en catálogo';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'search-query');
+  assert.match(replies.at(-1)?.message ?? '', /Escribe el nombre/);
+
+  context.messageText = 'zombicide';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'menu');
+  assert.match(replies.at(-1)?.message ?? '', /Zombicide/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Splendor/);
+});
+
 test('handleTelegramCatalogAdminText rejects BGG collection import for non-admin members', async () => {
   const { context, replies, getCurrentSession } = createContext({ isAdmin: false, language: 'es' });
 

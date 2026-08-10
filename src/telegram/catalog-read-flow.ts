@@ -441,6 +441,7 @@ function buildCatalogReadItemReplyOptions(
     itemId: item.id,
     language,
     canReturn: loan ? canReturnLoan(context, loan) : true,
+    canCreateForMember: context.runtime.actor.isAdmin,
     ...(context.runtime.actor.isAdmin
       ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }
       : {}),
@@ -499,6 +500,7 @@ async function handleCatalogReadDetailKeyboardText(
     itemId: item.id,
     language,
     canReturn: loan ? canReturnLoan(context, loan) : true,
+    canCreateForMember: context.runtime.actor.isAdmin,
   }).flat();
   const action = buttons.find((button) => button.text === text);
   if (!action?.callbackData) {
