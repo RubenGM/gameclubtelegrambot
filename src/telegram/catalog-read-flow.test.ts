@@ -491,7 +491,7 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
   assert.doesNotMatch(replies[0]?.message ?? '', /<b>Retorn previst:<\/b> 10\/04\/2026/);
   assert.match(replies[0]?.message ?? '', /catalog_read_item_full_1/);
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
-  assert.ok(replies[0]?.options?.replyKeyboard?.flat().some((button) => button === 'Veure préstecs'));
+  assert.ok(replies[0]?.options?.replyKeyboard?.flat().some((button) => button === 'Els meus préstecs'));
 });
 
 test('catalog read item details hide return button for unrelated normal users', async () => {
@@ -529,7 +529,7 @@ test('catalog read item details hide return button for unrelated normal users', 
   assert.match(replies[0]?.message ?? '', /<b>Disponibilitat:<\/b> En préstec/);
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
   assert.ok(!replies[0]?.options?.replyKeyboard?.flat().some((button) => button === 'Retornar'));
-  assert.ok(replies[0]?.options?.replyKeyboard?.flat().some((button) => button === 'Veure préstecs'));
+  assert.ok(replies[0]?.options?.replyKeyboard?.flat().some((button) => button === 'Els meus préstecs'));
 });
 
 test('catalog read item detail prioritizes return and create game keyboard actions for the borrower', async () => {
@@ -559,7 +559,7 @@ test('catalog read item detail prioritizes return and create game keyboard actio
   assert.deepEqual(replies[0]?.options?.replyKeyboard?.slice(0, 3), [
     [successButton('Retornar')],
     [successButton('Crear activitat amb aquest joc')],
-    ['Veure préstecs'],
+    ['Els meus préstecs'],
   ]);
 });
 

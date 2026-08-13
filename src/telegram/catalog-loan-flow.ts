@@ -410,7 +410,7 @@ export function buildLoanDetailButtons({
     rows.push([{ text: texts.deleteItem, callbackData: deleteCallbackData }]);
   }
 
-  rows.push([{ text: texts.veurePrestecs, callbackData: catalogLoanCallbackPrefixes.openMyLoans }]);
+  rows.push([{ text: texts.myLoans, callbackData: catalogLoanCallbackPrefixes.openMyLoans }]);
   if (includeAdminDashboard) {
     rows.push([{ text: texts.adminDashboard, callbackData: catalogLoanCallbackPrefixes.adminDashboard }]);
   }
@@ -755,7 +755,7 @@ function buildCatalogLoanItemDetailReplyKeyboard({
   if (item.itemType === 'board-game') {
     rows.push([successButton(texts.catalogAdmin.createActivity)]);
   }
-  rows.push([texts.catalogLoan.veurePrestecs]);
+  rows.push([texts.catalogLoan.myLoans]);
   rows.push([texts.catalogAdmin.browseBack, formatCatalogInitialsLabel(getCatalogItemInitial(item))]);
 
   const prioritizedTexts = new Set(rows.flat().map((button) => typeof button === 'string' ? button : button.text));

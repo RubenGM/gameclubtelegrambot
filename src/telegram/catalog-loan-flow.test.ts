@@ -588,7 +588,7 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
 
   assert.equal(availableRows[0]?.[0]?.text, 'Prendre prestat');
   assert.equal(availableRows[1]?.[0]?.text, 'Eliminar ítem');
-  assert.equal(availableRows[2]?.[0]?.text, 'Veure préstecs');
+  assert.equal(availableRows[2]?.[0]?.text, 'Els meus préstecs');
   const adminAvailableRows = buildLoanDetailButtons({
     loan: null,
     itemId: 11,
@@ -607,7 +607,7 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
 
   assert.equal(borrowedRows[0]?.[0]?.text, 'Return');
   assert.equal(borrowedRows[1]?.[0]?.text, 'Delete item');
-  assert.equal(borrowedRows[2]?.[0]?.text, 'View loans');
+  assert.equal(borrowedRows[2]?.[0]?.text, 'My loans');
   const adminRows = buildLoanDetailButtons({
     loan,
     itemId: 11,
@@ -631,7 +631,7 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
 
   assert.equal(spanishRows[0]?.[0]?.text, 'Tomar prestado');
   assert.equal(spanishRows[1]?.[0]?.text, 'Eliminar ítem');
-  assert.equal(spanishRows[2]?.[0]?.text, 'Ver préstamos');
+  assert.equal(spanishRows[2]?.[0]?.text, 'Mis préstamos');
   const hiddenReturnRows = buildLoanDetailButtons({
     loan,
     itemId: 11,
@@ -639,7 +639,7 @@ test('loan detail buttons use the updated borrow and delete labels', async () =>
     canReturn: false,
   });
   assert.ok(!hiddenReturnRows.flat().some((button) => button.text === 'Devolver'));
-  assert.equal(hiddenReturnRows[0]?.[0]?.text, 'Ver préstamos');
+  assert.equal(hiddenReturnRows[0]?.[0]?.text, 'Mis préstamos');
 });
 
 test('admin loan dashboard lists active loans with actions and paging', async () => {

@@ -64,6 +64,7 @@ import {
   handleTelegramCatalogLoanCallback,
   resolveLoanBorrowerDisplayName,
   showAdminLoanDashboard,
+  showMyLoans,
   type TelegramCatalogLoanContext,
 } from './catalog-loan-flow.js';
 import { buildDateOptions } from './schedule-keyboards.js';
@@ -406,6 +407,10 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
 
   if (text === i18n.actionMenu.catalog || text === catalogAdminLabels.openMenu || text === '/catalog') {
     await showCatalogBrowseMenu(context);
+    return true;
+  }
+  if (text === i18n.catalogLoan.myLoans || text === i18n.catalogLoan.veurePrestecs) {
+    await showMyLoans(context as TelegramCatalogLoanContext);
     return true;
   }
   if (text === texts.bulkCreate || text === catalogAdminLabels.bulkCreate || text === '/catalog_bulk') {
@@ -2616,6 +2621,11 @@ async function handleCatalogAdminDetailKeyboardText(
     return false;
   }
   const item = await loadItemOrThrow(context, itemId);
+  const loanTexts = createTelegramI18n(language).catalogLoan;
+  if (text === loanTexts.veurePrestecs) {
+    await showMyLoans(context as TelegramCatalogLoanContext);
+    return true;
+  }
   const buttons = (await buildCatalogItemDetailButtons(context, item, language)).flat();
   const action = buttons.find((button) => button.text === text);
   if (!action?.callbackData) {

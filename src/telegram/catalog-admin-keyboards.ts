@@ -8,7 +8,7 @@ export function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): Tele
   const texts = i18n.catalogAdmin;
   return buildSubmenuReplyKeyboard({ language, rows: [
     [texts.create, texts.bulkCreate],
-    [i18n.catalogLoan.adminDashboard],
+    [i18n.catalogLoan.myLoans, i18n.catalogLoan.adminDashboard],
     [texts.listBoardGames, texts.listBooks],
     [texts.listRpgBooks, texts.listExpansions],
     [texts.searchByName, texts.importBggCollection],

@@ -557,7 +557,7 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   assert.match(replies.at(-1)?.message ?? '', /No hi ha cap ítem de catàleg disponible ara mateix\./);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Crear ítem', catalogAdminLabels.bulkCreate],
-    ['Préstecs actius'],
+    ['Els meus préstecs', 'Préstecs actius'],
     [catalogAdminLabels.listBoardGames, catalogAdminLabels.listBooks],
     [catalogAdminLabels.listRpgBooks, catalogAdminLabels.listExpansions],
     [catalogAdminLabels.searchByName, 'Importar col·lecció BGG'],
@@ -574,12 +574,16 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Crear ítem', 'Añadir múltiples'],
-    ['Préstamos activos'],
+    ['Mis préstamos', 'Préstamos activos'],
     ['Listar juegos de mesa', 'Listar libros'],
     ['Listar libros RPG', 'Listar expansiones'],
     ['Búsqueda en catálogo', 'Importar colección BGG'],
     ['Inicio', 'Ayuda'],
   ]);
+
+  context.messageText = 'Mis préstamos';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(replies.at(-1)?.message, 'No tienes ningún préstamo activo.');
 
   context.messageText = 'Listar juegos de mesa';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
@@ -2642,7 +2646,7 @@ test('handleTelegramCatalogAdminCallback shows item details with localized admin
   assert.ok(buttons.some((button) => buttonText(button) === 'R'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Eliminar ítem'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Tomar prestado'));
-  assert.ok(buttons.some((button) => buttonText(button) === 'Ver préstamos'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Mis préstamos'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Añadir media'));
 });
 
@@ -3872,7 +3876,7 @@ test('handleTelegramCatalogAdminCallback hides admin-only item actions for appro
   assert.ok(!buttons.some((button) => button === 'Confirmar eliminación de media #8'));
   assert.ok(buttons.some((button) => button === 'Crear actividad con este juego'));
   assert.ok(buttons.some((button) => button === 'Tomar prestado'));
-  assert.ok(buttons.some((button) => button === 'Ver préstamos'));
+  assert.ok(buttons.some((button) => button === 'Mis préstamos'));
 });
 
 test('handleTelegramCatalogAdminCallback hides return action from unrelated non-admin members', async () => {
@@ -3925,7 +3929,7 @@ test('handleTelegramCatalogAdminCallback hides return action from unrelated non-
   const buttons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];
   assert.match(replies.at(-1)?.message ?? '', /<b>Té:<\/b> Marta/);
   assert.ok(!buttons.some((button) => button === 'Retornar'));
-  assert.ok(buttons.some((button) => button === 'Veure préstecs'));
+  assert.ok(buttons.some((button) => button === 'Els meus préstecs'));
 });
 
 test('handleTelegramCatalogAdminCallback blocks non-admin edit and deactivate actions', async () => {

@@ -454,7 +454,7 @@ function buildCatalogReadItemReplyOptions(
   if (item.itemType === 'board-game') {
     rows.push([successButton(texts.catalogAdmin.createActivity)]);
   }
-  rows.push([texts.catalogLoan.veurePrestecs]);
+  rows.push([texts.catalogLoan.myLoans]);
   rows.push([overviewButton(language).text, formatInitialSetLabel(getCatalogItemInitial(item))]);
 
   const prioritizedTexts = new Set(rows.flat().map((button) => typeof button === 'string' ? button : button.text));
@@ -488,6 +488,13 @@ async function handleCatalogReadDetailKeyboardText(
     return true;
   }
   const adminTexts = createTelegramI18n(language).catalogAdmin;
+  const loanTexts = createTelegramI18n(language).catalogLoan;
+  if (text === loanTexts.veurePrestecs) {
+    await withTemporaryCallbackData(context, catalogLoanCallbackPrefixes.openMyLoans, async () => {
+      await handleTelegramCatalogLoanCallback(context);
+    });
+    return true;
+  }
   if (item.itemType === 'board-game' && text === adminTexts.createActivity) {
     await withTemporaryCallbackData(context, `${catalogAdminCallbackPrefixes.createActivity}${item.id}`, async () => {
       await handleTelegramCatalogAdminCallback(context);

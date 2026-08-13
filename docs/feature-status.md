@@ -24,7 +24,7 @@ Este documento refleja lo que existe en el código actual, no solo lo que aparec
 | Google Calendar                              | 🟢 Operativo        | Selección admin, acceso público/privado, sincronización Agenda → Google y enlace limpio desde grupos/topics.                          |
 | Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
 | Catálogo                                     | 🟢 Operativo        | CRUD, familias, búsqueda, media URL/adjunto con Storage, BGG/Open Library/Wikipedia y procesos con progreso editable.                 |
-| Préstamos                                    | 🟢 Operativo        | Recordatorios privados semanales con devolución directa, alta admin para otro socio y dashboard de préstamos activos.                |
+| Préstamos                                    | 🟢 Operativo        | Acceso directo a Mis préstamos, recordatorios privados semanales, devolución directa, alta admin y dashboard de préstamos activos.  |
 | Grupos de noticias                           | 🟢 Operativo        | `/news` por categoría para grupo completo o topic, incluido `public-events`; `/admin/news` resume feeds activos.                      |
 | LFG / buscar grupo                           | 🟢 Operativo        | Anuncios persistentes de jugadores y grupos, gestión propia y publicación en feeds/topics específicos.                                |
 | Feedback web y Telegram                      | 🟢 Operativo        | Formulario público y flujo privado voluntario con consentimiento, persistencia compartida y consulta admin.                           |
@@ -316,8 +316,8 @@ Implementado:
 - Crear un préstamo propio desde los botones del detalle/listado de catálogo.
 - Registrar como admin un préstamo para otro socio aprobado: selector paginado, resumen de confirmación y persistencia del admin que hizo el alta.
 - Devolver préstamo desde botones, visible solo para admins, quien tiene el item prestado o quien registro el préstamo.
-- Consultar préstamos activos propios.
-- Consultar todos los préstamos activos desde dashboard admin accesible por `/loan_admin` y por el menú de catálogo, con item y prestatario enlazados, fecha prevista y estado vencido.
+- Consultar los préstamos activos propios desde `Mis préstamos`, accesible directamente en el menú de catálogo y desde el detalle de cualquier item, con devolución directa.
+- Consultar todos los préstamos activos desde el dashboard admin separado `Préstamos activos`, accesible por `/loan_admin` y por el menú de catálogo, con item y prestatario enlazados, fecha prevista y estado vencido.
 - Editar notas y fecha prevista de devolución.
 - Enviar un recordatorio privado cada 7 días desde el alta mientras el préstamo siga activo, aunque no tenga fecha prevista, con botón `Ya lo he devuelto` para cerrarlo directamente.
 - Publicar eventos de préstamo/devolución a grupos de noticias por categoría, con el item enlazado al detalle de catálogo.
