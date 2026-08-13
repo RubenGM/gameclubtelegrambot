@@ -301,6 +301,8 @@ Integraciones reales:
 - BoardGameGeek: importación individual, autocorreccion desde detalle y coleccion operativas; la importación de coleccion usa progreso editable durante la reconciliacion y, cuando BGG devuelve portada, el bot descarga la `imageUrl`/`coverUrl` y la sube a Storage como portada.
 - Open Library: cuando devuelve portada, el alta intenta guardarla como portada.
 - Codex: se usa para leer el título visible desde la portada con progreso editable y como fallback de traducción; los metadatos completos siguen viniendo de APIs catalogadas como BGG/Open Library/Wikipedia.
+- Los resúmenes de revisión tras importar desde BGG/Wikipedia acotan la descripción y los metadatos extensos para respetar el límite de mensajes de Telegram sin perder los datos completos guardados en el catálogo.
+- La frontera de salida de Telegram sanea caracteres de control y protege globalmente los límites: divide mensajes largos preservando HTML y deja el teclado en el último fragmento; las ediciones y captions se acotan con HTML válido y un warning estructurado.
 
 Riesgos o pendientes:
 

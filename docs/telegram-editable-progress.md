@@ -47,6 +47,12 @@ instancia, emite el warning JSON indicado por `editFailedEvent` y devuelve
 `context.reply(...)`. Un fallo de edición no debe convertir una operación de
 negocio correcta en un error para el usuario.
 
+La frontera común de Telegram sanea también estos textos antes de enviarlos.
+Los mensajes nuevos que superan el límite se dividen, pero una edición no puede
+crear fragmentos adicionales: `editMessageText` conserva HTML válido y acota el
+contenido con una elipsis. El fallback de `complete(...)` vuelve a pasar por
+`context.reply(...)` y sí puede dividir el resultado completo.
+
 ## Teclados de respuesta
 
 Telegram `editMessageText` no puede adjuntar un reply keyboard normal. No crees

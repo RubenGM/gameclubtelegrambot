@@ -39,6 +39,14 @@ import { createTelegramApiHealthMonitor, type TelegramApiHealthMonitor } from '.
 import { withTelegramApiRetry } from './telegram-api-retry.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
 import { downloadTelegramFileViaLocalBotApi } from './telegram-local-file-download.js';
+import {
+  splitTelegramOutgoingMessage,
+  telegramCaptionTextLimit,
+  telegramMessageTextLimit,
+  truncateTelegramOutgoingCaption,
+  truncateTelegramOutgoingMessage,
+  type TelegramOutgoingSanitizationResult,
+} from './outgoing-message-sanitizer.js';
 
 export { formatStartMessage, toGrammyReplyOptions } from './runtime-boundary-registration.js';
 
@@ -554,14 +562,21 @@ function createGrammyTelegramBot({
       };
     },
     async sendPrivateMessage(telegramUserId, message, options) {
-      await withTelegramApiRetry(retryOptions('sendPrivateMessage'), () =>
-        bot.api.sendMessage(telegramUserId, apiHealth.appendWarning(message), options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
-      );
+      const chunks = sanitizeOutgoingMessage(apiHealth.appendWarning(message), options, logger, 'sendPrivateMessage');
+      for (const [index, chunk] of chunks.entries()) {
+        await withTelegramApiRetry(retryOptions('sendPrivateMessage'), () =>
+          bot.api.sendMessage(telegramUserId, chunk, toGrammyReplyOptions(optionsForMessageChunk(options, index, chunks.length), buttonAppearance)),
+        );
+      }
     },
     async sendGroupMessage(chatId, message, options) {
-      const result = await withTelegramApiRetry(retryOptions('sendGroupMessage'), () =>
-        bot.api.sendMessage(chatId, message, options ? toGrammyReplyOptions(options, buttonAppearance) : undefined),
-      );
+      const chunks = sanitizeOutgoingMessage(message, options, logger, 'sendGroupMessage');
+      let result: unknown;
+      for (const [index, chunk] of chunks.entries()) {
+        result = await withTelegramApiRetry(retryOptions('sendGroupMessage'), () =>
+          bot.api.sendMessage(chatId, chunk, toGrammyReplyOptions(optionsForMessageChunk(options, index, chunks.length), buttonAppearance)),
+        );
+      }
       const messageId = resolveTelegramMessageId(result);
       return messageId ? { messageId } : undefined;
     },
@@ -592,7 +607,13 @@ function createGrammyTelegramBot({
       };
     },
     async sendMediaGroup({ chatId, media, messageThreadId }) {
-      const singlePhoto = media.length === 1 ? media[0] : undefined;
+      const sanitizedMedia = media.map((item, index) => ({
+        ...item,
+        ...(item.caption
+          ? { caption: sanitizeOutgoingCaption(item.caption, undefined, logger, `sendMediaGroup[${index}]`) }
+          : {}),
+      }));
+      const singlePhoto = sanitizedMedia.length === 1 ? sanitizedMedia[0] : undefined;
       if (singlePhoto) {
         const result = await withTelegramApiRetry(retryOptions('sendPhoto'), () =>
           bot.api.sendPhoto(
@@ -610,27 +631,33 @@ function createGrammyTelegramBot({
       const result = await withTelegramApiRetry(retryOptions('sendMediaGroup'), () =>
         bot.api.sendMediaGroup(
           chatId,
-          media.map(toGrammyPhotoMedia),
+          sanitizedMedia.map(toGrammyPhotoMedia),
           messageThreadId ? { message_thread_id: messageThreadId } : undefined,
         ),
       );
       return (result as Array<{ message_id: number }>).map((message) => ({ messageId: Number(message.message_id) }));
     },
     async sendAnimation({ chatId, animationFileId, caption, messageThreadId, options }) {
+      const sanitizedCaption = caption
+        ? sanitizeOutgoingCaption(caption, options, logger, 'sendAnimation')
+        : undefined;
       await withTelegramApiRetry(retryOptions('sendAnimation'), () =>
         bot.api.raw.sendAnimation({
           chat_id: chatId,
           animation: animationFileId,
-          ...(caption ? { caption } : {}),
+          ...(sanitizedCaption ? { caption: sanitizedCaption } : {}),
           ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
           ...(options ? toGrammyReplyOptions(options, buttonAppearance) : {}),
         }),
       );
     },
     async sendDocument({ chatId, filePath, caption, messageThreadId }) {
+      const sanitizedCaption = caption
+        ? sanitizeOutgoingCaption(caption, undefined, logger, 'sendDocument')
+        : undefined;
       const result = await withTelegramApiRetry(retryOptions('sendDocument'), () =>
         bot.api.sendDocument(chatId, new InputFile(filePath), {
-          ...(caption ? { caption } : {}),
+          ...(sanitizedCaption ? { caption: sanitizedCaption } : {}),
           ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
         }),
       );
@@ -674,11 +701,12 @@ function createGrammyTelegramBot({
       await writeFile(destinationPath, Buffer.from(await response.arrayBuffer()));
     },
     async editMessageText({ chatId, messageId, text, options }) {
+      const sanitizedText = sanitizeOutgoingEdit(text, options, logger, 'editMessageText');
       await withTelegramApiRetry(retryOptions('editMessageText'), () =>
         bot.api.raw.editMessageText({
           chat_id: chatId,
           message_id: messageId,
-          text,
+          text: sanitizedText,
           ...(options ? toGrammyReplyOptions(options, buttonAppearance) : {}),
         }),
       );
@@ -1061,27 +1089,32 @@ function createTelegramCommandContext(
       const messageWithHealthWarning = apiHealth
         ? apiHealth.appendWarning(message, { enabled: context.chat?.type === 'private' })
         : message;
-      const result = await withTelegramApiRetry({
-        operation: 'reply',
-        ...(logger ? { logger } : {}),
-        ...(apiHealth
-          ? {
-              onRetryableFailure: ({ error }: { error: unknown }) => {
-                apiHealth.recordFailure('reply', error);
-              },
-              onSuccess: () => {
-                apiHealth.recordSuccess('reply');
-              },
-            }
-          : {}),
-      }, () =>
-        context.reply(messageWithHealthWarning, toGrammyReplyOptions(options, buttonAppearance)),
-      );
+      const chunks = sanitizeOutgoingMessage(messageWithHealthWarning, options, logger, 'reply');
+      let result: unknown;
+      for (const [index, chunk] of chunks.entries()) {
+        result = await withTelegramApiRetry({
+          operation: 'reply',
+          ...(logger ? { logger } : {}),
+          ...(apiHealth
+            ? {
+                onRetryableFailure: ({ error }: { error: unknown }) => {
+                  apiHealth.recordFailure('reply', error);
+                },
+                onSuccess: () => {
+                  apiHealth.recordSuccess('reply');
+                },
+              }
+            : {}),
+        }, () =>
+          context.reply(chunk, toGrammyReplyOptions(optionsForMessageChunk(options, index, chunks.length), buttonAppearance)),
+        );
+      }
       logger?.info(
         {
           operation: 'reply',
           chatId: context.chat?.id,
           messageLength: messageWithHealthWarning.length,
+          messageChunks: chunks.length,
           healthWarningAppended: messageWithHealthWarning !== message,
         },
         'Telegram reply sent',
@@ -1089,4 +1122,73 @@ function createTelegramCommandContext(
       return result;
     },
   } as unknown as TelegramCommandHandlerContext;
+}
+
+function sanitizeOutgoingMessage(
+  message: string,
+  options: TelegramReplyOptions | undefined,
+  logger: TelegramLogger | undefined,
+  operation: string,
+): string[] {
+  const results = splitTelegramOutgoingMessage(message, options?.parseMode);
+  logOutgoingSanitization(results[0]!, results.length, telegramMessageTextLimit, logger, operation, 'message');
+  return results.map((result) => result.text);
+}
+
+function sanitizeOutgoingEdit(
+  message: string,
+  options: TelegramReplyOptions | undefined,
+  logger: TelegramLogger | undefined,
+  operation: string,
+): string {
+  const result = truncateTelegramOutgoingMessage(message, options?.parseMode);
+  logOutgoingSanitization(result, 1, telegramMessageTextLimit, logger, operation, 'edit');
+  return result.text;
+}
+
+function sanitizeOutgoingCaption(
+  caption: string,
+  options: TelegramReplyOptions | undefined,
+  logger: TelegramLogger | undefined,
+  operation: string,
+): string {
+  const result = truncateTelegramOutgoingCaption(caption, options?.parseMode);
+  logOutgoingSanitization(result, 1, telegramCaptionTextLimit, logger, operation, 'caption');
+  return result.text;
+}
+
+function logOutgoingSanitization(
+  result: TelegramOutgoingSanitizationResult,
+  chunkCount: number,
+  limit: number,
+  logger: TelegramLogger | undefined,
+  operation: string,
+  contentKind: 'message' | 'edit' | 'caption',
+): void {
+  if (!result.changed) {
+    return;
+  }
+  logger?.warn?.({
+    operation,
+    contentKind,
+    originalLength: result.originalLength,
+    sanitizedLength: result.text.length,
+    chunkCount,
+    limit,
+  }, 'Telegram outgoing content sanitized');
+}
+
+export function optionsForMessageChunk(
+  options: TelegramReplyOptions | undefined,
+  index: number,
+  chunkCount: number,
+): TelegramReplyOptions | undefined {
+  if (!options || index === chunkCount - 1) {
+    return options;
+  }
+
+  return {
+    ...(options.parseMode ? { parseMode: options.parseMode } : {}),
+    ...(options.messageThreadId ? { messageThreadId: options.messageThreadId } : {}),
+  };
 }
