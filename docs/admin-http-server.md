@@ -99,6 +99,12 @@ Les seccions principals són:
 - `/admin/service`: estat, logs i control del servei
 - `/admin/config`: estat runtime i canvi del token de Telegram
 - `/admin/resources`: gestor avançat de recursos
+- `/admin/resources/club_equipment`: alta, edició i desactivació de l'equipament reservable
+
+El formulari personal d'alta d'activitats (`/actividad/nueva/:token`) permet
+reservar una mesa i diversos elements d'equipament actius. La seva agenda del
+dia detecta els solapaments que comparteixen qualsevol d'aquests recursos i els
+avisa abans de guardar, però no bloqueja la creació.
 
 El panell pot executar accions sensibles dins dels permisos del servei:
 arrencar, aturar o reiniciar la unitat; crear o restaurar backups; canviar el

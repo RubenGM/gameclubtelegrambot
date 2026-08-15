@@ -13,6 +13,7 @@ export interface ScheduleEventRecord {
   organizerTelegramUserId: number;
   createdByTelegramUserId: number;
   tableId: number | null;
+  equipmentIds?: number[];
   catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
   isPublic: boolean;
@@ -56,6 +57,7 @@ export interface ScheduleRepository {
     organizerTelegramUserId: number;
     createdByTelegramUserId: number;
     tableId: number | null;
+    equipmentIds?: number[];
     catalogItemId?: number | null;
     attendanceMode: ScheduleAttendanceMode;
     isPublic: boolean;
@@ -85,6 +87,7 @@ export interface ScheduleRepository {
     durationMinutes: number;
     organizerTelegramUserId: number;
     tableId: number | null;
+    equipmentIds?: number[];
     catalogItemId?: number | null;
     attendanceMode: ScheduleAttendanceMode;
     isPublic: boolean;
@@ -124,6 +127,7 @@ export async function createScheduleEvent({
   organizerTelegramUserId,
   createdByTelegramUserId,
   tableId,
+  equipmentIds,
   catalogItemId,
   attendanceMode,
   isPublic,
@@ -140,6 +144,7 @@ export async function createScheduleEvent({
   organizerTelegramUserId: number;
   createdByTelegramUserId: number;
   tableId?: number | null;
+  equipmentIds?: number[];
   catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
   isPublic?: boolean;
@@ -156,6 +161,7 @@ export async function createScheduleEvent({
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
     createdByTelegramUserId: normalizeTelegramUserId(createdByTelegramUserId, 'creador'),
     tableId: normalizeTableId(tableId),
+    equipmentIds: normalizeEquipmentIds(equipmentIds),
     catalogItemId: normalizeCatalogItemId(catalogItemId),
     attendanceMode: normalizeAttendanceMode(attendanceMode),
     isPublic: normalizePublicVisibility({ attendanceMode, isPublic }),
@@ -224,6 +230,7 @@ export async function updateScheduleEvent({
   durationMinutes,
   organizerTelegramUserId,
   tableId,
+  equipmentIds,
   catalogItemId,
   attendanceMode,
   isPublic,
@@ -240,6 +247,7 @@ export async function updateScheduleEvent({
   durationMinutes: number;
   organizerTelegramUserId: number;
   tableId?: number | null;
+  equipmentIds?: number[];
   catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
   isPublic?: boolean;
@@ -265,6 +273,7 @@ export async function updateScheduleEvent({
     durationMinutes: normalizeDurationMinutes(durationMinutes),
     organizerTelegramUserId: normalizeTelegramUserId(organizerTelegramUserId, 'organitzador'),
     tableId: normalizeTableId(tableId),
+    equipmentIds: normalizeEquipmentIds(equipmentIds ?? event.equipmentIds),
     catalogItemId: normalizeCatalogItemId(catalogItemId),
     attendanceMode: normalizeAttendanceMode(attendanceMode),
     isPublic: normalizePublicVisibility({ attendanceMode, isPublic }),
@@ -549,7 +558,7 @@ export async function detectScheduleConflicts({
   const conflicts: Array<{ eventId: number; overlappingEventId: number; impactedTelegramUserIds: number[] }> = [];
 
   for (const candidate of candidates) {
-    if (!eventsOverlap(event, candidate) || !eventsUseSameAssignedTable(event, candidate)) {
+    if (!eventsOverlap(event, candidate) || !eventsUseSameReservedResource(event, candidate)) {
       continue;
     }
 
@@ -645,6 +654,17 @@ function normalizeTableId(tableId: number | null | undefined): number | null {
   return tableId;
 }
 
+function normalizeEquipmentIds(equipmentIds: number[] | undefined): number[] {
+  if (!equipmentIds) {
+    return [];
+  }
+  const normalized = Array.from(new Set(equipmentIds));
+  if (normalized.some((equipmentId) => !Number.isInteger(equipmentId) || equipmentId <= 0)) {
+    throw new Error("Els identificadors d'equipament han de ser enters positius");
+  }
+  return normalized.sort((left, right) => left - right);
+}
+
 function normalizeCatalogItemId(catalogItemId: number | null | undefined): number | null {
   if (catalogItemId === undefined || catalogItemId === null) {
     return null;
@@ -732,9 +752,13 @@ function eventsOverlap(
   return leftStart < rightEnd && rightStart < leftEnd;
 }
 
-function eventsUseSameAssignedTable(
-  left: Pick<ScheduleEventRecord, 'tableId'>,
-  right: Pick<ScheduleEventRecord, 'tableId'>,
+function eventsUseSameReservedResource(
+  left: Pick<ScheduleEventRecord, 'tableId' | 'equipmentIds'>,
+  right: Pick<ScheduleEventRecord, 'tableId' | 'equipmentIds'>,
 ): boolean {
-  return left.tableId !== null && right.tableId !== null && left.tableId === right.tableId;
+  if (left.tableId !== null && right.tableId !== null && left.tableId === right.tableId) {
+    return true;
+  }
+  const rightEquipmentIds = new Set(right.equipmentIds ?? []);
+  return (left.equipmentIds ?? []).some((equipmentId) => rightEquipmentIds.has(equipmentId));
 }

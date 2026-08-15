@@ -5,6 +5,7 @@ import type { AuditLogEventRecord, AuditLogRepository } from '../audit/audit-log
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import { resolveNewsGroupCategory, type NewsGroupRecord, type NewsGroupRepository } from '../news/news-group-catalog.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
+import type { ClubEquipmentRecord, ClubEquipmentRepository } from '../equipment/equipment-catalog.js';
 import type { ScheduleEventRecord, ScheduleParticipantRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
@@ -89,6 +90,7 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
         organizerTelegramUserId: input.organizerTelegramUserId,
         createdByTelegramUserId: input.createdByTelegramUserId,
         tableId: input.tableId,
+        equipmentIds: input.equipmentIds ?? [],
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
         isPublic: input.isPublic,
@@ -129,6 +131,7 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
+        equipmentIds: input.equipmentIds ?? existing.equipmentIds ?? [],
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
         isPublic: input.isPublic,
@@ -209,6 +212,19 @@ function createTableRepository(initialTables: ClubTableRecord[] = []): ClubTable
     },
     async updateTable() { throw new Error('not implemented'); },
     async deactivateTable() { throw new Error('not implemented'); },
+  };
+}
+
+function createEquipmentRepository(initialEquipment: ClubEquipmentRecord[] = []): ClubEquipmentRepository {
+  const equipment = new Map(initialEquipment.map((item) => [item.id, item]));
+  return {
+    async createEquipment() { throw new Error('not implemented'); },
+    async findEquipmentById(equipmentId: number) { return equipment.get(equipmentId) ?? null; },
+    async listEquipment({ includeDeactivated }) {
+      return Array.from(equipment.values()).filter((item) => includeDeactivated || item.lifecycleStatus === 'active');
+    },
+    async updateEquipment() { throw new Error('not implemented'); },
+    async deactivateEquipment() { throw new Error('not implemented'); },
   };
 }
 
@@ -379,6 +395,7 @@ function createMembershipRepository(initialUsers: MembershipUserRecord[] = [
 function createContext({
   scheduleRepository = createScheduleRepository(),
   tableRepository = createTableRepository(),
+  equipmentRepository = createEquipmentRepository(),
   venueEventRepository = createVenueEventRepository(),
   membershipRepository = createMembershipRepository(),
   newsGroupRepository = createNewsGroupRepository(),
@@ -389,6 +406,7 @@ function createContext({
 }: {
   scheduleRepository?: ScheduleRepository;
   tableRepository?: ClubTableRepository;
+  equipmentRepository?: ClubEquipmentRepository;
   venueEventRepository?: VenueEventRepository;
   membershipRepository?: MembershipAccessRepository;
   newsGroupRepository?: NewsGroupRepository;
@@ -487,6 +505,7 @@ function createContext({
     },
     scheduleRepository,
     tableRepository,
+    equipmentRepository,
     venueEventRepository,
     membershipRepository,
     newsGroupRepository,
@@ -1350,9 +1369,10 @@ test('handleTelegramScheduleText uses the full-create defaults, shows the select
   assert.match(replies.at(-1)?.message ?? '', /<b>Duración:<\/b> 2 h/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Tipo:<\/b> Mesa cerrada/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Mesa:<\/b> Sin mesa/);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 2), [
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 3), [
     [texts.editFieldDuration, texts.detailsAttendanceMode],
-    [texts.editFieldTable, texts.editFieldDescription],
+    [texts.editFieldTable, texts.editFieldEquipment],
+    [texts.editFieldDescription],
   ]);
 
   context.messageText = texts.editFieldDuration;
@@ -3069,7 +3089,7 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
       [scheduleLabels.editFieldCapacity],
       [scheduleLabels.editFieldInitialOccupiedSeats],
       [scheduleLabels.editFieldPublicVisibility],
-      [scheduleLabels.editFieldTable],
+      [scheduleLabels.editFieldTable, scheduleLabels.editFieldEquipment],
       ['Descripció'],
       [texts.confirmEdit],
       [dangerButton('/cancel')],
@@ -3394,6 +3414,95 @@ test('handleTelegramScheduleText warns in the creation summary when a selected t
   assert.match(summary, /Terraforming Mars/);
   assert.match(summary, /- 18h-21h .*Terraforming Mars/);
   assert.match(summary, /https:\/\/t\.me\/carla/);
+});
+
+test('activity creation can reserve several equipment items and warns about equipment overlaps', async () => {
+  const scheduleRepository = createScheduleRepository([{
+    id: 40,
+    title: 'Actividad con TV',
+    description: null,
+    startsAt: '2026-04-05T16:00:00.000Z',
+    organizerTelegramUserId: 77,
+    createdByTelegramUserId: 77,
+    tableId: null,
+    equipmentIds: [2],
+    durationMinutes: 180,
+    capacity: 4,
+    lifecycleStatus: 'scheduled',
+    createdAt: '2026-04-04T10:00:00.000Z',
+    updatedAt: '2026-04-04T10:00:00.000Z',
+    cancelledAt: null,
+    cancelledByTelegramUserId: null,
+    cancellationReason: null,
+  }]);
+  const equipmentRepository = createEquipmentRepository([
+    {
+      id: 2,
+      displayName: 'TV móvil',
+      description: 'Con ruedas',
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+    {
+      id: 3,
+      displayName: 'Proyector',
+      description: null,
+      lifecycleStatus: 'active',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      deactivatedAt: null,
+    },
+  ]);
+  const { context, replies } = createContext({
+    scheduleRepository,
+    equipmentRepository,
+    actorTelegramUserId: 42,
+    language: 'es',
+  });
+  await context.runtime.session.start({
+    flowKey: 'schedule-create',
+    stepKey: 'table',
+    data: {
+      title: 'Nueva actividad',
+      date: '2026-04-05',
+      time: '17:00',
+      durationMinutes: 120,
+      attendanceMode: 'closed',
+      isPublic: false,
+      initialOccupiedSeats: 0,
+      capacity: 4,
+    },
+  });
+
+  context.messageText = 'Sin mesa';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /equipamiento que quieres reservar/i);
+
+  context.messageText = 'TV móvil';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], ['✓ TV móvil', 'Proyector']);
+
+  context.messageText = 'Proyector';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = 'Terminar selección';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Equipamiento:<\/b> TV móvil, Proyector/);
+  assert.match(replies.at(-1)?.message ?? '', /posible conflicto con tus reservas del club/);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[1], ['Mesa', 'Equipamiento']);
+
+  context.messageText = 'Equipamiento';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /equipamiento que quieres reservar/i);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], ['✓ TV móvil', '✓ Proyector']);
+  context.messageText = 'Terminar selección';
+  assert.equal(await handleTelegramScheduleText(context), true);
+
+  context.messageText = 'Guardar actividad';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  const created = (await scheduleRepository.listEvents({ includeCancelled: false })).find((event) => event.title === 'Nueva actividad');
+  assert.deepEqual(created?.equipmentIds, [2, 3]);
 });
 
 test('handleTelegramScheduleText sends private conflict notifications after creating an overlapping activity', async () => {

@@ -36,6 +36,9 @@ import {
 } from '../schedule/schedule-web-create-token.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
+import type { ClubEquipmentRecord, ClubEquipmentRepository } from '../equipment/equipment-catalog.js';
+import { listClubEquipment } from '../equipment/equipment-catalog.js';
+import { createDatabaseClubEquipmentRepository } from '../equipment/equipment-catalog-store.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import {
   findRelevantVenueEventsForRange,
@@ -110,6 +113,7 @@ import {
   buildEditDateOptions,
   buildEditDescriptionOptions,
   buildEditDurationOptions,
+  buildEquipmentSelectionOptions,
   buildEditFieldMenuOptionsForEvent,
   buildEditInitialOccupiedSeatsOptions,
   buildEditPublicVisibilityOptions,
@@ -236,6 +240,7 @@ export interface TelegramScheduleContext {
   };
   scheduleRepository?: ScheduleRepository;
   tableRepository?: ClubTableRepository;
+  equipmentRepository?: ClubEquipmentRepository;
   venueEventRepository?: VenueEventRepository;
   auditRepository?: AuditLogRepository;
   membershipRepository?: MembershipAccessRepository;
@@ -581,7 +586,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
       data: { eventId },
     });
     await context.reply(
-      `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId), language })}\n\n${texts.selectFieldPrompt}`,
+      `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId), equipmentNames: await loadEquipmentNames(context, event.equipmentIds), language })}\n\n${texts.selectFieldPrompt}`,
       { ...buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', hasPublicVisibility: event.attendanceMode === 'open', language }), parseMode: 'HTML' },
     );
     return true;
@@ -604,7 +609,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
       data: { eventId },
     });
     await context.reply(
-      `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId), language })}\n\n${texts.confirmCancelPrompt}`,
+      `${formatScheduleEventDetails({ event, tableName: await loadTableName(context, event.tableId), equipmentNames: await loadEquipmentNames(context, event.equipmentIds), language })}\n\n${texts.confirmCancelPrompt}`,
       { ...buildCancelConfirmOptions(language), parseMode: 'HTML' },
     );
     return true;
@@ -938,6 +943,10 @@ async function handleCreateSession(
     return advanceCreateTableSelection(context, data, text);
   }
 
+  if (stepKey === 'equipment' || stepKey === 'confirm-equipment') {
+    return advanceCreateEquipmentSelection(context, data, text, stepKey === 'confirm-equipment');
+  }
+
   if (stepKey === 'confirm') {
     if (text === texts.editFieldDuration || text === scheduleLabels.editFieldDuration) {
       await context.runtime.session.advance({ stepKey: 'confirm-duration-mode', data });
@@ -952,6 +961,10 @@ async function handleCreateSession(
     if (text === texts.editFieldTable || text === scheduleLabels.editFieldTable) {
       await context.runtime.session.advance({ stepKey: 'confirm-table', data });
       await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+      return true;
+    }
+    if (text === texts.editFieldEquipment || text === scheduleLabels.editFieldEquipment) {
+      await promptCreateEquipmentSelection(context, data, true);
       return true;
     }
     if (text === texts.editFieldDescription || text === scheduleLabels.editFieldDescription) {
@@ -971,6 +984,11 @@ async function handleCreateSession(
     } catch {
       await context.runtime.session.advance({ stepKey: 'table', data });
       await context.reply(texts.inactiveTableCreate, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+      return true;
+    }
+    if (!(await selectedEquipmentIsActive(context, normalizeEquipmentIds(data.equipmentIds)))) {
+      await context.reply(texts.inactiveEquipment);
+      await promptCreateEquipmentSelection(context, data, true);
       return true;
     }
     return persistCreateScheduleEvent(context, data, language);
@@ -996,6 +1014,7 @@ async function persistCreateScheduleEvent(
     organizerTelegramUserId: context.runtime.actor.telegramUserId,
     createdByTelegramUserId: context.runtime.actor.telegramUserId,
     tableId: asNullableNumber(data.tableId),
+    equipmentIds: normalizeEquipmentIds(data.equipmentIds),
     catalogItemId: asNullableNumber(data.catalogItemId),
     attendanceMode: String(data.attendanceMode) === 'closed' ? 'closed' : 'open',
     isPublic: data.isPublic === true,
@@ -1013,6 +1032,7 @@ async function persistCreateScheduleEvent(
       startsAt: created.startsAt,
       capacity: created.capacity,
       tableId: created.tableId,
+      equipmentIds: created.equipmentIds ?? [],
       catalogItemId: created.catalogItemId ?? null,
     },
   });
@@ -1125,6 +1145,7 @@ async function replyCreateTimePrompt(
           return attendance.snapshot;
         },
         loadTableName: async (event) => loadTableName(context, event.tableId),
+        loadEquipmentNames: async (event) => loadEquipmentNames(context, event.equipmentIds),
         loadRelevantVenueEvents: async (event) => listRelevantVenueEventsForScheduleEvent(context, event),
       });
   await context.reply(`${texts.askTime}\n\n${daySchedule}`, {
@@ -1325,6 +1346,11 @@ async function handleCreateSessionBack(
     await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
     return true;
   }
+  if (stepKey === 'equipment') {
+    await context.runtime.session.advance({ stepKey: 'table', data });
+    await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+    return true;
+  }
 
   if (stepKey === 'confirm') {
     await context.runtime.session.advance({
@@ -1346,7 +1372,7 @@ async function handleCreateSessionBack(
     return true;
   }
 
-  if (stepKey === 'confirm-duration-mode' || stepKey === 'confirm-duration-hours' || stepKey === 'confirm-duration-hours-minutes' || stepKey === 'confirm-duration' || stepKey === 'confirm-attendance-mode' || stepKey === 'confirm-table') {
+  if (stepKey === 'confirm-duration-mode' || stepKey === 'confirm-duration-hours' || stepKey === 'confirm-duration-hours-minutes' || stepKey === 'confirm-duration' || stepKey === 'confirm-attendance-mode' || stepKey === 'confirm-table' || stepKey === 'confirm-equipment') {
     await replyCreateConfirm(context, data);
     return true;
   }
@@ -1411,6 +1437,10 @@ async function handleEditSession(
     if (text === texts.editFieldTable || text === scheduleLabels.editFieldTable) {
       await context.runtime.session.advance({ stepKey: 'table', data });
       await context.reply(texts.askEditTable, buildEditTableOptions({ tableNames: await listSchedulableTableNames(context), language }));
+      return true;
+    }
+    if (text === texts.editFieldEquipment || text === scheduleLabels.editFieldEquipment) {
+      await promptEditEquipmentSelection(context, event, data);
       return true;
     }
     await context.reply(texts.selectFieldPrompt, buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', hasPublicVisibility: event.attendanceMode === 'open', language }));
@@ -1596,6 +1626,9 @@ async function handleEditSession(
     }
     return advanceEditTableSelection(context, event, data, text);
   }
+  if (stepKey === 'equipment') {
+    return advanceEditEquipmentSelection(context, event, data, text);
+  }
   if (stepKey === 'confirm') {
     await persistEditedScheduleEvent(context, event, data);
     return true;
@@ -1621,6 +1654,7 @@ async function returnToEditMenu(
         eventOrOrganizer: event,
         organizerTelegramUserId: event.organizerTelegramUserId,
         tableRepository: resolveTableRepository(context),
+        equipmentRepository: resolveEquipmentRepository(context),
         resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
       })}\n\n${texts.selectFieldPrompt}`,
       { ...buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', hasPublicVisibility: event.attendanceMode === 'open', language }), parseMode: 'HTML' },
@@ -1636,6 +1670,8 @@ async function persistEditedScheduleEvent(
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
   const tableId = Object.prototype.hasOwnProperty.call(data, 'tableId') ? asNullableNumber(data.tableId) : event.tableId;
+  const equipmentWasEdited = Object.prototype.hasOwnProperty.call(data, 'equipmentIds');
+  const equipmentIds = equipmentWasEdited ? normalizeEquipmentIds(data.equipmentIds) : normalizeEquipmentIds(event.equipmentIds);
   try {
     await requireSchedulableTableSelection({
       repository: resolveTableRepository(context),
@@ -1644,6 +1680,11 @@ async function persistEditedScheduleEvent(
   } catch {
     await context.runtime.session.advance({ stepKey: 'table', data });
     await context.reply(texts.inactiveTableEdit, buildEditTableOptions({ tableNames: await listSchedulableTableNames(context), language }));
+    return;
+  }
+  if (equipmentWasEdited && !(await selectedEquipmentIsActive(context, equipmentIds))) {
+    await context.reply(texts.inactiveEquipment);
+    await promptEditEquipmentSelection(context, event, data);
     return;
   }
 
@@ -1664,6 +1705,7 @@ async function persistEditedScheduleEvent(
     durationMinutes: Number(data.durationMinutes ?? event.durationMinutes),
     organizerTelegramUserId: event.organizerTelegramUserId,
     tableId,
+    equipmentIds,
     catalogItemId: event.catalogItemId ?? null,
     attendanceMode: event.attendanceMode,
     isPublic: Object.prototype.hasOwnProperty.call(data, 'isPublic') ? data.isPublic === true : event.isPublic,
@@ -1684,13 +1726,15 @@ async function persistEditedScheduleEvent(
       capacity: updated.capacity,
       previousTableId: event.tableId,
       tableId: updated.tableId,
+      previousEquipmentIds: event.equipmentIds ?? [],
+      equipmentIds: updated.equipmentIds ?? [],
     },
   });
   await context.runtime.session.cancel();
   await runAfterScheduleSaveSideEffects(context, updated, 'updated');
   await replyAfterScheduleSave(
     context,
-    `${texts.updated.replace('.', '')}: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId), language })}`,
+    `${texts.updated.replace('.', '')}: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId), equipmentNames: await loadEquipmentNames(context, updated.equipmentIds), language })}`,
     { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
   );
 }
@@ -1756,7 +1800,7 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
 
   const nextData = { ...session.data, tableId };
   if (session.flowKey !== editFlowKey) {
-    await replyCreateConfirm(context, nextData, selectedTable);
+    await promptCreateEquipmentSelection(context, nextData, false, selectedTable);
     return true;
   }
   await context.runtime.session.advance({ stepKey: 'confirm', data: nextData });
@@ -1767,6 +1811,7 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
         data: nextData,
         selectedTable,
         tableRepository: resolveTableRepository(context),
+        equipmentRepository: resolveEquipmentRepository(context),
         resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
         eventOrOrganizer: event,
         organizerTelegramUserId: event.organizerTelegramUserId,
@@ -1784,7 +1829,7 @@ async function advanceCreateTableSelection(
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
   if (text === texts.noTable || text === scheduleLabels.noTable) {
-    await replyCreateConfirm(context, { ...data, tableId: null });
+    await promptCreateEquipmentSelection(context, { ...data, tableId: null });
     return true;
   }
 
@@ -1795,7 +1840,63 @@ async function advanceCreateTableSelection(
   }
 
   const nextData = { ...data, tableId: selectedTable.id };
-  await replyCreateConfirm(context, nextData, selectedTable);
+  await promptCreateEquipmentSelection(context, nextData, false, selectedTable);
+  return true;
+}
+
+async function promptCreateEquipmentSelection(
+  context: TelegramScheduleContext,
+  data: Record<string, unknown>,
+  returnToSummary = false,
+  selectedTable?: ClubTableRecord | null,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const equipment = await listActiveEquipment(context);
+  if (equipment.length === 0) {
+    await replyCreateConfirm(context, data, selectedTable);
+    return;
+  }
+  const equipmentIds = normalizeEquipmentIds(data.equipmentIds);
+  await context.runtime.session.advance({
+    stepKey: returnToSummary ? 'confirm-equipment' : 'equipment',
+    data: { ...data, equipmentIds },
+  });
+  await context.reply(createTelegramI18n(language).schedule.askEquipment, buildEquipmentSelectionOptions({
+    equipment,
+    selectedEquipmentIds: equipmentIds,
+    language,
+  }));
+}
+
+async function advanceCreateEquipmentSelection(
+  context: TelegramScheduleContext,
+  data: Record<string, unknown>,
+  text: string,
+  returnToSummary: boolean,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  const equipment = await listActiveEquipment(context);
+  const selectedEquipmentIds = normalizeEquipmentIds(data.equipmentIds);
+  if (text === texts.finishEquipment || text === texts.noEquipment) {
+    await replyCreateConfirm(context, { ...data, equipmentIds: selectedEquipmentIds });
+    return true;
+  }
+  const normalizedText = text.startsWith('✓ ') ? text.slice(2) : text;
+  const selected = equipment.find((item) => item.displayName === normalizedText);
+  if (!selected) {
+    await context.reply(texts.invalidEquipment, buildEquipmentSelectionOptions({ equipment, selectedEquipmentIds, language }));
+    return true;
+  }
+  const nextEquipmentIds = selectedEquipmentIds.includes(selected.id)
+    ? selectedEquipmentIds.filter((equipmentId) => equipmentId !== selected.id)
+    : [...selectedEquipmentIds, selected.id].sort((left, right) => left - right);
+  const nextData = { ...data, equipmentIds: nextEquipmentIds };
+  await context.runtime.session.advance({
+    stepKey: returnToSummary ? 'confirm-equipment' : 'equipment',
+    data: nextData,
+  });
+  await context.reply(texts.askEquipment, buildEquipmentSelectionOptions({ equipment, selectedEquipmentIds: nextEquipmentIds, language }));
   return true;
 }
 
@@ -1813,6 +1914,7 @@ async function replyCreateConfirm(
       botLanguage: resolveBotLanguage(context),
       data,
       tableRepository: resolveTableRepository(context),
+      equipmentRepository: resolveEquipmentRepository(context),
         resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
         ...(selectedTable === undefined ? {} : { selectedTable }),
       })}${conflictWarning ? `\n\n${conflictWarning}` : ''}\n\n${texts.confirmPrompt}`,
@@ -1826,10 +1928,11 @@ async function formatCreateDraftConflictWarning(
   language: 'ca' | 'es' | 'en',
 ): Promise<string | null> {
   const tableId = asNullableNumber(data.tableId);
+  const equipmentIds = new Set(normalizeEquipmentIds(data.equipmentIds));
   const durationMinutes = Number(data.durationMinutes);
   const date = String(data.date ?? '');
   const time = String(data.time ?? '');
-  if (tableId === null || !Number.isInteger(durationMinutes) || durationMinutes <= 0 || !date || !time) {
+  if ((tableId === null && equipmentIds.size === 0) || !Number.isInteger(durationMinutes) || durationMinutes <= 0 || !date || !time) {
     return null;
   }
 
@@ -1839,7 +1942,9 @@ async function formatCreateDraftConflictWarning(
     repository: resolveScheduleRepository(context),
     includeCancelled: false,
   })).filter((event) => {
-    if (event.tableId !== tableId) {
+    const sharesTable = tableId !== null && event.tableId === tableId;
+    const sharesEquipment = (event.equipmentIds ?? []).some((equipmentId) => equipmentIds.has(equipmentId));
+    if (!sharesTable && !sharesEquipment) {
       return false;
     }
     const eventEndsAt = getScheduleEventEndsAt(event);
@@ -1861,6 +1966,7 @@ async function formatCreateDraftConflictWarning(
       return attendance.snapshot;
     },
     loadTableName: async (event) => loadTableName(context, event.tableId),
+    loadEquipmentNames: async (event) => loadEquipmentNames(context, event.equipmentIds),
     loadRelevantVenueEvents: async (event) => listRelevantVenueEventsForScheduleEvent(context, event),
   });
   const organizerLinks = await Promise.all(overlappingEvents.map(async (event) => {
@@ -1895,6 +2001,51 @@ async function advanceEditTableSelection(
   return returnToEditMenu(context, event, data, { tableId: selectedTable.id });
 }
 
+async function promptEditEquipmentSelection(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const equipment = await listActiveEquipment(context);
+  const selectedEquipmentIds = normalizeEquipmentIds(
+    Object.prototype.hasOwnProperty.call(data, 'equipmentIds') ? data.equipmentIds : event.equipmentIds,
+  ).filter((equipmentId) => equipment.some((item) => item.id === equipmentId));
+  await context.runtime.session.advance({ stepKey: 'equipment', data: { ...data, equipmentIds: selectedEquipmentIds } });
+  await context.reply(createTelegramI18n(language).schedule.askEditEquipment, buildEquipmentSelectionOptions({
+    equipment,
+    selectedEquipmentIds,
+    language,
+  }));
+}
+
+async function advanceEditEquipmentSelection(
+  context: TelegramScheduleContext,
+  event: ScheduleEventRecord,
+  data: Record<string, unknown>,
+  text: string,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  const equipment = await listActiveEquipment(context);
+  const selectedEquipmentIds = normalizeEquipmentIds(data.equipmentIds);
+  if (text === texts.finishEquipment || text === texts.noEquipment) {
+    return returnToEditMenu(context, event, data, { equipmentIds: selectedEquipmentIds });
+  }
+  const normalizedText = text.startsWith('✓ ') ? text.slice(2) : text;
+  const selected = equipment.find((item) => item.displayName === normalizedText);
+  if (!selected) {
+    await context.reply(texts.invalidEquipment, buildEquipmentSelectionOptions({ equipment, selectedEquipmentIds, language }));
+    return true;
+  }
+  const nextEquipmentIds = selectedEquipmentIds.includes(selected.id)
+    ? selectedEquipmentIds.filter((equipmentId) => equipmentId !== selected.id)
+    : [...selectedEquipmentIds, selected.id].sort((left, right) => left - right);
+  await context.runtime.session.advance({ stepKey: 'equipment', data: { ...data, equipmentIds: nextEquipmentIds } });
+  await context.reply(texts.askEditEquipment, buildEquipmentSelectionOptions({ equipment, selectedEquipmentIds: nextEquipmentIds, language }));
+  return true;
+}
+
 async function findSchedulableTableByDisplayName(context: TelegramScheduleContext, text: string): Promise<ClubTableRecord | null> {
   const normalizedText = text.trim();
   const tables = await listSchedulableTables({ repository: resolveTableRepository(context) });
@@ -1904,6 +2055,22 @@ async function findSchedulableTableByDisplayName(context: TelegramScheduleContex
 async function listSchedulableTableNames(context: TelegramScheduleContext): Promise<string[]> {
   const tables = await listSchedulableTables({ repository: resolveTableRepository(context) });
   return tables.map((table) => table.displayName);
+}
+
+async function listActiveEquipment(context: TelegramScheduleContext): Promise<ClubEquipmentRecord[]> {
+  return listClubEquipment({ repository: resolveEquipmentRepository(context) });
+}
+
+function normalizeEquipmentIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.map(Number).filter((equipmentId) => Number.isInteger(equipmentId) && equipmentId > 0)))
+    .sort((left, right) => left - right);
+}
+
+async function selectedEquipmentIsActive(context: TelegramScheduleContext, equipmentIds: number[]): Promise<boolean> {
+  if (equipmentIds.length === 0) return true;
+  const activeIds = new Set((await listActiveEquipment(context)).map((equipment) => equipment.id));
+  return equipmentIds.every((equipmentId) => activeIds.has(equipmentId));
 }
 
 async function replyWithManageableEventList(
@@ -1956,6 +2123,13 @@ function resolveTableRepository(context: TelegramScheduleContext): ClubTableRepo
   return createDatabaseClubTableRepository({ database: context.runtime.services.database.db as never });
 }
 
+function resolveEquipmentRepository(context: TelegramScheduleContext): ClubEquipmentRepository {
+  if (context.equipmentRepository) {
+    return context.equipmentRepository;
+  }
+  return createDatabaseClubEquipmentRepository({ database: context.runtime.services.database.db as never });
+}
+
 function resolveAuditRepository(context: TelegramScheduleContext): AuditLogRepository {
   if (context.auditRepository) {
     return context.auditRepository;
@@ -1991,6 +2165,12 @@ async function loadTableName(context: TelegramScheduleContext, tableId: number |
     tableId,
   });
   return table?.displayName ?? null;
+}
+
+async function loadEquipmentNames(context: TelegramScheduleContext, equipmentIds: number[] | undefined): Promise<string[]> {
+  const equipment = await Promise.all(normalizeEquipmentIds(equipmentIds).map((equipmentId) =>
+    resolveEquipmentRepository(context).findEquipmentById(equipmentId)));
+  return equipment.flatMap((item) => item ? [item.displayName] : []);
 }
 
 async function formatParticipantLabels(context: TelegramScheduleContext, telegramUserIds: number[]): Promise<string[]> {
@@ -2044,6 +2224,7 @@ async function formatScheduleEventView(
     formatScheduleEventDetails({
       event,
       tableName: await loadTableName(context, event.tableId),
+      equipmentNames: await loadEquipmentNames(context, event.equipmentIds),
       creatorLabel,
       showInitialOccupiedSeats: false,
       language,
@@ -2481,6 +2662,7 @@ async function replyWithInspectableEventList(
       return attendance.snapshot;
     },
     loadTableName: async (event) => loadTableName(context, event.tableId),
+    loadEquipmentNames: async (event) => loadEquipmentNames(context, event.equipmentIds),
     loadRelevantVenueEvents: async (event) => listRelevantVenueEventsForScheduleEvent(context, event),
   });
   if (options.includeMenuKeyboard) {

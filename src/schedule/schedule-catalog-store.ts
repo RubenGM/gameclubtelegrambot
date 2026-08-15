@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
-import { scheduleEventParticipants, scheduleEvents } from '../infrastructure/database/schema.js';
+import { scheduleEventEquipment, scheduleEventParticipants, scheduleEvents } from '../infrastructure/database/schema.js';
 import type {
   ScheduleEventParticipationRecord,
   ScheduleEventRecord,
@@ -16,37 +16,45 @@ export function createDatabaseScheduleRepository({
 }): ScheduleRepository {
   return {
     async createEvent(input) {
-      const created = await database
-        .insert(scheduleEvents)
-        .values({
-          title: input.title,
-          description: input.description,
-          detailsMessageChatId: input.detailsMessageChatId ?? null,
-          detailsMessageId: input.detailsMessageId ?? null,
-          startsAt: new Date(input.startsAt),
-          durationMinutes: input.durationMinutes,
-          organizerTelegramUserId: input.organizerTelegramUserId,
-          createdByTelegramUserId: input.createdByTelegramUserId,
-          tableId: input.tableId,
-          catalogItemId: input.catalogItemId ?? null,
-          attendanceMode: input.attendanceMode,
-          isPublic: input.isPublic,
-          initialOccupiedSeats: input.initialOccupiedSeats,
-          capacity: input.capacity,
-        })
-        .returning();
+      return database.transaction(async (tx) => {
+        const created = await tx
+          .insert(scheduleEvents)
+          .values({
+            title: input.title,
+            description: input.description,
+            detailsMessageChatId: input.detailsMessageChatId ?? null,
+            detailsMessageId: input.detailsMessageId ?? null,
+            startsAt: new Date(input.startsAt),
+            durationMinutes: input.durationMinutes,
+            organizerTelegramUserId: input.organizerTelegramUserId,
+            createdByTelegramUserId: input.createdByTelegramUserId,
+            tableId: input.tableId,
+            catalogItemId: input.catalogItemId ?? null,
+            attendanceMode: input.attendanceMode,
+            isPublic: input.isPublic,
+            initialOccupiedSeats: input.initialOccupiedSeats,
+            capacity: input.capacity,
+          })
+          .returning();
 
-      const row = created[0];
-      if (!row) {
-        throw new Error('Schedule event insert did not return a row');
-      }
-
-      return mapScheduleEventRow(row);
+        const row = created[0];
+        if (!row) {
+          throw new Error('Schedule event insert did not return a row');
+        }
+        if ((input.equipmentIds?.length ?? 0) > 0) {
+          await tx.insert(scheduleEventEquipment).values(
+            input.equipmentIds!.map((equipmentId) => ({ scheduleEventId: row.id, equipmentId })),
+          );
+        }
+        return mapScheduleEventRow(row, input.equipmentIds ?? []);
+      });
     },
     async findEventById(eventId) {
       const result = await database.select().from(scheduleEvents).where(eq(scheduleEvents.id, eventId));
       const row = result[0];
-      return row ? mapScheduleEventRow(row) : null;
+      if (!row) return null;
+      const equipmentIds = await loadEquipmentIdsForEvents(database, [eventId]);
+      return mapScheduleEventRow(row, equipmentIds.get(eventId) ?? []);
     },
     async listEvents({ includeCancelled, startsAtFrom, startsAtTo }) {
       const filters = [];
@@ -66,7 +74,8 @@ export function createDatabaseScheduleRepository({
         : query.orderBy(asc(scheduleEvents.startsAt));
       const result = await orderedQuery;
 
-      return result.map(mapScheduleEventRow);
+      const equipmentIds = await loadEquipmentIdsForEvents(database, result.map((row) => row.id));
+      return result.map((row) => mapScheduleEventRow(row, equipmentIds.get(row.id) ?? []));
     },
     async listActiveEventsByParticipant({ participantTelegramUserId, startsAtFrom, startsAtTo, limit, order = 'asc' }) {
       const filters = [
@@ -94,41 +103,50 @@ export function createDatabaseScheduleRepository({
         .orderBy(order === 'desc' ? desc(scheduleEvents.startsAt) : asc(scheduleEvents.startsAt))
         .limit(limit ?? 100);
 
+      const equipmentIds = await loadEquipmentIdsForEvents(database, rows.map((row) => row.event.id));
+
       return rows.map((row) => ({
-        ...mapScheduleEventRow(row.event),
+        ...mapScheduleEventRow(row.event, equipmentIds.get(row.event.id) ?? []),
         participantStatus: row.participantStatus as ScheduleParticipantRecord['status'],
         participantJoinedAt: row.participantJoinedAt.toISOString(),
         participantUpdatedAt: row.participantUpdatedAt.toISOString(),
       } satisfies ScheduleEventParticipationRecord));
     },
     async updateEvent(input) {
-      const updated = await database
-        .update(scheduleEvents)
-        .set({
-          title: input.title,
-          description: input.description,
-          detailsMessageChatId: input.detailsMessageChatId ?? null,
-          detailsMessageId: input.detailsMessageId ?? null,
-          startsAt: new Date(input.startsAt),
-          durationMinutes: input.durationMinutes,
-          organizerTelegramUserId: input.organizerTelegramUserId,
-          tableId: input.tableId,
-          catalogItemId: input.catalogItemId ?? null,
-          attendanceMode: input.attendanceMode,
-          isPublic: input.isPublic,
-          initialOccupiedSeats: input.initialOccupiedSeats,
-          capacity: input.capacity,
-          updatedAt: new Date(),
-        })
-        .where(eq(scheduleEvents.id, input.eventId))
-        .returning();
+      return database.transaction(async (tx) => {
+        const updated = await tx
+          .update(scheduleEvents)
+          .set({
+            title: input.title,
+            description: input.description,
+            detailsMessageChatId: input.detailsMessageChatId ?? null,
+            detailsMessageId: input.detailsMessageId ?? null,
+            startsAt: new Date(input.startsAt),
+            durationMinutes: input.durationMinutes,
+            organizerTelegramUserId: input.organizerTelegramUserId,
+            tableId: input.tableId,
+            catalogItemId: input.catalogItemId ?? null,
+            attendanceMode: input.attendanceMode,
+            isPublic: input.isPublic,
+            initialOccupiedSeats: input.initialOccupiedSeats,
+            capacity: input.capacity,
+            updatedAt: new Date(),
+          })
+          .where(eq(scheduleEvents.id, input.eventId))
+          .returning();
 
-      const row = updated[0];
-      if (!row) {
-        throw new Error(`Schedule event ${input.eventId} not found`);
-      }
-
-      return mapScheduleEventRow(row);
+        const row = updated[0];
+        if (!row) {
+          throw new Error(`Schedule event ${input.eventId} not found`);
+        }
+        await tx.delete(scheduleEventEquipment).where(eq(scheduleEventEquipment.scheduleEventId, input.eventId));
+        if ((input.equipmentIds?.length ?? 0) > 0) {
+          await tx.insert(scheduleEventEquipment).values(
+            input.equipmentIds!.map((equipmentId) => ({ scheduleEventId: input.eventId, equipmentId })),
+          );
+        }
+        return mapScheduleEventRow(row, input.equipmentIds ?? []);
+      });
     },
     async cancelEvent({ eventId, actorTelegramUserId, reason }) {
       const now = new Date();
@@ -148,8 +166,8 @@ export function createDatabaseScheduleRepository({
       if (!row) {
         throw new Error(`Schedule event ${eventId} not found`);
       }
-
-      return mapScheduleEventRow(row);
+      const equipmentIds = await loadEquipmentIdsForEvents(database, [eventId]);
+      return mapScheduleEventRow(row, equipmentIds.get(eventId) ?? []);
     },
     async findParticipant(eventId, participantTelegramUserId) {
       const result = await database
@@ -293,7 +311,7 @@ export function createDatabaseScheduleRepository({
   };
 }
 
-function mapScheduleEventRow(row: typeof scheduleEvents.$inferSelect): ScheduleEventRecord {
+function mapScheduleEventRow(row: typeof scheduleEvents.$inferSelect, equipmentIds: number[] = []): ScheduleEventRecord {
   return {
     id: row.id,
     title: row.title,
@@ -305,6 +323,7 @@ function mapScheduleEventRow(row: typeof scheduleEvents.$inferSelect): ScheduleE
     organizerTelegramUserId: row.organizerTelegramUserId,
     createdByTelegramUserId: row.createdByTelegramUserId,
     tableId: row.tableId,
+    equipmentIds,
     catalogItemId: row.catalogItemId,
     attendanceMode: row.attendanceMode as ScheduleEventRecord['attendanceMode'],
     isPublic: row.isPublic,
@@ -317,6 +336,29 @@ function mapScheduleEventRow(row: typeof scheduleEvents.$inferSelect): ScheduleE
     cancelledByTelegramUserId: row.cancelledByTelegramUserId,
     cancellationReason: row.cancellationReason,
   };
+}
+
+async function loadEquipmentIdsForEvents(
+  database: DatabaseConnection['db'],
+  eventIds: number[],
+): Promise<Map<number, number[]>> {
+  const result = new Map<number, number[]>();
+  if (eventIds.length === 0) {
+    return result;
+  }
+  const rows = await database
+    .select({
+      scheduleEventId: scheduleEventEquipment.scheduleEventId,
+      equipmentId: scheduleEventEquipment.equipmentId,
+    })
+    .from(scheduleEventEquipment)
+    .where(inArray(scheduleEventEquipment.scheduleEventId, eventIds));
+  for (const row of rows) {
+    const ids = result.get(row.scheduleEventId) ?? [];
+    ids.push(row.equipmentId);
+    result.set(row.scheduleEventId, ids);
+  }
+  return result;
 }
 
 function mapScheduleParticipantRow(

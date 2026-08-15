@@ -123,12 +123,14 @@ export function buildScheduleDayButtons({
 export function formatScheduleEventDetails({
   event,
   tableName,
+  equipmentNames,
   creatorLabel,
   showInitialOccupiedSeats = true,
   language = 'ca',
 }: {
   event: ScheduleEventRecord;
   tableName: string | null;
+  equipmentNames?: string[];
   creatorLabel?: string;
   showInitialOccupiedSeats?: boolean;
   language?: BotLanguage;
@@ -148,6 +150,7 @@ export function formatScheduleEventDetails({
       ? [formatHtmlField(texts.detailsInitialOccupiedSeats, String(event.initialOccupiedSeats))]
       : []),
     formatHtmlField(texts.detailsTable, escapeHtml(tableName ?? texts.noTable)),
+    ...(equipmentNames ? [formatHtmlField(texts.detailsEquipment, escapeHtml(equipmentNames.length > 0 ? equipmentNames.join(', ') : texts.noEquipment))] : []),
     ...(!hasScheduleDetailsMessage(event)
       ? [formatHtmlField(texts.detailsDescription, escapeHtml(event.description ?? texts.noDescription))]
       : []),

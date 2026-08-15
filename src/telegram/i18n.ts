@@ -48,6 +48,7 @@ export function createTelegramI18n(language: BotLanguage) {
     membership: membershipTexts[language],
     schedule: scheduleTexts[language],
     tableAdmin: tableAdminTexts[language],
+    equipmentAdmin: equipmentAdminTexts[language],
     tableRead: tableReadTexts[language],
     venueEventAdmin: venueEventAdminTexts[language],
     catalogAdmin: catalogAdminTexts[language],
@@ -186,6 +187,39 @@ const tableAdminTexts = {
     deactivated: 'Table deactivated successfully.',
     confirmCreatePrompt: 'To save the table, choose the confirmation button or cancel the flow.',
     confirmEditPrompt: 'To save the changes, choose the confirmation button or cancel the flow.',
+  },
+} as const;
+
+const equipmentAdminTexts = {
+  ca: {
+    openMenu: 'Equipament', create: 'Crear equipament', list: 'Llistar equipament', edit: 'Editar equipament', deactivate: 'Desactivar equipament',
+    selectMenu: "Gestió d'equipament: tria una acció.", askName: "Escriu el nom visible de l'equipament.",
+    askDescription: 'Escriu una descripció opcional o tria Ometre.', skipOptional: 'Ometre', keepCurrent: 'Mantenir valor actual', clearDescription: 'Esborrar descripció',
+    confirmCreate: 'Guardar equipament', confirmEdit: 'Guardar canvis de l’equipament', confirmDeactivate: 'Confirmar desactivació de l’equipament',
+    askDeactivate: "Si el desactives, no es podrà reservar en activitats noves, però es conservarà a l'historial.",
+    noEquipment: 'No hi ha cap equipament registrat.', listRegistered: 'Equipament registrat:', status: 'Estat', active: 'actiu', deactivatedLabel: 'desactivat',
+    description: 'Descripció', noDescription: 'Sense descripció', created: 'Equipament creat correctament', saved: 'Equipament guardat correctament.', deactivated: 'Equipament desactivat correctament.',
+    confirmCreatePrompt: "Per guardar l'equipament, tria el botó de confirmació o cancel·la.", confirmEditPrompt: 'Per guardar els canvis, tria el botó de confirmació o cancel·la.',
+  },
+  es: {
+    openMenu: 'Equipamiento', create: 'Crear equipamiento', list: 'Listar equipamiento', edit: 'Editar equipamiento', deactivate: 'Desactivar equipamiento',
+    selectMenu: 'Gestión de equipamiento: elige una acción.', askName: 'Escribe el nombre visible del equipamiento.',
+    askDescription: 'Escribe una descripción opcional o elige Omitir.', skipOptional: 'Omitir', keepCurrent: 'Mantener valor actual', clearDescription: 'Borrar descripción',
+    confirmCreate: 'Guardar equipamiento', confirmEdit: 'Guardar cambios del equipamiento', confirmDeactivate: 'Confirmar desactivación del equipamiento',
+    askDeactivate: 'Si lo desactivas, no podrá reservarse en actividades nuevas, pero se conservará en el historial.',
+    noEquipment: 'No hay ningún equipamiento registrado.', listRegistered: 'Equipamiento registrado:', status: 'Estado', active: 'activo', deactivatedLabel: 'desactivado',
+    description: 'Descripción', noDescription: 'Sin descripción', created: 'Equipamiento creado correctamente', saved: 'Equipamiento guardado correctamente.', deactivated: 'Equipamiento desactivado correctamente.',
+    confirmCreatePrompt: 'Para guardar el equipamiento, elige el botón de confirmación o cancela.', confirmEditPrompt: 'Para guardar los cambios, elige el botón de confirmación o cancela.',
+  },
+  en: {
+    openMenu: 'Equipment', create: 'Create equipment', list: 'List equipment', edit: 'Edit equipment', deactivate: 'Deactivate equipment',
+    selectMenu: 'Equipment management: choose an action.', askName: 'Type the equipment display name.',
+    askDescription: 'Type an optional description or choose Skip.', skipOptional: 'Skip', keepCurrent: 'Keep current value', clearDescription: 'Clear description',
+    confirmCreate: 'Save equipment', confirmEdit: 'Save equipment changes', confirmDeactivate: 'Confirm equipment deactivation',
+    askDeactivate: 'If you deactivate it, it cannot be reserved for new activities, but it will remain in history.',
+    noEquipment: 'No equipment has been registered.', listRegistered: 'Registered equipment:', status: 'Status', active: 'active', deactivatedLabel: 'deactivated',
+    description: 'Description', noDescription: 'No description', created: 'Equipment created successfully', saved: 'Equipment saved successfully.', deactivated: 'Equipment deactivated successfully.',
+    confirmCreatePrompt: 'To save the equipment, choose the confirmation button or cancel.', confirmEditPrompt: 'To save the changes, choose the confirmation button or cancel.',
   },
 } as const;
 

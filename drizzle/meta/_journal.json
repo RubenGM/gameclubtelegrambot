@@ -330,6 +330,13 @@
       "when": 1785400800984,
       "tag": "0046_little_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786833776141,
+      "tag": "0047_clever_skullbuster",
+      "breakpoints": true
     }
   ]
 }

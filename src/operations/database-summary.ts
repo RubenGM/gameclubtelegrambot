@@ -62,8 +62,10 @@ const knownSummaryTables = [
   'catalog_items',
   'catalog_loans',
   'schedule_events',
+  'schedule_event_equipment',
   'venue_events',
   'club_tables',
+  'club_equipment',
 ] as const;
 
 async function connectDatabaseSummaryClient(config: RuntimeConfig): Promise<DatabaseSummaryClient> {

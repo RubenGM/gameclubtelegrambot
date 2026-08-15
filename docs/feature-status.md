@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-07-30.
+Última revisión: 2026-08-16.
 
 Este documento refleja lo que existe en el código actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -20,7 +20,8 @@ Este documento refleja lo que existe en el código actual, no solo lo que aparec
 | Idioma, menús y ayuda                        | 🟢 Operativo        | `ca`, `es`, `en` + menú por rol/contexto, Avisos, LFG, Rol y ayuda contextual por sección activa.                                     |
 | Asistente LLM de órdenes naturales           | 🟠 Parcial          | `/ask` y fallback privado; menciones IA en grupos/topics responden sólo por privado, sin mensajes públicos.                           |
 | Mesas                                        | 🟢 Operativo        | Administración de mesas y consulta de tablas activas para socios.                                                                     |
-| Agenda de actividades                        | 🟢 Operativo        | Creación Telegram/web con token, detalle, reservas, promoción, altas/bajas, conflictos y recordatorios.                               |
+| Equipamiento                                 | 🟢 Operativo        | Alta admin y reserva múltiple de equipamiento en actividades, con detalle y avisos de solapamiento.                                   |
+| Agenda de actividades                        | 🟢 Operativo        | Creación Telegram/web con token, reservas de mesa/equipamiento, promoción, altas/bajas, conflictos y recordatorios.                  |
 | Google Calendar                              | 🟢 Operativo        | Selección admin, acceso público/privado, sincronización Agenda → Google y enlace limpio desde grupos/topics.                          |
 | Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
 | Catálogo                                     | 🟢 Operativo        | CRUD, familias, búsqueda, media URL/adjunto con Storage, BGG/Open Library/Wikipedia y procesos con progreso editable.                 |
@@ -219,6 +220,24 @@ Riesgos o pendientes:
 
 - No hay reserva exclusiva de mesa; la agenda permite solapes y avisa conflictos en vez de bloquearlos.
 
+## Equipamiento
+
+Estado: `operativo`.
+
+Implementado:
+
+- `Inicio → Admin → Equipamiento` y `/equipment` permiten a los admins crear, listar, editar y desactivar elementos reservables sin alterar el catálogo de mesas.
+- El flujo completo de creación y edición de Agenda permite seleccionar varios elementos activos; el modo simple crea la actividad sin equipamiento.
+- El resumen final del flujo estándar mantiene `Equipamiento` como acción visible para añadir, retirar o revisar la selección antes de guardar.
+- El formulario web personal de creación ofrece la misma selección múltiple y vuelve a validar que cada elemento continúe activo antes de guardar.
+- Las reservas se persisten por actividad y se muestran por nombre en el resumen, detalle y listados de Agenda.
+- Si dos actividades coinciden en horario y comparten mesa o al menos un elemento, Telegram y el formulario web muestran el aviso de conflicto antes de guardar.
+
+Riesgos o pendientes:
+
+- Como ocurre con las mesas, un solapamiento se avisa pero no se bloquea automáticamente.
+- No se crean elementos iniciales en la migración; los admins dan de alta únicamente el equipamiento real del club.
+
 ## Agenda de actividades
 
 Estado: `operativo`.
@@ -233,16 +252,16 @@ Integración Google Calendar:
 
 Implementado:
 
-- `/schedule` con crear, crear en modo simple, listar, editar, cancelar, detalle por deep link, unirse y salir. El botón `Crear (simple)` pide sólo título, fecha y hora y crea directamente una actividad de 180 min, mesa abierta sólo para socios, 4 plazas, 0 ocupadas, sin mesa y sin descripción. El flujo completo muestra al elegir fecha la agenda de ese día con el mismo formato de publicación y, tras la hora, propone sin duración, mesa cerrada y sin mesa; el resumen permite cambiar rápidamente duración, tipo y mesa reservada.
+- `/schedule` con crear, crear en modo simple, listar, editar, cancelar, detalle por deep link, unirse y salir. El botón `Crear (simple)` pide sólo título, fecha y hora y crea directamente una actividad de 180 min, mesa abierta sólo para socios, 4 plazas, 0 ocupadas, sin mesa, sin equipamiento y sin descripción. El flujo completo muestra al elegir fecha la agenda de ese día con el mismo formato de publicación y, tras la hora, propone sin duración, mesa cerrada y sin mesa; el resumen permite cambiar rápidamente duración, tipo, mesa y equipamiento reservado.
 - Si la creación web está activa, al iniciar el flujo completo Telegram ofrece además un enlace personal de un solo uso, con token aleatorio almacenado sólo como hash y caducidad de 30 minutos. La ruta no se anuncia en la navegación pública y vuelve a comprobar que el usuario siga aprobado antes de mostrar o guardar el formulario.
-- El formulario web responsive permite completar título, descripción, fecha mediante calendario, hora, duración, mesa, tipo abierto/cerrado, visibilidad pública, aforo y plazas ya ocupadas. Muestra la Agenda del día y, justo antes de guardar, destaca los cruces de la mesa seleccionada con una alerta roja que identifica cada actividad y enlaza a su persona organizadora, igual que el resumen preventivo de Telegram; la validación al enviar vuelve a comprobar contra el catálogo activo de mesas y la creación conserva el usuario de Telegram como organizador, auditoría, sincronización Google Calendar, avisos de conflicto, snapshots y confirmación privada.
+- El formulario web responsive permite completar título, descripción, fecha mediante calendario, hora, duración, mesa, varios elementos de equipamiento, tipo abierto/cerrado, visibilidad pública, aforo y plazas ya ocupadas. Muestra la Agenda del día y, justo antes de guardar, destaca los cruces de la mesa o equipamiento seleccionados con una alerta roja que identifica cada actividad y enlaza a su persona organizadora, igual que el resumen preventivo de Telegram; la validación al enviar vuelve a comprobar contra los catálogos activos y la creación conserva el usuario de Telegram como organizador, auditoría, sincronización Google Calendar, avisos de conflicto, snapshots y confirmación privada.
 - El detalle de actividad respeta el idioma activo y muestra la persona creadora como enlace a su perfil de Telegram. En actividades abiertas presenta los asistentes como una lista de perfiles y cada plaza ocupada inicialmente como `Reservado`; la persona creadora y los admins ven además el enlace `Asignar`, que abre un selector paginado de socios aprobados. La asignación convierte de forma atómica una reserva genérica en un participante real —sin alterar la ocupación total—, registra auditoría y avisa al socio por privado.
 - La persona creadora y los admins pueden promocionar una actividad desde su detalle con un mensaje personalizado opcional. La promoción puntual usa el feed independiente y sin alta por defecto `promotions` (`promociones`/`promocions`), sin reutilizar el destino automático de `events` o `public-events`. Un admin registra uno a uno cada destino exacto desde el privado del bot con `/promociones suscribir <enlace t.me/c> [nombre visible]` o lo retira con `/promociones desuscribir <enlace>`; `/promociones suscribir default <enlace> [nombre visible]` lo convierte en el único preferido. El nombre opcional admite espacios, se conserva al volver a suscribir sin nombre y sustituye al fallback técnico del topic tanto en la confirmación como en el selector. Esto permite configurar `General` o un topic mediante el enlace sin publicar comandos en el grupo: en foros, un enlace directo terminado en `/1` representa `General`, uno terminado por ejemplo en `/5` representa el topic 5 y una ruta `/5/<mensaje>` conserva ese mismo topic. Como alternativa operativa, se mantienen `/news suscribir promociones` y su variante `default` desde el propio destino. Cambiar el preferido no elimina las demás suscripciones. En supergrupos con foro, el destino sin topic se identifica expresamente como `General`. Si sólo existe un destino se selecciona automáticamente; si hay varios, el preferido aparece primero y el resto se ordena alfabéticamente por el nombre visible configurado o el fallback que devuelve el bot. Si no hay ninguno se detiene el flujo y se indica que un admin debe configurar la suscripción de promociones. La publicación incluye plazas libres y un botón directo para abrir la actividad y apuntarse.
-- Soporte de fecha, hora, duración, mesa opcional, juego de catálogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, visibilidad pública sólo para mesas abiertas, plazas iniciales ocupadas, capacidad y mensaje extra opcional con adjuntos para detalles.
+- Soporte de fecha, hora, duración, mesa opcional, equipamiento múltiple opcional, juego de catálogo enlazado cuando se crea desde su detalle, modo abierto/cerrado, visibilidad pública sólo para mesas abiertas, plazas iniciales ocupadas, capacidad y mensaje extra opcional con adjuntos para detalles.
 - Las actividades públicas siguen apareciendo en las listas internas normales y además permiten que usuarios de Telegram no aprobados abran el deep link de detalle y se apunten, sin convertirlos en socios del club.
 - Si el usuario escribe solo la hora de inicio, el bot pasa a un paso especifico de minutos con botones rapidos (`:00`, `:15`, `:30`, `:45`) y copy propio.
 - Preferencia de recordatorio al apuntarse y worker persistente de recordatorios.
-- Avisos de conflicto y capacidad al crear/editar. Al seleccionar una mesa durante la creación, el resumen avisa antes de guardar de cualquier solapamiento en esa mesa, muestra las actividades con el formato de Agenda y enlaza al organizador para escribirle por privado. Un aviso de conflicto exige solapamiento horario y la misma mesa asignada; las actividades sin mesa no generan ni reciben avisos de conflicto.
+- Avisos de conflicto y capacidad al crear/editar. Al seleccionar una mesa o equipamiento durante la creación, el resumen avisa antes de guardar de cualquier solapamiento que comparta al menos un recurso, muestra las actividades con el formato de Agenda y enlaza al organizador para escribirle por privado. Una actividad sin recursos compartidos no genera avisos de conflicto.
 - Integración con eventos del local para mostrar impacto.
 - Listados resumidos y snapshots de grupo con descripciones de actividad limitadas a 30 caracteres, incluidos los puntos suspensivos cuando se recortan; sólo en ese caso añaden tras ellos un enlace localizado `Ver descripción` que abre la ficha completa. El enlace `Ver detalles` aparece únicamente cuando la actividad tiene mensaje extra guardado; en ese caso no imprimen la descripción en línea y el deep link reenvía el mensaje original al usuario.
 - Publicación de snapshot a destinos de noticias suscritos; los feeds marcados por defecto como `events` llegan a todos los grupos de news habilitados salvo que ese feed tenga un destino explícito, incluido un topic. El feed separado `public-events` no se activa por defecto y publica sólo la agenda filtrada a actividades públicas. El bot recuerda el último snapshot por grupo/topic/categoría y borra el anterior tras publicar uno nuevo; si Telegram rechaza el borrado por antigüedad o permisos, edita el mensaje anterior a puntos suspensivos para que no queden dos calendarios largos visibles.
@@ -593,6 +612,7 @@ Pendiente:
 | Agenda | `src/telegram/schedule-flow.test.ts`, `src/telegram/calendar-flow.test.ts`, `src/telegram/schedule-parsing.test.ts`, `src/telegram/schedule-presentation.test.ts`, `src/telegram/promotion-destination-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-catalog-store.test.ts`, `src/schedule/schedule-table-selection.test.ts`, `src/schedule/*reminder*.test.ts` |
 | Google Calendar | `src/google-calendar/google-calendar-settings.test.ts`, `src/google-calendar/google-calendar-sync.test.ts`, `src/telegram/google-calendar-public-link-flow.test.ts` |
 | Mesas | `src/telegram/table-admin-flow.test.ts`, `src/telegram/table-read-flow.test.ts` |
+| Equipamiento | `src/equipment/equipment-catalog.test.ts`, `src/telegram/equipment-admin-flow.test.ts`, `src/telegram/schedule-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-catalog-store.test.ts` |
 | Eventos del local | `src/telegram/venue-event-admin-flow.test.ts`, `src/venue-events/venue-event-catalog.test.ts`, `src/venue-events/venue-event-catalog-store.test.ts`, `src/venue-events/venue-event-impact-signals.test.ts`, `src/telegram/today-at-club-summary.test.ts` |
 | Catálogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-admin-browse-ui.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Préstamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-reminders.test.ts`, `src/catalog/catalog-loan-store.test.ts` |

@@ -218,6 +218,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isAdmin,
   },
   {
+    id: 'equipment',
+    label: (language) => createTelegramI18n(language).actionMenu.equipment,
+    telemetryActionKey: 'menu.equipment_admin',
+    uxSection: 'admin',
+    buttonRole: 'primary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'review_access',
     label: (language) => createTelegramI18n(language).actionMenu.reviewAccess,
     telemetryActionKey: 'menu.review_access',
@@ -368,7 +377,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-tools',
     matches: () => false,
-    rows: [['review_access', 'manage_users'], ['tables', 'welcome_templates'], ['update_bgg', 'llm_models'], ['role_game_auto_scheduling', 'printer_admin'], ['image_generation_admin', 'google_calendar'], ['member_debug'], ['start', 'help']],
+    rows: [['review_access', 'manage_users'], ['tables', 'equipment'], ['welcome_templates', 'update_bgg'], ['llm_models', 'role_game_auto_scheduling'], ['printer_admin', 'image_generation_admin'], ['google_calendar', 'member_debug'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',

@@ -1,6 +1,7 @@
 import { getScheduleTableCapacityAdvisories, resolveScheduleTableReference } from '../schedule/schedule-table-selection.js';
 import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
 import type { ClubTableRecord, ClubTableRepository } from '../tables/table-catalog.js';
+import type { ClubEquipmentRepository } from '../equipment/equipment-catalog.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { asNullableNumber, asNullableString, buildStartsAt } from './schedule-parsing.js';
 import { escapeHtml, formatDurationMinutes, formatHtmlField, formatTimestamp } from './schedule-presentation.js';
@@ -12,6 +13,7 @@ export async function formatScheduleDraftSummary({
   organizerTelegramUserId,
   selectedTable,
   tableRepository,
+  equipmentRepository,
   resolveOrganizerDisplayName,
 }: {
   botLanguage?: string;
@@ -20,6 +22,7 @@ export async function formatScheduleDraftSummary({
   organizerTelegramUserId?: number;
   selectedTable?: ClubTableRecord | null;
   tableRepository: ClubTableRepository;
+  equipmentRepository?: ClubEquipmentRepository;
   resolveOrganizerDisplayName: (telegramUserId: number) => Promise<string>;
 }): Promise<string> {
   const texts = createTelegramI18n(normalizeBotLanguage(botLanguage, 'ca')).schedule;
@@ -35,6 +38,7 @@ export async function formatScheduleDraftSummary({
   const capacity = Number(data.capacity ?? event?.capacity ?? 0);
   const initialOccupiedSeats = Number(data.initialOccupiedSeats ?? event?.initialOccupiedSeats ?? 0);
   const effectiveTableId = data.tableId === undefined ? event?.tableId ?? null : asNullableNumber(data.tableId);
+  const equipmentIds = normalizeEquipmentIds(data.equipmentIds === undefined ? event?.equipmentIds : data.equipmentIds);
 
   const table = selectedTable === undefined
     ? await resolveScheduleTableReference({
@@ -46,6 +50,10 @@ export async function formatScheduleDraftSummary({
     table,
     requestedCapacity: capacity,
   });
+  const equipmentNames = equipmentRepository
+    ? (await Promise.all(equipmentIds.map((equipmentId) => equipmentRepository.findEquipmentById(equipmentId))))
+        .flatMap((equipment) => equipment ? [equipment.displayName] : [])
+    : [];
 
   return [
     formatHtmlField(texts.editFieldTitle, escapeHtml(title)),
@@ -57,9 +65,15 @@ export async function formatScheduleDraftSummary({
     formatHtmlField(attendanceMode === 'closed' ? texts.detailsPeople : texts.detailsSeats, String(capacity)),
     ...(attendanceMode === 'open' ? [formatHtmlField(texts.detailsInitialOccupiedSeats, String(initialOccupiedSeats))] : []),
     formatHtmlField(texts.detailsTable, escapeHtml(table?.displayName ?? texts.noTable)),
+    formatHtmlField(texts.detailsEquipment, escapeHtml(equipmentNames.length > 0 ? equipmentNames.join(', ') : texts.noEquipment)),
     ...advisories.map(escapeHtml),
     ...(effectiveOrganizerTelegramUserId
       ? [formatHtmlField(texts.detailsOrganizer, escapeHtml(await resolveOrganizerDisplayName(effectiveOrganizerTelegramUserId)))]
       : []),
   ].join('\n');
+}
+
+function normalizeEquipmentIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(Number).filter((equipmentId) => Number.isInteger(equipmentId) && equipmentId > 0);
 }

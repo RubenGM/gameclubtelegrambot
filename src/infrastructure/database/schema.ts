@@ -133,6 +133,16 @@ export const clubTables = pgTable('club_tables', {
   deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
 });
 
+export const clubEquipment = pgTable('club_equipment', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  displayName: varchar('display_name', { length: 255 }).notNull(),
+  description: text('description'),
+  lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('active'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
+});
+
 export const catalogFamilies = pgTable('catalog_families', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   slug: varchar('slug', { length: 128 }).notNull().unique(),
@@ -277,6 +287,27 @@ export const scheduleEvents = pgTable(
   },
   (table) => ({
     catalogItemLookup: index('schedule_events_catalog_item_id_idx').on(table.catalogItemId),
+  }),
+);
+
+export const scheduleEventEquipment = pgTable(
+  'schedule_event_equipment',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    scheduleEventId: bigint('schedule_event_id', { mode: 'number' })
+      .notNull()
+      .references(() => scheduleEvents.id, { onDelete: 'cascade' }),
+    equipmentId: bigint('equipment_id', { mode: 'number' })
+      .notNull()
+      .references(() => clubEquipment.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    equipmentPerEvent: uniqueIndex('schedule_event_equipment_unique_assignment').on(
+      table.scheduleEventId,
+      table.equipmentId,
+    ),
+    equipmentLookup: index('schedule_event_equipment_equipment_id_idx').on(table.equipmentId),
   }),
 );
 

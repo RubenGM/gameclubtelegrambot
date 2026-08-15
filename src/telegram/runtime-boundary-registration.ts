@@ -185,6 +185,12 @@ import {
   tableAdminCallbackPrefixes,
 } from './table-admin-flow.js';
 import {
+  equipmentAdminCallbackPrefixes,
+  handleTelegramEquipmentAdminCallback,
+  handleTelegramEquipmentAdminStartText,
+  handleTelegramEquipmentAdminText,
+} from './equipment-admin-flow.js';
+import {
   handleTelegramTableReadCallback,
   handleTelegramTableReadCommand,
   handleTelegramTableReadStartText,
@@ -271,6 +277,7 @@ export function registerHandlers({
   registerNewsGroupCallbacks({ bot });
   registerTableReadCallbacks({ bot });
   registerTableAdminCallbacks({ bot });
+  registerEquipmentAdminCallbacks({ bot });
   registerCatalogReadCallbacks({ bot });
   registerCatalogAdminCallbacks({ bot });
   registerStorageCallbacks({ bot });
@@ -402,6 +409,10 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramTableAdminText(context)) {
+      return;
+    }
+
+    if (await handleTelegramEquipmentAdminText(context)) {
       return;
     }
 
@@ -2115,6 +2126,9 @@ function createDefaultCommands({
         if (await handleTelegramTableAdminStartText({ ...context })) {
           return;
         }
+        if (await handleTelegramEquipmentAdminStartText({ ...context })) {
+          return;
+        }
         if (await handleTelegramCatalogReadStartText({ ...context })) {
           return;
         }
@@ -2747,6 +2761,18 @@ function registerTableAdminCallbacks({
   }
 }
 
+function registerEquipmentAdminCallbacks({
+  bot,
+}: {
+  bot: TelegramBotLike;
+}): void {
+  for (const callbackPrefix of Object.values(equipmentAdminCallbackPrefixes)) {
+    bot.onCallback(callbackPrefix, async (context) => {
+      await handleTelegramEquipmentAdminCallback(context);
+    });
+  }
+}
+
 function registerCatalogAdminCallbacks({
   bot,
 }: {
@@ -3262,6 +3288,10 @@ async function handleTelegramActionMenuText(
 
     if (selection.actionId === 'tables') {
       return handleTelegramTableAdminText(localizedContext);
+    }
+
+    if (selection.actionId === 'equipment') {
+      return handleTelegramEquipmentAdminText(localizedContext);
     }
 
     if (selection.actionId === 'catalog') {

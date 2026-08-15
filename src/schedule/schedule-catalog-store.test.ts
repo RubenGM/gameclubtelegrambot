@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createDatabaseScheduleRepository } from './schedule-catalog-store.js';
-import { scheduleEventParticipants, scheduleEvents } from '../infrastructure/database/schema.js';
+import { scheduleEventEquipment, scheduleEventParticipants, scheduleEvents } from '../infrastructure/database/schema.js';
 
 const scheduleEventsTable = scheduleEvents as unknown;
 const scheduleEventParticipantsTable = scheduleEventParticipants as unknown;
+const scheduleEventEquipmentTable = scheduleEventEquipment as unknown;
 
 test('createDatabaseScheduleRepository lists only scheduled events by default', async () => {
   const events: string[] = [];
@@ -13,7 +14,7 @@ test('createDatabaseScheduleRepository lists only scheduled events by default', 
     database: {
       select: () => ({
         from: (table: { [key: string]: unknown }) => ({
-          where: () => ({
+          where: () => (table as unknown) === scheduleEventEquipmentTable ? Promise.resolve([]) : ({
             orderBy: async () => {
               if ((table as unknown) !== scheduleEventsTable) {
                 throw new Error('unexpected table');
@@ -63,8 +64,7 @@ test('createDatabaseScheduleRepository lists only scheduled events by default', 
 });
 
 test('createDatabaseScheduleRepository persists attendance mode, visibility, and initial occupied seats', async () => {
-  const repository = createDatabaseScheduleRepository({
-    database: {
+  const database = {
       insert: (table: { [key: string]: unknown }) => {
         if ((table as unknown) !== scheduleEventsTable) {
           throw new Error('unexpected table');
@@ -105,8 +105,9 @@ test('createDatabaseScheduleRepository persists attendance mode, visibility, and
           },
         };
       },
-    } as never,
-  });
+      transaction: async (operation: (tx: unknown) => Promise<unknown>) => operation(database),
+    };
+  const repository = createDatabaseScheduleRepository({ database: database as never });
 
   const event = await repository.createEvent({
     title: 'Open table',
@@ -125,6 +126,73 @@ test('createDatabaseScheduleRepository persists attendance mode, visibility, and
   assert.equal(event.attendanceMode, 'open');
   assert.equal(event.isPublic, true);
   assert.equal(event.initialOccupiedSeats, 2);
+});
+
+test('createDatabaseScheduleRepository stores equipment assignments in the same transaction', async () => {
+  const assignments: Array<{ scheduleEventId: number; equipmentId: number }> = [];
+  const database = {
+    insert: (table: { [key: string]: unknown }) => {
+      if ((table as unknown) === scheduleEventsTable) {
+        return {
+          values: () => ({
+            returning: async () => [{
+              id: 12,
+              title: 'Partida con material',
+              description: null,
+              detailsMessageChatId: null,
+              detailsMessageId: null,
+              startsAt: new Date('2026-04-05T16:00:00.000Z'),
+              durationMinutes: 180,
+              organizerTelegramUserId: 42,
+              createdByTelegramUserId: 42,
+              tableId: null,
+              catalogItemId: null,
+              attendanceMode: 'closed',
+              isPublic: false,
+              initialOccupiedSeats: 0,
+              capacity: 4,
+              lifecycleStatus: 'scheduled',
+              createdAt: new Date('2026-04-04T10:00:00.000Z'),
+              updatedAt: new Date('2026-04-04T10:00:00.000Z'),
+              cancelledAt: null,
+              cancelledByTelegramUserId: null,
+              cancellationReason: null,
+            }],
+          }),
+        };
+      }
+      if ((table as unknown) === scheduleEventEquipmentTable) {
+        return {
+          values: async (values: Array<{ scheduleEventId: number; equipmentId: number }>) => {
+            assignments.push(...values);
+          },
+        };
+      }
+      throw new Error('unexpected table');
+    },
+    transaction: async (operation: (tx: unknown) => Promise<unknown>) => operation(database),
+  };
+  const repository = createDatabaseScheduleRepository({ database: database as never });
+  const event = await repository.createEvent({
+    title: 'Partida con material',
+    description: null,
+    startsAt: '2026-04-05T16:00:00.000Z',
+    durationMinutes: 180,
+    organizerTelegramUserId: 42,
+    createdByTelegramUserId: 42,
+    tableId: null,
+    equipmentIds: [2, 3],
+    attendanceMode: 'closed',
+    isPublic: false,
+    initialOccupiedSeats: 0,
+    capacity: 4,
+  });
+
+  assert.deepEqual(event.equipmentIds, [2, 3]);
+  assert.deepEqual(assignments, [
+    { scheduleEventId: 12, equipmentId: 2 },
+    { scheduleEventId: 12, equipmentId: 3 },
+  ]);
 });
 
 test('createDatabaseScheduleRepository can upsert participants preserving join and leave metadata', async () => {

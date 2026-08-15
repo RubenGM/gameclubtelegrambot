@@ -200,6 +200,11 @@ const resourceDefs: ResourceDef[] = [
     { column: 'recommended_capacity', label: 'Capacity', type: 'number', nullable: true },
     { column: 'lifecycle_status', label: 'Lifecycle', type: 'string' },
   ], { column: 'lifecycle_status', value: 'inactive', timestampColumn: 'deactivated_at' }),
+  resource('club_equipment', 'Equipamiento', 'club_equipment', 'id', 'display_name', ['lifecycle_status'], ['id', 'display_name', 'description', 'lifecycle_status'], [
+    { column: 'display_name', label: 'Nombre', type: 'string' },
+    { column: 'description', label: 'Descripción', type: 'string', nullable: true },
+    { column: 'lifecycle_status', label: 'Estado', type: 'string' },
+  ], { column: 'lifecycle_status', value: 'deactivated', timestampColumn: 'deactivated_at' }),
   resource('schedule_events', 'Actividades', 'schedule_events', 'id', 'title', ['starts_at', 'lifecycle_status'], ['id', 'title', 'starts_at', 'capacity', 'catalog_item_id', 'lifecycle_status'], [
     { column: 'title', label: 'Title', type: 'string' },
     { column: 'description', label: 'Description', type: 'string', nullable: true },
@@ -1142,6 +1147,18 @@ interface ScheduleWebTableDatabaseRow {
   recommended_capacity: number | string | null;
 }
 
+interface ScheduleWebEquipmentRow {
+  id: number;
+  display_name: string;
+  description: string | null;
+}
+
+interface ScheduleWebEquipmentDatabaseRow {
+  id: number | string;
+  display_name: string;
+  description: string | null;
+}
+
 interface ScheduleWebAgendaRow {
   id: number | string;
   title: string;
@@ -1152,6 +1169,8 @@ interface ScheduleWebAgendaRow {
   organizer_telegram_user_id: number | string;
   organizer_display_name: string | null;
   organizer_username: string | null;
+  equipment_ids: Array<number | string> | null;
+  equipment_names: string[] | null;
 }
 
 interface ScheduleWebFormValues {
@@ -1165,6 +1184,7 @@ interface ScheduleWebFormValues {
   capacity: string;
   initialOccupiedSeats: string;
   tableId: string;
+  equipmentIds: string[];
 }
 
 async function handleScheduleWebCreateRequest(options: {
@@ -1190,9 +1210,10 @@ async function handleScheduleWebCreateRequest(options: {
     return;
   }
 
-  const [creator, tables, agenda, webSettings] = await Promise.all([
+  const [creator, tables, equipment, agenda, webSettings] = await Promise.all([
     fetchScheduleWebCreatorUser(options.services, tokenRecord.telegramUserId),
     fetchScheduleWebTables(options.services),
+    fetchScheduleWebEquipment(options.services),
     fetchScheduleWebAgenda(options.services),
     options.webSettingsStore.load(),
   ]);
@@ -1206,6 +1227,7 @@ async function handleScheduleWebCreateRequest(options: {
       token: options.token,
       creator,
       tables,
+      equipment,
       agenda,
       settings: webSettings,
       values: defaultScheduleWebFormValues(),
@@ -1215,12 +1237,13 @@ async function handleScheduleWebCreateRequest(options: {
 
   const form = await readForm(options.request);
   const values = scheduleWebFormValues(form);
-  const validation = validateScheduleWebCreateForm(values, tables);
+  const validation = validateScheduleWebCreateForm(values, tables, equipment);
   if (!validation.ok) {
     sendHtml(options.response, 400, scheduleWebCreatePage({
       token: options.token,
       creator,
       tables,
+      equipment,
       agenda,
       settings: webSettings,
       values,
@@ -1321,6 +1344,23 @@ async function fetchScheduleWebTables(
   });
 }
 
+async function fetchScheduleWebEquipment(
+  services: InfrastructureRuntimeServices,
+): Promise<ScheduleWebEquipmentRow[]> {
+  const result = await services.database.pool.query<ScheduleWebEquipmentDatabaseRow>(
+    `select id, display_name, description
+       from club_equipment
+      where lifecycle_status = 'active'
+      order by display_name asc`,
+  );
+  return result.rows.flatMap((row) => {
+    const id = Number(row.id);
+    return Number.isSafeInteger(id) && id > 0
+      ? [{ id, display_name: row.display_name, description: row.description }]
+      : [];
+  });
+}
+
 async function fetchScheduleWebAgenda(
   services: InfrastructureRuntimeServices,
 ): Promise<ScheduleWebAgendaRow[]> {
@@ -1333,10 +1373,19 @@ async function fetchScheduleWebAgenda(
             tables.display_name as table_name,
             events.organizer_telegram_user_id,
             organizers.display_name as organizer_display_name,
-            organizers.username as organizer_username
+            organizers.username as organizer_username,
+            equipment.equipment_ids,
+            equipment.equipment_names
        from schedule_events events
        left join club_tables tables on tables.id = events.table_id
        left join users organizers on organizers.telegram_user_id = events.organizer_telegram_user_id
+       left join lateral (
+         select array_agg(assignments.equipment_id order by items.display_name) as equipment_ids,
+                array_agg(items.display_name order by items.display_name) as equipment_names
+           from schedule_event_equipment assignments
+           join club_equipment items on items.id = assignments.equipment_id
+          where assignments.schedule_event_id = events.id
+       ) equipment on true
       where events.lifecycle_status = 'scheduled'
         and events.starts_at >= now() - interval '1 day'
         and events.starts_at < now() + interval '1 year'
@@ -1357,12 +1406,14 @@ function scheduleWebFormValues(form: URLSearchParams): ScheduleWebFormValues {
     capacity: form.get('capacity') ?? '',
     initialOccupiedSeats: form.get('initialOccupiedSeats') ?? '',
     tableId: form.get('tableId') ?? '',
+    equipmentIds: form.getAll('equipmentIds'),
   };
 }
 
 function validateScheduleWebCreateForm(
   values: ScheduleWebFormValues,
   tables: ScheduleWebTableRow[],
+  equipment: ScheduleWebEquipmentRow[],
 ): { ok: true; value: Omit<ScheduleWebCreateInput, 'organizerTelegramUserId'> } | { ok: false; message: string } {
   const title = values.title.trim();
   if (!title || title.length > 255) {
@@ -1389,6 +1440,10 @@ function validateScheduleWebCreateForm(
     || localCandidate.getMinutes() !== minute
   ) {
     return { ok: false, message: 'La fecha y la hora no forman un momento válido.' };
+  }
+  const equipmentIds = Array.from(new Set(values.equipmentIds.map(Number)));
+  if (equipmentIds.some((equipmentId) => !Number.isInteger(equipmentId) || !equipment.some((item) => item.id === equipmentId))) {
+    return { ok: false, message: 'Algún equipamiento seleccionado ya no está disponible.' };
   }
   const startsAt = buildStartsAt(values.date, values.time);
   if (Number.isNaN(new Date(startsAt).getTime())) {
@@ -1431,6 +1486,7 @@ function validateScheduleWebCreateForm(
       startsAt,
       durationMinutes,
       tableId,
+      equipmentIds,
       attendanceMode: values.attendanceMode,
       isPublic: values.attendanceMode === 'open' && values.isPublic,
       initialOccupiedSeats,
@@ -3727,6 +3783,7 @@ function scheduleWebCreatePage({
   token,
   creator,
   tables,
+  equipment,
   agenda,
   settings,
   values,
@@ -3735,6 +3792,7 @@ function scheduleWebCreatePage({
   token: string;
   creator: ScheduleWebCreatorUser;
   tables: ScheduleWebTableRow[];
+  equipment: ScheduleWebEquipmentRow[];
   agenda: ScheduleWebAgendaRow[];
   settings: WebSettings;
   values: ScheduleWebFormValues;
@@ -3747,6 +3805,10 @@ function scheduleWebCreatePage({
       return `<option value="${table.id}"${values.tableId === String(table.id) ? ' selected' : ''}>${escapeHtml(table.display_name)}${escapeHtml(capacity)}</option>`;
     }),
   ].join('');
+  const selectedEquipmentIds = new Set(values.equipmentIds);
+  const equipmentOptions = equipment.length > 0
+    ? equipment.map((item) => `<label class="schedule-checkbox"><input class="schedule-equipment" name="equipmentIds" type="checkbox" value="${item.id}"${selectedEquipmentIds.has(String(item.id)) ? ' checked' : ''}><span>${escapeHtml(item.display_name)}${item.description ? `<small>${escapeHtml(item.description)}</small>` : ''}</span></label>`).join('')
+    : '<p class="muted span-2">No hay equipamiento activo disponible.</p>';
   const errorHtml = error
     ? `<div class="schedule-form-alert" role="alert"><strong>Revisa el formulario</strong><span>${escapeHtml(error)}</span></div>`
     : '';
@@ -3799,9 +3861,10 @@ function scheduleWebCreatePage({
             <label class="span-2">Duración en minutos<input id="schedule-duration" name="durationMinutes" type="number" min="15" max="1440" step="15" list="schedule-duration-presets" value="${escapeHtml(values.durationMinutes)}" required><datalist id="schedule-duration-presets"><option value="60"><option value="90"><option value="120"><option value="180"><option value="240"></datalist><small>120 minutos se muestra como «sin duración» en algunas vistas de Agenda.</small></label>
           </div>
         </section>
-        <section class="schedule-form-section"><h2>Mesa y participación</h2><p>La disponibilidad y los posibles cruces se muestran antes de guardar.</p>
+        <section class="schedule-form-section"><h2>Mesa, equipamiento y participación</h2><p>La disponibilidad y los posibles cruces se muestran antes de guardar.</p>
           <div class="schedule-form-grid">
             <label class="span-2">Mesa<select id="schedule-table" name="tableId">${tableOptions}</select></label>
+            <div class="span-2"><strong>Equipamiento reservado</strong><div class="schedule-form-grid">${equipmentOptions}</div></div>
             <label>Tipo de actividad<select id="schedule-attendance" name="attendanceMode"><option value="open"${values.attendanceMode === 'open' ? ' selected' : ''}>Mesa abierta</option><option value="closed"${values.attendanceMode === 'closed' ? ' selected' : ''}>Mesa cerrada</option></select></label>
             <label>Plazas totales<input id="schedule-capacity" name="capacity" type="number" min="1" max="100" value="${escapeHtml(values.capacity)}" required></label>
             <label>Ya ocupadas<input id="schedule-occupied" name="initialOccupiedSeats" type="number" min="0" max="${escapeHtml(values.capacity)}" value="${escapeHtml(values.initialOccupiedSeats)}" required></label>
@@ -3821,6 +3884,7 @@ function scheduleWebCreatePage({
         const time = document.querySelector('#schedule-time');
         const duration = document.querySelector('#schedule-duration');
         const table = document.querySelector('#schedule-table');
+        const equipment = Array.from(document.querySelectorAll('.schedule-equipment'));
         const attendance = document.querySelector('#schedule-attendance');
         const capacity = document.querySelector('#schedule-capacity');
         const occupied = document.querySelector('#schedule-occupied');
@@ -3845,20 +3909,21 @@ function scheduleWebCreatePage({
           const matching = events.filter((event) => event.date === date.value);
           contextDate.textContent = date.value ? new Intl.DateTimeFormat('es-ES', {dateStyle:'full', timeZone:'UTC'}).format(new Date(date.value + 'T12:00:00Z')) : 'Selecciona una fecha.';
           dayEvents.innerHTML = matching.length
-            ? matching.map((event) => '<article class="schedule-day-event"><strong>' + escape(event.title) + '</strong><span>' + escape(event.time) + (event.tableName ? ' · ' + escape(event.tableName) : ' · Sin mesa') + '</span></article>').join('')
+            ? matching.map((event) => { const reservations = [event.tableName, ...event.equipmentNames].filter(Boolean); return '<article class="schedule-day-event"><strong>' + escape(event.title) + '</strong><span>' + escape(event.time) + (reservations.length ? ' · ' + reservations.map(escape).join(', ') : ' · Sin reservas') + '</span></article>'; }).join('')
             : '<p class="muted">No hay otras actividades programadas para este día.</p>';
           const start = selectedStart();
           const end = start === null ? null : start + Number(duration.value || 0) * 60000;
           const tableId = Number(table.value || 0);
-          const overlaps = start === null || end === null || !tableId
+          const equipmentIds = new Set(equipment.filter((item) => item.checked).map((item) => Number(item.value)));
+          const overlaps = start === null || end === null || (!tableId && equipmentIds.size === 0)
             ? []
-            : events.filter((event) => event.tableId === tableId && start < event.end && event.start < end);
+            : events.filter((event) => (event.tableId === tableId || event.equipmentIds.some((equipmentId) => equipmentIds.has(equipmentId))) && start < event.end && event.start < end);
           conflict.hidden = overlaps.length === 0;
           conflict.innerHTML = overlaps.length
-            ? '<strong>⚠ Conflicto de mesa</strong><span>La mesa ya está reservada durante este horario:</span><ul class="schedule-conflict-list">' + overlaps.map((event) => '<li class="schedule-conflict-item"><span><b>Actividad:</b> ' + escape(event.title) + ' (' + escape(event.time) + ')</span><span><b>Organiza:</b> <a href="' + escape(event.organizerUrl) + '">' + escape(event.organizerName) + '</a></span></li>').join('') + '</ul><span>Puedes crearla igualmente, pero coordínalo antes con la persona organizadora.</span>'
+            ? '<strong>⚠ Conflicto de reserva</strong><span>Alguna mesa o equipamiento ya está reservado durante este horario:</span><ul class="schedule-conflict-list">' + overlaps.map((event) => '<li class="schedule-conflict-item"><span><b>Actividad:</b> ' + escape(event.title) + ' (' + escape(event.time) + ')</span><span><b>Organiza:</b> <a href="' + escape(event.organizerUrl) + '">' + escape(event.organizerName) + '</a></span></li>').join('') + '</ul><span>Puedes crearla igualmente, pero coordínalo antes con la persona organizadora.</span>'
             : '';
         };
-        [date, time, duration, table, attendance, capacity].forEach((field) => field.addEventListener('input', update));
+        [date, time, duration, table, attendance, capacity, ...equipment].forEach((field) => field.addEventListener('input', update));
         update();
       })();
     </script>`,
@@ -3874,6 +3939,8 @@ function scheduleWebAgendaClientRow(row: ScheduleWebAgendaRow): {
   end: number;
   tableId: number | null;
   tableName: string | null;
+  equipmentIds: number[];
+  equipmentNames: string[];
   organizerName: string;
   organizerUrl: string;
 } {
@@ -3916,6 +3983,8 @@ function scheduleWebAgendaClientRow(row: ScheduleWebAgendaRow): {
     end: start + (Number.isFinite(durationMinutes) ? durationMinutes : 0) * 60_000,
     tableId: Number.isSafeInteger(tableId) ? tableId : null,
     tableName: row.table_name,
+    equipmentIds: (row.equipment_ids ?? []).map(Number).filter((equipmentId) => Number.isSafeInteger(equipmentId) && equipmentId > 0),
+    equipmentNames: row.equipment_names ?? [],
     organizerName: organizerLabel,
     organizerUrl,
   };
@@ -3944,6 +4013,7 @@ function defaultScheduleWebFormValues(): ScheduleWebFormValues {
     capacity: '4',
     initialOccupiedSeats: '0',
     tableId: '',
+    equipmentIds: [],
   };
 }
 
@@ -4778,6 +4848,7 @@ function adminActivitiesPage(overview: AdminActivitiesOverview): string {
   const actions = renderAdminActionGrid([
     ['Editar actividades', 'Cambiar fecha, juego, mesa, plazas, asistencia o cancelar.', '/admin/resources/schedule_events'],
     ['Gestionar mesas', 'Actualizar mesas del club y capacidad operativa.', '/admin/resources/club_tables'],
+    ['Gestionar equipamiento', 'Dar de alta, editar o desactivar equipamiento reservable.', '/admin/resources/club_equipment'],
     ['Eventos de sala', 'Gestionar reservas, cierres o impactos sobre la sala.', '/admin/resources/venue_events'],
     ['Vista publica', 'Comprobar como queda la agenda para visitantes.', '/actividades'],
   ]);

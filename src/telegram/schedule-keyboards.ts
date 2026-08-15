@@ -19,6 +19,7 @@ export const scheduleLabels = {
   editFieldInitialOccupiedSeats: 'Places ocupades inicials',
   editFieldPublicVisibility: 'Visibilitat',
   editFieldTable: 'Taula',
+  editFieldEquipment: 'Equipament',
   start: 'Inici',
   help: 'Ajuda',
   cancelFlow: '/cancel',
@@ -161,7 +162,8 @@ export function buildCreateConfirmOptions(language: BotLanguage = 'ca'): Telegra
   return {
     replyKeyboard: [
       [texts.editFieldDuration, texts.detailsAttendanceMode],
-      [texts.editFieldTable, texts.editFieldDescription],
+      [texts.editFieldTable, texts.editFieldEquipment],
+      [texts.editFieldDescription],
       [successButton(texts.confirmCreate)],
       [texts.back],
       [dangerButton(scheduleLabels.cancelFlow)],
@@ -267,9 +269,33 @@ export function buildEditFieldMenuOptionsForEvent({
       [texts.editFieldCapacity],
       ...(hasInitialOccupiedSeats ? [[texts.editFieldInitialOccupiedSeats]] : []),
       ...(hasPublicVisibility ? [[texts.editFieldPublicVisibility]] : []),
-      [texts.editFieldTable],
+      [texts.editFieldTable, texts.editFieldEquipment],
       [texts.editFieldDescription],
       [texts.confirmEdit],
+      [dangerButton(scheduleLabels.cancelFlow)],
+    ],
+    resizeKeyboard: true,
+    persistentKeyboard: true,
+  };
+}
+
+export function buildEquipmentSelectionOptions({
+  equipment,
+  selectedEquipmentIds,
+  language = 'ca',
+}: {
+  equipment: Array<{ id: number; displayName: string }>;
+  selectedEquipmentIds: number[];
+  language?: BotLanguage;
+}): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).schedule;
+  const selected = new Set(selectedEquipmentIds);
+  const labels = equipment.map((item) => selected.has(item.id) ? `✓ ${item.displayName}` : item.displayName);
+  return {
+    replyKeyboard: [
+      ...chunkTableButtons(labels),
+      [successButton(selected.size === 0 ? texts.noEquipment : texts.finishEquipment)],
+      [texts.back],
       [dangerButton(scheduleLabels.cancelFlow)],
     ],
     resizeKeyboard: true,

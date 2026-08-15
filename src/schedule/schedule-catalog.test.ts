@@ -41,6 +41,7 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         organizerTelegramUserId: input.organizerTelegramUserId,
         createdByTelegramUserId: input.createdByTelegramUserId,
         tableId: input.tableId,
+        equipmentIds: input.equipmentIds ?? [],
         catalogItemId: input.catalogItemId ?? null,
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
@@ -79,6 +80,7 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         startsAt: input.startsAt,
         organizerTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
+        equipmentIds: input.equipmentIds ?? existing.equipmentIds ?? [],
         catalogItemId: input.catalogItemId ?? existing.catalogItemId ?? null,
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
@@ -712,4 +714,52 @@ test('detectScheduleConflicts only finds overlaps at the same assigned table', a
 
   assert.deepEqual(eventWithoutTableConflicts.overlappingEventIds, []);
   assert.deepEqual(eventWithoutTableConflicts.impactedTelegramUserIds, []);
+});
+
+test('detectScheduleConflicts also finds overlapping reservations for the same equipment', async () => {
+  const common = {
+    description: null,
+    tableId: null,
+    durationMinutes: 120,
+    capacity: 4,
+    lifecycleStatus: 'scheduled' as const,
+    createdAt: '2026-04-04T10:00:00.000Z',
+    updatedAt: '2026-04-04T10:00:00.000Z',
+    cancelledAt: null,
+    cancelledByTelegramUserId: null,
+    cancellationReason: null,
+  };
+  const repository = createRepository([
+    {
+      ...common,
+      id: 30,
+      title: 'Partida con TV',
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      equipmentIds: [2],
+    },
+    {
+      ...common,
+      id: 31,
+      title: 'Otra partida con TV',
+      startsAt: '2026-04-05T17:00:00.000Z',
+      organizerTelegramUserId: 77,
+      createdByTelegramUserId: 77,
+      equipmentIds: [2],
+    },
+    {
+      ...common,
+      id: 32,
+      title: 'Partida con proyector',
+      startsAt: '2026-04-05T17:00:00.000Z',
+      organizerTelegramUserId: 88,
+      createdByTelegramUserId: 88,
+      equipmentIds: [3],
+    },
+  ]);
+
+  const conflicts = await detectScheduleConflicts({ repository, eventId: 30, actorTelegramUserId: 42 });
+  assert.deepEqual(conflicts.overlappingEventIds, [31]);
+  assert.deepEqual(conflicts.impactedTelegramUserIds, [77]);
 });

@@ -24,6 +24,7 @@ export interface ScheduleWebCreateInput {
   durationMinutes: number;
   organizerTelegramUserId: number;
   tableId: number | null;
+  equipmentIds: number[];
   attendanceMode: ScheduleAttendanceMode;
   isPublic: boolean;
   initialOccupiedSeats: number;
@@ -73,6 +74,7 @@ export function createDatabaseScheduleWebCreator({
         organizerTelegramUserId: input.organizerTelegramUserId,
         createdByTelegramUserId: input.organizerTelegramUserId,
         tableId: input.tableId,
+        equipmentIds: input.equipmentIds,
         attendanceMode: input.attendanceMode,
         isPublic: input.isPublic,
         initialOccupiedSeats: input.initialOccupiedSeats,
@@ -91,6 +93,7 @@ export function createDatabaseScheduleWebCreator({
           startsAt: created.startsAt,
           capacity: created.capacity,
           tableId: created.tableId,
+          equipmentIds: created.equipmentIds ?? [],
         },
       });
 

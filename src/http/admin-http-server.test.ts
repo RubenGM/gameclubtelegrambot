@@ -69,6 +69,11 @@ test('admin http server exposes public feedback and protects admin pages', async
             }],
           };
         }
+        if (sql.includes('from club_equipment') && sql.includes("lifecycle_status = 'active'")) {
+          return {
+            rows: [{ id: '2', display_name: 'TV móvil', description: 'Con ruedas' }],
+          };
+        }
         if (sql.includes("events.starts_at >= now() - interval '1 day'")) {
           return {
             rows: [{
@@ -81,6 +86,8 @@ test('admin http server exposes public feedback and protects admin pages', async
               organizer_telegram_user_id: '55',
               organizer_display_name: 'Carla',
               organizer_username: 'carla_games',
+              equipment_ids: ['2'],
+              equipment_names: ['TV móvil'],
             }],
           };
         }
@@ -623,6 +630,8 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(scheduleFormHtml, /type="date"/);
     assert.match(scheduleFormHtml, /type="time"/);
     assert.match(scheduleFormHtml, /Mesa grande/);
+    assert.match(scheduleFormHtml, /TV móvil/);
+    assert.match(scheduleFormHtml, /name="equipmentIds"/);
     assert.match(scheduleFormHtml, /Agenda del día/);
     assert.match(scheduleFormHtml, /Terraforming Mars/);
     assert.match(scheduleFormHtml, /Carla \(@carla_games\)/);
@@ -659,6 +668,7 @@ test('admin http server exposes public feedback and protects admin pages', async
         capacity: '6',
         initialOccupiedSeats: '1',
         tableId: '4',
+        equipmentIds: '2',
       }),
     });
     assert.equal(createScheduleResponse.status, 201);
@@ -671,6 +681,7 @@ test('admin http server exposes public feedback and protects admin pages', async
       durationMinutes: 180,
       organizerTelegramUserId: 77,
       tableId: 4,
+      equipmentIds: [2],
       attendanceMode: 'open',
       isPublic: true,
       initialOccupiedSeats: 1,

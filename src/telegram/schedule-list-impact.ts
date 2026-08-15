@@ -10,18 +10,21 @@ import {
   groupScheduleEventsByDay,
   sortScheduleEvents,
 } from './schedule-presentation.js';
+import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 
 export async function formatScheduleListWithVenueImpact({
   events,
   language = 'ca',
   loadAttendance,
   loadTableName,
+  loadEquipmentNames,
   loadRelevantVenueEvents,
 }: {
   events: ScheduleEventRecord[];
   language?: string;
   loadAttendance: (eventId: number) => Promise<{ occupiedSeats: number; capacity: number; availableSeats: number }>;
   loadTableName: (event: ScheduleEventRecord) => Promise<string | null>;
+  loadEquipmentNames?: (event: ScheduleEventRecord) => Promise<string[]>;
   loadRelevantVenueEvents: (event: ScheduleEventRecord) => Promise<VenueEventRecord[]>;
 }): Promise<string> {
   const lines: string[] = [];
@@ -40,7 +43,11 @@ export async function formatScheduleListWithVenueImpact({
       const modeSummary = event.attendanceMode === 'open' ? ' · Mesa abierta' : '';
       const tableName = await loadTableName(event);
       const tableSummary = tableName ? ` · ${escapeHtml(tableName)}` : '';
-      lines.push(`- ${formatEventTimeRange(event.startsAt, event.durationMinutes)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${event.id}`))}"><b>${escapeHtml(event.title)}</b></a>${modeSummary} · ${attendanceSummary}${tableSummary}`);
+      const equipmentNames = loadEquipmentNames ? await loadEquipmentNames(event) : [];
+      const equipmentSummary = equipmentNames.length > 0
+        ? ` · ${escapeHtml(createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule.detailsEquipment)}: ${escapeHtml(equipmentNames.join(', '))}`
+        : '';
+      lines.push(`- ${formatEventTimeRange(event.startsAt, event.durationMinutes)} <a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${event.id}`))}"><b>${escapeHtml(event.title)}</b></a>${modeSummary} · ${attendanceSummary}${tableSummary}${equipmentSummary}`);
       const detailsLink = formatScheduleDetailsLink(event, language);
       if (event.description && !detailsLink) {
         lines.push(`  ${formatScheduleDescriptionSummary({ description: event.description, eventId: event.id, language })}`);
