@@ -169,7 +169,6 @@ const simpleScheduleDefaults = {
   attendanceMode: 'open',
   isPublic: false,
   initialOccupiedSeats: 0,
-  capacity: 4,
   tableId: null,
 } as const;
 
@@ -717,7 +716,7 @@ async function handleCreateSession(
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
   if (text === texts.back) {
-    return handleCreateSessionBack(context, stepKey, data, language);
+    return handleCreateSessionBack(context, stepKey, data, language, isSimpleCreate);
   }
 
   if (stepKey === 'title') {
@@ -751,7 +750,9 @@ async function handleCreateSession(
     const time = parseTime(text);
     if (!(time instanceof Error)) {
       if (isSimpleCreate) {
-        return persistCreateScheduleEvent(context, { ...data, time, ...simpleScheduleDefaults }, language);
+        await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...simpleScheduleDefaults } });
+        await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+        return true;
       }
       await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...defaultCreateScheduleValues } });
       await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
@@ -781,7 +782,9 @@ async function handleCreateSession(
     }
     const time = buildTimeFromHourAndMinute(timeHour, minuteSelection);
     if (isSimpleCreate) {
-      return persistCreateScheduleEvent(context, { ...data, time, ...simpleScheduleDefaults }, language);
+      await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...simpleScheduleDefaults } });
+      await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+      return true;
     }
     await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...defaultCreateScheduleValues } });
     await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
@@ -913,6 +916,9 @@ async function handleCreateSession(
     if (capacity instanceof Error) {
       await context.reply(texts.invalidCapacity, buildSingleBackCancelKeyboard(language));
       return true;
+    }
+    if (isSimpleCreate) {
+      return persistCreateScheduleEvent(context, { ...data, capacity }, language);
     }
     return advanceCreateCapacity(context, data, capacity, language);
   }
@@ -1180,6 +1186,7 @@ async function handleCreateSessionBack(
   stepKey: string,
   data: Record<string, unknown>,
   language: 'ca' | 'es' | 'en',
+  isSimpleCreate = false,
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).schedule;
   const descriptionPatch = data.description === undefined ? {} : { description: data.description };
@@ -1261,6 +1268,14 @@ async function handleCreateSessionBack(
   }
 
   if (stepKey === 'capacity') {
+    if (isSimpleCreate) {
+      await context.runtime.session.advance({
+        stepKey: 'time',
+        data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date },
+      });
+      await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
+      return true;
+    }
     if (data.attendanceMode === 'open') {
       await context.runtime.session.advance({
         stepKey: 'public-visibility',

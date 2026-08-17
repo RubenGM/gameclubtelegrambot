@@ -1396,7 +1396,7 @@ test('handleTelegramScheduleText uses the full-create defaults, shows the select
   assert.match(replies.at(-1)?.message ?? '', /<b>Mesa:<\/b> Mesa TV/);
 });
 
-test('handleTelegramScheduleText creates a simple activity after title, date and time with the documented defaults', async () => {
+test('handleTelegramScheduleText asks for capacity and creates a simple activity with the documented defaults', async () => {
   const scheduleRepository = createScheduleRepository();
   const auditRepository = createAuditRepository();
   const { context, replies, getCurrentSession } = createContext({ scheduleRepository, auditRepository, actorTelegramUserId: 42 });
@@ -1414,6 +1414,24 @@ test('handleTelegramScheduleText creates a simple activity after title, date and
   assert.deepEqual(getCurrentSession(), { flowKey: 'schedule-create-simple', stepKey: 'time', data: { title: 'Cascadia', date: '2026-04-05' } });
 
   context.messageText = '16:00';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(getCurrentSession(), {
+    flowKey: 'schedule-create-simple',
+    stepKey: 'capacity',
+    data: {
+      title: 'Cascadia',
+      date: '2026-04-05',
+      time: '16:00',
+      durationMinutes: 180,
+      attendanceMode: 'open',
+      isPublic: false,
+      initialOccupiedSeats: 0,
+      tableId: null,
+    },
+  });
+  assert.equal(replies.at(-1)?.message, createTelegramI18n('ca').schedule.askCapacity);
+
+  context.messageText = '7';
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
 
@@ -1436,7 +1454,7 @@ test('handleTelegramScheduleText creates a simple activity after title, date and
     attendanceMode: 'open',
     isPublic: false,
     initialOccupiedSeats: 0,
-    capacity: 4,
+    capacity: 7,
     tableId: null,
   });
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.created');
@@ -1469,8 +1487,42 @@ test('handleTelegramScheduleText creates a simple activity after selecting minut
 
   context.messageText = ':30';
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'capacity');
+  context.messageText = '6';
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
   assert.equal((await scheduleRepository.findEventById(1))?.startsAt, '2026-04-05T14:30:00.000Z');
+  assert.equal((await scheduleRepository.findEventById(1))?.capacity, 6);
+});
+
+test('handleTelegramScheduleText validates capacity and returns to time in simple creation', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository, actorTelegramUserId: 42 });
+  const texts = createTelegramI18n('ca').schedule;
+
+  context.messageText = scheduleLabels.createSimple;
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Heat';
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Diumenge, 05/04';
+  await handleTelegramScheduleText(context);
+  context.messageText = '16:00';
+  await handleTelegramScheduleText(context);
+
+  context.messageText = '0';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'capacity');
+  assert.equal(replies.at(-1)?.message, texts.invalidCapacity);
+  assert.equal(await scheduleRepository.findEventById(1), null);
+
+  context.messageText = texts.back;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.deepEqual(getCurrentSession(), {
+    flowKey: 'schedule-create-simple',
+    stepKey: 'time',
+    data: { title: 'Heat', date: '2026-04-05' },
+  });
+  assert.equal(replies.at(-1)?.message, texts.askTime);
 });
 
 test('handleTelegramScheduleText keeps summary-customized open activities member-only by default', async () => {
