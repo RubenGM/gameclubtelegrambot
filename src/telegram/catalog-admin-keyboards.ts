@@ -8,11 +8,21 @@ export function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): Tele
   const texts = i18n.catalogAdmin;
   return buildSubmenuReplyKeyboard({ language, rows: [
     [texts.create, texts.bulkCreate],
+    [texts.bulkPhoto],
     [i18n.catalogLoan.myLoans, i18n.catalogLoan.adminDashboard],
     [texts.listBoardGames, texts.listBooks],
     [texts.listRpgBooks, texts.listExpansions],
     [texts.searchByName, texts.importBggCollection],
   ] });
+}
+
+export function buildBulkPhotoReviewOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  return buildReplyKeyboard([
+    [successButton(texts.bulkPhotoConfirm)],
+    [texts.bulkPhotoRetry],
+    [dangerButton(texts.cancel)],
+  ]);
 }
 
 export function buildTypeOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {

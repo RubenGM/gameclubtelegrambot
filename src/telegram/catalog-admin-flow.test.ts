@@ -46,6 +46,33 @@ function buttonText(button: string | { text: string }): string {
   return typeof button === 'string' ? button : button.text;
 }
 
+function createCatalogItemFixture(overrides: Partial<CatalogItemRecord> = {}): CatalogItemRecord {
+  return {
+    id: 1,
+    familyId: null,
+    groupId: null,
+    itemType: 'board-game',
+    displayName: 'Test game',
+    originalName: null,
+    description: null,
+    language: null,
+    publisher: null,
+    publicationYear: null,
+    playerCountMin: null,
+    playerCountMax: null,
+    recommendedAge: null,
+    playTimeMinutes: null,
+    storagePosition: null,
+    externalRefs: null,
+    metadata: null,
+    lifecycleStatus: 'active',
+    createdAt: '2026-04-04T10:00:00.000Z',
+    updatedAt: '2026-04-04T10:00:00.000Z',
+    deactivatedAt: null,
+    ...overrides,
+  };
+}
+
 function createRepository({
   families = [],
   groups = [],
@@ -440,6 +467,7 @@ function createContext({
   copyMessage,
   forwardMessage,
   sendMediaGroup,
+  downloadFile,
   isAdmin = true,
   language = 'ca',
 }: {
@@ -460,6 +488,7 @@ function createContext({
   copyMessage?: TelegramCatalogAdminContext['runtime']['bot']['copyMessage'];
   forwardMessage?: TelegramCatalogAdminContext['runtime']['bot']['forwardMessage'];
   sendMediaGroup?: TelegramCatalogAdminContext['runtime']['bot']['sendMediaGroup'];
+  downloadFile?: TelegramCatalogAdminContext['runtime']['bot']['downloadFile'];
   isAdmin?: boolean;
   language?: 'ca' | 'es' | 'en';
 } = {}) {
@@ -519,9 +548,9 @@ function createContext({
         clubName: 'Game Club',
         language,
         sendPrivateMessage: sendPrivateMessage ?? (async () => {}),
-        downloadFile: async ({ destinationPath }) => {
+        downloadFile: downloadFile ?? (async ({ destinationPath }) => {
           await writeFile(destinationPath, 'fake image');
-        },
+        }),
         editMessageText: async ({ messageId, text, options }) => {
           const index = messageId - 1;
           if (replies[index]) {
@@ -559,6 +588,7 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   assert.match(replies.at(-1)?.message ?? '', /No hi ha cap ítem de catàleg disponible ara mateix\./);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Crear ítem', catalogAdminLabels.bulkCreate],
+    [catalogAdminLabels.bulkPhoto],
     ['Els meus préstecs', 'Préstecs actius'],
     [catalogAdminLabels.listBoardGames, catalogAdminLabels.listBooks],
     [catalogAdminLabels.listRpgBooks, catalogAdminLabels.listExpansions],
@@ -576,6 +606,7 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Crear ítem', 'Añadir múltiples'],
+    ['Foto de la biblioteca'],
     ['Mis préstamos', 'Préstamos activos'],
     ['Listar juegos de mesa', 'Listar libros'],
     ['Listar libros RPG', 'Listar expansiones'],
@@ -1211,6 +1242,153 @@ test('handleTelegramCatalogAdminText starts bulk create flow', async () => {
   assert.equal(getCurrentSession()?.stepKey, 'bulk-item-type');
 });
 
+test('library photo bulk import stores a detected review list and only starts after confirmation', async () => {
+  const repository = createRepository();
+  const privateMessages: string[] = [];
+  const importCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: title,
+          originalName: title,
+          description: null,
+          language: null,
+          publisher: null,
+          publicationYear: null,
+          playerCountMin: null,
+          playerCountMax: null,
+          recommendedAge: null,
+          playTimeMinutes: null,
+          externalRefs: {},
+          metadata: { source: 'boardgamegeek' },
+        },
+      };
+    },
+  };
+  const resolverCalls: Array<{ imagePath: string; question: string; model: string }> = [];
+  const downloadCalls: Array<{ fileId: string; destinationPath: string; allowLocalBotApi?: boolean }> = [];
+  const { context, replies, getCurrentSession } = createContext({
+    repository,
+    wikipediaBoardGameImportService,
+    coverTitleResolver: async (input) => {
+      resolverCalls.push(input);
+      return '```json\n{"games":["Root","root"]}\n```';
+    },
+    downloadFile: async (input) => {
+      downloadCalls.push(input);
+      await writeFile(input.destinationPath, 'fake library image');
+    },
+    sendPrivateMessage: async (_telegramUserId, message) => {
+      privateMessages.push(message);
+    },
+    language: 'es',
+  });
+
+  context.messageText = 'Foto de la biblioteca';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'bulk-photo');
+  assert.match(replies.at(-1)?.message ?? '', /Envía una foto general/);
+
+  context.messageText = undefined;
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'library-photo-file-id',
+    messageId: 77,
+    originalFileName: null,
+    mimeType: null,
+  };
+  assert.equal(await handleTelegramCatalogAdminMessage(context), true);
+
+  assert.equal(resolverCalls.length, 1);
+  assert.equal(downloadCalls.length, 1);
+  assert.equal(downloadCalls[0]?.fileId, 'library-photo-file-id');
+  assert.equal(downloadCalls[0]?.allowLocalBotApi, true);
+  assert.match(resolverCalls[0]?.imagePath ?? '', /library\.jpg$/);
+  assert.match(resolverCalls[0]?.question ?? '', /todos los juegos de mesa y expansiones/i);
+  assert.equal(getCurrentSession()?.stepKey, 'bulk-photo-review');
+  assert.deepEqual(getCurrentSession()?.data.itemNames, ['Root']);
+  assert.match(replies.at(-1)?.message ?? '', /He detectado 1 juego/);
+  assert.match(replies.at(-1)?.message ?? '', /1\. Root/);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
+    [successButton('Confirmar importación')],
+    ['Repetir foto'],
+    [dangerButton('/cancel')],
+  ]);
+  assert.equal((await repository.listItems({ includeDeactivated: false })).length, 0);
+  assert.deepEqual(importCalls, []);
+
+  context.messageMedia = undefined;
+  context.messageText = 'Confirmar importación';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession(), null);
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(importCalls, ['Root']);
+  assert.equal((await repository.listItems({ includeDeactivated: false })).length, 1);
+  assert.match(privateMessages[0] ?? '', /Añadidos \(1\)/);
+});
+
+test('bulk board-game import checks the canonical BGG title before creating a duplicate', async () => {
+  const existing = createCatalogItemFixture({
+    id: 10,
+    itemType: 'board-game',
+    displayName: 'Catan',
+    originalName: 'Catan',
+    externalRefs: { boardGameGeekId: '13' },
+  });
+  const repository = createRepository({ items: [existing] });
+  const privateMessages: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle() {
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: 'Catan',
+          originalName: 'Catan',
+          description: null,
+          language: null,
+          publisher: null,
+          publicationYear: 1995,
+          playerCountMin: 3,
+          playerCountMax: 4,
+          recommendedAge: 10,
+          playTimeMinutes: 90,
+          externalRefs: { boardGameGeekId: '13' },
+          metadata: { source: 'boardgamegeek', boardGameGeekId: '13' },
+        },
+      };
+    },
+  };
+  const { context } = createContext({
+    repository,
+    wikipediaBoardGameImportService,
+    sendPrivateMessage: async (_telegramUserId, message) => {
+      privateMessages.push(message);
+    },
+  });
+
+  context.messageText = catalogAdminLabels.bulkCreate;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.typeBoardGame;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'The Settlers of Catan';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal((await repository.listItems({ includeDeactivated: false })).length, 1);
+  assert.match(privateMessages[0] ?? '', /Ja existien \(1\)/);
+  assert.match(privateMessages[0] ?? '', /- Catan/);
+});
+
 test('handleTelegramCatalogAdminText runs bulk create and sends summary as private message', async () => {
   const privateMessages: string[] = [];
   const privateMessageOptions: Array<TelegramReplyOptions | undefined> = [];
@@ -1323,6 +1501,51 @@ test('handleTelegramCatalogAdminText offers unresolved bulk names as copyable te
   assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-create');
   assert.equal(getCurrentSession()?.stepKey, 'display-name');
   assert.match(replies.at(-1)?.message ?? '', /Escriu el nom de l'ítem/);
+});
+
+test('bulk ambiguous BGG candidates link directly to their BoardGameGeek pages', async () => {
+  const privateMessages: string[] = [];
+  const privateMessageOptions: Array<TelegramReplyOptions | undefined> = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle() {
+      return {
+        ok: false,
+        error: {
+          type: 'ambiguous',
+          message: 'multiple matches',
+          candidates: [
+            'Dune: Imperium – Immortality (2022) [API #367466]',
+            'Resultado alternativo <sin ID>',
+          ],
+        },
+      };
+    },
+  };
+  const { context } = createContext({
+    wikipediaBoardGameImportService,
+    language: 'es',
+    sendPrivateMessage: async (_telegramUserId, message, options) => {
+      privateMessages.push(message);
+      privateMessageOptions.push(options);
+    },
+  });
+
+  context.messageText = 'Añadir múltiples';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Juego de mesa';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Dune: Immortality';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const summaryMessage = privateMessages[0] ?? '';
+  assert.match(
+    summaryMessage,
+    /<a href="https:\/\/boardgamegeek\.com\/boardgame\/367466">Dune: Imperium – Immortality \(2022\) \[API #367466\]<\/a>/,
+  );
+  assert.match(summaryMessage, /Resultado alternativo &lt;sin ID&gt;/);
+  assert.doesNotMatch(summaryMessage, /href="[^"]+">Resultado alternativo/);
+  assert.equal(privateMessageOptions[0]?.parseMode, 'HTML');
 });
 
 test('handleTelegramCatalogAdminText accepts Spanish item type buttons when creating', async () => {

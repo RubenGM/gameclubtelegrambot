@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,6 +8,10 @@ import {
   createCatalogDescriptionTranslator,
   type CatalogDescriptionTranslator,
 } from '../catalog/catalog-description-translation.js';
+import {
+  buildCatalogBulkImageQuestion,
+  parseCatalogBulkImageResponse,
+} from '../catalog/catalog-bulk-image-detection.js';
 import {
   createHttpCatalogLookupService,
   type CatalogLookupCandidate,
@@ -70,6 +74,7 @@ import {
 import { buildDateOptions } from './schedule-keyboards.js';
 import {
   buildCatalogAdminMenuOptions,
+  buildBulkPhotoReviewOptions,
   buildCoverSaveOptions,
   buildCreateConfirmOptions,
   buildCreateFieldMenuOptions as buildCatalogCreateFieldMenuOptions,
@@ -297,6 +302,9 @@ export const catalogAdminLabels = {
   keepTypedTitle: 'Quedar-me amb el meu títol',
   useApiTitle: "Fer servir el títol de l'API",
   bulkCreate: 'Afegir múltiples',
+  bulkPhoto: 'Foto de la biblioteca',
+  bulkPhotoConfirm: 'Confirmar importació',
+  bulkPhotoRetry: 'Repetir foto',
   askBulkNames: 'Escriu els noms separats per coma. Si usen coma literal, no els separis de moment.',
   bulkCreateAcknowledged: 'Gràcies! Ara processaré els resultats en segon pla. Quan acabi t\'enviaré un resum per aquí.',
   bulkCreateSummaryHeader: 'Resum de la càrrega múltiple:',
@@ -349,7 +357,7 @@ export interface TelegramCatalogAdminContext {
       copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
       forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
       sendMediaGroup?(input: { chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }): Promise<Array<{ messageId: number }>>;
-      downloadFile?(input: { fileId: string; destinationPath: string }): Promise<void>;
+      downloadFile?(input: { fileId: string; destinationPath: string; allowLocalBotApi?: boolean }): Promise<void>;
       editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
     };
     descriptionTranslator?: CatalogDescriptionTranslator;
@@ -417,6 +425,15 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
   if (text === texts.bulkCreate || text === catalogAdminLabels.bulkCreate || text === '/catalog_bulk') {
     await context.runtime.session.start({ flowKey: bulkCreateFlowKey, stepKey: 'bulk-item-type', data: {} });
     await context.reply(texts.askItemType, buildTypeOptions(language));
+    return true;
+  }
+  if (text === texts.bulkPhoto || text === catalogAdminLabels.bulkPhoto || text === '/catalog_photo_bulk') {
+    await context.runtime.session.start({
+      flowKey: bulkCreateFlowKey,
+      stepKey: 'bulk-photo',
+      data: { itemType: 'board-game' },
+    });
+    await context.reply(texts.bulkPhotoPrompt, buildSingleCancelKeyboard(language));
     return true;
   }
   if (text === i18n.catalogLoan.adminDashboard || text === '/loan_admin' || text === '/loans_admin') {
@@ -496,6 +513,11 @@ export async function handleTelegramCatalogAdminMessage(context: TelegramCatalog
 
   if (session?.flowKey === createFlowKey && session.stepKey === 'display-name') {
     return handleCreateSession(context, '', session.stepKey, session.data);
+  }
+
+  if (session?.flowKey === bulkCreateFlowKey
+    && (session.stepKey === 'bulk-photo' || session.stepKey === 'bulk-photo-review')) {
+    return handleBulkPhotoMessage(context, session.data);
   }
 
   if (session?.flowKey === mediaFlowKey && (session.stepKey === 'input' || session.stepKey === 'attachment')) {
@@ -1767,6 +1789,34 @@ async function handleBulkCreateSession(
     return true;
   }
 
+  if (stepKey === 'bulk-photo') {
+    await context.reply(texts.bulkPhotoPrompt, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  if (stepKey === 'bulk-photo-review') {
+    if (text === texts.bulkPhotoRetry || text === catalogAdminLabels.bulkPhotoRetry) {
+      await context.runtime.session.advance({
+        stepKey: 'bulk-photo',
+        data: { itemType: 'board-game' },
+      });
+      await context.reply(texts.bulkPhotoPrompt, buildSingleCancelKeyboard(language));
+      return true;
+    }
+    if (text === texts.bulkPhotoConfirm || text === catalogAdminLabels.bulkPhotoConfirm) {
+      const itemNames = asStringArray(data.itemNames).slice(0, bulkCreateItemLimit);
+      if (itemNames.length === 0) {
+        await context.runtime.session.advance({ stepKey: 'bulk-photo', data: { itemType: 'board-game' } });
+        await context.reply(texts.bulkPhotoNoGames, buildSingleCancelKeyboard(language));
+        return true;
+      }
+      await startCatalogBulkCreateJob(context, 'board-game', itemNames, 0, language);
+      return true;
+    }
+    await context.reply(formatBulkPhotoReview(texts, asStringArray(data.itemNames)), buildBulkPhotoReviewOptions(language));
+    return true;
+  }
+
   if (stepKey === 'bulk-item-type') {
     const itemType = parseItemTypeLabel(text, language);
     if (itemType instanceof Error) {
@@ -1791,23 +1841,139 @@ async function handleBulkCreateSession(
     }
 
     const skippedInputCount = parsedItemNames.length - itemNames.length;
-    await context.runtime.session.cancel();
-    const progress = await startTelegramEditableProgress(context, texts.bulkCreateAcknowledged, {
-      editFailedEvent: 'catalog.bulk-create.progress-edit.failed',
-    });
-    void runCatalogBulkCreateJob({
-      context,
-      actorTelegramUserId: context.runtime.actor.telegramUserId,
-      language,
-      itemType,
-      itemNames,
-      skippedInputCount,
-      progress,
-    });
+    await startCatalogBulkCreateJob(context, itemType, itemNames, skippedInputCount, language);
     return true;
   }
 
   return false;
+}
+
+async function handleBulkPhotoMessage(
+  context: TelegramCatalogAdminContext,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const media = context.messageMedia;
+  if (!media || !media.fileId || (media.attachmentKind !== 'photo' && !media.mimeType?.startsWith('image/'))) {
+    await context.reply(texts.bulkPhotoInvalidAttachment, buildSingleCancelKeyboard(language));
+    return true;
+  }
+  if (!context.runtime.bot.downloadFile) {
+    await context.reply(texts.coverTitleUnavailable, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  const progress = await startTelegramEditableProgress(context, texts.bulkPhotoAnalyzing, {
+    editFailedEvent: 'catalog.bulk-photo.progress-edit.failed',
+  });
+  const detected = await detectCatalogBulkNamesFromAttachment(context);
+  if (detected instanceof Error) {
+    await progress.complete(detected.message);
+    await context.reply(texts.bulkPhotoPrompt, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  const itemNames = detected.slice(0, bulkCreateItemLimit);
+  if (itemNames.length === 0) {
+    await progress.complete(texts.bulkPhotoNoGames);
+    await context.runtime.session.advance({ stepKey: 'bulk-photo', data: { itemType: 'board-game' } });
+    await context.reply(texts.bulkPhotoPrompt, buildSingleCancelKeyboard(language));
+    return true;
+  }
+
+  await progress.complete(texts.bulkPhotoReady);
+  await context.runtime.session.advance({
+    stepKey: 'bulk-photo-review',
+    data: { ...data, itemType: 'board-game', itemNames },
+  });
+  await context.reply(formatBulkPhotoReview(texts, itemNames), buildBulkPhotoReviewOptions(language));
+  return true;
+}
+
+async function startCatalogBulkCreateJob(
+  context: TelegramCatalogAdminContext,
+  itemType: CatalogItemType,
+  itemNames: string[],
+  skippedInputCount: number,
+  language: 'ca' | 'es' | 'en',
+): Promise<void> {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  await context.runtime.session.cancel();
+  const progress = await startTelegramEditableProgress(context, texts.bulkCreateAcknowledged, {
+    editFailedEvent: 'catalog.bulk-create.progress-edit.failed',
+  });
+  void runCatalogBulkCreateJob({
+    context,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+    language,
+    itemType,
+    itemNames,
+    skippedInputCount,
+    progress,
+  });
+}
+
+async function detectCatalogBulkNamesFromAttachment(
+  context: TelegramCatalogAdminContext,
+): Promise<string[] | Error> {
+  const media = context.messageMedia;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  if (!media?.fileId || !context.runtime.bot.downloadFile) {
+    return new Error(texts.bulkPhotoInvalidAttachment);
+  }
+
+  const tempDir = await mkdtemp(join(tmpdir(), 'gameclub-catalog-bulk-photo-'));
+  const imagePath = join(tempDir, `library${extensionForMedia(media)}`);
+  let stage: 'download' | 'vision' | 'parse' = 'download';
+  try {
+    // Codex runs through the cawa wrapper while the Telegram service owns this directory.
+    await chmod(tempDir, 0o755);
+    await context.runtime.bot.downloadFile({ fileId: media.fileId, destinationPath: imagePath, allowLocalBotApi: true });
+    await chmod(imagePath, 0o644);
+    stage = 'vision';
+    const resolver = context.coverTitleResolver ?? ((input) => runCodexImageQueryCapture({
+      imagePath: input.imagePath,
+      question: input.question,
+      model: input.model,
+      codexBin: catalogCodexBin,
+      reasoningEffort: 'low',
+    }));
+    const raw = await resolver({
+      imagePath,
+      question: buildCatalogBulkImageQuestion(),
+      model: catalogCoverTitleModel,
+    });
+    stage = 'parse';
+    const itemNames = parseCatalogBulkImageResponse(raw);
+    console.info(JSON.stringify({
+      event: 'catalog.bulk-photo.detected',
+      model: catalogCoverTitleModel,
+      detectedCount: itemNames.length,
+    }));
+    return itemNames;
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'catalog.bulk-photo.failed',
+      stage,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    return new Error(stage === 'download' ? texts.bulkPhotoDownloadFailed : texts.bulkPhotoAnalysisFailed);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+function formatBulkPhotoReview(
+  texts: ReturnType<typeof createTelegramI18n>['catalogAdmin'],
+  itemNames: string[],
+): string {
+  return [
+    texts.bulkPhotoDetected(itemNames.length),
+    '',
+    ...itemNames.map((name, index) => `${index + 1}. ${name}`),
+  ].join('\n');
 }
 
 async function runCatalogBulkCreateJob({
@@ -1904,8 +2070,8 @@ async function resolveCatalogBulkCreateItem(
 ): Promise<BulkCreateSummaryItem> {
   const normalizedInput = normalizeCatalogMatchText(input);
   const repository = resolveCatalogRepository(context);
-  const existingMatch = (await repository.listItems({ includeDeactivated: false }))
-    .find((candidate) => candidate.itemType === itemType && normalizeCatalogMatchText(candidate.displayName) === normalizedInput);
+  const existingItems = await repository.listItems({ includeDeactivated: false });
+  const existingMatch = findExistingBulkCatalogItem(existingItems, itemType, [normalizedInput]);
   if (existingMatch) {
     return {
       input,
@@ -2005,6 +2171,24 @@ async function resolveCatalogBulkCreateItem(
     }
 
     const draft = result.draft;
+    const canonicalExistingMatch = findExistingBulkCatalogItem(
+      existingItems,
+      itemType,
+      [
+        normalizedInput,
+        normalizeCatalogMatchText(draft.displayName),
+        normalizeCatalogMatchText(draft.originalName ?? ''),
+      ],
+      readBoardGameGeekId(draft.externalRefs) ?? readBoardGameGeekId(draft.metadata),
+    );
+    if (canonicalExistingMatch) {
+      return {
+        input,
+        status: 'alreadyExists',
+        title: canonicalExistingMatch.displayName,
+        itemId: canonicalExistingMatch.id,
+      };
+    }
     const created = await createCatalogItem({
       repository,
       familyId: draft.familyId,
@@ -2047,6 +2231,28 @@ async function resolveCatalogBulkCreateItem(
     input,
     status: 'noMatch',
   };
+}
+
+function findExistingBulkCatalogItem(
+  items: CatalogItemRecord[],
+  requestedType: CatalogItemType,
+  normalizedNames: string[],
+  boardGameGeekId?: string | null,
+): CatalogItemRecord | undefined {
+  const nameSet = new Set(normalizedNames.filter(Boolean));
+  return items.find((candidate) => {
+    const compatibleType = requestedType === 'board-game'
+      ? candidate.itemType === 'board-game' || candidate.itemType === 'expansion'
+      : candidate.itemType === requestedType;
+    if (!compatibleType) {
+      return false;
+    }
+    if (boardGameGeekId && readBoardGameGeekIdFromItem(candidate) === boardGameGeekId) {
+      return true;
+    }
+    return [candidate.displayName, candidate.originalName ?? '']
+      .some((name) => nameSet.has(normalizeCatalogMatchText(name)));
+  });
 }
 
 function formatCatalogBulkCreateSummary({
@@ -2136,13 +2342,21 @@ function formatBulkAmbiguousSummaryLines(
   const candidates = item.candidates?.slice(0, 3) ?? [];
   if (candidates.length > 0) {
     lines.push(`  ${texts.bulkCreateSummaryCandidateIntro}`);
-    lines.push(...candidates.map((candidate, index) => `  ${index + 1}. ${escapeHtml(candidate)}`));
+    lines.push(...candidates.map((candidate, index) => `  ${index + 1}. ${formatBulkCandidateLink(candidate)}`));
   }
   const hiddenCandidateCount = Math.max(0, (item.candidates?.length ?? 0) - candidates.length);
   if (hiddenCandidateCount > 0) {
     lines.push(`  ${texts.bulkCreateSummaryMoreCandidates.replace('{count}', String(hiddenCandidateCount))}`);
   }
   return lines;
+}
+
+function formatBulkCandidateLink(candidate: string): string {
+  const escapedCandidate = escapeHtml(candidate);
+  const boardGameGeekId = candidate.match(/\[API #(\d+)\]\s*$/i)?.[1];
+  return boardGameGeekId
+    ? `<a href="https://boardgamegeek.com/boardgame/${boardGameGeekId}">${escapedCandidate}</a>`
+    : escapedCandidate;
 }
 
 function getBulkManualSummaryItems(summaryItems: BulkCreateSummaryItem[]): BulkCreateSummaryItem[] {
@@ -2274,7 +2488,7 @@ async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminCont
 
   try {
     await mkdir(debugDir, { recursive: true });
-    await context.runtime.bot.downloadFile({ fileId: media.fileId, destinationPath: effectiveImagePath });
+    await context.runtime.bot.downloadFile({ fileId: media.fileId, destinationPath: effectiveImagePath, allowLocalBotApi: true });
     const downloaded = await stat(effectiveImagePath);
     console.info(JSON.stringify({
       event: 'catalog.cover-title.downloaded',

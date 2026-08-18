@@ -292,7 +292,7 @@ Estado: `operativo`.
 Implementado:
 
 - `/catalog` para crear, listar, buscar, inspeccionar, editar y desactivar items.
-- `/catalog_bulk` y el botón de menú "Añadir múltiples" para importar varios items en lote en background (separados por coma) con progreso editable y resumen final.
+- `/catalog_bulk` y el botón de menú "Añadir múltiples" permiten importar varios items en lote en background (separados por coma) con progreso editable y resumen final. `/catalog_photo_bulk` y "Foto de la biblioteca" aceptan una foto panorámica de las estanterías, usan visión Codex para extraer una lista interna deduplicada de juegos y expansiones, muestran esa lista para confirmarla o repetir la foto y, tras la confirmación, reutilizan el mismo alta secuencial. Antes de crear cada item se comprueba tanto el nombre leído como el título y el ID canónicos devueltos por BGG para no duplicar juegos ya catalogados. Cuando BGG devuelve varias coincidencias, cada candidato con ID aparece enlazado a su ficha de BoardGameGeek para poder identificar visualmente la edición correcta antes del alta manual.
 - Tipos: juegos de mesa, expansiones, libros, libros RPG y accesorios.
 - Familias y grupos para agrupar lineas, colecciones o expansiones.
 - Campos principales: título, original, descripción, idioma, editorial, año, jugadores, edad, duración, posición física, referencias externas y metadata.
@@ -321,7 +321,7 @@ Integraciones reales:
 - Libros y RPG: lookup HTTP hacia Open Library desde `catalog-lookup-service`, incluyendo portada cuando Open Library expone `cover_i`, `cover_edition_key` o ISBN utilizable.
 - BoardGameGeek: importación individual, autocorreccion desde detalle y coleccion operativas; la importación de coleccion usa progreso editable durante la reconciliacion y, cuando BGG devuelve portada, el bot descarga la `imageUrl`/`coverUrl` y la sube a Storage como portada.
 - Open Library: cuando devuelve portada, el alta intenta guardarla como portada.
-- Codex: se usa para leer el título visible desde la portada con progreso editable y como fallback de traducción; los metadatos completos siguen viniendo de APIs catalogadas como BGG/Open Library/Wikipedia.
+- Codex: se usa para leer el título visible desde una portada, detectar todas las cajas legibles de una foto general de la biblioteca y como fallback de traducción; las fotos de biblioteca se descargan a un directorio temporal que permite su lectura al usuario operador `cawa` y se elimina tras el análisis. La descarga de archivos Telegram usa la ruta compatible con Bot API local cuando está habilitada y reintenta fallos transitorios de red o respuestas 5xx antes de informar de error. Los metadatos completos siguen viniendo de APIs catalogadas como BGG/Open Library/Wikipedia.
 - Los resúmenes de revisión tras importar desde BGG/Wikipedia acotan la descripción y los metadatos extensos para respetar el límite de mensajes de Telegram sin perder los datos completos guardados en el catálogo.
 - La frontera de salida de Telegram sanea caracteres de control y protege globalmente los límites: divide mensajes largos preservando HTML y deja el teclado en el último fragmento; las ediciones y captions se acotan con HTML válido y un warning estructurado.
 

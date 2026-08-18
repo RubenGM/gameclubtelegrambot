@@ -72,6 +72,33 @@ export interface TelegramLogger {
   warn?(bindings: object, message: string): void;
 }
 
+export async function fetchTelegramFileBytesWithRetry({
+  fileUrl,
+  logger,
+  fetchImpl = fetch,
+  sleep,
+}: {
+  fileUrl: string;
+  logger?: TelegramLogger;
+  fetchImpl?: typeof fetch;
+  sleep?: (milliseconds: number) => Promise<void>;
+}): Promise<Buffer> {
+  return withTelegramApiRetry({
+    operation: 'downloadFile',
+    ...(logger ? { logger } : {}),
+    maxAttempts: 5,
+    ...(sleep ? { sleep } : {}),
+  }, async () => {
+    const response = await fetchImpl(fileUrl);
+    if (!response.ok) {
+      const error = new Error(`Telegram file download failed with status ${response.status}`) as Error & { error_code: number };
+      error.error_code = response.status;
+      throw error;
+    }
+    return Buffer.from(await response.arrayBuffer());
+  });
+}
+
 export interface TelegramContextLike {
   chat?: TelegramChatLike | undefined;
   from?: {
@@ -692,13 +719,12 @@ function createGrammyTelegramBot({
         throw new Error('Telegram did not return a downloadable file path');
       }
 
-      const response = await fetch(`https://api.telegram.org/file/bot${token}/${file.file_path}`);
-      if (!response.ok) {
-        throw new Error(`Telegram file download failed with status ${response.status}`);
-      }
-
+      const bytes = await fetchTelegramFileBytesWithRetry({
+        fileUrl: `https://api.telegram.org/file/bot${token}/${file.file_path}`,
+        logger,
+      });
       await mkdir(dirname(destinationPath), { recursive: true });
-      await writeFile(destinationPath, Buffer.from(await response.arrayBuffer()));
+      await writeFile(destinationPath, bytes);
     },
     async editMessageText({ chatId, messageId, text, options }) {
       const sanitizedText = sanitizeOutgoingEdit(text, options, logger, 'editMessageText');
