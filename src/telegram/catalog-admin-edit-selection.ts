@@ -3,6 +3,7 @@ import type { ConversationSessionRuntime } from './conversation-session.js';
 import { createTelegramI18n } from './i18n.js';
 import {
   buildGroupOptions,
+  buildCatalogStoragePositionRowOptions,
   buildSingleCancelKeyboard,
   buildSkipOptionalKeyboard,
   buildTypeOptions,
@@ -26,6 +27,7 @@ export type CatalogAdminEditSelectionLabels = {
   editFieldPlayerMax: string;
   editFieldRecommendedAge: string;
   editFieldPlayTimeMinutes: string;
+  editFieldStoragePosition: string;
   editFieldExternalRefs: string;
   editFieldMetadata: string;
 };
@@ -131,6 +133,11 @@ export async function handleCatalogAdminEditSelectionStep({
     case labels.editFieldPlayTimeMinutes:
       await session.advance({ stepKey: 'play-time-minutes', data });
       await reply(texts.askEditPlayTime, buildSkipOptionalKeyboard(language));
+      return { kind: 'handled' };
+    case texts.editFieldStoragePosition:
+    case labels.editFieldStoragePosition:
+      await session.advance({ stepKey: 'storage-position-row', data });
+      await reply(texts.askStoragePositionRow, buildCatalogStoragePositionRowOptions(language));
       return { kind: 'handled' };
     case texts.editFieldExternalRefs:
     case labels.editFieldExternalRefs:

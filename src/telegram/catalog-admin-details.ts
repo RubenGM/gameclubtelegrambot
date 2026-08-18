@@ -51,6 +51,7 @@ export function formatCatalogAdminItemDetails({
     formatHtmlField(texts.type, renderCatalogItemType(item.itemType, language)),
     ...(familyName ? [formatHtmlField(texts.family, escapeHtml(familyName))] : []),
     ...(groupName ? [formatHtmlField(texts.group, escapeHtml(groupName))] : []),
+    ...(item.storagePosition ? [formatHtmlField(texts.storagePosition, escapeHtml(item.storagePosition))] : []),
     ...(ownerLine ? [ownerLine] : []),
     ...loanAvailabilityLines,
     ...originalNameLine,

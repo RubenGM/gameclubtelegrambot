@@ -158,7 +158,7 @@ const resourceDefs: ResourceDef[] = [
     idColumn: 'id',
     titleColumn: 'display_name',
     subtitleColumns: ['item_type', 'lifecycle_status'],
-    listColumns: ['id', 'display_name', 'item_type', 'lifecycle_status', 'group_id', 'family_id'],
+    listColumns: ['id', 'display_name', 'item_type', 'storage_position', 'lifecycle_status', 'group_id', 'family_id'],
     editableFields: [
       { column: 'display_name', label: 'Display name', type: 'string' },
       { column: 'original_name', label: 'Original name', type: 'string', nullable: true },
@@ -2323,6 +2323,7 @@ interface PublicCatalogItemRow {
   player_count_max: number | null;
   recommended_age: number | null;
   play_time_minutes: number | null;
+  storage_position: string | null;
   active_loan_borrower: string | null;
   active_loan_due_at: Date | string | null;
   media_url: string | null;
@@ -3217,6 +3218,7 @@ async function fetchPublicCatalogItems(
         items.player_count_max,
         items.recommended_age,
         items.play_time_minutes,
+        items.storage_position,
         items.external_refs,
         items.metadata,
         active_loans.borrower_display_name as active_loan_borrower,
@@ -3279,6 +3281,7 @@ async function fetchPublicCatalogItemDetail(
         items.player_count_max,
         items.recommended_age,
         items.play_time_minutes,
+        items.storage_position,
         items.external_refs,
         items.metadata,
         active_loans.borrower_display_name as active_loan_borrower,
@@ -4304,6 +4307,7 @@ function renderCatalogFactRows(item: PublicCatalogItemRow): string {
     item.player_count_min || item.player_count_max ? ['Jugadores', renderPlayerRange(item.player_count_min, item.player_count_max)] : null,
     item.recommended_age ? ['Edad', `${item.recommended_age}+`] : null,
     item.play_time_minutes ? ['Duracion', `${item.play_time_minutes} min`] : null,
+    item.storage_position ? ['Posición', item.storage_position] : null,
     item.owner_name ? ['Propietario', item.owner_name] : null,
   ].filter((value): value is [string, string] => value !== null);
 

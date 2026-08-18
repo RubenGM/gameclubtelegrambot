@@ -337,6 +337,20 @@
       "when": 1786833776141,
       "tag": "0047_clever_skullbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1787071810376,
+      "tag": "0048_vengeful_colonel_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1787071977903,
+      "tag": "0049_supreme_sauron",
+      "breakpoints": true
     }
   ]
 }

@@ -24,7 +24,7 @@ Este documento refleja lo que existe en el código actual, no solo lo que aparec
 | Agenda de actividades                        | 🟢 Operativo        | Creación Telegram/web con token, reservas de mesa/equipamiento, promoción, altas/bajas, conflictos y recordatorios.                  |
 | Google Calendar                              | 🟢 Operativo        | Selección admin, acceso público/privado, sincronización Agenda → Google y enlace limpio desde grupos/topics.                          |
 | Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
-| Catálogo                                     | 🟢 Operativo        | CRUD, familias, búsqueda, media URL/adjunto con Storage, BGG/Open Library/Wikipedia y procesos con progreso editable.                 |
+| Catálogo                                     | 🟢 Operativo        | CRUD, posiciones físicas fila/columna, búsqueda, media con Storage, BGG/Open Library/Wikipedia y progreso editable.                   |
 | Préstamos                                    | 🟢 Operativo        | Acceso directo a Mis préstamos, recordatorios privados semanales, devolución directa, alta admin y dashboard de préstamos activos.  |
 | Grupos de noticias                           | 🟢 Operativo        | `/news` por categoría para grupo completo o topic, incluido `public-events`; `/admin/news` resume feeds activos.                      |
 | LFG / buscar grupo                           | 🟢 Operativo        | Anuncios persistentes de jugadores y grupos, gestión propia y publicación en feeds/topics específicos.                                |
@@ -295,7 +295,9 @@ Implementado:
 - `/catalog_bulk` y el botón de menú "Añadir múltiples" para importar varios items en lote en background (separados por coma) con progreso editable y resumen final.
 - Tipos: juegos de mesa, expansiones, libros, libros RPG y accesorios.
 - Familias y grupos para agrupar lineas, colecciones o expansiones.
-- Campos principales: título, original, descripción, idioma, editorial, año, jugadores, edad, duración, referencias externas y metadata.
+- Campos principales: título, original, descripción, idioma, editorial, año, jugadores, edad, duración, posición física, referencias externas y metadata.
+- La posición física es opcional y usa códigos normalizados de fila y columna (`A1`, `B12`, etc.). Desde `Posición`, el bot permite seleccionar la fila `A-Z` y una columna común `1-20`, escribir cualquier columna positiva admitida o introducir el código completo; también permite retirar una asignación existente. La base de datos valida el formato y conserva las posiciones durante autocorrecciones e importaciones posteriores.
+- Los listados y resultados del catálogo muestran `Posición A1` entre el tipo y la disponibilidad o préstamo únicamente en los ítems que tengan una posición asignada; los demás conservan la fila compacta anterior.
 - Propietario opcional por item: un usuario puede asignarse como propietario desde el detalle; los admins pueden asignar otro usuario con selector paginado y quitar el propietario. El detalle muestra el nombre enlazado.
 - Media por URL con tipo `image`, `link` o `document`.
 - Los admins pueden añadir imagen a un item existente desde el detalle usando URL o adjunto Telegram.
@@ -303,13 +305,13 @@ Implementado:
 - El detalle admin de juegos/expansiones avisa al final cuando detecta una referencia BGG antigua sin metadatos modernos de rating, peso o jugadores recomendados, con enlace y boton de teclado para una importación BGG rápida que actualiza solo metadata sin traducir descripción ni importar portada; tras esa importación rápida, el detalle actualizado enlaza el juego pendiente anterior y siguiente para revisar la cola con menos pasos. El comando privado secreto de admins `/update_bgg` y el boton `Actualizar BGG` del submenu Admin recorren todos los juegos/expansiones activos, aplican esa importación rápida solo a los que la necesitan y mantienen un mensaje editable con barra de progreso y resumen final.
 - Las imágenes reales del catálogo se guardan como entradas de Storage en una categoría interna `catalog_media`, oculta de la navegación normal de `/storage`.
 - La media principal de un item es la primera imagen por `sortOrder`, usando `0` como portada.
-- Al abrir el detalle de un item, el bot intenta mostrar primero la portada principal y después una ficha resumida con breadcrumbs, título, propietario si existe, disponibilidad, prestatario si existe, jugadores, duración y enlace "Ver detalles" a la ficha completa.
+- Al abrir el detalle de un item, el bot intenta mostrar primero la portada principal y después una ficha resumida con breadcrumbs, título, posición física si existe, propietario, disponibilidad, prestatario, jugadores, duración y enlace "Ver detalles" a la ficha completa.
 - Las acciones del detalle de item se muestran en teclado de respuesta persistente para mantener libres los enlaces HTML dentro del mensaje; los detalles de lectura, préstamo y admin mantienen siempre `Inicio` y `Ayuda` al final del teclado para poder salir del contexto.
 - En el alta de juegos/libros, el paso de nombre acepta una foto o documento de imagen de la portada; Codex sugiere el título y, si se crea el item, el bot pregunta si se guarda esa portada como imagen principal.
 - `/catalog_search` como consulta para usuarios aprobados.
 - Los botones de acción con texto natural usan nombres específicos por módulo en catalán, español e inglés: `Cerca al catàleg`/`Búsqueda en catálogo`/`Search catalog` y `Cerca a l'emmagatzematge`/`Búsqueda en almacenamiento`/`Search storage`, entre otros. El dispatcher deja siempre la búsqueda de Catálogo en su flujo incluso si existe una búsqueda activa de Storage; al volver desde el detalle de un ítem mantiene una sesión de navegación limpia. Mientras el usuario siga en el menú, una lista o los resultados del catálogo, cualquier texto libre se interpreta como una nueva búsqueda y los botones conocidos conservan su acción normal. Las etiquetas contextuales y esas transiciones se prueban en regresión.
 - Vista de lectura con indice por rangos de tres iniciales: cada bloque muestra total de articulos y desglose por juegos de mesa, libros y accesorios, con enlaces normales `t.me?...start=` en el texto; los grupos internos no aparecen en la navegación principal.
-- Vista pública `/catalogo` con búsqueda por título/original/editorial, filtros por tipo, número de jugadores y disponibilidad, paginación, agrupacion por inicial, tarjetas con portada, descripción, familia/grupo, propietario, disponibilidad/préstamo y datos principales, detalle publico por item con descripción completa y enlace a BoardGameGeek cuando el item conserva referencia BGG.
+- Vista pública `/catalogo` con búsqueda por título/original/editorial, filtros por tipo, número de jugadores y disponibilidad, paginación, agrupacion por inicial, tarjetas con portada, descripción, familia/grupo, posición física, propietario, disponibilidad/préstamo y datos principales, detalle publico por item con descripción completa y enlace a BoardGameGeek cuando el item conserva referencia BGG.
 - Creación de actividad desde item del catálogo y aviso si el item está prestado.
 - Los avisos de préstamo en grupos de noticias intentan publicar una sola imagen: la portada principal del item; si falla, mantienen el texto actual.
 
@@ -614,7 +616,7 @@ Pendiente:
 | Mesas | `src/telegram/table-admin-flow.test.ts`, `src/telegram/table-read-flow.test.ts` |
 | Equipamiento | `src/equipment/equipment-catalog.test.ts`, `src/telegram/equipment-admin-flow.test.ts`, `src/telegram/schedule-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-catalog-store.test.ts` |
 | Eventos del local | `src/telegram/venue-event-admin-flow.test.ts`, `src/venue-events/venue-event-catalog.test.ts`, `src/venue-events/venue-event-catalog-store.test.ts`, `src/venue-events/venue-event-impact-signals.test.ts`, `src/telegram/today-at-club-summary.test.ts` |
-| Catálogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-admin-browse-ui.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
+| Catálogo | `src/telegram/catalog-admin-flow.test.ts`, `src/telegram/catalog-admin-position.test.ts`, `src/telegram/catalog-admin-browse-ui.test.ts`, `src/telegram/catalog-read-flow.test.ts`, `src/catalog/*.test.ts` |
 | Préstamos | `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-reminders.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
 | LFG | `src/telegram/lfg-flow.test.ts`, `src/lfg/lfg-catalog.test.ts`, `src/lfg/lfg-catalog-store.test.ts` |
 | Compras conjuntas | `src/telegram/group-purchase-flow.test.ts`, `src/group-purchases/*.test.ts` |

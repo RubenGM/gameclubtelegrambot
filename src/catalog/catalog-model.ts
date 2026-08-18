@@ -40,6 +40,7 @@ export interface CatalogItemRecord {
   playerCountMax: number | null;
   recommendedAge: number | null;
   playTimeMinutes: number | null;
+  storagePosition?: string | null;
   externalRefs: Record<string, unknown> | null;
   metadata: Record<string, unknown> | null;
   lifecycleStatus: CatalogItemLifecycleStatus;
@@ -110,6 +111,7 @@ export interface CatalogRepository {
     playerCountMax: number | null;
     recommendedAge: number | null;
     playTimeMinutes: number | null;
+    storagePosition?: string | null;
     externalRefs: Record<string, unknown> | null;
     metadata: Record<string, unknown> | null;
   }): Promise<CatalogItemRecord>;
@@ -134,6 +136,7 @@ export interface CatalogRepository {
     playerCountMax: number | null;
     recommendedAge: number | null;
     playTimeMinutes: number | null;
+    storagePosition: string | null;
     externalRefs: Record<string, unknown> | null;
     metadata: Record<string, unknown> | null;
   }): Promise<CatalogItemRecord>;
@@ -265,6 +268,7 @@ export async function createCatalogItem({
   playerCountMax,
   recommendedAge,
   playTimeMinutes,
+  storagePosition,
   externalRefs,
   metadata,
 }: {
@@ -282,6 +286,7 @@ export async function createCatalogItem({
   playerCountMax?: number | null;
   recommendedAge?: number | null;
   playTimeMinutes?: number | null;
+  storagePosition?: string | null;
   externalRefs?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
 }): Promise<CatalogItemRecord> {
@@ -316,6 +321,7 @@ export async function createCatalogItem({
     playerCountMax: normalizedPlayerCountMax,
     recommendedAge: normalizePositiveInteger(recommendedAge, "L'edat recomanada ha de ser un enter positiu"),
     playTimeMinutes: normalizePositiveInteger(playTimeMinutes, 'La durada ha de ser un enter positiu'),
+    storagePosition: normalizeCatalogStoragePosition(storagePosition),
     externalRefs: normalizeObject(externalRefs),
     metadata: normalizeObject(metadata),
   });
@@ -378,6 +384,7 @@ export async function updateCatalogItem({
   playerCountMax,
   recommendedAge,
   playTimeMinutes,
+  storagePosition,
   externalRefs,
   metadata,
 }: {
@@ -396,6 +403,7 @@ export async function updateCatalogItem({
   playerCountMax?: number | null;
   recommendedAge?: number | null;
   playTimeMinutes?: number | null;
+  storagePosition?: string | null;
   externalRefs?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
 }): Promise<CatalogItemRecord> {
@@ -435,6 +443,7 @@ export async function updateCatalogItem({
     playerCountMax: normalizedPlayerCountMax,
     recommendedAge: normalizePositiveInteger(recommendedAge, "L'edat recomanada ha de ser un enter positiu"),
     playTimeMinutes: normalizePositiveInteger(playTimeMinutes, 'La durada ha de ser un enter positiu'),
+    storagePosition: normalizeCatalogStoragePosition(storagePosition === undefined ? existing.storagePosition : storagePosition),
     externalRefs: normalizeObject(externalRefs),
     metadata: normalizeObject(metadata),
   });
@@ -590,6 +599,18 @@ function normalizeRequiredText(value: string, message: string): string {
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+export function normalizeCatalogStoragePosition(value: string | null | undefined): string | null {
+  if (value === undefined || value === null || value.trim() === '') {
+    return null;
+  }
+
+  const normalized = value.toUpperCase().replace(/[\s_-]+/g, '');
+  if (!/^[A-Z]{1,3}[1-9]\d{0,3}$/.test(normalized)) {
+    throw new Error('La posició del catàleg ha de tenir format de fila i columna, per exemple A1');
+  }
+  return normalized;
 }
 
 function normalizeFamilyKind(value: CatalogFamilyKind): CatalogFamilyKind {

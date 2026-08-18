@@ -182,6 +182,7 @@ export function formatMemberCatalogItemDetails({
     formatHtmlField(texts.catalogAdmin.type, renderCatalogItemType(item.itemType, language)),
     ...(family ? [formatHtmlField(texts.catalogAdmin.family, escapeHtml(family.displayName))] : []),
     ...(group ? [formatHtmlField(texts.catalogAdmin.group, escapeHtml(group.displayName))] : []),
+    ...(item.storagePosition ? [formatHtmlField(texts.catalogAdmin.storagePosition, escapeHtml(item.storagePosition))] : []),
     ...(ownerLine ? [ownerLine] : []),
     ...availabilityLines,
     ...detailLines,
@@ -212,6 +213,7 @@ export function formatCatalogItemSummaryDetails({
     `<b>${escapeHtml(item.displayName)}</b>`,
     '',
     ...(ownerLine ? [ownerLine] : []),
+    ...(item.storagePosition ? [formatHtmlField(texts.catalogAdmin.storagePosition, escapeHtml(item.storagePosition))] : []),
     availabilityLine,
     ...(borrowerLine ? [borrowerLine] : []),
     ...(item.itemType !== 'book' && item.itemType !== 'rpg-book' && (item.playerCountMin !== null || item.playerCountMax !== null)

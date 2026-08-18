@@ -49,6 +49,7 @@ export async function formatCatalogAdminDraftSummary({
       : []),
     formatHtmlField(texts.recommendedAge, escapeHtml(String(asNullableNumber(data.recommendedAge) ?? texts.noValue))),
     formatHtmlField(texts.playTimeMinutes, escapeHtml(String(asNullableNumber(data.playTimeMinutes) ?? texts.noValue))),
+    formatHtmlField(texts.storagePosition, escapeHtmlPreview(asNullableString(data.storagePosition) ?? texts.noValue, draftTextLimits.shortText)),
     formatHtmlField(texts.editFieldExternalRefs, escapeHtmlPreview(renderCatalogOptionalObject(asNullableObject(data.externalRefs)), draftTextLimits.structuredData)),
     formatHtmlField(texts.editFieldMetadata, escapeHtmlPreview(renderCatalogOptionalObject(asNullableObject(data.metadata)), draftTextLimits.structuredData)),
   ].join('\n');

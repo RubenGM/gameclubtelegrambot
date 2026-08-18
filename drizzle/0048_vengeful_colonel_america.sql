@@ -1,0 +1,1 @@
+ALTER TABLE "catalog_items" ADD COLUMN "storage_position" varchar(16);

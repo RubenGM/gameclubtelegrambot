@@ -20,12 +20,17 @@ export function formatCatalogItemSummaryLine({
   item,
   loanSummary,
   extraSuffix,
+  positionLabel,
 }: {
   item: CatalogItemRecord;
   loanSummary?: string | null;
   extraSuffix?: string | null;
+  positionLabel?: string;
 }): string {
   const parts = [`- ${item.displayName} (#${item.id})`, renderCatalogItemType(item.itemType)];
+  if (item.storagePosition && positionLabel) {
+    parts.push(`${positionLabel} ${item.storagePosition}`);
+  }
   if (extraSuffix) {
     parts.push(extraSuffix);
   }
@@ -42,6 +47,7 @@ export function formatCatalogBrowseItemLine({
   fallbackAvailability,
   omitTypeLabel = false,
   availableLabel,
+  positionLabel,
   startPayloadPrefix,
 }: {
   item: CatalogItemRecord;
@@ -50,12 +56,16 @@ export function formatCatalogBrowseItemLine({
   fallbackAvailability?: string;
   omitTypeLabel?: boolean;
   availableLabel: string;
+  positionLabel: string;
   startPayloadPrefix: string;
 }): string {
   const typeLabel = omitTypeLabel ? null : escapeHtml(renderCatalogItemType(item.itemType));
+  const position = item.storagePosition
+    ? `${escapeHtml(positionLabel)} ${escapeHtml(item.storagePosition)}`
+    : null;
   const availability = loanBorrowerDisplayName && loanCreatedAt
-    ? `<i>${[typeLabel, `Prestat a ${escapeHtml(loanBorrowerDisplayName)}`, `des de ${escapeHtml(formatCatalogListDate(loanCreatedAt))}`].filter(Boolean).join(' · ')}</i>`
-    : `<i>${[typeLabel, escapeHtml(fallbackAvailability === 'Disponible' ? availableLabel : (fallbackAvailability ?? availableLabel))].filter(Boolean).join(' · ')}</i>`;
+    ? `<i>${[typeLabel, position, `Prestat a ${escapeHtml(loanBorrowerDisplayName)}`, `des de ${escapeHtml(formatCatalogListDate(loanCreatedAt))}`].filter(Boolean).join(' · ')}</i>`
+    : `<i>${[typeLabel, position, escapeHtml(fallbackAvailability === 'Disponible' ? availableLabel : (fallbackAvailability ?? availableLabel))].filter(Boolean).join(' · ')}</i>`;
   return `- <a href="${escapeHtml(buildCatalogAdminItemDeepLink(item.id, startPayloadPrefix))}"><b>${escapeHtml(item.displayName)}</b></a>${availability ? ` · ${availability}` : ''}`;
 }
 

@@ -287,6 +287,7 @@ export const catalogAdminLabels = {
   editFieldPlayerMax: 'Màxim de jugadors',
   editFieldRecommendedAge: 'Edat recomanada',
   editFieldPlayTimeMinutes: 'Durada',
+  editFieldStoragePosition: 'Posició',
   editFieldExternalRefs: 'Referències externes',
   editFieldMetadata: 'Metadades',
   importLookupData: 'Importar dades',
@@ -2220,6 +2221,7 @@ async function handleCreateSession(
       editFieldPlayerMax: catalogAdminLabels.editFieldPlayerMax,
       editFieldRecommendedAge: catalogAdminLabels.editFieldRecommendedAge,
       editFieldPlayTimeMinutes: catalogAdminLabels.editFieldPlayTimeMinutes,
+      editFieldStoragePosition: catalogAdminLabels.editFieldStoragePosition,
       editFieldExternalRefs: catalogAdminLabels.editFieldExternalRefs,
       editFieldMetadata: catalogAdminLabels.editFieldMetadata,
     },
@@ -2400,6 +2402,7 @@ async function handleEditSession(
       editFieldPlayerMax: catalogAdminLabels.editFieldPlayerMax,
       editFieldRecommendedAge: catalogAdminLabels.editFieldRecommendedAge,
       editFieldPlayTimeMinutes: catalogAdminLabels.editFieldPlayTimeMinutes,
+      editFieldStoragePosition: catalogAdminLabels.editFieldStoragePosition,
       editFieldExternalRefs: catalogAdminLabels.editFieldExternalRefs,
       editFieldMetadata: catalogAdminLabels.editFieldMetadata,
     },
@@ -2723,6 +2726,7 @@ function buildCatalogItemDraft(item: CatalogItemRecord, data: Record<string, unk
       : null,
     recommendedAge: hasOwn(data, 'recommendedAge') ? asNullableNumber(data.recommendedAge) : item.recommendedAge,
     playTimeMinutes: hasOwn(data, 'playTimeMinutes') ? asNullableNumber(data.playTimeMinutes) : item.playTimeMinutes,
+    storagePosition: hasOwn(data, 'storagePosition') ? asNullableString(data.storagePosition) : item.storagePosition ?? null,
     externalRefs: hasOwn(data, 'externalRefs') ? asNullableObject(data.externalRefs) : item.externalRefs,
     metadata: hasOwn(data, 'metadata') ? asNullableObject(data.metadata) : item.metadata,
   };
@@ -2781,6 +2785,7 @@ async function saveCreateDraftAndReturn(
     playerCountMax: asNullableNumber(data.playerCountMax),
     recommendedAge: asNullableNumber(data.recommendedAge),
     playTimeMinutes: asNullableNumber(data.playTimeMinutes),
+    storagePosition: asNullableString(data.storagePosition),
     externalRefs: asNullableObject(data.externalRefs),
     metadata: asNullableObject(data.metadata),
   });
@@ -2792,7 +2797,7 @@ async function saveCreateDraftAndReturn(
     targetType: 'catalog-item',
     targetId: item.id,
     summary: `Ítem de catàleg creat: ${item.displayName}`,
-    details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, lifecycleStatus: item.lifecycleStatus },
+    details: { itemType: item.itemType, familyId: item.familyId, groupId: item.groupId, storagePosition: item.storagePosition ?? null, lifecycleStatus: item.lifecycleStatus },
   });
   await tryCreateImportedImageMedia(context, item, data);
 
@@ -2826,6 +2831,7 @@ async function saveEditDraftAndReturn(
     playerCountMax: draft.playerCountMax,
     recommendedAge: draft.recommendedAge,
     playTimeMinutes: draft.playTimeMinutes,
+    storagePosition: draft.storagePosition,
     externalRefs: draft.externalRefs,
     metadata: draft.metadata,
   });
@@ -2843,6 +2849,8 @@ async function saveEditDraftAndReturn(
       familyId: updated.familyId,
       previousGroupId: item.groupId,
       groupId: updated.groupId,
+      previousStoragePosition: item.storagePosition ?? null,
+      storagePosition: updated.storagePosition ?? null,
     },
   });
   await context.runtime.session.cancel();
@@ -3112,11 +3120,13 @@ async function formatCatalogListItemLine(
   fallbackAvailability: string = 'Disponible',
   omitTypeLabel = false,
 ): Promise<string> {
+  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca'));
   return formatCatalogBrowseItemLine({
     item,
     fallbackAvailability,
     omitTypeLabel,
-    availableLabel: createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogLoan.available,
+    availableLabel: texts.catalogLoan.available,
+    positionLabel: texts.catalogAdmin.editFieldStoragePosition,
     startPayloadPrefix: catalogAdminStartPayloadPrefix,
     ...(loan
       ? {
@@ -3342,8 +3352,10 @@ async function loadActiveLoansByItemMap(
 }
 
 async function formatCatalogItemLine(context: TelegramCatalogAdminContext, item: CatalogItemRecord, loan: CatalogLoanRecord | null, extraSuffix?: string | null): Promise<string> {
+  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
   return formatCatalogItemSummaryLine({
     item,
+    positionLabel: texts.editFieldStoragePosition,
     loanSummary: loan ? await formatLoanSummary(context, loan) : null,
     ...(extraSuffix === undefined ? {} : { extraSuffix }),
   });

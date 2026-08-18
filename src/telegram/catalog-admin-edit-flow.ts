@@ -1,9 +1,18 @@
 import type { CatalogItemRecord, CatalogItemType } from '../catalog/catalog-model.js';
 import { createTelegramI18n } from './i18n.js';
-import { buildGroupOptions, buildTypeOptions } from './catalog-admin-keyboards.js';
+import {
+  buildCatalogStoragePositionColumnOptions,
+  buildCatalogStoragePositionRowOptions,
+  buildGroupOptions,
+  buildTypeOptions,
+} from './catalog-admin-keyboards.js';
 import { handleCatalogAdminEditSelectionStep } from './catalog-admin-edit-selection.js';
 import { parseCatalogAdminEditStepPatch } from './catalog-admin-edit-step-parsing.js';
-import { asNullableNumber } from './catalog-admin-parsing.js';
+import {
+  asNullableNumber,
+  parseCatalogStoragePositionColumnInput,
+  parseCatalogStoragePositionRowInput,
+} from './catalog-admin-parsing.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { ConversationSessionRuntime } from './conversation-session.js';
 
@@ -24,6 +33,7 @@ type EditLabels = {
   editFieldPlayerMax: string;
   editFieldRecommendedAge: string;
   editFieldPlayTimeMinutes: string;
+  editFieldStoragePosition: string;
   editFieldExternalRefs: string;
   editFieldMetadata: string;
 };
@@ -122,6 +132,30 @@ export async function handleCatalogAdminEditSession({
       return true;
     }
     return updateEditDraftAndReturn(item, data, { groupId });
+  }
+  if (stepKey === 'storage-position-row') {
+    const result = parseCatalogStoragePositionRowInput(text, language);
+    if (result instanceof Error) {
+      await reply(texts.invalidStoragePosition, buildCatalogStoragePositionRowOptions(language));
+      return true;
+    }
+    if (result.kind === 'clear') {
+      return updateEditDraftAndReturn(item, data, { storagePosition: null });
+    }
+    if (result.kind === 'position') {
+      return updateEditDraftAndReturn(item, data, { storagePosition: result.storagePosition });
+    }
+    await session.advance({ stepKey: 'storage-position-column', data: { ...data, storagePositionRow: result.row } });
+    await reply(texts.askStoragePositionColumn.replace('{row}', result.row), buildCatalogStoragePositionColumnOptions(language));
+    return true;
+  }
+  if (stepKey === 'storage-position-column') {
+    const storagePosition = parseCatalogStoragePositionColumnInput(String(data.storagePositionRow ?? ''), text);
+    if (storagePosition instanceof Error) {
+      await reply(texts.invalidStoragePositionColumn, buildCatalogStoragePositionColumnOptions(language));
+      return true;
+    }
+    return updateEditDraftAndReturn(item, data, { storagePosition });
   }
 
   const editStepPatch = parseCatalogAdminEditStepPatch({

@@ -301,6 +301,7 @@ test('admin http server exposes public feedback and protects admin pages', async
               player_count_max: 4,
               recommended_age: 14,
               play_time_minutes: 120,
+              storage_position: 'B3',
               active_loan_borrower: null,
               active_loan_due_at: null,
               media_url: 'storage:entry:99',
@@ -485,6 +486,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(catalogHtml, /Dune Imperium/);
     assert.match(catalogHtml, /Juego de mesa/);
     assert.match(catalogHtml, /<dt>Jugadores<\/dt><dd>1-4<\/dd>/);
+    assert.match(catalogHtml, /<dt>Posición<\/dt><dd>B3<\/dd>/);
     assert.match(catalogHtml, /Juego de construccion de mazos/);
     assert.match(catalogHtml, /Propietario/);
     assert.match(catalogHtml, /Disponible/);
@@ -504,6 +506,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.equal(catalogDetailPage.status, 200);
     const catalogDetailHtml = await catalogDetailPage.text();
     assert.match(catalogDetailHtml, /Juego de construccion de mazos, intriga y control de zonas\./);
+    assert.match(catalogDetailHtml, /<dt>Posición<\/dt><dd>B3<\/dd>/);
     assert.match(catalogDetailHtml, /Abrir en BoardGameGeek/);
     assert.match(catalogDetailHtml, /target="_blank" rel="noopener noreferrer">Abrir en BoardGameGeek/);
 

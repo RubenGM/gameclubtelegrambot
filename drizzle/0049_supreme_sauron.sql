@@ -1,0 +1,1 @@
+ALTER TABLE "catalog_items" ADD CONSTRAINT "catalog_items_storage_position_format" CHECK ("catalog_items"."storage_position" is null or "catalog_items"."storage_position" ~ '^[A-Z]{1,3}[1-9][0-9]{0,3}$');

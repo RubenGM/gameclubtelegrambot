@@ -113,6 +113,7 @@ function createRepository({
         playerCountMax: input.playerCountMax,
         recommendedAge: input.recommendedAge,
         playTimeMinutes: input.playTimeMinutes,
+        storagePosition: input.storagePosition ?? null,
         externalRefs: input.externalRefs,
         metadata: input.metadata,
         lifecycleStatus: 'active',
@@ -150,6 +151,7 @@ function createRepository({
         playerCountMax: input.playerCountMax,
         recommendedAge: input.recommendedAge,
         playTimeMinutes: input.playTimeMinutes,
+        storagePosition: input.storagePosition,
         externalRefs: input.externalRefs,
         metadata: input.metadata,
         updatedAt: '2026-04-04T11:00:00.000Z',
@@ -1434,6 +1436,16 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
   context.messageText = 'Devir';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
+  context.messageText = catalogAdminLabels.editFieldStoragePosition;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'storage-position-row');
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes('A'), true);
+  context.messageText = 'A';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'storage-position-column');
+  context.messageText = '12';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
   context.messageText = catalogAdminLabels.confirmEdit;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
@@ -1445,6 +1457,7 @@ test('handleTelegramCatalogAdminText creates a board game and opens edit mode im
   assert.equal(created?.familyId, null);
   assert.equal(created?.groupId, null);
   assert.equal(created?.publisher, 'Devir');
+  assert.equal(created?.storagePosition, 'A12');
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.updated');
 });
 
@@ -2479,6 +2492,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
         playerCountMax: 4,
         recommendedAge: null,
         playTimeMinutes: null,
+        storagePosition: 'A3',
         externalRefs: null,
         metadata: null,
         lifecycleStatus: 'active',
@@ -2569,8 +2583,9 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}AD`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Arkham Horror Core Set<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /<i>Joc de taula · Disponible<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<i>Joc de taula · Posició A3 · Disponible<\/i>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Azul<\/b>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Azul<\/b><\/a> · <i>Joc de taula · Posició/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sin familia/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
 

@@ -1,5 +1,5 @@
 import type { CatalogLookupCandidate } from '../catalog/catalog-lookup-service.js';
-import type { CatalogMediaType } from '../catalog/catalog-model.js';
+import { normalizeCatalogStoragePosition, type CatalogMediaType } from '../catalog/catalog-model.js';
 import { createTelegramI18n } from './i18n.js';
 
 export function parseOptionalPositiveInteger(text: string, language: 'ca' | 'es' | 'en' = 'ca'): number | null | Error {
@@ -11,6 +11,40 @@ export function parseOptionalPositiveInteger(text: string, language: 'ca' | 'es'
     return new Error('invalid-number');
   }
   return value;
+}
+
+export type CatalogStoragePositionRowInput =
+  | { kind: 'clear' }
+  | { kind: 'position'; storagePosition: string }
+  | { kind: 'row'; row: string };
+
+export function parseCatalogStoragePositionRowInput(
+  text: string,
+  language: 'ca' | 'es' | 'en' = 'ca',
+): CatalogStoragePositionRowInput | Error {
+  if (text === createTelegramI18n(language).catalogAdmin.skipOptional) {
+    return { kind: 'clear' };
+  }
+
+  const normalized = text.trim().toUpperCase();
+  if (/^[A-Z]{1,3}$/.test(normalized)) {
+    return { kind: 'row', row: normalized };
+  }
+
+  try {
+    const storagePosition = normalizeCatalogStoragePosition(text);
+    return storagePosition ? { kind: 'position', storagePosition } : new Error('invalid-storage-position');
+  } catch {
+    return new Error('invalid-storage-position');
+  }
+}
+
+export function parseCatalogStoragePositionColumnInput(row: string, text: string): string | Error {
+  const column = Number(text.trim());
+  if (!/^[A-Z]{1,3}$/.test(row) || !Number.isInteger(column) || column <= 0 || column > 9999) {
+    return new Error('invalid-storage-position-column');
+  }
+  return `${row}${column}`;
 }
 
 export function parseOptionalNonNegativeInteger(text: string, language: 'ca' | 'es' | 'en' = 'ca'): number | null | Error {

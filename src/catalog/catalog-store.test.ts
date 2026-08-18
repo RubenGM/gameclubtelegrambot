@@ -62,6 +62,7 @@ test('createDatabaseCatalogRepository persists family, group and item relations'
               assert.equal(values.familyId, 1);
               assert.equal(values.groupId, 4);
               assert.equal(values.itemType, 'expansion');
+              assert.equal(values.storagePosition, 'B3');
               assert.ok(values.externalRefs);
               return {
                 returning: async () => [
@@ -80,6 +81,7 @@ test('createDatabaseCatalogRepository persists family, group and item relations'
                     playerCountMax: null,
                     recommendedAge: null,
                     playTimeMinutes: null,
+                    storagePosition: 'B3',
                     externalRefs: { bggId: '123' },
                     metadata: { complexity: 'medium' },
                     lifecycleStatus: 'active',
@@ -124,6 +126,7 @@ test('createDatabaseCatalogRepository persists family, group and item relations'
     playerCountMax: null,
     recommendedAge: null,
     playTimeMinutes: null,
+    storagePosition: 'B3',
     externalRefs: { bggId: '123' },
     metadata: { complexity: 'medium' },
   });
@@ -132,6 +135,7 @@ test('createDatabaseCatalogRepository persists family, group and item relations'
   assert.equal(group.id, 4);
   assert.equal(item.familyId, 1);
   assert.equal(item.groupId, 4);
+  assert.equal(item.storagePosition, 'B3');
   assert.deepEqual(item.externalRefs, { bggId: '123' });
 });
 

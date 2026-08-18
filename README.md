@@ -33,7 +33,7 @@ fuente de verdad funcional es
 | --- | --- |
 | Acceso y administración | Solicitudes, aprobación, bloqueo, autojoin, permisos globales, elevación admin y bienvenidas de grupo |
 | Agenda y local | Actividades, asistentes, reservas, mesas, conflictos, promociones, recordatorios y eventos del local |
-| Catálogo | Juegos, libros, expansiones, familias, media, préstamos y enriquecimiento desde BGG, Open Library o Wikipedia |
+| Catálogo | Juegos, libros, expansiones, posiciones físicas, familias, media, préstamos y enriquecimiento desde BGG, Open Library o Wikipedia |
 | Comunidad | Noticias por grupos/topics, Avisos, compras conjuntas y búsqueda de jugadores LFG |
 | Rol | Campañas, miembros, personajes, sesiones, recurrencia, handouts privados y fuentes Notion revisadas |
 | Storage | Archivo de adjuntos, categorías, búsquedas, permisos y reutilización desde otros módulos |

@@ -105,6 +105,7 @@ function createRepository({
         playerCountMax: input.playerCountMax,
         recommendedAge: input.recommendedAge,
         playTimeMinutes: input.playTimeMinutes,
+        storagePosition: input.storagePosition ?? null,
         externalRefs: input.externalRefs,
         metadata: input.metadata,
         lifecycleStatus: 'active',
@@ -150,6 +151,7 @@ function createRepository({
         playerCountMax: input.playerCountMax,
         recommendedAge: input.recommendedAge,
         playTimeMinutes: input.playTimeMinutes,
+        storagePosition: input.storagePosition,
         externalRefs: input.externalRefs,
         metadata: input.metadata,
         updatedAt: '2026-04-04T11:00:00.000Z',
@@ -348,6 +350,40 @@ test('createCatalogItem rejects invalid player ranges and unknown family referen
         displayName: 'Pathfinder Core Rulebook',
       }),
     /Catalog family 99 not found/,
+  );
+});
+
+test('catalog storage positions are normalized and validated on create and update', async () => {
+  const repository = createRepository();
+  const created = await createCatalogItem({
+    repository,
+    familyId: null,
+    itemType: 'board-game',
+    displayName: 'Root',
+    storagePosition: ' a-12 ',
+  });
+
+  assert.equal(created.storagePosition, 'A12');
+
+  const updated = await updateCatalogItem({
+    repository,
+    itemId: created.id,
+    familyId: null,
+    itemType: 'board-game',
+    displayName: 'Root',
+    storagePosition: 'bc 3',
+  });
+  assert.equal(updated.storagePosition, 'BC3');
+
+  await assert.rejects(
+    () => createCatalogItem({
+      repository,
+      familyId: null,
+      itemType: 'book',
+      displayName: 'Guards! Guards!',
+      storagePosition: 'armario 2',
+    }),
+    /format de fila i columna/,
   );
 });
 

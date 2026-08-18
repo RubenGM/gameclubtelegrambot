@@ -75,6 +75,20 @@ export function buildSkipOptionalKeyboard(language: 'ca' | 'es' | 'en' = 'ca'): 
   return buildReplyKeyboard([[successButton(texts.skipOptional)], [dangerButton(texts.cancel)]]);
 }
 
+export function buildCatalogStoragePositionRowOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const rows: TelegramReplyKeyboardButton[][] = chunkKeyboard(Array.from({ length: 26 }, (_, index) => String.fromCharCode(65 + index)), 6);
+  rows.push([successButton(texts.skipOptional)], [dangerButton(texts.cancel)]);
+  return buildReplyKeyboard(rows);
+}
+
+export function buildCatalogStoragePositionColumnOptions(language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const rows: TelegramReplyKeyboardButton[][] = chunkKeyboard(Array.from({ length: 20 }, (_, index) => String(index + 1)), 5);
+  rows.push([dangerButton(texts.cancel)]);
+  return buildReplyKeyboard(rows);
+}
+
 export function buildCreateOptionalKeyboard(currentValue: unknown, language: 'ca' | 'es' | 'en' = 'ca'): TelegramReplyOptions {
   return currentValue === null || currentValue === undefined
     ? buildSkipOptionalKeyboard(language)
@@ -103,6 +117,7 @@ export function buildEditFieldMenuOptions({
     [texts.editFieldLanguage, texts.editFieldPublisher],
     [texts.editFieldPublicationYear, texts.editFieldRecommendedAge],
     [texts.editFieldPlayTimeMinutes],
+    [texts.editFieldStoragePosition],
     [texts.editFieldExternalRefs, texts.editFieldMetadata],
   ];
   if (itemTypeSupportsPlayers(itemType)) {
@@ -129,6 +144,7 @@ export function buildCreateFieldMenuOptions({
     [texts.editFieldLanguage, texts.editFieldPublisher],
     [texts.editFieldPublicationYear, texts.editFieldRecommendedAge],
     [texts.editFieldPlayTimeMinutes],
+    [texts.editFieldStoragePosition],
     [texts.editFieldExternalRefs, texts.editFieldMetadata],
   ];
   if (itemTypeSupportsPlayers(itemType)) {

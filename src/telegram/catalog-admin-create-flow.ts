@@ -9,6 +9,8 @@ import type { TelegramEditableProgress, TelegramEditableProgressOptions } from '
 import { createTelegramI18n } from './i18n.js';
 import {
   buildGroupOptions,
+  buildCatalogStoragePositionColumnOptions,
+  buildCatalogStoragePositionRowOptions,
   buildSingleCancelKeyboard,
   buildSkipOptionalKeyboard,
   buildTypeOptions,
@@ -21,6 +23,8 @@ import {
   asNullableString,
   asStringArray,
   parseLookupCandidateInput,
+  parseCatalogStoragePositionColumnInput,
+  parseCatalogStoragePositionRowInput,
   parseOptionalJsonObject,
   parseOptionalPositiveInteger,
   parseWikipediaTitleFromUrl,
@@ -45,6 +49,7 @@ type CreateLabels = {
   editFieldPlayerMax: string;
   editFieldRecommendedAge: string;
   editFieldPlayTimeMinutes: string;
+  editFieldStoragePosition: string;
   editFieldExternalRefs: string;
   editFieldMetadata: string;
 };
@@ -187,6 +192,11 @@ export async function handleCatalogAdminCreateSession({
       case labels.editFieldPlayTimeMinutes:
         await session.advance({ stepKey: 'play-time-minutes', data });
         await reply(texts.askPlayTime, buildSkipOptionalKeyboard(language));
+        return true;
+      case texts.editFieldStoragePosition:
+      case labels.editFieldStoragePosition:
+        await session.advance({ stepKey: 'storage-position-row', data });
+        await reply(texts.askStoragePositionRow, buildCatalogStoragePositionRowOptions(language));
         return true;
       case texts.editFieldExternalRefs:
       case labels.editFieldExternalRefs:
@@ -486,6 +496,30 @@ export async function handleCatalogAdminCreateSession({
       return true;
     }
     return updateCreateDraftAndReturn(data, { playTimeMinutes });
+  }
+  if (stepKey === 'storage-position-row') {
+    const result = parseCatalogStoragePositionRowInput(text, language);
+    if (result instanceof Error) {
+      await reply(texts.invalidStoragePosition, buildCatalogStoragePositionRowOptions(language));
+      return true;
+    }
+    if (result.kind === 'clear') {
+      return updateCreateDraftAndReturn(data, { storagePosition: null });
+    }
+    if (result.kind === 'position') {
+      return updateCreateDraftAndReturn(data, { storagePosition: result.storagePosition });
+    }
+    await session.advance({ stepKey: 'storage-position-column', data: { ...data, storagePositionRow: result.row } });
+    await reply(texts.askStoragePositionColumn.replace('{row}', result.row), buildCatalogStoragePositionColumnOptions(language));
+    return true;
+  }
+  if (stepKey === 'storage-position-column') {
+    const storagePosition = parseCatalogStoragePositionColumnInput(String(data.storagePositionRow ?? ''), text);
+    if (storagePosition instanceof Error) {
+      await reply(texts.invalidStoragePositionColumn, buildCatalogStoragePositionColumnOptions(language));
+      return true;
+    }
+    return updateCreateDraftAndReturn(data, { storagePosition });
   }
   if (stepKey === 'external-refs') {
     const externalRefs = text === texts.keepCurrent ? asNullableObject(data.externalRefs) : parseOptionalJsonObject(text, language);
