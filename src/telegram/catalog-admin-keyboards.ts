@@ -3,12 +3,12 @@ import { createTelegramI18n } from './i18n.js';
 import type { TelegramReplyButton, TelegramReplyKeyboardButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
 
-export function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
+export function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en', isAdmin = false): TelegramReplyOptions {
   const i18n = createTelegramI18n(language);
   const texts = i18n.catalogAdmin;
   return buildSubmenuReplyKeyboard({ language, rows: [
     [texts.create, texts.bulkCreate],
-    [texts.bulkPhoto],
+    ...(isAdmin ? [[texts.bulkPhoto, texts.pendingGames]] : []),
     [i18n.catalogLoan.myLoans, i18n.catalogLoan.adminDashboard],
     [texts.listBoardGames, texts.listBooks],
     [texts.listRpgBooks, texts.listExpansions],

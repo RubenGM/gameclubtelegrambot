@@ -21,6 +21,10 @@ export type CatalogAdminCallbackPrefixes = {
   addMedia: string;
   editMedia: string;
   deleteMedia: string;
+  pendingPage: string;
+  pendingRetry: string;
+  pendingDelete: string;
+  pendingDeleteConfirm: string;
 };
 
 export type CatalogAdminCallbackRoute =
@@ -43,7 +47,11 @@ export type CatalogAdminCallbackRoute =
   | { kind: 'deactivate-item'; itemId: number }
   | { kind: 'add-media'; itemId: number }
   | { kind: 'edit-media'; mediaId: number }
-  | { kind: 'delete-media'; mediaId: number };
+  | { kind: 'delete-media'; mediaId: number }
+  | { kind: 'pending-page'; page: number }
+  | { kind: 'pending-retry'; pendingGameId: number }
+  | { kind: 'pending-delete'; pendingGameId: number }
+  | { kind: 'pending-delete-confirm'; pendingGameId: number };
 
 export function parseCatalogAdminCallbackRoute(
   callbackData: string,
@@ -111,6 +119,18 @@ export function parseCatalogAdminCallbackRoute(
   }
   if (callbackData.startsWith(prefixes.deleteMedia)) {
     return { kind: 'delete-media', mediaId: parseItemId(callbackData, prefixes.deleteMedia) };
+  }
+  if (callbackData.startsWith(prefixes.pendingPage)) {
+    return { kind: 'pending-page', page: parseItemId(callbackData, prefixes.pendingPage) };
+  }
+  if (callbackData.startsWith(prefixes.pendingRetry)) {
+    return { kind: 'pending-retry', pendingGameId: parseItemId(callbackData, prefixes.pendingRetry) };
+  }
+  if (callbackData.startsWith(prefixes.pendingDeleteConfirm)) {
+    return { kind: 'pending-delete-confirm', pendingGameId: parseItemId(callbackData, prefixes.pendingDeleteConfirm) };
+  }
+  if (callbackData.startsWith(prefixes.pendingDelete)) {
+    return { kind: 'pending-delete', pendingGameId: parseItemId(callbackData, prefixes.pendingDelete) };
   }
   return null;
 }

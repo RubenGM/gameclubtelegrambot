@@ -18,6 +18,11 @@ import { normalizeDisplayName } from '../membership/display-name.js';
 import type { WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import type { BoardGameGeekCollectionImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import type { CatalogMediaExternalImageDownloader } from '../catalog/catalog-media-storage.js';
+import {
+  normalizeCatalogPendingGameName,
+  type CatalogPendingGameRecord,
+  type CatalogPendingGameRepository,
+} from '../catalog/catalog-pending-game-store.js';
 import type { StorageCategoryRecord, StorageCategoryRepository, StorageEntryDetailRecord } from '../storage/storage-catalog.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
@@ -69,6 +74,27 @@ function createCatalogItemFixture(overrides: Partial<CatalogItemRecord> = {}): C
     createdAt: '2026-04-04T10:00:00.000Z',
     updatedAt: '2026-04-04T10:00:00.000Z',
     deactivatedAt: null,
+    ...overrides,
+  };
+}
+
+function createPendingGameFixture(overrides: Partial<CatalogPendingGameRecord> = {}): CatalogPendingGameRecord {
+  return {
+    id: 1,
+    normalizedName: 'coyote',
+    displayName: 'Coyote',
+    detectedByTelegramUserId: 99,
+    detectedCount: 1,
+    attemptCount: 1,
+    lastFailureType: 'ambiguous',
+    lastFailureMessage: null,
+    candidates: [
+      'Coyote (2003) [API #8172]',
+      'Coyote (2020) [API #317981]',
+    ],
+    lastAttemptAt: '2026-08-18T18:00:00.000Z',
+    createdAt: '2026-08-18T18:00:00.000Z',
+    updatedAt: '2026-08-18T18:00:00.000Z',
     ...overrides,
   };
 }
@@ -449,8 +475,80 @@ function createStorageRepository(): StorageCategoryRepository & { __entries: Sto
   };
 }
 
+function createPendingGameRepository(initial: CatalogPendingGameRecord[] = []): CatalogPendingGameRepository {
+  const records = new Map(initial.map((record) => [record.id, record]));
+  let nextId = Math.max(0, ...initial.map((record) => record.id)) + 1;
+  const now = '2026-08-18T18:00:00.000Z';
+  return {
+    async upsertDetected({ displayName, detectedByTelegramUserId }) {
+      const normalizedName = normalizeCatalogPendingGameName(displayName);
+      const existing = Array.from(records.values()).find((record) => record.normalizedName === normalizedName);
+      if (existing) {
+        const updated = {
+          ...existing,
+          displayName,
+          detectedByTelegramUserId,
+          detectedCount: existing.detectedCount + 1,
+          updatedAt: now,
+        };
+        records.set(existing.id, updated);
+        return updated;
+      }
+      const created: CatalogPendingGameRecord = {
+        id: nextId++,
+        normalizedName,
+        displayName,
+        detectedByTelegramUserId,
+        detectedCount: 1,
+        attemptCount: 0,
+        lastFailureType: null,
+        lastFailureMessage: null,
+        candidates: [],
+        lastAttemptAt: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      records.set(created.id, created);
+      return created;
+    },
+    async list() {
+      return Array.from(records.values()).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.displayName.localeCompare(right.displayName));
+    },
+    async findById(id) {
+      return records.get(id) ?? null;
+    },
+    async recordAttemptFailure({ displayName, failureType, failureMessage, candidates }) {
+      const normalizedName = normalizeCatalogPendingGameName(displayName);
+      const existing = Array.from(records.values()).find((record) => record.normalizedName === normalizedName);
+      if (!existing) {
+        return null;
+      }
+      const updated: CatalogPendingGameRecord = {
+        ...existing,
+        attemptCount: existing.attemptCount + 1,
+        lastFailureType: failureType,
+        lastFailureMessage: failureMessage,
+        candidates,
+        lastAttemptAt: now,
+        updatedAt: now,
+      };
+      records.set(existing.id, updated);
+      return updated;
+    },
+    async deleteById(id) {
+      return records.delete(id);
+    },
+    async deleteByDisplayName(displayName) {
+      const normalizedName = normalizeCatalogPendingGameName(displayName);
+      const existing = Array.from(records.values()).find((record) => record.normalizedName === normalizedName);
+      return existing ? records.delete(existing.id) : false;
+    },
+  };
+}
+
 function createContext({
   repository = createRepository(),
+  catalogPendingGameRepository = createPendingGameRepository(),
   catalogLoanRepository = createLoanRepository(),
   membershipRepository = createMembershipRepository(),
   auditRepository = createAuditRepository(),
@@ -472,6 +570,7 @@ function createContext({
   language = 'ca',
 }: {
   repository?: CatalogRepository;
+  catalogPendingGameRepository?: CatalogPendingGameRepository;
   catalogLoanRepository?: CatalogLoanRepository;
   membershipRepository?: MembershipAccessRepository;
   auditRepository?: AuditLogRepository;
@@ -564,6 +663,7 @@ function createContext({
       },
     },
     catalogRepository: repository,
+    catalogPendingGameRepository,
     catalogLoanRepository,
     membershipRepository,
     auditRepository,
@@ -588,7 +688,7 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
   assert.match(replies.at(-1)?.message ?? '', /No hi ha cap ítem de catàleg disponible ara mateix\./);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Crear ítem', catalogAdminLabels.bulkCreate],
-    [catalogAdminLabels.bulkPhoto],
+    [catalogAdminLabels.bulkPhoto, catalogAdminLabels.pendingGames],
     ['Els meus préstecs', 'Préstecs actius'],
     [catalogAdminLabels.listBoardGames, catalogAdminLabels.listBooks],
     [catalogAdminLabels.listRpgBooks, catalogAdminLabels.listExpansions],
@@ -606,7 +706,7 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
 
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     ['Crear ítem', 'Añadir múltiples'],
-    ['Foto de la biblioteca'],
+    ['Foto de la biblioteca', 'Juegos pendientes de añadir'],
     ['Mis préstamos', 'Préstamos activos'],
     ['Listar juegos de mesa', 'Listar libros'],
     ['Listar libros RPG', 'Listar expansiones'],
@@ -1244,6 +1344,7 @@ test('handleTelegramCatalogAdminText starts bulk create flow', async () => {
 
 test('library photo bulk import stores a detected review list and only starts after confirmation', async () => {
   const repository = createRepository();
+  const pendingRepository = createPendingGameRepository();
   const privateMessages: string[] = [];
   const importCalls: string[] = [];
   const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
@@ -1275,6 +1376,7 @@ test('library photo bulk import stores a detected review list and only starts af
   const downloadCalls: Array<{ fileId: string; destinationPath: string; allowLocalBotApi?: boolean }> = [];
   const { context, replies, getCurrentSession } = createContext({
     repository,
+    catalogPendingGameRepository: pendingRepository,
     wikipediaBoardGameImportService,
     coverTitleResolver: async (input) => {
       resolverCalls.push(input);
@@ -1331,7 +1433,185 @@ test('library photo bulk import stores a detected review list and only starts af
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.deepEqual(importCalls, ['Root']);
   assert.equal((await repository.listItems({ includeDeactivated: false })).length, 1);
+  assert.deepEqual(await pendingRepository.list(), []);
   assert.match(privateMessages[0] ?? '', /Añadidos \(1\)/);
+});
+
+test('library photo keeps ambiguous games in the persistent pending queue', async () => {
+  const pendingRepository = createPendingGameRepository();
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle() {
+      return {
+        ok: false,
+        error: {
+          type: 'ambiguous',
+          message: 'multiple matches',
+          candidates: [
+            'Coyote (2003) [API #8172]',
+            'Coyote (2020) [API #317981]',
+          ],
+        },
+      };
+    },
+  };
+  const { context } = createContext({
+    catalogPendingGameRepository: pendingRepository,
+    wikipediaBoardGameImportService,
+    coverTitleResolver: async () => '{"games":["Coyote"]}',
+    language: 'es',
+  });
+
+  context.messageText = 'Foto de la biblioteca';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = undefined;
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'coyote-photo',
+    messageId: 78,
+    originalFileName: null,
+    mimeType: null,
+  };
+  assert.equal(await handleTelegramCatalogAdminMessage(context), true);
+  context.messageMedia = undefined;
+  context.messageText = 'Confirmar importación';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const [pending] = await pendingRepository.list();
+  assert.equal(pending?.displayName, 'Coyote');
+  assert.equal(pending?.attemptCount, 1);
+  assert.equal(pending?.lastFailureType, 'ambiguous');
+  assert.deepEqual(pending?.candidates, [
+    'Coyote (2003) [API #8172]',
+    'Coyote (2020) [API #317981]',
+  ]);
+});
+
+test('pending games are admin-only and hidden from member catalog menus', async () => {
+  const pendingRepository = createPendingGameRepository([createPendingGameFixture()]);
+  const { context, replies, getCurrentSession } = createContext({
+    catalogPendingGameRepository: pendingRepository,
+    isAdmin: false,
+    language: 'es',
+  });
+
+  context.messageText = 'Catálogo';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  const menuButtons = (replies.at(-1)?.options?.replyKeyboard ?? []).flat().map(buttonText);
+  assert.doesNotMatch(menuButtons.join('\n'), /Foto de la biblioteca|Juegos pendientes de añadir/);
+
+  context.messageText = '/catalog_photo_bulk';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-browse');
+  assert.equal(getCurrentSession()?.stepKey, 'menu');
+  assert.match(replies.at(-1)?.message ?? '', /solo administradores|administrador/i);
+
+  context.messageText = '/catalog_pending';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /solo administradores|administrador/i);
+  assert.equal((await pendingRepository.list()).length, 1);
+});
+
+test('pending games list paginates and opens a detail with BGG candidate links', async () => {
+  const pendingGames = Array.from({ length: 9 }, (_, index) => createPendingGameFixture({
+    id: index + 1,
+    normalizedName: `game ${String(index + 1).padStart(2, '0')}`,
+    displayName: `Game ${String(index + 1).padStart(2, '0')}`,
+  }));
+  const pendingRepository = createPendingGameRepository(pendingGames);
+  const { context, replies } = createContext({
+    catalogPendingGameRepository: pendingRepository,
+    language: 'es',
+  });
+
+  context.messageText = 'Juegos pendientes de añadir';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Mostrando 1-8 de 9\. Página 1\/2\./);
+  assert.match(replies.at(-1)?.message ?? '', /start=catalog_pending_1/);
+  assert.deepEqual(replies.at(-1)?.options?.inlineKeyboard?.[0], [
+    { text: 'Siguiente', callbackData: `${catalogAdminCallbackPrefixes.pendingPage}2` },
+  ]);
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.pendingPage}99`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Mostrando 9-9 de 9\. Página 2\/2\./);
+  assert.deepEqual(replies.at(-1)?.options?.inlineKeyboard?.[0], [
+    { text: 'Anterior', callbackData: `${catalogAdminCallbackPrefixes.pendingPage}1` },
+  ]);
+
+  context.callbackData = undefined;
+  context.messageText = '/start catalog_pending_1';
+  assert.equal(await handleTelegramCatalogAdminStartText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Game 01<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /boardgamegeek\.com\/boardgame\/8172/);
+  assert.match(replies.at(-1)?.message ?? '', /boardgamegeek\.com\/boardgame\/317981/);
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+});
+
+test('pending game retry removes a successfully added game from the queue', async () => {
+  const pendingRepository = createPendingGameRepository([createPendingGameFixture()]);
+  const repository = createRepository();
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle() {
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: 'Coyote',
+          originalName: 'Coyote',
+          description: null,
+          language: null,
+          publisher: null,
+          publicationYear: 2003,
+          playerCountMin: null,
+          playerCountMax: null,
+          recommendedAge: null,
+          playTimeMinutes: null,
+          externalRefs: { boardGameGeekId: '8172' },
+          metadata: { source: 'boardgamegeek' },
+        },
+      };
+    },
+  };
+  const { context, replies } = createContext({
+    repository,
+    catalogPendingGameRepository: pendingRepository,
+    wikipediaBoardGameImportService,
+    language: 'es',
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.pendingRetry}1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.deepEqual(await pendingRepository.list(), []);
+  assert.equal((await repository.listItems({ includeDeactivated: false }))[0]?.displayName, 'Coyote');
+  assert.ok(replies.some((reply) => /Juego añadido al catálogo/.test(reply.message)));
+  assert.equal(replies.at(-1)?.message, 'No hay ningún juego pendiente de añadir.');
+});
+
+test('pending game deletion requires confirmation and revalidates admin permissions', async () => {
+  const pendingRepository = createPendingGameRepository([createPendingGameFixture()]);
+  const { context, replies } = createContext({
+    catalogPendingGameRepository: pendingRepository,
+    language: 'es',
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.pendingDelete}1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /¿Quieres eliminar este juego/);
+  assert.equal((await pendingRepository.list()).length, 1);
+
+  context.runtime.actor.isAdmin = false;
+  context.callbackData = `${catalogAdminCallbackPrefixes.pendingDeleteConfirm}1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.equal((await pendingRepository.list()).length, 1);
+  assert.match(replies.at(-1)?.message ?? '', /solo administradores|administrador/i);
+
+  context.runtime.actor.isAdmin = true;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.deepEqual(await pendingRepository.list(), []);
+  assert.ok(replies.some((reply) => reply.message === 'Juego eliminado de la lista de pendientes.'));
 });
 
 test('bulk board-game import checks the canonical BGG title before creating a duplicate', async () => {

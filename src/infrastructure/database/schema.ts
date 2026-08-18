@@ -210,6 +210,30 @@ export const catalogMedia = pgTable('catalog_media', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const catalogPendingGames = pgTable(
+  'catalog_pending_games',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    normalizedName: varchar('normalized_name', { length: 255 }).notNull(),
+    displayName: varchar('display_name', { length: 255 }).notNull(),
+    detectedByTelegramUserId: bigint('detected_by_telegram_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.telegramUserId),
+    detectedCount: integer('detected_count').notNull().default(1),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    lastFailureType: varchar('last_failure_type', { length: 32 }),
+    lastFailureMessage: text('last_failure_message'),
+    candidates: jsonb('candidates').$type<string[]>(),
+    lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('catalog_pending_games_normalized_name_unique').on(table.normalizedName),
+    index('catalog_pending_games_updated_at_idx').on(table.updatedAt),
+  ],
+);
+
 export const catalogLoans = pgTable(
   'catalog_loans',
   {

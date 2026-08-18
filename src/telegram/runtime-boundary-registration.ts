@@ -2838,6 +2838,18 @@ function registerCatalogAdminCallbacks({
   bot.onCallback(catalogAdminCallbackPrefixes.deleteMedia, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
+  bot.onCallback(catalogAdminCallbackPrefixes.pendingPage, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.pendingRetry, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.pendingDelete, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
+  bot.onCallback(catalogAdminCallbackPrefixes.pendingDeleteConfirm, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
 }
 
 function registerTableReadCallbacks({

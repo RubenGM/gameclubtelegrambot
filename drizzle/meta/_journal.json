@@ -351,6 +351,13 @@
       "when": 1787071977903,
       "tag": "0049_supreme_sauron",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1787076629594,
+      "tag": "0050_faithful_justin_hammer",
+      "breakpoints": true
     }
   ]
 }
