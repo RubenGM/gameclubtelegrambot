@@ -618,14 +618,15 @@ function normalizeOptionalInteger(value: unknown): number | null {
     return null;
   }
 
-  if (typeof value === 'number' && Number.isInteger(value)) {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
     return value;
   }
 
   if (typeof value === 'string') {
     const match = value.match(/\d+/);
     if (match) {
-      return Number(match[0]);
+      const parsed = Number(match[0]);
+      return parsed > 0 ? parsed : null;
     }
   }
 
@@ -911,11 +912,11 @@ function parseBoardGameGeekThing(xml: string, itemId: string): WikipediaBoardGam
     description: normalizeOptionalText(readXmlElementText(body, 'description')),
     language: null,
     publisher: publishers[0] ?? null,
-    publicationYear: parseOptionalInteger(readXmlAttributeFromTag(body, 'yearpublished', {}, 'value')),
-    playerCountMin: parseOptionalInteger(readXmlAttributeFromTag(body, 'minplayers', {}, 'value')),
-    playerCountMax: parseOptionalInteger(readXmlAttributeFromTag(body, 'maxplayers', {}, 'value')),
-    recommendedAge: parseOptionalInteger(readXmlAttributeFromTag(body, 'minage', {}, 'value')),
-    playTimeMinutes: parseOptionalInteger(readXmlAttributeFromTag(body, 'playingtime', {}, 'value')),
+    publicationYear: parseOptionalPositiveInteger(readXmlAttributeFromTag(body, 'yearpublished', {}, 'value')),
+    playerCountMin: parseOptionalPositiveInteger(readXmlAttributeFromTag(body, 'minplayers', {}, 'value')),
+    playerCountMax: parseOptionalPositiveInteger(readXmlAttributeFromTag(body, 'maxplayers', {}, 'value')),
+    recommendedAge: parseOptionalPositiveInteger(readXmlAttributeFromTag(body, 'minage', {}, 'value')),
+    playTimeMinutes: parseOptionalPositiveInteger(readXmlAttributeFromTag(body, 'playingtime', {}, 'value')),
     externalRefs: {
       boardGameGeekId: itemId,
       boardGameGeekUrl: bggUrl,
@@ -1043,6 +1044,11 @@ function parseOptionalInteger(value: string | null): number | null {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) ? parsed : null;
+}
+
+function parseOptionalPositiveInteger(value: string | null): number | null {
+  const parsed = parseOptionalInteger(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
 }
 
 function parseOptionalFloat(value: string | null): number | null {

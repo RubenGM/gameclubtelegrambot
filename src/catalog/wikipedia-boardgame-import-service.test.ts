@@ -66,6 +66,40 @@ test('createWikipediaBoardGameImportService resolves a direct BGG URL by exact I
   assert.equal(wikipediaCalls, 0);
 });
 
+test('createWikipediaBoardGameImportService treats zero-valued optional BGG fields as missing', async () => {
+  const service = createWikipediaBoardGameImportService({
+    bggApiKey: 'test-bgg-key',
+    fetchImpl: (async () => ({
+      ok: true,
+      status: 200,
+      text: async () => `
+        <items>
+          <item type="boardgame" id="315196">
+            <name type="primary" value="Dungeons &amp; Dragons: Adventure Begins" />
+            <yearpublished value="2020" />
+            <minplayers value="2" />
+            <maxplayers value="4" />
+            <playingtime value="0" />
+            <minage value="10" />
+          </item>
+        </items>
+      `,
+    } as Response)) as typeof fetch,
+  });
+
+  const result = await service.importByTitle(
+    'https://boardgamegeek.com/boardgame/315196/dungeons-and-dragons-adventure-begins',
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.draft.displayName, 'Dungeons & Dragons: Adventure Begins');
+  assert.equal(result.ok && result.draft.playTimeMinutes, null);
+  assert.equal(result.ok && result.draft.publicationYear, 2020);
+  assert.equal(result.ok && result.draft.playerCountMin, 2);
+  assert.equal(result.ok && result.draft.playerCountMax, 4);
+  assert.equal(result.ok && result.draft.recommendedAge, 10);
+});
+
 test('createWikipediaBoardGameImportService does not send a missing direct BGG ID to Wikipedia', async () => {
   let wikipediaCalls = 0;
   const service = createWikipediaBoardGameImportService({
