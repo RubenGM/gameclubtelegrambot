@@ -1,5 +1,5 @@
 import type { CatalogItemType, CatalogLoanRecord, CatalogMediaRecord } from '../catalog/catalog-model.js';
-import { buildLoanDetailButtons } from './catalog-loan-flow.js';
+import { buildLoanDetailButtons, catalogLoanCallbackPrefixes } from './catalog-loan-flow.js';
 import { createTelegramI18n } from './i18n.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
@@ -10,7 +10,6 @@ export function buildCatalogAdminItemDetailButtons({
   media,
   language,
   canAdminister,
-  isAdmin,
   canReturnLoan,
   editPrefix,
   createActivityPrefix,
@@ -31,7 +30,6 @@ export function buildCatalogAdminItemDetailButtons({
   media: CatalogMediaRecord[];
   language: 'ca' | 'es' | 'en';
   canAdminister: boolean;
-  isAdmin: boolean;
   canReturnLoan: boolean;
   editPrefix: string;
   createActivityPrefix: string;
@@ -52,8 +50,66 @@ export function buildCatalogAdminItemDetailButtons({
     : [];
 
   if (!canAdminister) {
-    return [...createActivityButtons, ...buildLoanDetailButtons({ loan, itemId, language, canReturn: canReturnLoan, canCreateForMember: isAdmin })];
+    return [...createActivityButtons, ...buildLoanDetailButtons({ loan, itemId, language, canReturn: canReturnLoan })];
   }
+
+  return buildCatalogAdminItemAdministrationButtons({
+    itemId,
+    itemType,
+    loan,
+    media,
+    language,
+    editPrefix,
+    autocorrectPrefix,
+    quickBggMetadataPrefix,
+    translateDescriptionPrefix,
+    setOwnerSelfPrefix,
+    selectOwnerPrefix,
+    clearOwnerPrefix,
+    addMediaPrefix,
+    editMediaPrefix,
+    deleteMediaPrefix,
+    deactivatePrefix,
+  });
+}
+
+export function buildCatalogAdminItemAdministrationButtons({
+  itemId,
+  itemType,
+  loan,
+  media,
+  language,
+  editPrefix,
+  autocorrectPrefix,
+  quickBggMetadataPrefix,
+  translateDescriptionPrefix,
+  setOwnerSelfPrefix,
+  selectOwnerPrefix,
+  clearOwnerPrefix,
+  addMediaPrefix,
+  editMediaPrefix,
+  deleteMediaPrefix,
+  deactivatePrefix,
+}: {
+  itemId: number;
+  itemType: CatalogItemType;
+  loan: CatalogLoanRecord | null;
+  media: CatalogMediaRecord[];
+  language: 'ca' | 'es' | 'en';
+  editPrefix: string;
+  autocorrectPrefix: string;
+  quickBggMetadataPrefix: string;
+  translateDescriptionPrefix: string;
+  setOwnerSelfPrefix: string;
+  selectOwnerPrefix: string;
+  clearOwnerPrefix: string;
+  addMediaPrefix: string;
+  editMediaPrefix: string;
+  deleteMediaPrefix: string;
+  deactivatePrefix: string;
+}): NonNullable<TelegramReplyOptions['inlineKeyboard']> {
+  const i18n = createTelegramI18n(language);
+  const texts = i18n.catalogAdmin;
 
   return [
     [{ text: texts.edit, callbackData: `${editPrefix}${itemId}` }],
@@ -66,11 +122,14 @@ export function buildCatalogAdminItemDetailButtons({
     [{ text: texts.assignOwnerOther, callbackData: `${selectOwnerPrefix}${itemId}:1` }],
     [{ text: texts.clearOwner, callbackData: `${clearOwnerPrefix}${itemId}` }],
     [{ text: texts.addMedia, callbackData: `${addMediaPrefix}${itemId}` }],
-    ...createActivityButtons,
     ...media.flatMap((entry) => [[
       { text: `${texts.confirmMediaEdit} #${entry.id}`, callbackData: `${editMediaPrefix}${entry.id}` },
       { text: `${texts.confirmMediaDelete} #${entry.id}`, callbackData: `${deleteMediaPrefix}${entry.id}` },
     ]]),
-    ...buildLoanDetailButtons({ loan, itemId, language, deleteCallbackData: `${deactivatePrefix}${itemId}`, canReturn: canReturnLoan, canCreateForMember: isAdmin }),
+    ...(!loan ? [[{
+      text: i18n.catalogLoan.adminCreate,
+      callbackData: `${catalogLoanCallbackPrefixes.adminCreate}${itemId}`,
+    }]] : []),
+    [{ text: i18n.catalogLoan.deleteItem, callbackData: `${deactivatePrefix}${itemId}` }],
   ];
 }

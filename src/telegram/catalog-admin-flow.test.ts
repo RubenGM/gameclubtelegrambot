@@ -3280,16 +3280,39 @@ test('handleTelegramCatalogAdminCallback shows item details with localized admin
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Grupo: Sin grupo/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
   const buttons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];
-  assert.ok(buttons.some((button) => buttonText(button) === 'Editar ítem'));
-  assert.ok(buttons.some((button) => buttonText(button) === 'Autocorregir datos'));
-  assert.ok(buttons.some((button) => buttonText(button) === 'Traducir descripción'));
+  assert.ok(!buttons.some((button) => buttonText(button) === 'Editar ítem'));
+  assert.ok(!buttons.some((button) => buttonText(button) === 'Autocorregir datos'));
+  assert.ok(!buttons.some((button) => buttonText(button) === 'Traducir descripción'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Crear actividad con este juego'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Volver al catálogo'));
   assert.ok(buttons.some((button) => buttonText(button) === 'R'));
-  assert.ok(buttons.some((button) => buttonText(button) === 'Eliminar ítem'));
+  assert.ok(!buttons.some((button) => buttonText(button) === 'Eliminar ítem'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Tomar prestado'));
   assert.ok(buttons.some((button) => buttonText(button) === 'Mis préstamos'));
-  assert.ok(buttons.some((button) => buttonText(button) === 'Añadir media'));
+  assert.ok(!buttons.some((button) => buttonText(button) === 'Ver préstamos'));
+  assert.ok(buttons.some((button) => buttonText(button) === 'Administración'));
+
+  context.messageText = 'Administración';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'detail-admin');
+  assert.match(replies.at(-1)?.message ?? '', /Administración de «Root»/);
+  const adminButtons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Editar ítem'));
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Autocorregir datos'));
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Importación BGG rápida'));
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Traducir descripción'));
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Soy el propietario'));
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Asignar propietario'));
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Quitar propietario'));
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Añadir media'));
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Registrar préstamo'));
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Eliminar ítem'));
+  assert.ok(adminButtons.some((button) => buttonText(button) === 'Volver al detalle del ítem'));
+
+  context.messageText = 'Volver al detalle del ítem';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'detail');
+  assert.ok((replies.at(-1)?.options?.replyKeyboard?.flat() ?? []).some((button) => buttonText(button) === 'Administración'));
 });
 
 test('handleTelegramCatalogAdminCallback appends BGG reimport notice for stale admin item details', async () => {
@@ -3350,7 +3373,13 @@ test('handleTelegramCatalogAdminCallback appends BGG reimport notice for stale a
   assert.match(staleMessage.split('\n').at(-1) ?? '', /catalog_admin_bgg_meta_3/);
   assert.match(staleMessage.split('\n').at(-1) ?? '', /Importación BGG rápida/);
   const staleButtons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];
-  assert.ok(staleButtons.some((button) => buttonText(button) === 'Importación BGG rápida'));
+  assert.ok(!staleButtons.some((button) => buttonText(button) === 'Importación BGG rápida'));
+  assert.ok(staleButtons.some((button) => buttonText(button) === 'Administración'));
+
+  context.messageText = 'Administración';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.ok((replies.at(-1)?.options?.replyKeyboard?.flat() ?? [])
+    .some((button) => buttonText(button) === 'Importación BGG rápida'));
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}4`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -4519,6 +4548,7 @@ test('handleTelegramCatalogAdminCallback hides admin-only item actions for appro
   assert.ok(buttons.some((button) => button === 'Crear actividad con este juego'));
   assert.ok(buttons.some((button) => button === 'Tomar prestado'));
   assert.ok(buttons.some((button) => button === 'Mis préstamos'));
+  assert.ok(!buttons.some((button) => button === 'Administración'));
 });
 
 test('handleTelegramCatalogAdminCallback hides return action from unrelated non-admin members', async () => {
@@ -4670,6 +4700,11 @@ test('handleTelegramCatalogAdminCallback lets admins add catalog media backed by
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}3`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.ok((replies.at(-1)?.options?.replyKeyboard?.flat() ?? []).some((button) => buttonText(button) === 'Administració'));
+  assert.ok(!(replies.at(-1)?.options?.replyKeyboard?.flat() ?? []).some((button) => buttonText(button) === 'Afegir mèdia'));
+
+  context.messageText = 'Administració';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.ok((replies.at(-1)?.options?.replyKeyboard?.flat() ?? []).some((button) => buttonText(button) === 'Afegir mèdia'));
 
   context.callbackData = `${catalogAdminCallbackPrefixes.addMedia}3`;
@@ -5130,8 +5165,9 @@ test('handleTelegramCatalogAdminStartText opens an item detail from deep link pa
   assert.equal(await handleTelegramCatalogAdminStartText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>El color de la magia<\/b>/);
   const buttons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];
-  assert.ok(buttons.some((button) => button === 'Editar ítem'));
-  assert.ok(buttons.some((button) => button === 'Eliminar ítem'));
+  assert.ok(!buttons.some((button) => button === 'Editar ítem'));
+  assert.ok(!buttons.some((button) => button === 'Eliminar ítem'));
+  assert.ok(buttons.some((button) => button === 'Administració'));
   assert.ok(!buttons.some((button) => button === 'Editar préstec'));
   assert.ok(!buttons.some((button) => button === 'Veure catàleg'));
 });

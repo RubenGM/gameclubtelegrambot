@@ -2781,6 +2781,9 @@ function registerCatalogAdminCallbacks({
   bot.onCallback(catalogAdminCallbackPrefixes.inspect, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });
+  bot.onCallback(catalogAdminCallbackPrefixes.administration, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
   bot.onCallback(catalogAdminCallbackPrefixes.browseMenu, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });

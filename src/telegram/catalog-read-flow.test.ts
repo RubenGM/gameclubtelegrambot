@@ -573,9 +573,23 @@ test('catalog read item detail keyboard actions work for admins', async () => {
   context.callbackData = `${catalogReadCallbackPrefixes.inspectItem}1`;
   await handleTelegramCatalogReadCallback(context);
 
+  const buttons = replies.at(-1)?.options?.replyKeyboard?.flat()
+    .map((button) => typeof button === 'string' ? button : button.text) ?? [];
+  assert.ok(buttons.includes('Administració'));
+  assert.ok(!buttons.includes('Registrar préstec'));
+  assert.ok(!buttons.includes('Eliminar ítem'));
+
   context.messageText = 'Veure préstecs';
   assert.equal(await handleTelegramCatalogReadText(context), true);
   assert.equal(replies.at(-1)?.message, 'No tens cap préstec actiu.');
+
+  context.messageText = 'Administració';
+  assert.equal(await handleTelegramCatalogReadText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Administració de «Game 1»/);
+  const adminButtons = replies.at(-1)?.options?.replyKeyboard?.flat()
+    .map((button) => typeof button === 'string' ? button : button.text) ?? [];
+  assert.ok(adminButtons.includes('Registrar préstec'));
+  assert.ok(adminButtons.includes('Eliminar ítem'));
 });
 
 test('handleTelegramCatalogReadStartText opens linked item details from /start', async () => {

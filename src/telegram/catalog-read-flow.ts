@@ -441,10 +441,6 @@ function buildCatalogReadItemReplyOptions(
     itemId: item.id,
     language,
     canReturn: loan ? canReturnLoan(context, loan) : true,
-    canCreateForMember: context.runtime.actor.isAdmin,
-    ...(context.runtime.actor.isAdmin
-      ? { deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}` }
-      : {}),
   });
   const texts = createTelegramI18n(language);
   const rows: TelegramReplyOptions['replyKeyboard'] = [];
@@ -461,6 +457,9 @@ function buildCatalogReadItemReplyOptions(
   rows.push(...loanRows
     .map((row) => row.filter((button) => !prioritizedTexts.has(button.text)).map((button) => button.text))
     .filter((row) => row.length > 0));
+  if (context.runtime.actor.isAdmin) {
+    rows.push([texts.catalogAdmin.administration]);
+  }
   rows.push([texts.actionMenu.start, texts.actionMenu.help]);
   return { replyKeyboard: rows, resizeKeyboard: true, persistentKeyboard: true };
 }
@@ -501,15 +500,30 @@ async function handleCatalogReadDetailKeyboardText(
     });
     return true;
   }
+  if (context.runtime.actor.isAdmin && text === adminTexts.administration) {
+    await withTemporaryCallbackData(context, `${catalogAdminCallbackPrefixes.administration}${item.id}`, async () => {
+      await handleTelegramCatalogAdminCallback(context);
+    });
+    return true;
+  }
   const loan = await loadActiveLoanByItemId(context, item.id);
   const buttons = buildLoanDetailButtons({
     loan,
     itemId: item.id,
     language,
     canReturn: loan ? canReturnLoan(context, loan) : true,
-    canCreateForMember: context.runtime.actor.isAdmin,
   }).flat();
-  const action = buttons.find((button) => button.text === text);
+  const legacyAdminButtons = context.runtime.actor.isAdmin
+    ? buildLoanDetailButtons({
+        loan,
+        itemId: item.id,
+        language,
+        canReturn: loan ? canReturnLoan(context, loan) : true,
+        canCreateForMember: true,
+        deleteCallbackData: `${catalogAdminCallbackPrefixes.deactivate}${item.id}`,
+      }).flat()
+    : [];
+  const action = [...buttons, ...legacyAdminButtons].find((button) => button.text === text);
   if (!action?.callbackData) {
     return false;
   }
