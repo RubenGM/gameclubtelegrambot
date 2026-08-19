@@ -33,6 +33,13 @@ export interface CatalogPendingGameRepository {
     failureMessage: string | null;
     candidates: string[];
   }): Promise<CatalogPendingGameRecord | null>;
+  recordAttemptFailureById(input: {
+    id: number;
+    displayName?: string;
+    failureType: CatalogPendingGameFailureType;
+    failureMessage: string | null;
+    candidates: string[];
+  }): Promise<CatalogPendingGameRecord | null>;
   deleteById(id: number): Promise<boolean>;
   deleteByDisplayName(displayName: string): Promise<boolean>;
 }
@@ -96,6 +103,28 @@ export function createDatabaseCatalogPendingGameRepository({
           updatedAt: new Date(),
         })
         .where(eq(catalogPendingGames.normalizedName, normalizeCatalogPendingGameName(displayName)))
+        .returning();
+      return rows[0] ? mapCatalogPendingGameRow(rows[0]) : null;
+    },
+    async recordAttemptFailureById({ id, displayName, failureType, failureMessage, candidates }) {
+      const normalizedDisplayName = displayName?.trim();
+      const rows = await database
+        .update(catalogPendingGames)
+        .set({
+          ...(normalizedDisplayName
+            ? {
+                displayName: normalizedDisplayName,
+                normalizedName: normalizeCatalogPendingGameName(normalizedDisplayName),
+              }
+            : {}),
+          attemptCount: sql`${catalogPendingGames.attemptCount} + 1`,
+          lastFailureType: failureType,
+          lastFailureMessage: failureMessage,
+          candidates,
+          lastAttemptAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(catalogPendingGames.id, id))
         .returning();
       return rows[0] ? mapCatalogPendingGameRow(rows[0]) : null;
     },

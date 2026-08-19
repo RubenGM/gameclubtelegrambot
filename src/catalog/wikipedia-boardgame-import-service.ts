@@ -187,7 +187,17 @@ export function createWikipediaBoardGameImportService({
         return { ok: false, error: { type: 'bad-input', message: 'Falta el nom del joc.' } };
       }
 
+      const exactBoardGameGeekId = parseBoardGameGeekCandidateId(normalizedTitle);
       const normalizedBggApiKey = bggApiKey?.trim();
+      if (exactBoardGameGeekId && !normalizedBggApiKey) {
+        return {
+          ok: false,
+          error: {
+            type: 'connection',
+            message: 'Falta la clau de l’API de BoardGameGeek per importar aquesta URL directa.',
+          },
+        };
+      }
       if (normalizedBggApiKey) {
         const boardGameGeekResult = await importFromBoardGameGeek({
           title: normalizedTitle,
@@ -196,6 +206,15 @@ export function createWikipediaBoardGameImportService({
         });
         if (boardGameGeekResult) {
           return boardGameGeekResult;
+        }
+        if (exactBoardGameGeekId) {
+          return {
+            ok: false,
+            error: {
+              type: 'not-found',
+              message: `BoardGameGeek no ha retornat cap joc amb l’ID ${exactBoardGameGeekId}.`,
+            },
+          };
         }
       }
 
@@ -836,9 +855,27 @@ function formatBoardGameGeekCandidateLabel(candidate: BoardGameGeekCandidate): s
   return `${candidate.primaryName}${candidate.yearPublished ? ` (${candidate.yearPublished})` : ''} [API #${candidate.id}]`;
 }
 
-function parseBoardGameGeekCandidateId(value: string): string | null {
-  const match = value.match(/\[API #(\d+)\]\s*$/i);
-  return match?.[1] ?? null;
+export function parseBoardGameGeekCandidateId(value: string): string | null {
+  const normalizedValue = value.trim();
+  const candidateMatch = normalizedValue.match(/\[API #(\d+)\]\s*$/i);
+  if (candidateMatch?.[1]) {
+    return candidateMatch[1];
+  }
+
+  const urlValue = /^(?:www\.)?boardgamegeek\.com\//i.test(normalizedValue)
+    ? `https://${normalizedValue}`
+    : normalizedValue;
+  let url: URL;
+  try {
+    url = new URL(urlValue);
+  } catch {
+    return null;
+  }
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:')
+    || url.hostname.toLowerCase().replace(/^www\./, '') !== 'boardgamegeek.com') {
+    return null;
+  }
+  return url.pathname.match(/^\/(?:boardgame|boardgameexpansion)\/(\d+)(?:\/|$)/i)?.[1] ?? null;
 }
 
 function parseBoardGameGeekThing(xml: string, itemId: string): WikipediaBoardGameCatalogDraft | null {

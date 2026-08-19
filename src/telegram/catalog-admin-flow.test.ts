@@ -535,6 +535,26 @@ function createPendingGameRepository(initial: CatalogPendingGameRecord[] = []): 
       records.set(existing.id, updated);
       return updated;
     },
+    async recordAttemptFailureById({ id, displayName, failureType, failureMessage, candidates }) {
+      const existing = records.get(id);
+      if (!existing) {
+        return null;
+      }
+      const updatedDisplayName = displayName?.trim() || existing.displayName;
+      const updated: CatalogPendingGameRecord = {
+        ...existing,
+        displayName: updatedDisplayName,
+        normalizedName: normalizeCatalogPendingGameName(updatedDisplayName),
+        attemptCount: existing.attemptCount + 1,
+        lastFailureType: failureType,
+        lastFailureMessage: failureMessage,
+        candidates,
+        lastAttemptAt: now,
+        updatedAt: now,
+      };
+      records.set(existing.id, updated);
+      return updated;
+    },
     async deleteById(id) {
       return records.delete(id);
     },
@@ -1552,7 +1572,8 @@ test('pending game retry removes a successfully added game from the queue', asyn
   const pendingRepository = createPendingGameRepository([createPendingGameFixture()]);
   const repository = createRepository();
   const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
-    async importByTitle() {
+    async importByTitle(title) {
+      assert.equal(title, 'Coyote');
       return {
         ok: true,
         draft: {
@@ -1584,10 +1605,113 @@ test('pending game retry removes a successfully added game from the queue', asyn
 
   context.callbackData = `${catalogAdminCallbackPrefixes.pendingRetry}1`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /nombre corregido|URL directa/i);
+  assert.deepEqual(replies.at(-1)?.options?.inlineKeyboard?.[0], [
+    {
+      text: 'Reintentar con el nombre actual',
+      callbackData: `${catalogAdminCallbackPrefixes.pendingRetryCurrent}1`,
+      semanticRole: 'success',
+    },
+  ]);
+  assert.equal((await pendingRepository.list()).length, 1);
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.pendingRetryCurrent}1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.deepEqual(await pendingRepository.list(), []);
   assert.equal((await repository.listItems({ includeDeactivated: false }))[0]?.displayName, 'Coyote');
   assert.ok(replies.some((reply) => /Juego añadido al catálogo/.test(reply.message)));
   assert.equal(replies.at(-1)?.message, 'No hay ningún juego pendiente de añadir.');
+});
+
+test('pending game retry accepts a direct BGG URL as an exact lookup', async () => {
+  const pendingRepository = createPendingGameRepository([createPendingGameFixture({
+    displayName: 'Scythe Legendary Box',
+    normalizedName: 'scythe legendary box',
+    attemptCount: 0,
+    lastFailureType: null,
+    lastAttemptAt: null,
+  })]);
+  const repository = createRepository();
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      assert.equal(title, 'https://boardgamegeek.com/boardgame/216132/scythe-legendary-box');
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: 'Scythe: Legendary Box',
+          originalName: 'Scythe: Legendary Box',
+          description: null,
+          language: null,
+          publisher: null,
+          publicationYear: 2017,
+          playerCountMin: null,
+          playerCountMax: null,
+          recommendedAge: null,
+          playTimeMinutes: null,
+          externalRefs: { boardGameGeekId: '216132' },
+          metadata: { source: 'boardgamegeek' },
+        },
+      };
+    },
+  };
+  const { context } = createContext({
+    repository,
+    catalogPendingGameRepository: pendingRepository,
+    wikipediaBoardGameImportService,
+    language: 'es',
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.pendingRetry}1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  context.callbackData = undefined;
+  context.messageText = 'https://boardgamegeek.com/boardgame/216132/scythe-legendary-box';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+
+  assert.deepEqual(await pendingRepository.list(), []);
+  assert.equal((await repository.listItems({ includeDeactivated: false }))[0]?.displayName, 'Scythe: Legendary Box');
+});
+
+test('pending game retry keeps a corrected name after an unresolved attempt and rejects unrelated URLs', async () => {
+  const pendingRepository = createPendingGameRepository([createPendingGameFixture({
+    displayName: 'Scythe Legendary Box',
+    normalizedName: 'scythe legendary box',
+    attemptCount: 0,
+    lastFailureType: null,
+    lastAttemptAt: null,
+  })]);
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      assert.equal(title, 'Scythe: Legendary Box');
+      return {
+        ok: false,
+        error: { type: 'not-found', message: 'Not found' },
+      };
+    },
+  };
+  const { context, replies } = createContext({
+    catalogPendingGameRepository: pendingRepository,
+    wikipediaBoardGameImportService,
+    language: 'es',
+  });
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.pendingRetry}1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  context.callbackData = undefined;
+  context.messageText = 'https://example.com/boardgame/216132';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /no es una ficha de juego válida/i);
+  assert.equal((await pendingRepository.list())[0]?.attemptCount, 0);
+
+  context.messageText = 'Scythe: Legendary Box';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  const pending = (await pendingRepository.list())[0];
+  assert.equal(pending?.displayName, 'Scythe: Legendary Box');
+  assert.equal(pending?.normalizedName, 'scythe legendary box');
+  assert.equal(pending?.attemptCount, 1);
+  assert.equal(pending?.lastFailureType, 'no-match');
 });
 
 test('pending game deletion requires confirmation and revalidates admin permissions', async () => {

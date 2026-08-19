@@ -94,6 +94,18 @@ test('createDatabaseCatalogPendingGameRepository persists and manages pending ga
   assert.equal(updated[0]?.lastFailureType, 'ambiguous');
   assert.equal(failed?.attemptCount, 1);
 
+  const corrected = await repository.recordAttemptFailureById({
+    id: 7,
+    displayName: 'Coyote 2003',
+    failureType: 'no-match',
+    failureMessage: 'Not found',
+    candidates: [],
+  });
+  assert.equal(updated[1]?.displayName, 'Coyote 2003');
+  assert.equal(updated[1]?.normalizedName, 'coyote 2003');
+  assert.equal(updated[1]?.lastFailureType, 'no-match');
+  assert.equal(corrected?.id, 7);
+
   assert.equal(await repository.deleteById(7), true);
   assert.equal(await repository.deleteByDisplayName('Coyote'), true);
   assert.equal(deleted, true);

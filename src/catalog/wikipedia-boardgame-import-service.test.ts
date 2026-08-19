@@ -31,6 +31,63 @@ test('createWikipediaBoardGameImportService preserves ambiguous candidates', asy
   assert.deepEqual(result.error.candidates, ['Frosthaven', 'Frosthaven (board game)']);
 });
 
+test('createWikipediaBoardGameImportService resolves a direct BGG URL by exact ID without Wikipedia fallback', async () => {
+  const requests: string[] = [];
+  let wikipediaCalls = 0;
+  const service = createWikipediaBoardGameImportService({
+    bggApiKey: 'test-bgg-key',
+    fetchImpl: (async (input: string | URL) => {
+      requests.push(String(input));
+      return {
+        ok: true,
+        status: 200,
+        text: async () => `
+          <items>
+            <item type="boardgame" id="216132">
+              <name type="primary" value="Scythe: Legendary Box" />
+              <yearpublished value="2017" />
+            </item>
+          </items>
+        `,
+      } as Response;
+    }) as typeof fetch,
+    execImpl: (() => {
+      wikipediaCalls += 1;
+      throw new Error('Wikipedia should not be called');
+    }) as never,
+  });
+
+  const result = await service.importByTitle('https://boardgamegeek.com/boardgame/216132/scythe-legendary-box');
+
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.draft.displayName, 'Scythe: Legendary Box');
+  assert.equal(result.ok && result.draft.externalRefs?.boardGameGeekId, '216132');
+  assert.deepEqual(requests, ['https://boardgamegeek.com/xmlapi2/thing?id=216132&stats=1']);
+  assert.equal(wikipediaCalls, 0);
+});
+
+test('createWikipediaBoardGameImportService does not send a missing direct BGG ID to Wikipedia', async () => {
+  let wikipediaCalls = 0;
+  const service = createWikipediaBoardGameImportService({
+    bggApiKey: 'test-bgg-key',
+    fetchImpl: (async () => ({
+      ok: true,
+      status: 200,
+      text: async () => '<items></items>',
+    } as Response)) as typeof fetch,
+    execImpl: (() => {
+      wikipediaCalls += 1;
+      throw new Error('Wikipedia should not be called');
+    }) as never,
+  });
+
+  const result = await service.importByTitle('boardgamegeek.com/boardgame/999999/missing-game');
+
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.error.type, 'not-found');
+  assert.equal(wikipediaCalls, 0);
+});
+
 test('createBoardGameGeekCollectionImportService imports owned board games and expansions', async () => {
   const requests: string[] = [];
   const fetchImpl: typeof fetch = (async (input: string | URL) => {

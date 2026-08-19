@@ -65,7 +65,11 @@ import {
 } from '../catalog/catalog-pending-game-store.js';
 import { createDatabaseStorageRepository } from '../storage/storage-catalog-store.js';
 import type { StorageCategoryRepository } from '../storage/storage-catalog.js';
-import { createBoardGameGeekCollectionImportService, createWikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
+import {
+  createBoardGameGeekCollectionImportService,
+  createWikipediaBoardGameImportService,
+  parseBoardGameGeekCandidateId,
+} from '../catalog/wikipedia-boardgame-import-service.js';
 import { buildCodexImageQueryArgs, runCodexImageQueryCapture } from '../scripts/codex-image-query.js';
 import {
   buildLoanItemButton,
@@ -205,6 +209,7 @@ const mediaFlowKey = 'catalog-admin-media';
 const mediaDeleteFlowKey = 'catalog-admin-media-delete';
 const browseFlowKey = 'catalog-admin-browse';
 const bggCollectionImportFlowKey = 'catalog-admin-bgg-collection-import';
+const pendingGameRetryFlowKey = 'catalog-admin-pending-game-retry';
 const catalogAdminStartPayloadPrefix = 'catalog_admin_item_';
 const catalogAdminFullItemStartPayloadPrefix = 'catalog_admin_item_full_';
 const catalogAdminQuickBggMetadataStartPayloadPrefix = 'catalog_admin_bgg_meta_';
@@ -255,6 +260,7 @@ export const catalogAdminCallbackPrefixes = {
   deleteMedia: 'catalog_admin:delete_media:',
   pendingPage: 'catalog_admin:pending_page:',
   pendingRetry: 'catalog_admin:pending_retry:',
+  pendingRetryCurrent: 'catalog_admin:pending_retry_current:',
   pendingDelete: 'catalog_admin:pending_delete:',
   pendingDeleteConfirm: 'catalog_admin:pending_delete_confirm:',
 } as const;
@@ -641,6 +647,9 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
       await replyAdminOnly(context);
       return true;
     }
+    if (context.runtime.session.current?.flowKey === pendingGameRetryFlowKey) {
+      await context.runtime.session.cancel();
+    }
     await showCatalogPendingGames(context, route.page);
     return true;
   }
@@ -649,7 +658,21 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
       await replyAdminOnly(context);
       return true;
     }
-    await retryCatalogPendingGame(context, route.pendingGameId);
+    await startCatalogPendingGameRetry(context, route.pendingGameId);
+    return true;
+  }
+  if (route.kind === 'pending-retry-current') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    const game = await resolveCatalogPendingGameRepository(context).findById(route.pendingGameId);
+    if (!game) {
+      await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin.pendingGameMissing);
+      await showCatalogPendingGames(context, 1);
+      return true;
+    }
+    await retryCatalogPendingGame(context, game, game.displayName, game.displayName);
     return true;
   }
   if (route.kind === 'pending-delete') {
@@ -1774,7 +1797,8 @@ function isCatalogAdminSession(flowKey: string | undefined): boolean {
     || flowKey === mediaFlowKey
     || flowKey === mediaDeleteFlowKey
     || flowKey === browseFlowKey
-    || flowKey === bggCollectionImportFlowKey;
+    || flowKey === bggCollectionImportFlowKey
+    || flowKey === pendingGameRetryFlowKey;
 }
 
 async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, text: string): Promise<boolean> {
@@ -1842,11 +1866,20 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
   if (session.flowKey === bggCollectionImportFlowKey) {
     return handleBggCollectionImportSession(context, text, session.stepKey);
   }
+  if (session.flowKey === pendingGameRetryFlowKey) {
+    return handleCatalogPendingGameRetrySession(context, text, session.data);
+  }
   return false;
 }
 
 function isCatalogAdminOnlySession(flowKey: string): boolean {
-  return flowKey === bulkPhotoFlowKey || flowKey === editFlowKey || flowKey === deactivateFlowKey || flowKey === mediaFlowKey || flowKey === mediaDeleteFlowKey || flowKey === bggCollectionImportFlowKey;
+  return flowKey === bulkPhotoFlowKey
+    || flowKey === editFlowKey
+    || flowKey === deactivateFlowKey
+    || flowKey === mediaFlowKey
+    || flowKey === mediaDeleteFlowKey
+    || flowKey === bggCollectionImportFlowKey
+    || flowKey === pendingGameRetryFlowKey;
 }
 
 async function handleBulkCreateSession(
@@ -2613,7 +2646,7 @@ async function showCatalogPendingGameDetail(context: TelegramCatalogAdminContext
   });
 }
 
-async function retryCatalogPendingGame(context: TelegramCatalogAdminContext, pendingGameId: number): Promise<void> {
+async function startCatalogPendingGameRetry(context: TelegramCatalogAdminContext, pendingGameId: number): Promise<void> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).catalogAdmin;
   const game = await resolveCatalogPendingGameRepository(context).findById(pendingGameId);
@@ -2623,33 +2656,116 @@ async function retryCatalogPendingGame(context: TelegramCatalogAdminContext, pen
     return;
   }
 
-  const progress = await startTelegramEditableProgress(context, texts.pendingGameRetrying, {
+  await context.runtime.session.start({
+    flowKey: pendingGameRetryFlowKey,
+    stepKey: 'query',
+    data: { pendingGameId },
+  });
+  await context.reply(
+    texts.pendingGameRetryPrompt.replace('{name}', game.displayName),
+    buildCatalogPendingGameRetryOptions(language, game.id),
+  );
+}
+
+async function handleCatalogPendingGameRetrySession(
+  context: TelegramCatalogAdminContext,
+  text: string,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  if (text === texts.pendingGameBackToList) {
+    await context.runtime.session.cancel();
+    await showCatalogPendingGames(context, 1);
+    return true;
+  }
+
+  const pendingGameId = Number(data.pendingGameId);
+  const game = Number.isSafeInteger(pendingGameId)
+    ? await resolveCatalogPendingGameRepository(context).findById(pendingGameId)
+    : null;
+  if (!game) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.pendingGameMissing);
+    await showCatalogPendingGames(context, 1);
+    return true;
+  }
+
+  const retryQuery = text === texts.pendingGameRetryUseCurrentName ? game.displayName : text.trim();
+  if (!retryQuery) {
+    await context.reply(texts.pendingGameRetryInvalidInput, buildCatalogPendingGameRetryOptions(language, game.id));
+    return true;
+  }
+  const looksLikeUrl = /^(?:https?:\/\/|www\.)/i.test(retryQuery) || /boardgamegeek\.com\//i.test(retryQuery);
+  const boardGameGeekId = parseBoardGameGeekCandidateId(retryQuery);
+  if (looksLikeUrl && !boardGameGeekId) {
+    await context.reply(texts.pendingGameRetryInvalidUrl, buildCatalogPendingGameRetryOptions(language, game.id));
+    return true;
+  }
+
+  await retryCatalogPendingGame(context, game, retryQuery, boardGameGeekId ? undefined : retryQuery);
+  return true;
+}
+
+async function retryCatalogPendingGame(
+  context: TelegramCatalogAdminContext,
+  game: CatalogPendingGameRecord,
+  retryQuery: string,
+  correctedDisplayName?: string,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  await context.runtime.session.cancel();
+
+  const progress = await startTelegramEditableProgress(context, texts.pendingGameRetrying.replace('{query}', retryQuery), {
     editFailedEvent: 'catalog.pending-games.retry-progress-edit.failed',
   });
   let result: BulkCreateSummaryItem;
   try {
-    result = await resolveCatalogBulkCreateItem(context, 'board-game', game.displayName);
+    result = await resolveCatalogBulkCreateItem(context, 'board-game', retryQuery);
   } catch (error) {
     result = {
-      input: game.displayName,
+      input: retryQuery,
       status: 'error',
       reason: error instanceof Error ? error.message : 'Unknown error',
     };
   }
-  await reconcileCatalogPendingGame(context, result);
 
   if (result.status === 'added') {
+    await resolveCatalogPendingGameRepository(context).deleteById(game.id);
     await progress.complete(texts.pendingGameRetryAdded);
     await showCatalogPendingGames(context, 1);
     return;
   }
   if (result.status === 'alreadyExists') {
+    await resolveCatalogPendingGameRepository(context).deleteById(game.id);
     await progress.complete(texts.pendingGameRetryAlreadyExists);
     await showCatalogPendingGames(context, 1);
     return;
   }
+  await resolveCatalogPendingGameRepository(context).recordAttemptFailureById({
+    id: game.id,
+    ...(correctedDisplayName ? { displayName: correctedDisplayName } : {}),
+    failureType: toCatalogPendingGameFailureType(result.status),
+    failureMessage: result.reason ?? null,
+    candidates: result.candidates ?? [],
+  });
   await progress.complete(texts.pendingGameRetryFailed);
-  await showCatalogPendingGameDetail(context, pendingGameId);
+  await showCatalogPendingGameDetail(context, game.id);
+}
+
+function buildCatalogPendingGameRetryOptions(language: 'ca' | 'es' | 'en', pendingGameId: number): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  return {
+    inlineKeyboard: [
+      [{
+        text: texts.pendingGameRetryUseCurrentName,
+        callbackData: `${catalogAdminCallbackPrefixes.pendingRetryCurrent}${pendingGameId}`,
+        semanticRole: 'success',
+      }],
+      [{ text: texts.pendingGameBackToList, callbackData: `${catalogAdminCallbackPrefixes.pendingPage}1` }],
+    ],
+  };
 }
 
 async function confirmCatalogPendingGameDeletion(context: TelegramCatalogAdminContext, pendingGameId: number): Promise<void> {

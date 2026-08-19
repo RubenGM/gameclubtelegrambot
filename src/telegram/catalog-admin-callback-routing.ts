@@ -23,6 +23,7 @@ export type CatalogAdminCallbackPrefixes = {
   deleteMedia: string;
   pendingPage: string;
   pendingRetry: string;
+  pendingRetryCurrent: string;
   pendingDelete: string;
   pendingDeleteConfirm: string;
 };
@@ -50,6 +51,7 @@ export type CatalogAdminCallbackRoute =
   | { kind: 'delete-media'; mediaId: number }
   | { kind: 'pending-page'; page: number }
   | { kind: 'pending-retry'; pendingGameId: number }
+  | { kind: 'pending-retry-current'; pendingGameId: number }
   | { kind: 'pending-delete'; pendingGameId: number }
   | { kind: 'pending-delete-confirm'; pendingGameId: number };
 
@@ -125,6 +127,9 @@ export function parseCatalogAdminCallbackRoute(
   }
   if (callbackData.startsWith(prefixes.pendingRetry)) {
     return { kind: 'pending-retry', pendingGameId: parseItemId(callbackData, prefixes.pendingRetry) };
+  }
+  if (callbackData.startsWith(prefixes.pendingRetryCurrent)) {
+    return { kind: 'pending-retry-current', pendingGameId: parseItemId(callbackData, prefixes.pendingRetryCurrent) };
   }
   if (callbackData.startsWith(prefixes.pendingDeleteConfirm)) {
     return { kind: 'pending-delete-confirm', pendingGameId: parseItemId(callbackData, prefixes.pendingDeleteConfirm) };
