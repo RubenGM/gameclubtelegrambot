@@ -366,6 +366,38 @@ test('createApp starts and stops schedule reminder worker with the app lifecycle
   assert.deepEqual(events, ['start:reminders', 'stop:reminders', 'stop:telegram', 'stop:infrastructure']);
 });
 
+test('createApp starts and stops catalog loan news buffering with the app lifecycle', async () => {
+  const events: string[] = [];
+  const app = createApp({
+    config: runtimeConfig,
+    logger: { info: () => {} },
+    startInfrastructure: async () => ({
+      status: { database: 'connected' },
+      services: { database: databaseConnection },
+      stop: async () => { events.push('stop:infrastructure'); },
+    }),
+    startTelegram: async () => ({
+      status: { bot: 'connected' },
+      sendPrivateMessage: async () => {},
+      stop: async () => { events.push('stop:telegram'); },
+    }),
+    startCatalogLoanNews: () => ({
+      start: async () => { events.push('start:catalog-loan-news'); },
+      stop: async () => { events.push('stop:catalog-loan-news'); },
+    }),
+  });
+
+  await app.start();
+  await app.stop();
+
+  assert.deepEqual(events, [
+    'start:catalog-loan-news',
+    'stop:catalog-loan-news',
+    'stop:telegram',
+    'stop:infrastructure',
+  ]);
+});
+
 test('createApp starts and stops role game recurrence worker with the app lifecycle', async () => {
   const events: string[] = [];
   const logger = {

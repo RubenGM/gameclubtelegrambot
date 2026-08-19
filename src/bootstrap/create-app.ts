@@ -13,6 +13,7 @@ import {
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createDatabaseCatalogLoanReminderRepository } from '../catalog/catalog-loan-reminder-store.js';
+import { createDatabaseCatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event-store.js';
 import { sendDueCatalogLoanReminders } from '../catalog/catalog-loan-reminders.js';
 import { createDatabaseGroupPurchaseRepository } from '../group-purchases/group-purchase-catalog-store.js';
 import { createDatabaseGroupPurchaseReminderRepository } from '../group-purchases/group-purchase-reminder-store.js';
@@ -29,6 +30,8 @@ import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalo
 import { createAppMetadataRoleGameAutoSchedulingStore } from '../role-games/role-game-auto-scheduling-store.js';
 import { createDatabaseAppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
 import { createGoogleCalendarSyncWorker, type GoogleCalendarSyncWorker } from '../google-calendar/google-calendar-sync-worker.js';
+import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
+import { flushDueCatalogLoanNewsEvents } from '../telegram/catalog-loan-news-buffer.js';
 
 export interface LoggerLike {
   info(bindings: object, message: string): void;
@@ -44,6 +47,10 @@ export interface CreateAppOptions {
     onFatalRuntimeError: TelegramFatalRuntimeErrorHandler;
   }) => Promise<TelegramBoundary>;
   startScheduleReminders?: (options: {
+    services: InfrastructureRuntimeServices;
+    telegram: TelegramBoundary;
+  }) => ScheduleReminderWorker;
+  startCatalogLoanNews?: (options: {
     services: InfrastructureRuntimeServices;
     telegram: TelegramBoundary;
   }) => ScheduleReminderWorker;
@@ -125,6 +132,28 @@ export function createApp({
         });
       },
     }),
+  startCatalogLoanNews = ({ services, telegram }) =>
+    createScheduleReminderWorker({
+      enabled: Boolean(telegram.sendGroupMessage),
+      intervalMs: 5_000,
+      logger: {
+        error: logger.error?.bind(logger) ?? (() => {}),
+      },
+      runOnce: async () => {
+        if (!telegram.sendGroupMessage) {
+          return;
+        }
+        await flushDueCatalogLoanNewsEvents({
+          eventRepository: createDatabaseCatalogLoanNewsEventRepository({ database: services.database.db }),
+          newsGroupRepository: createDatabaseNewsGroupRepository({ database: services.database.db }),
+          language: config.bot.language,
+          sendGroupMessage: telegram.sendGroupMessage.bind(telegram),
+          logger: {
+            error: logger.error?.bind(logger) ?? (() => {}),
+          },
+        });
+      },
+    }),
   startRoleGameRecurrences = ({ services }) =>
     createRoleGameRecurrenceWorker({
       enabled: true,
@@ -168,6 +197,7 @@ export function createApp({
   let infrastructure: InfrastructureBoundary | undefined;
   let telegram: TelegramBoundary | undefined;
   let scheduleReminders: ScheduleReminderWorker | undefined;
+  let catalogLoanNews: ScheduleReminderWorker | undefined;
   let roleGameRecurrences: ScheduleReminderWorker | undefined;
   let googleCalendarSync: GoogleCalendarSyncWorker | undefined;
   let adminHttpServer: AdminHttpServer | undefined;
@@ -199,6 +229,8 @@ export function createApp({
         telegram = startedTelegram;
         scheduleReminders = startScheduleReminders({ services: startedInfrastructure.services, telegram });
         await scheduleReminders.start();
+        catalogLoanNews = startCatalogLoanNews({ services: startedInfrastructure.services, telegram });
+        await catalogLoanNews.start();
         roleGameRecurrences = startRoleGameRecurrences({ services: startedInfrastructure.services, telegram });
         await roleGameRecurrences.start();
         googleCalendarSync = startGoogleCalendarSync({ services: startedInfrastructure.services });
@@ -246,6 +278,9 @@ export function createApp({
             await adminHttpServer.stop();
           }
           if (scheduleReminders) {
+            if (catalogLoanNews) {
+              await catalogLoanNews.stop();
+            }
             if (roleGameRecurrences) {
               await roleGameRecurrences.stop();
             }
@@ -270,6 +305,7 @@ export function createApp({
 
       telegram = undefined;
       scheduleReminders = undefined;
+      catalogLoanNews = undefined;
       roleGameRecurrences = undefined;
       adminHttpServer = undefined;
       infrastructure = undefined;

@@ -2,12 +2,10 @@ import type { CatalogItemRecord, CatalogLoanRecord, CatalogLoanRepository, Catal
 export type { CatalogLoanRecord } from '../catalog/catalog-model.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
-import { parseCatalogStorageEntryUrl } from '../catalog/catalog-media-storage.js';
+import type { CatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event.js';
+import { createDatabaseCatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { catalogLoanNewsCategoryByItemType, type NewsGroupRepository } from '../news/news-group-catalog.js';
-import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
-import { createDatabaseStorageRepository } from '../storage/storage-catalog-store.js';
-import type { StorageCategoryRepository, StorageEntryMessageRecord } from '../storage/storage-catalog.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
 import { escapeHtml, formatCatalogItemSummaryDetails, formatHtmlField } from './catalog-presentation.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
@@ -44,9 +42,9 @@ const adminBorrowerSelectorPageSize = 8;
 export type TelegramCatalogLoanContext = TelegramCommandHandlerContext & {
   catalogRepository?: CatalogRepository;
   catalogLoanRepository?: CatalogLoanRepository;
+  catalogLoanNewsEventRepository?: CatalogLoanNewsEventRepository;
   membershipRepository?: MembershipAccessRepository;
   newsGroupRepository?: NewsGroupRepository;
-  storageRepository?: StorageCategoryRepository;
 };
 
 type LoanDisplayContext = {
@@ -180,12 +178,17 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
       notes: null,
     });
 
-    await replyWithItemDetail(context, created.itemId, language);
-    await publishCatalogLoanNewsGroups(context, {
+    const queued = await queueCatalogLoanNewsEvent(context, {
       action: 'borrowed',
       item,
       userName: await resolvePreferredUserName(context, context.runtime.actor.telegramUserId),
     });
+    await replyWithItemDetail(
+      context,
+      created.itemId,
+      language,
+      formatLoanActionConfirmation(texts.hasBorrowed, item.displayName, texts.groupNotificationPending, queued),
+    );
     return true;
   }
 
@@ -213,12 +216,17 @@ export async function handleTelegramCatalogLoanCallback(context: TelegramCatalog
       loanId,
       returnedByTelegramUserId: context.runtime.actor.telegramUserId,
     });
-    await replyWithItemDetail(context, returned.itemId, language);
-    await publishCatalogLoanNewsGroups(context, {
+    const queued = await queueCatalogLoanNewsEvent(context, {
       action: 'returned',
       item,
       userName: await resolvePreferredUserName(context, context.runtime.actor.telegramUserId),
     });
+    await replyWithItemDetail(
+      context,
+      returned.itemId,
+      language,
+      formatLoanActionConfirmation(texts.hasReturned, item.displayName, texts.groupNotificationPending, queued),
+    );
     return true;
   }
 
@@ -628,15 +636,21 @@ async function createAdminLoanForMember(
     dueAt: null,
     notes: null,
   });
-  await context.reply(texts.adminCreated
-    .replace('{item}', item.displayName)
-    .replace('{borrower}', formatMembershipDisplayName(borrower)));
-  await replyWithItemDetail(context, itemId, language);
-  await publishCatalogLoanNewsGroups(context, {
+  const borrowerDisplayName = formatMembershipDisplayName(borrower);
+  const queued = await queueCatalogLoanNewsEvent(context, {
     action: 'borrowed',
     item,
-    userName: formatMembershipDisplayName(borrower),
+    userName: borrowerDisplayName,
   });
+  const confirmation = texts.adminCreated
+    .replace('{item}', item.displayName)
+    .replace('{borrower}', borrowerDisplayName);
+  await replyWithItemDetail(
+    context,
+    itemId,
+    language,
+    queued ? `${confirmation}\n${texts.groupNotificationPending}` : confirmation,
+  );
 }
 
 async function listApprovedLoanBorrowers(context: TelegramCatalogLoanContext): Promise<MembershipUserRecord[]> {
@@ -680,6 +694,7 @@ async function replyWithItemDetail(
   context: TelegramCatalogLoanContext,
   itemId: number,
   language: 'ca' | 'es' | 'en',
+  confirmation?: string,
 ): Promise<void> {
   const catalog = resolveCatalogRepository(context);
   const item = await catalog.findItemById(itemId);
@@ -710,15 +725,16 @@ async function replyWithItemDetail(
     data: { itemId },
   });
 
+  const itemDetail = formatCatalogItemSummaryDetails({
+    item,
+    availabilityLine: formatLoanAvailabilitySummaryLine(loan, language),
+    borrowerLine: await formatLoanBorrowerSummaryLine(context, loan, language),
+    ownerLine: await formatLoanOwnerSummaryLine(context, item, language),
+    detailsUrl: buildTelegramStartUrl(`${catalogReadFullItemStartPayloadPrefix}${item.id}`),
+    language,
+  });
   await context.reply(
-    formatCatalogItemSummaryDetails({
-      item,
-      availabilityLine: formatLoanAvailabilitySummaryLine(loan, language),
-      borrowerLine: await formatLoanBorrowerSummaryLine(context, loan, language),
-      ownerLine: await formatLoanOwnerSummaryLine(context, item, language),
-      detailsUrl: buildTelegramStartUrl(`${catalogReadFullItemStartPayloadPrefix}${item.id}`),
-      language,
-    }),
+    confirmation ? `${escapeHtml(confirmation)}\n\n${itemDetail}` : itemDetail,
     {
       replyKeyboard: buildCatalogLoanItemDetailReplyKeyboard({
         context,
@@ -818,13 +834,6 @@ function resolveCatalogRepository(context: TelegramCatalogLoanContext): CatalogR
   }
 
   return createDatabaseCatalogRepository({ database: context.runtime.services.database.db as never });
-}
-
-function resolveNewsGroupRepository(context: TelegramCatalogLoanContext): NewsGroupRepository {
-  return (
-    context.newsGroupRepository ??
-    createDatabaseNewsGroupRepository({ database: context.runtime.services.database.db as never })
-  );
 }
 
 async function resolveCatalogItem(context: TelegramCatalogLoanContext, itemId: number) {
@@ -1021,134 +1030,52 @@ function buildAdminLoanDashboardNavigation(
   return rows;
 }
 
-async function publishCatalogLoanNewsGroups(
+async function queueCatalogLoanNewsEvent(
   context: TelegramCatalogLoanContext,
   input: {
     action: 'borrowed' | 'returned';
     item: CatalogItemRecord;
     userName: string;
   },
-): Promise<void> {
-  const sendGroupMessage = context.runtime.bot.sendGroupMessage;
-  if (!sendGroupMessage) {
-    return;
-  }
-
+): Promise<boolean> {
   const categoryKey = catalogLoanNewsCategoryByItemType[input.item.itemType as keyof typeof catalogLoanNewsCategoryByItemType];
   if (!categoryKey) {
-    return;
-  }
-
-  const repository = resolveNewsGroupRepository(context);
-  const groups = await repository.listSubscribedGroupsByCategory(categoryKey);
-  if (groups.length === 0) {
-    return;
-  }
-
-  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-  const texts = createTelegramI18n(language).catalogLoan;
-  const itemLink = `<a href="${escapeHtml(buildTelegramStartUrl(`catalog_read_item_${input.item.id}`))}">${escapeHtml(input.item.displayName)}</a>`;
-  const message = input.action === 'borrowed'
-    ? texts.groupBorrowed.replace('{user}', escapeHtml(input.userName)).replace('{item}', itemLink)
-    : texts.groupReturned.replace('{user}', escapeHtml(input.userName)).replace('{item}', itemLink);
-
-  const cover = input.action === 'borrowed' ? await resolveCatalogLoanCover(context, input.item.id) : null;
-
-  await Promise.all(
-    groups.map(async (group) => {
-      try {
-        const sentWithCaption = cover
-          ? await trySendLoanCover(context, group.chatId, group.messageThreadId, cover, message)
-          : false;
-        if (!sentWithCaption) {
-          await sendGroupMessage(group.chatId, message, {
-            parseMode: 'HTML',
-            ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
-          });
-        }
-      } catch {
-        // La notificació de grup no ha de bloquejar el préstec o retorn.
-      }
-    }),
-  );
-}
-
-type CatalogLoanCover =
-  | { kind: 'storage'; message: StorageEntryMessageRecord }
-  | { kind: 'url'; url: string };
-
-async function resolveCatalogLoanCover(context: TelegramCatalogLoanContext, itemId: number): Promise<CatalogLoanCover | null> {
-  const catalog = resolveCatalogRepository(context);
-  const media = (await catalog.listMedia({ itemId }))
-    .filter((entry) => entry.mediaType === 'image')
-    .sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id);
-  const primary = media[0];
-  if (!primary) {
-    return null;
-  }
-
-  const storageEntryId = parseCatalogStorageEntryUrl(primary.url);
-  if (storageEntryId) {
-    const detail = await resolveStorageRepository(context).getEntryDetail(storageEntryId);
-    const message = detail?.messages
-      .sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id)
-      .find((candidate) => candidate.attachmentKind === 'photo' || candidate.mimeType?.startsWith('image/'));
-    return message ? { kind: 'storage', message } : null;
-  }
-
-  return /^https?:\/\//i.test(primary.url) ? { kind: 'url', url: primary.url } : null;
-}
-
-async function trySendLoanCover(
-  context: TelegramCatalogLoanContext,
-  chatId: number,
-  messageThreadId: number | null,
-  cover: CatalogLoanCover,
-  caption: string,
-): Promise<boolean> {
-  if (cover.kind === 'storage') {
-    try {
-      await copyLoanCoverMessage(context, {
-        fromChatId: cover.message.storageChatId,
-        messageId: cover.message.storageMessageId,
-        toChatId: chatId,
-        ...(messageThreadId ? { messageThreadId } : {}),
-      });
-    } catch {
-      return false;
-    }
-    return false;
-  }
-
-  if (!context.runtime.bot.sendMediaGroup) {
     return false;
   }
   try {
-    await context.runtime.bot.sendMediaGroup({
-      chatId,
-      media: [{ type: 'photo', media: cover.url, caption }],
-      ...(messageThreadId ? { messageThreadId } : {}),
+    await resolveCatalogLoanNewsEventRepository(context).enqueue({
+      categoryKey,
+      action: input.action,
+      itemId: input.item.id,
+      itemDisplayName: input.item.displayName,
+      userName: input.userName,
     });
     return true;
-  } catch {
+  } catch (error) {
+    console.error('Catalog loan news event enqueue failed', {
+      error: error instanceof Error ? error.message : String(error),
+      action: input.action,
+      itemId: input.item.id,
+    });
     return false;
   }
 }
 
-async function copyLoanCoverMessage(
+function resolveCatalogLoanNewsEventRepository(
   context: TelegramCatalogLoanContext,
-  input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number },
-): Promise<{ messageId: number } | null> {
-  if (context.runtime.bot.copyMessage) {
-    try {
-      return await context.runtime.bot.copyMessage(input);
-    } catch {
-      // Use forwardMessage as a fallback for media Telegram cannot copy.
-    }
+): CatalogLoanNewsEventRepository {
+  if (context.catalogLoanNewsEventRepository) {
+    return context.catalogLoanNewsEventRepository;
   }
-  return context.runtime.bot.forwardMessage ? context.runtime.bot.forwardMessage(input) : null;
+  return createDatabaseCatalogLoanNewsEventRepository({ database: context.runtime.services.database.db as never });
 }
 
-function resolveStorageRepository(context: TelegramCatalogLoanContext): StorageCategoryRepository {
-  return context.storageRepository ?? createDatabaseStorageRepository({ database: context.runtime.services.database.db as never });
+function formatLoanActionConfirmation(
+  actionTemplate: string,
+  itemDisplayName: string,
+  pendingNotification: string,
+  queued: boolean,
+): string {
+  const confirmation = actionTemplate.replace('{item}', itemDisplayName);
+  return queued ? `${confirmation}\n${pendingNotification}` : confirmation;
 }

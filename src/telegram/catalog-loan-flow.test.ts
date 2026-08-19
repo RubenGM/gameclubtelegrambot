@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { CatalogItemRecord, CatalogLoanRecord, CatalogLoanRepository, CatalogRepository } from '../catalog/catalog-model.js';
+import type { CatalogLoanNewsEventRecord, CatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
@@ -131,6 +132,7 @@ function createContext({
   catalogLoanRepository,
   loanSession = null,
   newsGroupRepository = createNewsGroupRepository(),
+  catalogLoanNewsEventRepository,
   membershipRepository,
   isAdmin = false,
   language = 'ca',
@@ -139,6 +141,7 @@ function createContext({
   catalogLoanRepository: CatalogLoanRepository;
   loanSession?: ConversationSessionRecord | null;
   newsGroupRepository?: NewsGroupRepository;
+  catalogLoanNewsEventRepository?: CatalogLoanNewsEventRepository;
   membershipRepository?: MembershipAccessRepository;
   isAdmin?: boolean;
   language?: 'ca' | 'es' | 'en';
@@ -146,10 +149,14 @@ function createContext({
   context: TelegramCommandHandlerContext;
   replies: Array<{ message: string; options?: TelegramReplyOptions }>;
   groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }>;
+  loanNewsEvents: CatalogLoanNewsEventRecord[];
 } {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
   let current = loanSession;
   const groupMessages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const loanNewsStore = catalogLoanNewsEventRepository
+    ? { repository: catalogLoanNewsEventRepository, events: [] as CatalogLoanNewsEventRecord[] }
+    : createLoanNewsEventRepository();
 
   return {
     context: {
@@ -211,11 +218,41 @@ function createContext({
         },
       catalogRepository,
       catalogLoanRepository,
+      catalogLoanNewsEventRepository: loanNewsStore.repository,
       newsGroupRepository,
       ...(membershipRepository ? { membershipRepository } : {}),
     } as unknown as TelegramCommandHandlerContext,
     replies,
     groupMessages,
+    loanNewsEvents: loanNewsStore.events,
+  };
+}
+
+function createLoanNewsEventRepository(): {
+  repository: CatalogLoanNewsEventRepository;
+  events: CatalogLoanNewsEventRecord[];
+} {
+  const events: CatalogLoanNewsEventRecord[] = [];
+  return {
+    events,
+    repository: {
+      async enqueue(input) {
+        const event: CatalogLoanNewsEventRecord = {
+          id: events.length + 1,
+          categoryKey: input.categoryKey,
+          action: input.action,
+          itemId: input.itemId,
+          itemDisplayName: input.itemDisplayName,
+          userName: input.userName,
+          occurredAt: input.occurredAt ?? '2026-04-04T10:00:00.000Z',
+          publishedAt: null,
+        };
+        events.push(event);
+        return event;
+      },
+      async listPendingBatchReadyBefore() { return []; },
+      async markPublished() {},
+    },
   };
 }
 
@@ -339,6 +376,8 @@ test('catalog loan callbacks create, list and return loans', async () => {
 
   await handleTelegramCatalogLoanCallback(context);
 
+  assert.match(replies[0]?.message ?? '', /Has agafat Game 1 en préstec\./);
+  assert.match(replies[0]?.message ?? '', /Avisaré al grup d’aquí a 5 minuts/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
   assert.equal((await catalogLoanRepository.findActiveLoanByItemId(1))?.borrowerTelegramUserId, 7);
 
@@ -353,6 +392,8 @@ test('catalog loan callbacks create, list and return loans', async () => {
   context.callbackData = `${catalogLoanCallbackPrefixes.return}1`;
   await handleTelegramCatalogLoanCallback(context);
 
+  assert.match(replies[0]?.message ?? '', /Has retornat Game 1\./);
+  assert.match(replies[0]?.message ?? '', /compte enrere tornarà a començar/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
   assert.ok(replies[0]?.options?.replyKeyboard?.flat().some((button) => (
     typeof button === 'string' ? button : button.text
@@ -848,7 +889,7 @@ test('catalog loan edit flow updates notes and due date', async () => {
   assert.match(replies[0]?.message ?? '', /Préstec actualitzat\./);
 });
 
-test('catalog-loan notifications are sent only to subscribed news categories', async () => {
+test('catalog-loan notifications are queued instead of sent immediately', async () => {
   const catalogRepository = createCatalogRepository([
     {
       id: 1,
@@ -909,7 +950,7 @@ test('catalog-loan notifications are sent only to subscribed news categories', a
       ['catalog-loans:book', new Set([-201])],
     ]),
   );
-  const { context, groupMessages } = createContext({
+  const { context, groupMessages, loanNewsEvents } = createContext({
     catalogRepository,
     catalogLoanRepository,
     newsGroupRepository,
@@ -919,18 +960,16 @@ test('catalog-loan notifications are sent only to subscribed news categories', a
   context.callbackData = `${catalogLoanCallbackPrefixes.create}1`;
   await handleTelegramCatalogLoanCallback(context);
 
-  assert.equal(groupMessages.length, 1);
-  assert.equal(groupMessages.at(-1)?.chatId, -200);
-  assert.match(groupMessages.at(-1)?.message ?? '', /Anna ha pres prestat <a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_item_1">Game 1<\/a>\./);
-  assert.equal(groupMessages.at(-1)?.options?.parseMode, 'HTML');
+  assert.equal(groupMessages.length, 0);
+  assert.equal(loanNewsEvents.length, 1);
+  assert.equal(loanNewsEvents[0]?.categoryKey, 'catalog-loans:board-game');
+  assert.equal(loanNewsEvents[0]?.action, 'borrowed');
 
   context.callbackData = `${catalogLoanCallbackPrefixes.return}1`;
   await handleTelegramCatalogLoanCallback(context);
 
-  assert.equal(groupMessages.length, 2);
-  assert.equal(groupMessages.at(-1)?.chatId, -200);
-  assert.match(groupMessages.at(-1)?.message ?? '', /Anna ha retornat <a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_item_1">Game 1<\/a>\./);
-  assert.equal(groupMessages.at(-1)?.options?.parseMode, 'HTML');
-  assert.notEqual(groupMessages.at(-1)?.chatId, -201);
-  assert.notEqual(groupMessages.at(-1)?.chatId, -202);
+  assert.equal(groupMessages.length, 0);
+  assert.equal(loanNewsEvents.length, 2);
+  assert.equal(loanNewsEvents[1]?.categoryKey, 'catalog-loans:board-game');
+  assert.equal(loanNewsEvents[1]?.action, 'returned');
 });

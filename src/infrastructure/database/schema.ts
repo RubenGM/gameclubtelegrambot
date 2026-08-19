@@ -289,6 +289,27 @@ export const catalogLoanReminders = pgTable(
   }),
 );
 
+export const catalogLoanNewsEvents = pgTable(
+  'catalog_loan_news_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    categoryKey: varchar('category_key', { length: 128 }).notNull(),
+    action: varchar('action', { length: 16 }).notNull(),
+    itemId: bigint('item_id', { mode: 'number' })
+      .notNull()
+      .references(() => catalogItems.id),
+    itemDisplayName: varchar('item_display_name', { length: 255 }).notNull(),
+    userName: varchar('user_name', { length: 255 }).notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('catalog_loan_news_events_pending_idx')
+      .on(table.occurredAt)
+      .where(sql`${table.publishedAt} is null`),
+  ],
+);
+
 export const scheduleEvents = pgTable(
   'schedule_events',
   {

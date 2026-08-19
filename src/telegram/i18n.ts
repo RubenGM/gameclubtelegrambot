@@ -586,8 +586,9 @@ const newsGroupTexts = {
 
 const catalogLoanTexts = {
   ca: {
-    hasBorrowed: 'Has prestat {item}.',
+    hasBorrowed: 'Has agafat {item} en préstec.',
     hasReturned: 'Has retornat {item}.',
+    groupNotificationPending: "Avisaré al grup d’aquí a 5 minuts. Si es registra un altre préstec o retorn abans, el compte enrere tornarà a començar.",
     noPermission: 'No tens permisos per editar aquest préstec.',
     editPrompt: 'Editant {name} · introdueix les notes o escriu "-" per deixar-les buides.',
     dueDatePrompt: 'Introdueix la data de retorn prevista (YYYY-MM-DD, dd/MM/yyyy) o escriu "-" per deixar-la buida.',
@@ -633,10 +634,12 @@ const catalogLoanTexts = {
     deleteItem: 'Eliminar ítem',
     groupBorrowed: '{user} ha pres prestat {item}.',
     groupReturned: '{user} ha retornat {item}.',
+    groupBatchHeader: 'Moviments de préstecs',
   },
   es: {
-    hasBorrowed: 'Has prestado {item}.',
+    hasBorrowed: 'Has tomado prestado {item}.',
     hasReturned: 'Has devuelto {item}.',
+    groupNotificationPending: 'Avisaré en el grupo dentro de 5 minutos. Si se registra otro préstamo o devolución antes, el contador volverá a empezar.',
     noPermission: 'No tienes permisos para editar este préstamo.',
     editPrompt: 'Editando {name} · introduce las notas o escribe "-" para dejarlas vacías.',
     dueDatePrompt: 'Introduce la fecha de devolución prevista (YYYY-MM-DD, dd/MM/yyyy) o escribe "-" para dejarla vacía.',
@@ -682,10 +685,12 @@ const catalogLoanTexts = {
     deleteItem: 'Eliminar ítem',
     groupBorrowed: '{user} ha tomado prestado {item}.',
     groupReturned: '{user} ha devuelto {item}.',
+    groupBatchHeader: 'Movimientos de préstamos',
   },
   en: {
     hasBorrowed: 'You borrowed {item}.',
     hasReturned: 'You returned {item}.',
+    groupNotificationPending: 'I will notify the group in 5 minutes. If another loan or return is recorded first, the countdown will restart.',
     noPermission: 'You do not have permission to edit this loan.',
     editPrompt: 'Editing {name} · add notes or type "-" to leave them empty.',
     dueDatePrompt: 'Enter the expected return date (YYYY-MM-DD, dd/MM/yyyy) or type "-" to leave it empty.',
@@ -731,5 +736,6 @@ const catalogLoanTexts = {
     deleteItem: 'Delete item',
     groupBorrowed: '{user} borrowed {item}.',
     groupReturned: '{user} returned {item}.',
+    groupBatchHeader: 'Loan activity',
   },
 } as const;

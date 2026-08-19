@@ -314,7 +314,7 @@ Implementado:
 - Vista de lectura con indice por rangos de tres iniciales: cada bloque muestra total de articulos y desglose por juegos de mesa, libros y accesorios, con enlaces normales `t.me?...start=` en el texto; los grupos internos no aparecen en la navegación principal.
 - Vista pública `/catalogo` con búsqueda por título/original/editorial, filtros por tipo, número de jugadores y disponibilidad, paginación, agrupacion por inicial, tarjetas con portada, descripción, familia/grupo, posición física, propietario, disponibilidad/préstamo y datos principales, detalle publico por item con descripción completa y enlace a BoardGameGeek cuando el item conserva referencia BGG.
 - Creación de actividad desde item del catálogo y aviso si el item está prestado.
-- Los avisos de préstamo en grupos de noticias intentan publicar una sola imagen: la portada principal del item; si falla, mantienen el texto actual.
+- Los avisos de préstamo y devolución se guardan en una cola persistente y se agrupan por grupo/topic en un solo mensaje de texto tras 5 minutos sin nuevos movimientos; cada evento nuevo reinicia la espera del lote completo.
 
 Integraciones reales:
 
@@ -344,7 +344,7 @@ Implementado:
 - Consultar todos los préstamos activos desde el dashboard admin separado `Préstamos activos`, accesible por `/loan_admin` y por el menú de catálogo, con item y prestatario enlazados, fecha prevista y estado vencido.
 - Editar notas y fecha prevista de devolución.
 - Enviar un recordatorio privado cada 7 días desde el alta mientras el préstamo siga activo, aunque no tenga fecha prevista, con botón `Ya lo he devuelto` para cerrarlo directamente.
-- Publicar eventos de préstamo/devolución a grupos de noticias por categoría, con el item enlazado al detalle de catálogo.
+- Encolar de forma persistente los eventos de préstamo/devolución y publicarlos por categoría en un único mensaje por grupo/topic cuando hayan pasado 5 minutos desde el último movimiento; cada alta o devolución reinicia el contador, los items mantienen su enlace al detalle y la confirmación privada explica la espera.
 - Restriccion persistente de un préstamo activo por item.
 
 Pendiente:
