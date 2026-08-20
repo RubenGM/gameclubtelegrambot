@@ -21,6 +21,7 @@ export function buildBulkPhotoReviewOptions(language: 'ca' | 'es' | 'en'): Teleg
   const texts = createTelegramI18n(language).catalogAdmin;
   return buildReplyKeyboard([
     [successButton(texts.bulkPhotoConfirm)],
+    [texts.bulkPhotoEdit],
     [texts.bulkPhotoRetry],
     [dangerButton(texts.cancel)],
   ]);

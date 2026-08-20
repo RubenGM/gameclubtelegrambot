@@ -3,8 +3,10 @@ const maximumDetectedCatalogTitleLength = 180;
 export function buildCatalogBulkImageQuestion(): string {
   return [
     'Detecta todos los juegos de mesa y expansiones cuyas cajas sean visibles en esta foto de una biblioteca.',
-    'Devuelve exclusivamente JSON valido con esta forma exacta: {"games":["Titulo 1","Titulo 2"]}.',
-    'Usa el titulo mas completo que puedas leer en cada caja, sin inventar texto ilegible.',
+    'Devuelve exclusivamente JSON valido con esta forma exacta: {"games":[{"title":"Titulo exacto","visibleText":"Titulo exacto","certainty":"clear"}]}.',
+    'Incluye una caja solo cuando puedas leer el titulo completo de forma directa y clara.',
+    'title y visibleText deben contener exactamente el mismo titulo transcrito de la caja; no completes subtitulos ni palabras por el arte, el contexto o tu conocimiento de juegos existentes.',
+    'Si una palabra es parcial, borrosa, dudosa o inferida, omite esa caja por completo.',
     'No incluyas libros, decoracion, accesorios ni explicaciones. No repitas titulos.',
   ].join(' ');
 }
@@ -19,15 +21,7 @@ export function parseCatalogBulkImageResponse(value: string): string[] {
   if (parsedTitles !== null) {
     return normalizeDetectedTitles(parsedTitles);
   }
-
-  return normalizeDetectedTitles(
-    cleaned
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('>') && line !== '```')
-      .map((line) => line.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, ''))
-      .map((line) => line.replace(/^(?:[-*\u2022]|\d+[.)])\s*/, '')),
-  );
+  return [];
 }
 
 function parseJsonTitles(value: string): unknown[] | null {
@@ -70,11 +64,10 @@ function normalizeDetectedTitles(values: unknown[]): string[] {
   const seen = new Set<string>();
 
   for (const value of values) {
-    const raw = typeof value === 'string'
-      ? value
-      : value && typeof value === 'object'
-        ? readObjectTitle(value as Record<string, unknown>)
-        : '';
+    if (!value || typeof value !== 'object' || !isClearVisibleTitle(value as Record<string, unknown>)) {
+      continue;
+    }
+    const raw = readObjectTitle(value as Record<string, unknown>);
     const title = raw
       .normalize('NFKC')
       .replace(/\s+/g, ' ')
@@ -91,6 +84,23 @@ function normalizeDetectedTitles(values: unknown[]): string[] {
   }
 
   return titles;
+}
+
+function isClearVisibleTitle(value: Record<string, unknown>): boolean {
+  if (value.certainty !== 'clear' || typeof value.visibleText !== 'string') {
+    return false;
+  }
+  const title = readObjectTitle(value);
+  return Boolean(title) && normalizeEvidence(title) === normalizeEvidence(value.visibleText);
+}
+
+function normalizeEvidence(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 function readObjectTitle(value: Record<string, unknown>): string {

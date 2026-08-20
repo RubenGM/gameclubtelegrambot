@@ -20,6 +20,8 @@ test('createDatabaseCatalogPendingGameRepository persists and manages pending ga
     normalizedName: 'coyote',
     displayName: 'Coyote',
     detectedByTelegramUserId: 99,
+    sourceTelegramChatId: 1,
+    sourceTelegramMessageId: 77,
     detectedCount: 2,
     attemptCount: 1,
     lastFailureType: 'ambiguous',
@@ -79,9 +81,16 @@ test('createDatabaseCatalogPendingGameRepository persists and manages pending ga
     } as never,
   });
 
-  const upserted = await repository.upsertDetected({ displayName: 'Coyote', detectedByTelegramUserId: 99 });
+  const upserted = await repository.upsertDetected({
+    displayName: 'Coyote',
+    detectedByTelegramUserId: 99,
+    sourceTelegramChatId: 1,
+    sourceTelegramMessageId: 77,
+  });
   assert.equal(inserted[0]?.normalizedName, 'coyote');
+  assert.equal(inserted[0]?.sourceTelegramMessageId, 77);
   assert.equal(upserted.id, 7);
+  assert.equal(upserted.sourceTelegramChatId, 1);
   assert.deepEqual((await repository.list())[0]?.candidates, ['Coyote (2003) [API #8172]']);
   assert.equal((await repository.findById(7))?.displayName, 'Coyote');
 

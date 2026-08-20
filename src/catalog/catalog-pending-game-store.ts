@@ -10,6 +10,8 @@ export interface CatalogPendingGameRecord {
   normalizedName: string;
   displayName: string;
   detectedByTelegramUserId: number;
+  sourceTelegramChatId: number | null;
+  sourceTelegramMessageId: number | null;
   detectedCount: number;
   attemptCount: number;
   lastFailureType: CatalogPendingGameFailureType | null;
@@ -24,6 +26,8 @@ export interface CatalogPendingGameRepository {
   upsertDetected(input: {
     displayName: string;
     detectedByTelegramUserId: number;
+    sourceTelegramChatId?: number | null;
+    sourceTelegramMessageId?: number | null;
   }): Promise<CatalogPendingGameRecord>;
   list(): Promise<CatalogPendingGameRecord[]>;
   findById(id: number): Promise<CatalogPendingGameRecord | null>;
@@ -50,7 +54,7 @@ export function createDatabaseCatalogPendingGameRepository({
   database: DatabaseConnection['db'];
 }): CatalogPendingGameRepository {
   return {
-    async upsertDetected({ displayName, detectedByTelegramUserId }) {
+    async upsertDetected({ displayName, detectedByTelegramUserId, sourceTelegramChatId, sourceTelegramMessageId }) {
       const normalizedName = normalizeCatalogPendingGameName(displayName);
       const now = new Date();
       const rows = await database
@@ -59,12 +63,16 @@ export function createDatabaseCatalogPendingGameRepository({
           normalizedName,
           displayName: displayName.trim(),
           detectedByTelegramUserId,
+          sourceTelegramChatId: sourceTelegramChatId ?? null,
+          sourceTelegramMessageId: sourceTelegramMessageId ?? null,
         })
         .onConflictDoUpdate({
           target: catalogPendingGames.normalizedName,
           set: {
             displayName: displayName.trim(),
             detectedByTelegramUserId,
+            sourceTelegramChatId: sourceTelegramChatId ?? null,
+            sourceTelegramMessageId: sourceTelegramMessageId ?? null,
             detectedCount: sql`${catalogPendingGames.detectedCount} + 1`,
             updatedAt: now,
           },
@@ -160,6 +168,8 @@ function mapCatalogPendingGameRow(row: typeof catalogPendingGames.$inferSelect):
     normalizedName: row.normalizedName,
     displayName: row.displayName,
     detectedByTelegramUserId: row.detectedByTelegramUserId,
+    sourceTelegramChatId: row.sourceTelegramChatId,
+    sourceTelegramMessageId: row.sourceTelegramMessageId,
     detectedCount: row.detectedCount,
     attemptCount: row.attemptCount,
     lastFailureType: row.lastFailureType as CatalogPendingGameFailureType | null,

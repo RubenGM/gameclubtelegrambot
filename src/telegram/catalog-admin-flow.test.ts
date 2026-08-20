@@ -84,6 +84,8 @@ function createPendingGameFixture(overrides: Partial<CatalogPendingGameRecord> =
     normalizedName: 'coyote',
     displayName: 'Coyote',
     detectedByTelegramUserId: 99,
+    sourceTelegramChatId: null,
+    sourceTelegramMessageId: null,
     detectedCount: 1,
     attemptCount: 1,
     lastFailureType: 'ambiguous',
@@ -480,7 +482,7 @@ function createPendingGameRepository(initial: CatalogPendingGameRecord[] = []): 
   let nextId = Math.max(0, ...initial.map((record) => record.id)) + 1;
   const now = '2026-08-18T18:00:00.000Z';
   return {
-    async upsertDetected({ displayName, detectedByTelegramUserId }) {
+    async upsertDetected({ displayName, detectedByTelegramUserId, sourceTelegramChatId, sourceTelegramMessageId }) {
       const normalizedName = normalizeCatalogPendingGameName(displayName);
       const existing = Array.from(records.values()).find((record) => record.normalizedName === normalizedName);
       if (existing) {
@@ -488,6 +490,8 @@ function createPendingGameRepository(initial: CatalogPendingGameRecord[] = []): 
           ...existing,
           displayName,
           detectedByTelegramUserId,
+          sourceTelegramChatId: sourceTelegramChatId ?? null,
+          sourceTelegramMessageId: sourceTelegramMessageId ?? null,
           detectedCount: existing.detectedCount + 1,
           updatedAt: now,
         };
@@ -499,6 +503,8 @@ function createPendingGameRepository(initial: CatalogPendingGameRecord[] = []): 
         normalizedName,
         displayName,
         detectedByTelegramUserId,
+        sourceTelegramChatId: sourceTelegramChatId ?? null,
+        sourceTelegramMessageId: sourceTelegramMessageId ?? null,
         detectedCount: 1,
         attemptCount: 0,
         lastFailureType: null,
@@ -1400,7 +1406,7 @@ test('library photo bulk import stores a detected review list and only starts af
     wikipediaBoardGameImportService,
     coverTitleResolver: async (input) => {
       resolverCalls.push(input);
-      return '```json\n{"games":["Root","root"]}\n```';
+      return '```json\n{"games":[{"title":"Root","visibleText":"ROOT","certainty":"clear"},{"title":"root","visibleText":"Root","certainty":"clear"}]}\n```';
     },
     downloadFile: async (input) => {
       downloadCalls.push(input);
@@ -1439,6 +1445,7 @@ test('library photo bulk import stores a detected review list and only starts af
   assert.match(replies.at(-1)?.message ?? '', /1\. Root/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
     [successButton('Confirmar importación')],
+    ['Editar lista'],
     ['Repetir foto'],
     [dangerButton('/cancel')],
   ]);
@@ -1446,6 +1453,21 @@ test('library photo bulk import stores a detected review list and only starts af
   assert.deepEqual(importCalls, []);
 
   context.messageMedia = undefined;
+  context.messageText = 'Editar lista';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'bulk-photo-edit');
+  assert.match(replies.at(-1)?.message ?? '', /lista corregida/i);
+
+  context.messageText = 'Root\nRoot, Heat';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'bulk-photo-review');
+  assert.deepEqual(getCurrentSession()?.data.itemNames, ['Root', 'Heat']);
+  assert.match(replies.at(-1)?.message ?? '', /1\. Root\n2\. Heat/);
+
+  context.messageText = 'Editar lista';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'Root';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
   context.messageText = 'Confirmar importación';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession(), null);
@@ -1477,7 +1499,7 @@ test('library photo keeps ambiguous games in the persistent pending queue', asyn
   const { context } = createContext({
     catalogPendingGameRepository: pendingRepository,
     wikipediaBoardGameImportService,
-    coverTitleResolver: async () => '{"games":["Coyote"]}',
+    coverTitleResolver: async () => '{"games":[{"title":"Coyote","visibleText":"Coyote","certainty":"clear"}]}',
     language: 'es',
   });
 
@@ -1499,6 +1521,8 @@ test('library photo keeps ambiguous games in the persistent pending queue', asyn
   await new Promise((resolve) => setTimeout(resolve, 30));
   const [pending] = await pendingRepository.list();
   assert.equal(pending?.displayName, 'Coyote');
+  assert.equal(pending?.sourceTelegramChatId, 1);
+  assert.equal(pending?.sourceTelegramMessageId, 78);
   assert.equal(pending?.attemptCount, 1);
   assert.equal(pending?.lastFailureType, 'ambiguous');
   assert.deepEqual(pending?.candidates, [
@@ -1563,9 +1587,34 @@ test('pending games list paginates and opens a detail with BGG candidate links',
   context.messageText = '/start catalog_pending_1';
   assert.equal(await handleTelegramCatalogAdminStartText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Game 01<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /Primera detección por foto:/);
   assert.match(replies.at(-1)?.message ?? '', /boardgamegeek\.com\/boardgame\/8172/);
   assert.match(replies.at(-1)?.message ?? '', /boardgamegeek\.com\/boardgame\/317981/);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+});
+
+test('pending game detail can copy its original source photo for admins', async () => {
+  const copies: Array<{ fromChatId: number; messageId: number; toChatId: number }> = [];
+  const pendingRepository = createPendingGameRepository([createPendingGameFixture({
+    sourceTelegramChatId: 1,
+    sourceTelegramMessageId: 77,
+  })]);
+  const { context, replies } = createContext({
+    catalogPendingGameRepository: pendingRepository,
+    copyMessage: async (input) => {
+      copies.push(input);
+      return { messageId: 99 };
+    },
+    language: 'es',
+  });
+
+  context.messageText = '/start catalog_pending_1';
+  assert.equal(await handleTelegramCatalogAdminStartText(context), true);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Ver foto original'));
+
+  context.callbackData = `${catalogAdminCallbackPrefixes.pendingSourcePhoto}1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.deepEqual(copies, [{ fromChatId: 1, messageId: 77, toChatId: 1 }]);
 });
 
 test('pending game retry removes a successfully added game from the queue', async () => {

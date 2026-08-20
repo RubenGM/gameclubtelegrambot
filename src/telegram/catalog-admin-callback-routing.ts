@@ -23,6 +23,7 @@ export type CatalogAdminCallbackPrefixes = {
   editMedia: string;
   deleteMedia: string;
   pendingPage: string;
+  pendingSourcePhoto: string;
   pendingRetry: string;
   pendingRetryCurrent: string;
   pendingDelete: string;
@@ -52,6 +53,7 @@ export type CatalogAdminCallbackRoute =
   | { kind: 'edit-media'; mediaId: number }
   | { kind: 'delete-media'; mediaId: number }
   | { kind: 'pending-page'; page: number }
+  | { kind: 'pending-source-photo'; pendingGameId: number }
   | { kind: 'pending-retry'; pendingGameId: number }
   | { kind: 'pending-retry-current'; pendingGameId: number }
   | { kind: 'pending-delete'; pendingGameId: number }
@@ -129,6 +131,9 @@ export function parseCatalogAdminCallbackRoute(
   }
   if (callbackData.startsWith(prefixes.pendingPage)) {
     return { kind: 'pending-page', page: parseItemId(callbackData, prefixes.pendingPage) };
+  }
+  if (callbackData.startsWith(prefixes.pendingSourcePhoto)) {
+    return { kind: 'pending-source-photo', pendingGameId: parseItemId(callbackData, prefixes.pendingSourcePhoto) };
   }
   if (callbackData.startsWith(prefixes.pendingRetry)) {
     return { kind: 'pending-retry', pendingGameId: parseItemId(callbackData, prefixes.pendingRetry) };

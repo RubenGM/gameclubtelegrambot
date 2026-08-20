@@ -262,6 +262,7 @@ export const catalogAdminCallbackPrefixes = {
   editMedia: 'catalog_admin:edit_media:',
   deleteMedia: 'catalog_admin:delete_media:',
   pendingPage: 'catalog_admin:pending_page:',
+  pendingSourcePhoto: 'catalog_admin:pending_source:',
   pendingRetry: 'catalog_admin:pending_retry:',
   pendingRetryCurrent: 'catalog_admin:pending_retry_current:',
   pendingDelete: 'catalog_admin:pending_delete:',
@@ -327,6 +328,7 @@ export const catalogAdminLabels = {
   bulkCreate: 'Afegir múltiples',
   bulkPhoto: 'Foto de la biblioteca',
   bulkPhotoConfirm: 'Confirmar importació',
+  bulkPhotoEdit: 'Editar llista',
   bulkPhotoRetry: 'Repetir foto',
   pendingGames: "Jocs pendents d'afegir",
   askBulkNames: 'Escriu els noms separats per coma. Si usen coma literal, no els separis de moment.',
@@ -658,6 +660,14 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
       await context.runtime.session.cancel();
     }
     await showCatalogPendingGames(context, route.page);
+    return true;
+  }
+  if (route.kind === 'pending-source-photo') {
+    if (!canAdministerCatalog(context)) {
+      await replyAdminOnly(context);
+      return true;
+    }
+    await showCatalogPendingGameSourcePhoto(context, route.pendingGameId);
     return true;
   }
   if (route.kind === 'pending-retry') {
@@ -1952,6 +1962,14 @@ async function handleBulkCreateSession(
   }
 
   if (stepKey === 'bulk-photo-review') {
+    if (text === texts.bulkPhotoEdit || text === catalogAdminLabels.bulkPhotoEdit) {
+      await context.runtime.session.advance({
+        stepKey: 'bulk-photo-edit',
+        data: { ...data, itemType: 'board-game' },
+      });
+      await context.reply(texts.bulkPhotoEditPrompt, buildSingleCancelKeyboard(language));
+      return true;
+    }
     if (text === texts.bulkPhotoRetry || text === catalogAdminLabels.bulkPhotoRetry) {
       await context.runtime.session.advance({
         stepKey: 'bulk-photo',
@@ -1968,7 +1986,10 @@ async function handleBulkCreateSession(
         return true;
       }
       try {
-        await queueCatalogPendingGames(context, itemNames);
+        await queueCatalogPendingGames(context, itemNames, {
+          sourceTelegramChatId: readSessionInteger(data.sourceTelegramChatId),
+          sourceTelegramMessageId: readSessionInteger(data.sourceTelegramMessageId),
+        });
       } catch (error) {
         console.error(JSON.stringify({
           event: 'catalog.pending-games.queue.failed',
@@ -1981,6 +2002,20 @@ async function handleBulkCreateSession(
       return true;
     }
     await context.reply(formatBulkPhotoReview(texts, asStringArray(data.itemNames)), buildBulkPhotoReviewOptions(language));
+    return true;
+  }
+
+  if (stepKey === 'bulk-photo-edit') {
+    const itemNames = parseCatalogBulkPhotoEditedNames(text).slice(0, bulkCreateItemLimit);
+    if (itemNames.length === 0) {
+      await context.reply(texts.bulkPhotoEditInvalid, buildSingleCancelKeyboard(language));
+      return true;
+    }
+    await context.runtime.session.advance({
+      stepKey: 'bulk-photo-review',
+      data: { ...data, itemType: 'board-game', itemNames },
+    });
+    await context.reply(formatBulkPhotoReview(texts, itemNames), buildBulkPhotoReviewOptions(language));
     return true;
   }
 
@@ -2052,7 +2087,13 @@ async function handleBulkPhotoMessage(
   await progress.complete(texts.bulkPhotoReady);
   await context.runtime.session.advance({
     stepKey: 'bulk-photo-review',
-    data: { ...data, itemType: 'board-game', itemNames },
+    data: {
+      ...data,
+      itemType: 'board-game',
+      itemNames,
+      sourceTelegramChatId: context.runtime.chat.chatId,
+      sourceTelegramMessageId: media.messageId,
+    },
   });
   await context.reply(formatBulkPhotoReview(texts, itemNames), buildBulkPhotoReviewOptions(language));
   return true;
@@ -2083,14 +2124,24 @@ async function startCatalogBulkCreateJob(
   });
 }
 
-async function queueCatalogPendingGames(context: TelegramCatalogAdminContext, itemNames: string[]): Promise<void> {
+async function queueCatalogPendingGames(
+  context: TelegramCatalogAdminContext,
+  itemNames: string[],
+  source: { sourceTelegramChatId: number | null; sourceTelegramMessageId: number | null },
+): Promise<void> {
   const repository = resolveCatalogPendingGameRepository(context);
   for (const displayName of itemNames) {
     await repository.upsertDetected({
       displayName,
       detectedByTelegramUserId: context.runtime.actor.telegramUserId,
+      sourceTelegramChatId: source.sourceTelegramChatId,
+      sourceTelegramMessageId: source.sourceTelegramMessageId,
     });
   }
+}
+
+function readSessionInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) ? value : null;
 }
 
 async function detectCatalogBulkNamesFromAttachment(
@@ -2153,6 +2204,21 @@ function formatBulkPhotoReview(
     '',
     ...itemNames.map((name, index) => `${index + 1}. ${name}`),
   ].join('\n');
+}
+
+function parseCatalogBulkPhotoEditedNames(text: string): string[] {
+  const seen = new Set<string>();
+  return text
+    .split(/[,\n]/)
+    .map((entry) => entry.trim().replace(/\s+/g, ' '))
+    .filter((entry) => {
+      const normalized = normalizeCatalogPendingGameName(entry);
+      if (!normalized || seen.has(normalized)) {
+        return false;
+      }
+      seen.add(normalized);
+      return true;
+    });
 }
 
 async function runCatalogBulkCreateJob({
@@ -2667,6 +2733,7 @@ async function showCatalogPendingGameDetail(context: TelegramCatalogAdminContext
 
   const lines = [
     `<b>${escapeHtml(game.displayName)}</b>`,
+    texts.pendingGameFirstDetected.replace('{date}', formatCatalogPendingGameDate(game.createdAt, language)),
     texts.pendingGameDetections.replace('{count}', String(game.detectedCount)),
     texts.pendingGameAttempts.replace('{count}', String(game.attemptCount)),
     '',
@@ -2684,11 +2751,51 @@ async function showCatalogPendingGameDetail(context: TelegramCatalogAdminContext
   await context.reply(lines.join('\n'), {
     parseMode: 'HTML',
     inlineKeyboard: [
+      ...(game.sourceTelegramChatId && game.sourceTelegramMessageId
+        ? [[{ text: texts.pendingGameSourcePhoto, callbackData: `${catalogAdminCallbackPrefixes.pendingSourcePhoto}${game.id}` }]]
+        : []),
       [{ text: texts.pendingGameRetry, callbackData: `${catalogAdminCallbackPrefixes.pendingRetry}${game.id}`, semanticRole: 'success' }],
       [{ text: texts.pendingGameDelete, callbackData: `${catalogAdminCallbackPrefixes.pendingDelete}${game.id}`, semanticRole: 'danger' }],
       [{ text: texts.pendingGameBackToList, callbackData: `${catalogAdminCallbackPrefixes.pendingPage}1` }],
     ],
   });
+}
+
+async function showCatalogPendingGameSourcePhoto(context: TelegramCatalogAdminContext, pendingGameId: number): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  const game = await resolveCatalogPendingGameRepository(context).findById(pendingGameId);
+  if (!game) {
+    await context.reply(texts.pendingGameMissing);
+    return;
+  }
+  if (!game.sourceTelegramChatId || !game.sourceTelegramMessageId || !context.runtime.bot.copyMessage) {
+    await context.reply(texts.pendingGameSourcePhotoUnavailable);
+    return;
+  }
+  try {
+    await context.runtime.bot.copyMessage({
+      fromChatId: game.sourceTelegramChatId,
+      messageId: game.sourceTelegramMessageId,
+      toChatId: context.runtime.chat.chatId,
+    });
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: 'catalog.pending-game.source-photo.failed',
+      pendingGameId,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    await context.reply(texts.pendingGameSourcePhotoUnavailable);
+  }
+}
+
+function formatCatalogPendingGameDate(value: string, language: 'ca' | 'es' | 'en'): string {
+  const locale = language === 'ca' ? 'ca-ES' : language === 'es' ? 'es-ES' : 'en-GB';
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    timeZone: 'Europe/Madrid',
+  }).format(new Date(value));
 }
 
 async function startCatalogPendingGameRetry(context: TelegramCatalogAdminContext, pendingGameId: number): Promise<void> {

@@ -219,6 +219,8 @@ export const catalogPendingGames = pgTable(
     detectedByTelegramUserId: bigint('detected_by_telegram_user_id', { mode: 'number' })
       .notNull()
       .references(() => users.telegramUserId),
+    sourceTelegramChatId: bigint('source_telegram_chat_id', { mode: 'number' }),
+    sourceTelegramMessageId: bigint('source_telegram_message_id', { mode: 'number' }),
     detectedCount: integer('detected_count').notNull().default(1),
     attemptCount: integer('attempt_count').notNull().default(0),
     lastFailureType: varchar('last_failure_type', { length: 32 }),
