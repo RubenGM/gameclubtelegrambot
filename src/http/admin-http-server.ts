@@ -1311,7 +1311,8 @@ async function handleCatalogWebAdminRequest(options: {
     const search = options.url.searchParams.get('q') ?? '';
     const pageNumber = parsePositiveInteger(options.url.searchParams.get('page'), 1);
     const catalog = await fetchPublicCatalogItems(options.services, { search, itemType: '', playerCount: null, availability: '', page: pageNumber });
-    sendHtml(options.response, 200, catalogWebAdminListPage(settings, actor, options.token, catalog, search));
+    const message = options.url.searchParams.get('saved') === '1' ? 'Cambios guardados.' : '';
+    sendHtml(options.response, 200, catalogWebAdminListPage(settings, actor, options.token, catalog, search, message));
     return;
   }
 
@@ -1365,7 +1366,7 @@ async function handleCatalogWebAdminRequest(options: {
     }
     try {
       await updateCatalogWebAdminItem(options.services, options.itemId, actor.telegram_user_id, form);
-      redirect(options.response, `/catalogo/admin/${encodeURIComponent(options.token)}/${options.itemId}?saved=1`);
+      redirect(options.response, `/catalogo/admin/${encodeURIComponent(options.token)}?saved=1`);
     } catch (error) {
       const data = await fetchCatalogWebAdminEditData(options.services, options.itemId);
       if (!data.item) {
@@ -1527,7 +1528,7 @@ async function applyCatalogBggDraft(
       external_refs=$12::jsonb, metadata=$13::jsonb, updated_at=now() where id=$14 returning id`,
     [
       draft.itemType,
-      version?.name ?? draft.displayName,
+      draft.displayName,
       draft.originalName,
       draft.description,
       version?.languages.join(', ') || draft.language,
@@ -4816,8 +4817,9 @@ function catalogDetailPage(settings: WebSettings, item: PublicCatalogItemRow): s
   });
 }
 
-function catalogWebAdminListPage(settings: WebSettings, actor: CatalogWebAdminActor, token: string, catalog: PublicCatalogPage, search: string): string {
+function catalogWebAdminListPage(settings: WebSettings, actor: CatalogWebAdminActor, token: string, catalog: PublicCatalogPage, search: string, message = ''): string {
   const root = `/catalogo/admin/${encodeURIComponent(token)}`;
+  const notice = message ? `<p class="admin-badge admin-badge-ok" role="status">${escapeHtml(message)}</p>` : '';
   const rows = catalog.items.length === 0
     ? '<p>No hay artículos que coincidan con la búsqueda.</p>'
     : `<div class="catalog-admin-edit-list">${catalog.items.map((item) => `<article><div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(renderCatalogType(item.item_type))} · ${escapeHtml(item.owner_name ? `Propietario: ${item.owner_name}` : 'Sin propietario')}</small></div><a href="${root}/${encodeURIComponent(String(item.id))}">Editar juego</a></article>`).join('')}</div>`;
@@ -4833,7 +4835,7 @@ function catalogWebAdminListPage(settings: WebSettings, actor: CatalogWebAdminAc
     headerLogoAsset: settings.home.logoAsset,
     shell: 'admin',
     navItems: [{ href: root, label: 'Catálogo' }],
-    body: `<style>.catalog-admin-edit-list{display:grid;gap:8px}.catalog-admin-edit-list article{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:12px;border:1px solid var(--cawa-line);border-radius:8px;background:var(--cawa-surface)}.catalog-admin-edit-list article div{display:grid;gap:3px}.catalog-admin-edit-list small{color:var(--cawa-muted)}.catalog-admin-edit-list a{white-space:nowrap}@media(max-width:600px){.catalog-admin-edit-list article{align-items:flex-start;flex-direction:column}}</style><p>Acceso temporal de <strong>${escapeHtml(actor.display_name)}</strong>. Puedes reutilizar este enlace durante una hora desde su creación.</p><form class="admin-search-bar" method="get"><label>Buscar juego<input name="q" value="${escapeHtml(search)}" placeholder="Título, original o editorial"></label><button type="submit">Buscar</button></form><section>${rows}</section><p class="catalog-pagination">${pageLinks}</p>`,
+    body: `<style>.catalog-admin-edit-list{display:grid;gap:8px}.catalog-admin-edit-list article{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:12px;border:1px solid var(--cawa-line);border-radius:8px;background:var(--cawa-surface)}.catalog-admin-edit-list article div{display:grid;gap:3px}.catalog-admin-edit-list small{color:var(--cawa-muted)}.catalog-admin-edit-list a{white-space:nowrap}@media(max-width:600px){.catalog-admin-edit-list article{align-items:flex-start;flex-direction:column}}</style>${notice}<p>Acceso temporal de <strong>${escapeHtml(actor.display_name)}</strong>. Puedes reutilizar este enlace durante una hora desde su creación.</p><form class="admin-search-bar" method="get"><label>Buscar juego<input name="q" value="${escapeHtml(search)}" placeholder="Título, original o editorial"></label><button type="submit">Buscar</button></form><section>${rows}</section><p class="catalog-pagination">${pageLinks}</p>`,
   });
 }
 
