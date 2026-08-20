@@ -6,6 +6,7 @@ import { appendAuditEvent, type AuditLogRepository } from '../audit/audit-log.js
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import {
   createCatalogDescriptionTranslator,
+  resolveCatalogTranslationProfile,
   type CatalogDescriptionTranslator,
 } from '../catalog/catalog-description-translation.js';
 import {
@@ -36,6 +37,7 @@ import {
   type CatalogItemType,
   type CatalogRepository,
 } from '../catalog/catalog-model.js';
+import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import {
   storeCatalogMediaAttachment,
   storeCatalogMediaExternalImage,
@@ -267,7 +269,7 @@ export const catalogAdminCallbackPrefixes = {
 } as const;
 
 const catalogCoverTitleModel = process.env.GAMECLUB_COVER_TITLE_MODEL?.trim() || 'gpt-5.4';
-const catalogBggDescriptionTranslationModel = process.env.GAMECLUB_BGG_DESCRIPTION_TRANSLATION_MODEL?.trim() || 'gpt-5.4';
+const catalogTranslationProfile = resolveCatalogTranslationProfile();
 const catalogCodexBin = process.env.GAMECLUB_CATALOG_CODEX_BIN?.trim() ?? process.env.GAMECLUB_CODEX_BIN?.trim() ?? './scripts/codex-cawa.sh';
 
 export const catalogAdminLabels = {
@@ -636,7 +638,11 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     return true;
   }
   if (route.kind === 'browse-family') {
-    await showCatalogFamilyBrowse(context, route.familyId);
+    if (catalogFamilyGroupUiEnabled) {
+      await showCatalogFamilyBrowse(context, route.familyId);
+    } else {
+      await showCatalogBrowseMenu(context);
+    }
     return true;
   }
   if (route.kind === 'browse-letters') {
@@ -708,6 +714,10 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     return true;
   }
   if (route.kind === 'inspect-group') {
+    if (!catalogFamilyGroupUiEnabled) {
+      await showCatalogBrowseMenu(context);
+      return true;
+    }
     const group = await loadGroupOrThrow(context, route.groupId);
     const items = await listCatalogItems({ repository: resolveCatalogRepository(context), groupId: route.groupId, includeDeactivated: true });
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
@@ -1296,7 +1306,7 @@ async function handleCatalogAdminTranslateDescription(
     const translator = resolveCatalogDescriptionTranslator(context);
     const translated = normalizeTranslatedDescription(await translator({
       description,
-      model: catalogBggDescriptionTranslationModel,
+      ...catalogTranslationProfile,
       targetLanguage: 'es',
     }));
     if (!translated) {
@@ -1332,7 +1342,7 @@ async function handleCatalogAdminTranslateDescription(
       targetId: updated.id,
       summary: `Descripció de catàleg traduïda: ${updated.displayName}`,
       details: {
-        model: catalogBggDescriptionTranslationModel,
+        ...catalogTranslationProfile,
         originalLength: description.length,
         translatedLength: translated.length,
       },
@@ -1340,7 +1350,7 @@ async function handleCatalogAdminTranslateDescription(
 
     console.info(JSON.stringify({
       event: 'catalog.description.translation.completed',
-      model: catalogBggDescriptionTranslationModel,
+      ...catalogTranslationProfile,
       itemId: item.id,
       title: item.displayName,
       originalLength: description.length,
@@ -1352,7 +1362,7 @@ async function handleCatalogAdminTranslateDescription(
     const reason = formatTranslationErrorReason(error);
     console.warn(JSON.stringify({
       event: 'catalog.description.translation.failed',
-      model: catalogBggDescriptionTranslationModel,
+      ...catalogTranslationProfile,
       itemId: item.id,
       title: item.displayName,
       error: reason,
@@ -3295,7 +3305,12 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
   const items = await repository.listItems({ includeDeactivated: false });
   const groups = await repository.listGroups({});
   const families = await repository.listFamilies();
-  const matches = searchCatalogItemsByName({ items, groups, families, query });
+  const matches = searchCatalogItemsByName({
+    items,
+    groups: catalogFamilyGroupUiEnabled ? groups : [],
+    families: catalogFamilyGroupUiEnabled ? families : [],
+    query,
+  });
   const loanRepository = resolveCatalogLoanRepository(context);
 
   await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
@@ -4583,7 +4598,7 @@ async function translateBggDraftDescriptionIfNeeded(
     const translator = resolveCatalogDescriptionTranslator(context);
     const translated = normalizeTranslatedDescription(await translator({
       description,
-      model: catalogBggDescriptionTranslationModel,
+      ...catalogTranslationProfile,
       targetLanguage: 'es',
     }));
     if (!translated) {
@@ -4591,7 +4606,7 @@ async function translateBggDraftDescriptionIfNeeded(
     }
     console.info(JSON.stringify({
       event: 'catalog.bgg-description.translation.completed',
-      model: catalogBggDescriptionTranslationModel,
+      ...catalogTranslationProfile,
       title: draft.displayName,
       originalLength: description.length,
       translatedLength: translated.length,
@@ -4600,7 +4615,7 @@ async function translateBggDraftDescriptionIfNeeded(
   } catch (error) {
     console.warn(JSON.stringify({
       event: 'catalog.bgg-description.translation.failed',
-      model: catalogBggDescriptionTranslationModel,
+      ...catalogTranslationProfile,
       title: draft.displayName,
       error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
     }));

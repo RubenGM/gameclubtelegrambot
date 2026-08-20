@@ -1,0 +1,221 @@
+{
+  "generatedAt": "2026-08-20T10:07:32.314Z",
+  "methodology": {
+    "runsPerConfiguration": 2,
+    "description": "Explore the archipelago, collect resources, and build a thriving trade route for 2 to 4 players. Every decision matters: upgrading a harbor may bring immediate prestige, but saving timber can unlock a more efficient route on the following round.\n\nAt the start of the game, each player secretly receives a role: the Sheriff and deputies must protect the town, the outlaws win by eliminating the Sheriff, and the renegade must be the last survivor. Keep the role names consistent and do not turn this paragraph into a list.\n\nSometimes the history of a nation can be defined by the relationship between two individuals. The Election of 1960 follows John F. Kennedy and Richard Nixon through a tense campaign in which momentum, regional support, and the televised debates can change the final result.",
+    "promptContract": "Production catalog translation prompt",
+    "qualityRubric": "70 terminology, 15 paragraphs, 10 no English leakage, 5 output contract"
+  },
+  "results": [
+    {
+      "model": "gpt-5.4",
+      "reasoning": "low",
+      "label": "gpt-5.4/low (actual)",
+      "meanElapsedMs": 8233,
+      "meanQualityScore": 97,
+      "samples": [
+        {
+          "run": 1,
+          "elapsedMs": 8613,
+          "success": true,
+          "output": "Explora el archipiélago, recoge recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión importa: mejorar un puerto puede aportar prestigio inmediato, pero ahorrar madera puede desbloquear una ruta más eficiente en la siguiente ronda.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y los deputies deben proteger el pueblo, los outlaws ganan eliminando al Sheriff, y el renegade debe ser el último superviviente. Mantén los nombres de los roles de forma coherente y no conviertas este párrafo en una lista.\n\nA veces, la historia de una nación puede quedar definida por la relación entre dos personas. The Election of 1960 sigue a John F. Kennedy y Richard Nixon a lo largo de una tensa campaña en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 93,
+            "matchedTerms": 9,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        },
+        {
+          "run": 2,
+          "elapsedMs": 7853,
+          "success": true,
+          "output": "Explora el archipiélago, reúne recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión importa: mejorar un puerto puede aportar prestigio inmediato, pero ahorrar madera puede desbloquear una ruta más eficiente en la siguiente ronda.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y los diputados deben proteger el pueblo, los forajidos ganan eliminando al Sheriff, y el renegado debe ser el último superviviente. Mantén los nombres de los roles de forma coherente y no conviertas este párrafo en una lista.\n\nA veces, la historia de una nación puede quedar definida por la relación entre dos individuos. The Election of 1960 sigue a John F. Kennedy y Richard Nixon a lo largo de una tensa campaña en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 100,
+            "matchedTerms": 10,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "reasoning": "low",
+      "label": "gpt-5.6-luna/low",
+      "meanElapsedMs": 9139,
+      "meanQualityScore": 97,
+      "samples": [
+        {
+          "run": 1,
+          "elapsedMs": 9543,
+          "success": true,
+          "output": "Explora el archipiélago, reúne recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión cuenta: mejorar un puerto puede aportar prestigio inmediato, pero ahorrar madera puede desbloquear una ruta más eficiente en la ronda siguiente.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y los deputies deben proteger la ciudad, los outlaws ganan eliminando al Sheriff, y el renegade debe ser el último superviviente. Mantén los nombres de los roles coherentes y no conviertas este párrafo en una lista.\n\nA veces, la historia de una nación puede definirse por la relación entre dos personas. The Election of 1960 sigue a John F. Kennedy y Richard Nixon durante una tensa campaña en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 93,
+            "matchedTerms": 9,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        },
+        {
+          "run": 2,
+          "elapsedMs": 8735,
+          "success": true,
+          "output": "Explora el archipiélago, recolecta recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión importa: mejorar un puerto puede otorgar prestigio inmediato, pero ahorrar madera puede desbloquear una ruta más eficiente en la ronda siguiente.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y sus ayudantes deben proteger la ciudad, los forajidos ganan eliminando al Sheriff y el renegado debe ser el último superviviente.\n\nA veces, la historia de una nación puede definirse por la relación entre dos personas. La Elección de 1960 sigue a John F. Kennedy y Richard Nixon durante una tensa campaña en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 100,
+            "matchedTerms": 10,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "reasoning": "medium",
+      "label": "gpt-5.6-luna/medium",
+      "meanElapsedMs": 8889,
+      "meanQualityScore": 97,
+      "samples": [
+        {
+          "run": 1,
+          "elapsedMs": 9143,
+          "success": true,
+          "output": "Explora el archipiélago, recolecta recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión importa: mejorar un puerto puede otorgar prestigio inmediato, pero ahorrar madera puede desbloquear una ruta más eficiente en la ronda siguiente.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Alguacil y sus ayudantes deben proteger la ciudad, los forajidos ganan eliminando al Alguacil y el renegado debe ser el último superviviente. Mantén los nombres de los roles coherentes y no conviertas este párrafo en una lista.\n\nA veces, la historia de una nación puede quedar definida por la relación entre dos personas. La Elección de 1960 sigue a John F. Kennedy y Richard Nixon durante una campaña tensa en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 93,
+            "matchedTerms": 9,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        },
+        {
+          "run": 2,
+          "elapsedMs": 8635,
+          "success": true,
+          "output": "Explora el archipiélago, reúne recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión importa: mejorar un puerto puede aportar prestigio inmediato, pero ahorrar madera puede permitirte desbloquear una ruta más eficiente en la ronda siguiente.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y sus ayudantes deben proteger la ciudad, los forajidos ganan eliminando al Sheriff y el renegado debe ser el último superviviente.\n\nA veces, la historia de una nación puede quedar definida por la relación entre dos personas. La elección de 1960 sigue a John F. Kennedy y Richard Nixon durante una tensa campaña en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 100,
+            "matchedTerms": 10,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "reasoning": "high",
+      "label": "gpt-5.6-luna/high",
+      "meanElapsedMs": 9589,
+      "meanQualityScore": 100,
+      "samples": [
+        {
+          "run": 1,
+          "elapsedMs": 8254,
+          "success": true,
+          "output": "Explora el archipiélago, reúne recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión cuenta: mejorar un puerto puede otorgar prestigio inmediato, pero ahorrar madera puede desbloquear una ruta más eficiente en la ronda siguiente.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y sus ayudantes deben proteger la ciudad, los forajidos ganan eliminando al Sheriff y el renegado debe ser el último superviviente. Mantén oculto tu rol y usa tus habilidades con astucia.\n\nA veces, la historia de una nación puede quedar definida por la relación entre dos individuos. The Election of 1960 sigue a John F. Kennedy y Richard Nixon durante una campaña tensa en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 100,
+            "matchedTerms": 10,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        },
+        {
+          "run": 2,
+          "elapsedMs": 10923,
+          "success": true,
+          "output": "Explora el archipiélago, recolecta recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión cuenta: mejorar un puerto puede otorgar prestigio inmediato, pero ahorrar madera puede desbloquear una ruta más eficiente en la ronda siguiente.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y sus ayudantes deben proteger la ciudad, los forajidos ganan eliminando al Sheriff y el renegado debe ser el último superviviente. Mantén los roles en secreto y desconfía de todos.\n\nA veces, la historia de una nación puede definirse por la relación entre dos personas. La Elección de 1960 sigue a John F. Kennedy y Richard Nixon durante una tensa campaña en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 100,
+            "matchedTerms": 10,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "reasoning": "xhigh",
+      "label": "gpt-5.6-luna/xhigh",
+      "meanElapsedMs": 10726,
+      "meanQualityScore": 100,
+      "samples": [
+        {
+          "run": 1,
+          "elapsedMs": 10827,
+          "success": true,
+          "output": "Explora el archipiélago, reúne recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión cuenta: mejorar un puerto puede proporcionarte prestigio inmediato, pero ahorrar madera puede desbloquear una ruta más eficiente en la ronda siguiente.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y sus ayudantes deben proteger la ciudad, los forajidos ganan al eliminar al Sheriff y el renegado debe ser el último superviviente.\n\nA veces, la historia de una nación puede quedar definida por la relación entre dos personas. La elección de 1960 sigue a John F. Kennedy y Richard Nixon durante una tensa campaña en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 100,
+            "matchedTerms": 10,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        },
+        {
+          "run": 2,
+          "elapsedMs": 10624,
+          "success": true,
+          "output": "Explora el archipiélago, reúne recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión cuenta: mejorar un puerto puede otorgarte prestigio inmediato, pero ahorrar madera puede desbloquear una ruta más eficiente en la ronda siguiente.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y sus ayudantes deben proteger el pueblo, los forajidos ganan al eliminar al Sheriff y el renegado debe ser el último superviviente.\n\nA veces, la historia de una nación puede quedar definida por la relación entre dos personas. La elección de 1960 sigue a John F. Kennedy y Richard Nixon durante una tensa campaña en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 100,
+            "matchedTerms": 10,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        }
+      ]
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "reasoning": "max",
+      "label": "gpt-5.6-luna/max",
+      "meanElapsedMs": 14048,
+      "meanQualityScore": 100,
+      "samples": [
+        {
+          "run": 1,
+          "elapsedMs": 13537,
+          "success": true,
+          "output": "Explora el archipiélago, reúne recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión cuenta: mejorar un puerto puede otorgarte prestigio inmediato, pero ahorrar madera puede desbloquear una ruta más eficiente en la ronda siguiente.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y sus ayudantes deben proteger el pueblo, los forajidos ganan al eliminar al Sheriff y el renegado debe ser el último superviviente. Mantén los nombres de los roles coherentes y no conviertas este párrafo en una lista.\n\nA veces, la historia de una nación puede quedar definida por la relación entre dos personas. La Elección de 1960 sigue a John F. Kennedy y Richard Nixon durante una tensa campaña en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 100,
+            "matchedTerms": 10,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        },
+        {
+          "run": 2,
+          "elapsedMs": 14559,
+          "success": true,
+          "output": "Explora el archipiélago, reúne recursos y construye una próspera ruta comercial para 2 a 4 jugadores. Cada decisión importa: mejorar un puerto puede otorgarte prestigio inmediato, pero guardar madera puede desbloquear una ruta más eficiente en la ronda siguiente.\n\nAl comienzo de la partida, cada jugador recibe en secreto un rol: el Sheriff y sus ayudantes deben proteger el pueblo, los forajidos ganan eliminando al Sheriff y el renegado debe ser el último superviviente. Mantén los nombres de los roles coherentes y no conviertas este párrafo en una lista.\n\nA veces, la historia de una nación puede definirse por la relación entre dos personas. La Elección de 1960 sigue a John F. Kennedy y Richard Nixon durante una tensa campaña en la que el impulso, el apoyo regional y los debates televisados pueden cambiar el resultado final.",
+          "quality": {
+            "score": 100,
+            "matchedTerms": 10,
+            "paragraphs": 3,
+            "noLeakage": true,
+            "cleanContract": true
+          }
+        }
+      ]
+    }
+  ]
+}

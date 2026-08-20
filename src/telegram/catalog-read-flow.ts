@@ -1,4 +1,5 @@
 import type { CatalogMediaRecord, CatalogRepository, CatalogFamilyRecord, CatalogGroupRecord, CatalogItemRecord } from '../catalog/catalog-model.js';
+import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import type { MembershipAccessRepository } from '../membership/access-flow.js';
@@ -208,6 +209,12 @@ export async function handleTelegramCatalogReadCallback(context: TelegramCatalog
   }
 
   if (callbackData.startsWith(catalogReadCallbackPrefixes.inspectFamily)) {
+    if (!catalogFamilyGroupUiEnabled) {
+      const state: CatalogReadState = { view: 'overview', page: 1 };
+      await persistCatalogReadState(context, state);
+      await renderCatalogReadState(context, state, language);
+      return true;
+    }
     const familyId = parseEntityId(callbackData, catalogReadCallbackPrefixes.inspectFamily);
     const { families, groups, items } = await loadCatalogData(context);
     const family = familyById(families, familyId);
@@ -223,6 +230,12 @@ export async function handleTelegramCatalogReadCallback(context: TelegramCatalog
   }
 
   if (callbackData.startsWith(catalogReadCallbackPrefixes.inspectGroup)) {
+    if (!catalogFamilyGroupUiEnabled) {
+      const state: CatalogReadState = { view: 'overview', page: 1 };
+      await persistCatalogReadState(context, state);
+      await renderCatalogReadState(context, state, language);
+      return true;
+    }
     const groupId = parseEntityId(callbackData, catalogReadCallbackPrefixes.inspectGroup);
     const { families, groups, items } = await loadCatalogData(context);
     const group = groupById(groups, groupId);
@@ -256,6 +269,12 @@ export async function handleTelegramCatalogReadCallback(context: TelegramCatalog
 }
 
 async function renderCatalogReadState(context: TelegramCatalogReadContext, state: CatalogReadState, language: 'ca' | 'es' | 'en'): Promise<void> {
+  if (!catalogFamilyGroupUiEnabled && (state.view === 'family' || state.view === 'group')) {
+    const overviewState: CatalogReadState = { view: 'overview', page: 1 };
+    await persistCatalogReadState(context, overviewState);
+    await renderCatalogReadState(context, overviewState, language);
+    return;
+  }
   const { families, groups, items } = await loadCatalogData(context);
   const activeLoansByItemId = await loadActiveLoansByItemMap(context, items);
   const texts = createTelegramI18n(language);
@@ -793,8 +812,8 @@ async function searchCatalogItems(context: TelegramCatalogReadContext, {
 
   return Promise.all(items
     .filter((item) => {
-      const family = item.familyId !== null ? familyById(families, item.familyId) : null;
-      const group = item.groupId !== null ? groupById(groups, item.groupId) : null;
+      const family = catalogFamilyGroupUiEnabled && item.familyId !== null ? familyById(families, item.familyId) : null;
+      const group = catalogFamilyGroupUiEnabled && item.groupId !== null ? groupById(groups, item.groupId) : null;
       return matchesText([
         item.displayName,
         item.originalName,

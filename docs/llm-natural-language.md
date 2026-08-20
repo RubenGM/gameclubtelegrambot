@@ -129,7 +129,11 @@ Las funciones auxiliares del catálogo (lectura de títulos visibles en portadas
 fallback de traducción de descripciones) usan también Codex mediante
 `GAMECLUB_CATALOG_CODEX_BIN`, o `GAMECLUB_CODEX_BIN` cuando no se configura el
 primero. La invocación usa siempre `codex exec --ephemeral --sandbox read-only`;
-para portadas adjunta la imagen con `--image`.
+para portadas adjunta la imagen con `--image`. Todas las traducciones del
+catálogo comparten el perfil `gpt-5.6-luna` con razonamiento `medium` y el prompt
+de fidelidad estricta; se puede sobrescribir con
+`GAMECLUB_BGG_DESCRIPTION_TRANSLATION_MODEL` y
+`GAMECLUB_BGG_DESCRIPTION_TRANSLATION_REASONING_EFFORT`.
 
 ## Configuración
 

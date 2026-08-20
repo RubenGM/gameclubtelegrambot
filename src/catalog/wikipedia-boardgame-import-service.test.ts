@@ -3,8 +3,49 @@ import test from 'node:test';
 
 import {
   createBoardGameGeekCollectionImportService,
+  createBoardGameGeekWebImportService,
   createWikipediaBoardGameImportService,
 } from './wikipedia-boardgame-import-service.js';
+
+test('BGG web import returns every search result and exposes language versions', async () => {
+  const requests: string[] = [];
+  const service = createBoardGameGeekWebImportService({
+    bggApiKey: 'test-key',
+    fetchImpl: (async (input: string | URL) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes('/search?')) {
+        return { ok: true, status: 200, text: async () => `<items>${Array.from({ length: 12 }, (_, index) => `<item type="boardgame" id="${index + 1}"><name type="primary" value="Juego ${index + 1}"/><yearpublished value="${2000 + index}"/></item>`).join('')}</items>` } as Response;
+      }
+      if (url.includes('id=1%2C2%2C3%2C4%2C5%2C6%2C7%2C8%2C9%2C10%2C11%2C12')) {
+        return { ok: true, status: 200, text: async () => `<items>${Array.from({ length: 12 }, (_, index) => `<item type="boardgame" id="${index + 1}"><thumbnail>https://example.test/${index + 1}-thumb.jpg</thumbnail><image>https://example.test/${index + 1}.jpg</image><name type="primary" value="Juego ${index + 1}"/></item>`).join('')}</items>` } as Response;
+      }
+      if (url.includes('stats=1')) {
+        return { ok: true, status: 200, text: async () => '<items><item type="boardgame" id="12"><name type="primary" value="Game Twelve"/><yearpublished value="2011"/></item></items>' } as Response;
+      }
+      return { ok: true, status: 200, text: async () => '<items><item type="boardgame" id="12"><versions><item type="boardgameversion" id="120"><name type="primary" value="Juego Doce"/><yearpublished value="2012"/><productcode value="ED-ES-12"/><link type="language" value="Spanish"/><link type="boardgamepublisher" value="Editorial ES"/><image>https://example.test/es.jpg</image></item><item type="boardgameversion" id="121"><name type="primary" value="Game Twelve"/><link type="language" value="English"/></item></versions></item></items>' } as Response;
+    }) as typeof fetch,
+  });
+
+  const search = await service.search('Game Twelve');
+  assert.equal(search.candidates.length, 12);
+  assert.equal(search.candidates[11]?.thumbnailUrl, 'https://example.test/12-thumb.jpg');
+  assert.equal(search.candidates[11]?.imageUrl, 'https://example.test/12.jpg');
+  const detail = await service.inspect('12');
+  assert.equal(detail.versions.length, 2);
+  assert.deepEqual(detail.versions[0], { id: '120', name: 'Juego Doce', languages: ['Spanish'], publishers: ['Editorial ES'], yearPublished: 2012, productCode: 'ED-ES-12', imageUrl: 'https://example.test/es.jpg', thumbnailUrl: null });
+  assert.deepEqual(requests, [
+    'https://boardgamegeek.com/xmlapi2/search?query=Game+Twelve&type=boardgame',
+    'https://boardgamegeek.com/xmlapi2/thing?id=1%2C2%2C3%2C4%2C5%2C6%2C7%2C8%2C9%2C10%2C11%2C12&stats=1',
+    'https://boardgamegeek.com/xmlapi2/thing?id=12&stats=1',
+    'https://boardgamegeek.com/xmlapi2/thing?id=12&versions=1',
+  ]);
+});
+
+test('BGG web import accepts an exact BoardGameGeek URL without searching', async () => {
+  const service = createBoardGameGeekWebImportService({ bggApiKey: 'test-key', fetchImpl: (async () => { throw new Error('search must not run'); }) as typeof fetch });
+  assert.deepEqual(await service.search('https://boardgamegeek.com/boardgame/315196/example'), { candidates: [], directBoardGameGeekId: '315196' });
+});
 
 test('createWikipediaBoardGameImportService preserves ambiguous candidates', async () => {
   const service = createWikipediaBoardGameImportService({

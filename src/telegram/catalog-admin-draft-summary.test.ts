@@ -29,5 +29,7 @@ test('formatCatalogAdminDraftSummary keeps long imported BGG data within the Tel
   assert.ok(summary.length < 3_500, `summary length was ${summary.length}`);
   assert.match(summary, /<b>Nombre:<\/b> Pandemic/);
   assert.match(summary, /<b>Descripción:<\/b> .*…/);
+  assert.doesNotMatch(summary, /<b>Familia:<\/b>/);
+  assert.doesNotMatch(summary, /<b>Grupo:<\/b>/);
   assert.doesNotMatch(summary, /<(?!\/?b>)/);
 });

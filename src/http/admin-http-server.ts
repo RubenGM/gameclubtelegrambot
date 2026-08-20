@@ -17,6 +17,23 @@ import {
 } from '../membership/welcome-template-store.js';
 import { listNewsGroupCategories, newMembersNewsGroupCategory } from '../news/news-group-catalog.js';
 import { parseCatalogStorageEntryUrl } from '../catalog/catalog-media-storage.js';
+import {
+  createCatalogDescriptionTranslator,
+  resolveCatalogTranslationProfile,
+  type CatalogDescriptionTranslator,
+} from '../catalog/catalog-description-translation.js';
+import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
+import {
+  createBoardGameGeekWebImportService,
+  type BoardGameGeekCandidate,
+  type BoardGameGeekWebImportService,
+  type BoardGameGeekVersionCandidate,
+  type WikipediaBoardGameCatalogDraft,
+} from '../catalog/wikipedia-boardgame-import-service.js';
+import {
+  createDatabaseCatalogWebAdminTokenStore,
+  type CatalogWebAdminTokenStore,
+} from '../catalog/catalog-web-admin-token.js';
 import { escapeHtml, renderHttpPage, type RenderHttpPageOptions } from './http-pages.js';
 import { listHttpThemes } from './http-theme.js';
 import { createDatabaseMemberSignupStore, type MemberSignupRecord, type MemberSignupStore } from './member-signup-store.js';
@@ -65,6 +82,9 @@ export interface CreateAdminHttpServerOptions {
   scheduleWebCreateSettingsStore?: ScheduleWebCreateSettingsStore;
   scheduleWebCreateTokenStore?: ScheduleWebCreateTokenStore;
   scheduleWebCreator?: ScheduleWebCreator;
+  catalogWebAdminTokenStore?: CatalogWebAdminTokenStore;
+  catalogBggWebImportService?: BoardGameGeekWebImportService;
+  catalogDescriptionTranslator?: CatalogDescriptionTranslator;
 }
 
 interface Session {
@@ -158,7 +178,7 @@ const resourceDefs: ResourceDef[] = [
     idColumn: 'id',
     titleColumn: 'display_name',
     subtitleColumns: ['item_type', 'lifecycle_status'],
-    listColumns: ['id', 'display_name', 'item_type', 'storage_position', 'lifecycle_status', 'group_id', 'family_id'],
+    listColumns: ['id', 'display_name', 'item_type', 'storage_position', 'lifecycle_status'],
     editableFields: [
       { column: 'display_name', label: 'Display name', type: 'string' },
       { column: 'original_name', label: 'Original name', type: 'string', nullable: true },
@@ -176,7 +196,7 @@ const resourceDefs: ResourceDef[] = [
     ],
     softDelete: { column: 'lifecycle_status', value: 'inactive', timestampColumn: 'deactivated_at' },
   },
-  resource('catalog_families', 'Familias', 'catalog_families', 'id', 'display_name', ['slug', 'family_kind'], ['id', 'display_name', 'slug', 'family_kind'], [
+  ...(catalogFamilyGroupUiEnabled ? [resource('catalog_families', 'Familias', 'catalog_families', 'id', 'display_name', ['slug', 'family_kind'], ['id', 'display_name', 'slug', 'family_kind'], [
     { column: 'display_name', label: 'Display name', type: 'string' },
     { column: 'slug', label: 'Slug', type: 'string' },
     { column: 'description', label: 'Description', type: 'string', nullable: true },
@@ -187,7 +207,7 @@ const resourceDefs: ResourceDef[] = [
     { column: 'slug', label: 'Slug', type: 'string' },
     { column: 'description', label: 'Description', type: 'string', nullable: true },
     { column: 'family_id', label: 'Family ID', type: 'number', nullable: true },
-  ]),
+  ])] : []),
   resource('catalog_loans', 'Prestamos', 'catalog_loans', 'id', 'borrower_display_name', ['item_id', 'returned_at'], ['id', 'item_id', 'borrower_display_name', 'due_at', 'returned_at'], [
     { column: 'borrower_display_name', label: 'Borrower', type: 'string' },
     { column: 'due_at', label: 'Due at', type: 'timestamp', nullable: true },
@@ -281,6 +301,9 @@ export function createAdminHttpServer({
   scheduleWebCreateSettingsStore,
   scheduleWebCreateTokenStore,
   scheduleWebCreator,
+  catalogWebAdminTokenStore,
+  catalogBggWebImportService,
+  catalogDescriptionTranslator,
 }: CreateAdminHttpServerOptions): AdminHttpServer {
   const httpConfig = {
     ...defaultHttpServerConfig,
@@ -319,6 +342,16 @@ export function createAdminHttpServer({
       config,
       ...(telegramSender ? { telegramSender } : {}),
     });
+  const catalogWebAdminTokens = catalogWebAdminTokenStore
+    ?? createDatabaseCatalogWebAdminTokenStore({ database: services.database.db });
+  const catalogBggWebImporter = catalogBggWebImportService
+    ?? createBoardGameGeekWebImportService({ ...(config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {}) });
+  const catalogTranslator = catalogDescriptionTranslator ?? createCatalogDescriptionTranslator({
+    ...(config.translation?.deeplApiKey ? { deeplApiKey: config.translation.deeplApiKey } : {}),
+    ...(config.translation?.deeplApiUrl ? { deeplApiUrl: config.translation.deeplApiUrl } : {}),
+    ...optionalCatalogTranslationTimeout(process.env.GAMECLUB_DEEPL_TIMEOUT_MS),
+    codexBin: process.env.GAMECLUB_CATALOG_CODEX_BIN?.trim() ?? process.env.GAMECLUB_CODEX_BIN?.trim() ?? './scripts/codex-cawa.sh',
+  });
   let server: Server | undefined;
 
   const handler = async (request: IncomingMessage, response: ServerResponse) => {
@@ -342,6 +375,9 @@ export function createAdminHttpServer({
         scheduleWebCreateSettingsStore: scheduleWebSettings,
         scheduleWebCreateTokenStore: scheduleWebTokens,
         scheduleWebCreator: webScheduleCreator,
+        catalogWebAdminTokenStore: catalogWebAdminTokens,
+        catalogBggWebImportService: catalogBggWebImporter,
+        catalogDescriptionTranslator: catalogTranslator,
         ...(telegramSender ? { telegramSender } : {}),
       });
     } catch (error) {
@@ -408,6 +444,9 @@ async function routeRequest(options: {
   scheduleWebCreateSettingsStore: ScheduleWebCreateSettingsStore;
   scheduleWebCreateTokenStore: ScheduleWebCreateTokenStore;
   scheduleWebCreator: ScheduleWebCreator;
+  catalogWebAdminTokenStore: CatalogWebAdminTokenStore;
+  catalogBggWebImportService: BoardGameGeekWebImportService;
+  catalogDescriptionTranslator: CatalogDescriptionTranslator;
   telegramSender?: HttpTelegramSender;
 }): Promise<void> {
   const { request, response } = options;
@@ -435,6 +474,17 @@ async function routeRequest(options: {
     await handleScheduleWebCreateRequest({
       ...options,
       token: scheduleWebCreateMatch[1],
+    });
+    return;
+  }
+
+  const catalogWebAdminMatch = /^\/catalogo\/admin\/([A-Za-z0-9_-]{32,128})(?:\/(\d+))?$/.exec(url.pathname);
+  if (catalogWebAdminMatch?.[1] && (request.method === 'GET' || request.method === 'POST')) {
+    await handleCatalogWebAdminRequest({
+      ...options,
+      token: catalogWebAdminMatch[1],
+      itemId: catalogWebAdminMatch[2] ? Number(catalogWebAdminMatch[2]) : null,
+      url,
     });
     return;
   }
@@ -916,6 +966,11 @@ async function routeRequest(options: {
     return;
   }
 
+  if (!catalogFamilyGroupUiEnabled && /^\/admin\/resources\/catalog_(?:families|groups)(?:\/|$)/.test(url.pathname)) {
+    sendHtml(response, 404, page('No encontrado', '<p>El recurso solicitado no está disponible.</p>'));
+    return;
+  }
+
   const resourceMatch = url.pathname.match(/^\/admin\/resources\/([^/]+)$/);
   if (request.method === 'GET' && resourceMatch?.[1]) {
     const resourceDef = requireResource(resourceMatch[1]);
@@ -1185,6 +1240,427 @@ interface ScheduleWebFormValues {
   initialOccupiedSeats: string;
   tableId: string;
   equipmentIds: string[];
+}
+
+interface CatalogWebAdminActor {
+  telegram_user_id: number;
+  display_name: string;
+}
+
+interface CatalogWebAdminOwnerOption {
+  telegram_user_id: number | string;
+  display_name: string;
+  username: string | null;
+}
+
+interface CatalogWebAdminItem {
+  id: number | string;
+  family_id: number | string | null;
+  group_id: number | string | null;
+  owner_telegram_user_id: number | string | null;
+  item_type: string;
+  display_name: string;
+  original_name: string | null;
+  description: string | null;
+  language: string | null;
+  publisher: string | null;
+  publication_year: number | string | null;
+  player_count_min: number | string | null;
+  player_count_max: number | string | null;
+  recommended_age: number | string | null;
+  play_time_minutes: number | string | null;
+  storage_position: string | null;
+  lifecycle_status: string;
+  external_refs: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+}
+
+class CatalogWebAdminInputError extends Error {}
+
+async function handleCatalogWebAdminRequest(options: {
+  request: IncomingMessage;
+  response: ServerResponse;
+  services: InfrastructureRuntimeServices;
+  webSettingsStore: WebSettingsStore;
+  catalogWebAdminTokenStore: CatalogWebAdminTokenStore;
+  catalogBggWebImportService: BoardGameGeekWebImportService;
+  catalogDescriptionTranslator: CatalogDescriptionTranslator;
+  token: string;
+  itemId: number | null;
+  url: URL;
+}): Promise<void> {
+  options.response.setHeader('Cache-Control', 'no-store');
+  options.response.setHeader('Referrer-Policy', 'no-referrer');
+  const tokenRecord = await options.catalogWebAdminTokenStore.inspect(options.token);
+  if (!tokenRecord) {
+    sendHtml(options.response, 410, catalogWebAdminUnavailablePage('El enlace ha caducado. Genera uno nuevo desde el menú Admin de Telegram.'));
+    return;
+  }
+  const actor = await fetchCatalogWebAdminActor(options.services, tokenRecord.telegramUserId);
+  if (!actor) {
+    sendHtml(options.response, 403, catalogWebAdminUnavailablePage('Este acceso ya no pertenece a un administrador activo.'));
+    return;
+  }
+
+  if (options.itemId === null) {
+    if (options.request.method !== 'GET') {
+      sendHtml(options.response, 405, catalogWebAdminUnavailablePage('Método no permitido.'));
+      return;
+    }
+    const settings = await options.webSettingsStore.load();
+    const search = options.url.searchParams.get('q') ?? '';
+    const pageNumber = parsePositiveInteger(options.url.searchParams.get('page'), 1);
+    const catalog = await fetchPublicCatalogItems(options.services, { search, itemType: '', playerCount: null, availability: '', page: pageNumber });
+    sendHtml(options.response, 200, catalogWebAdminListPage(settings, actor, options.token, catalog, search));
+    return;
+  }
+
+  if (!Number.isSafeInteger(options.itemId) || options.itemId <= 0) {
+    sendHtml(options.response, 404, catalogWebAdminUnavailablePage('No se ha encontrado el artículo.'));
+    return;
+  }
+
+  if (options.request.method === 'POST') {
+    const form = await readForm(options.request);
+    if (form.get('action') === 'translate-description') {
+      try {
+        const description = form.get('description')?.trim() ?? '';
+        if (!description) throw new CatalogWebAdminInputError('No hay ninguna descripción que traducir.');
+        if (description.length > 20_000) throw new CatalogWebAdminInputError('La descripción debe tener como máximo 20.000 caracteres.');
+        const translated = await requestCatalogSpanishDescriptionTranslation(description, options.catalogDescriptionTranslator);
+        await updateCatalogWebAdminDescription(options.services, options.itemId, actor.telegram_user_id, translated);
+        redirect(options.response, `/catalogo/admin/${encodeURIComponent(options.token)}/${options.itemId}?translated=1`);
+      } catch (error) {
+        const data = await fetchCatalogWebAdminEditData(options.services, options.itemId);
+        if (!data.item) {
+          sendHtml(options.response, 404, catalogWebAdminUnavailablePage('No se ha encontrado el artículo.'));
+          return;
+        }
+        const settings = await options.webSettingsStore.load();
+        const message = error instanceof CatalogWebAdminInputError ? error.message : 'No se ha podido traducir la descripción.';
+        sendHtml(options.response, 400, catalogWebAdminEditPage(settings, actor, options.token, { ...data, item: catalogWebAdminItemWithSubmittedValues(data.item, form) }, message));
+      }
+      return;
+    }
+    if (form.get('action') === 'bgg-apply') {
+      try {
+        const bggId = form.get('bggId') ?? '';
+        const inspected = await options.catalogBggWebImportService.inspect(bggId);
+        const requestedVersionId = form.get('versionId') ?? '';
+        const selectedVersion = requestedVersionId ? inspected.versions.find((version) => version.id === requestedVersionId) ?? null : null;
+        if (requestedVersionId && !selectedVersion) throw new CatalogWebAdminInputError('La edición o el idioma seleccionado ya no está disponible en BGG.');
+        const translatedDraft = await translateCatalogWebBggDraftDescription(inspected.draft, options.catalogDescriptionTranslator);
+        await applyCatalogBggDraft(options.services, options.itemId, actor.telegram_user_id, translatedDraft, selectedVersion);
+        redirect(options.response, `/catalogo/admin/${encodeURIComponent(options.token)}/${options.itemId}?saved=1`);
+      } catch (error) {
+        const settings = await options.webSettingsStore.load();
+        const data = await fetchCatalogWebAdminEditData(options.services, options.itemId);
+        if (!data.item) {
+          sendHtml(options.response, 404, catalogWebAdminUnavailablePage('No se ha encontrado el artículo.'));
+          return;
+        }
+        sendHtml(options.response, 400, catalogWebAdminBggPage(settings, actor, options.token, data.item, { query: form.get('query') ?? '', error: safeCatalogBggError(error) }));
+      }
+      return;
+    }
+    try {
+      await updateCatalogWebAdminItem(options.services, options.itemId, actor.telegram_user_id, form);
+      redirect(options.response, `/catalogo/admin/${encodeURIComponent(options.token)}/${options.itemId}?saved=1`);
+    } catch (error) {
+      const data = await fetchCatalogWebAdminEditData(options.services, options.itemId);
+      if (!data.item) {
+        sendHtml(options.response, 404, catalogWebAdminUnavailablePage('No se ha encontrado el artículo.'));
+        return;
+      }
+      const settings = await options.webSettingsStore.load();
+      const message = error instanceof CatalogWebAdminInputError ? error.message : 'No se han podido guardar los cambios.';
+      sendHtml(options.response, 400, catalogWebAdminEditPage(settings, actor, options.token, { ...data, item: catalogWebAdminItemWithSubmittedValues(data.item, form) }, message));
+    }
+    return;
+  }
+
+  if (options.url.searchParams.get('bgg') === '1') {
+    const [settings, data] = await Promise.all([
+      options.webSettingsStore.load(),
+      fetchCatalogWebAdminEditData(options.services, options.itemId),
+    ]);
+    if (!data.item) {
+      sendHtml(options.response, 404, catalogWebAdminUnavailablePage('No se ha encontrado el artículo.'));
+      return;
+    }
+    const query = options.url.searchParams.get('q') ?? data.item.display_name;
+    try {
+      const selectedId = options.url.searchParams.get('bggId');
+      if (selectedId) {
+        const inspected = await options.catalogBggWebImportService.inspect(selectedId);
+        sendHtml(options.response, 200, catalogWebAdminBggPage(settings, actor, options.token, data.item, { query, inspected, selectedId }));
+        return;
+      }
+      const search = await options.catalogBggWebImportService.search(query);
+      if (search.directBoardGameGeekId) {
+        const inspected = await options.catalogBggWebImportService.inspect(search.directBoardGameGeekId);
+        sendHtml(options.response, 200, catalogWebAdminBggPage(settings, actor, options.token, data.item, { query, inspected, selectedId: search.directBoardGameGeekId }));
+        return;
+      }
+      sendHtml(options.response, 200, catalogWebAdminBggPage(settings, actor, options.token, data.item, { query, candidates: search.candidates }));
+    } catch (error) {
+      sendHtml(options.response, 502, catalogWebAdminBggPage(settings, actor, options.token, data.item, { query, error: safeCatalogBggError(error) }));
+    }
+    return;
+  }
+
+  const [settings, data] = await Promise.all([
+    options.webSettingsStore.load(),
+    fetchCatalogWebAdminEditData(options.services, options.itemId),
+  ]);
+  if (!data.item) {
+    sendHtml(options.response, 404, catalogWebAdminUnavailablePage('No se ha encontrado el artículo.'));
+    return;
+  }
+  const message = options.url.searchParams.get('translated') === '1'
+    ? 'Descripción traducida y guardada.'
+    : options.url.searchParams.get('saved') === '1' ? 'Cambios guardados.' : '';
+  sendHtml(options.response, 200, catalogWebAdminEditPage(settings, actor, options.token, { ...data, item: data.item }, message));
+}
+
+async function fetchCatalogWebAdminActor(services: InfrastructureRuntimeServices, telegramUserId: number): Promise<CatalogWebAdminActor | null> {
+  const result = await services.database.pool.query<CatalogWebAdminActor>(
+    `select telegram_user_id, display_name from users where telegram_user_id = $1 and status = 'approved' and is_admin = true limit 1`,
+    [telegramUserId],
+  );
+  const row = result.rows[0];
+  return row ? { telegram_user_id: Number(row.telegram_user_id), display_name: row.display_name } : null;
+}
+
+async function fetchCatalogWebAdminEditData(services: InfrastructureRuntimeServices, itemId: number): Promise<{
+  item: CatalogWebAdminItem | null;
+  owners: CatalogWebAdminOwnerOption[];
+}> {
+  const [itemResult, ownerResult] = await Promise.all([
+    services.database.pool.query<CatalogWebAdminItem>('select * from catalog_items where id = $1 limit 1', [itemId]),
+    services.database.pool.query<CatalogWebAdminOwnerOption>("select telegram_user_id, display_name, username from users where status = 'approved' order by lower(display_name), telegram_user_id"),
+  ]);
+  return { item: itemResult.rows[0] ?? null, owners: ownerResult.rows };
+}
+
+async function updateCatalogWebAdminItem(services: InfrastructureRuntimeServices, itemId: number, actorTelegramUserId: number, form: URLSearchParams): Promise<void> {
+  const displayName = form.get('displayName')?.trim() ?? '';
+  if (!displayName || displayName.length > 255) throw new CatalogWebAdminInputError('El nombre visible es obligatorio y debe tener como máximo 255 caracteres.');
+  const itemType = form.get('itemType') ?? '';
+  if (!['board-game', 'book', 'rpg-book', 'expansion', 'accessory'].includes(itemType)) throw new CatalogWebAdminInputError('El tipo de artículo no es válido.');
+  const ownerTelegramUserId = parseNullableSafeInteger(form.get('ownerTelegramUserId'), 'propietario');
+  if (ownerTelegramUserId !== null) {
+    const owner = await services.database.pool.query("select 1 from users where telegram_user_id = $1 and status = 'approved' limit 1", [ownerTelegramUserId]);
+    if (!owner.rows[0]) throw new CatalogWebAdminInputError('El propietario debe ser un socio aprobado.');
+  }
+  const storagePosition = normalizeOptionalCatalogText(form.get('storagePosition'), 16);
+  if (storagePosition && !/^[A-Z]{1,3}[1-9][0-9]{0,3}$/.test(storagePosition)) throw new CatalogWebAdminInputError('La posición debe tener un formato como A1 o AB12.');
+  const values = [
+    ownerTelegramUserId,
+    itemType,
+    displayName,
+    normalizeOptionalCatalogText(form.get('originalName'), 255),
+    normalizeOptionalCatalogText(form.get('description'), 20_000),
+    normalizeOptionalCatalogText(form.get('language'), 64),
+    normalizeOptionalCatalogText(form.get('publisher'), 255),
+    parseNullableSafeInteger(form.get('publicationYear'), 'año'),
+    parseNullableSafeInteger(form.get('playerCountMin'), 'mínimo de jugadores'),
+    parseNullableSafeInteger(form.get('playerCountMax'), 'máximo de jugadores'),
+    parseNullableSafeInteger(form.get('recommendedAge'), 'edad recomendada'),
+    parseNullableSafeInteger(form.get('playTimeMinutes'), 'duración'),
+    storagePosition,
+    itemId,
+  ];
+  const result = await services.database.pool.query(
+    `update catalog_items set owner_telegram_user_id=$1, item_type=$2, display_name=$3, original_name=$4,
+      description=$5, language=$6, publisher=$7, publication_year=$8, player_count_min=$9, player_count_max=$10,
+      recommended_age=$11, play_time_minutes=$12, storage_position=$13, updated_at=now() where id=$14 returning id`,
+    values,
+  );
+  if (!result.rows[0]) throw new CatalogWebAdminInputError('No se ha encontrado el artículo.');
+  await services.database.pool.query(
+    `insert into audit_log (actor_telegram_user_id, action_key, target_type, target_id, summary, details)
+     values ($1, 'catalog.item.web_updated', 'catalog-item', $2, 'Artículo de catálogo actualizado desde el modo web', $3::jsonb)`,
+    [actorTelegramUserId, String(itemId), JSON.stringify({ ownerTelegramUserId })],
+  );
+}
+
+async function updateCatalogWebAdminDescription(
+  services: InfrastructureRuntimeServices,
+  itemId: number,
+  actorTelegramUserId: number,
+  description: string,
+): Promise<void> {
+  const result = await services.database.pool.query(
+    'update catalog_items set description=$1, updated_at=now() where id=$2 returning id',
+    [description, itemId],
+  );
+  if (!result.rows[0]) throw new CatalogWebAdminInputError('No se ha encontrado el artículo.');
+  await services.database.pool.query(
+    `insert into audit_log (actor_telegram_user_id, action_key, target_type, target_id, summary, details)
+     values ($1, 'catalog.item.web_description_translated', 'catalog-item', $2, 'Descripción traducida desde el modo web', $3::jsonb)`,
+    [actorTelegramUserId, String(itemId), JSON.stringify({ translatedLength: description.length })],
+  );
+}
+
+async function applyCatalogBggDraft(
+  services: InfrastructureRuntimeServices,
+  itemId: number,
+  actorTelegramUserId: number,
+  draft: WikipediaBoardGameCatalogDraft,
+  version: BoardGameGeekVersionCandidate | null,
+): Promise<void> {
+  const metadata = {
+    ...(draft.metadata ?? {}),
+    ...(version ? {
+      boardGameGeekVersionId: version.id,
+      boardGameGeekVersionName: version.name,
+      boardGameGeekVersionLanguages: version.languages,
+      boardGameGeekVersionProductCode: version.productCode,
+      imageUrl: version.imageUrl ?? draft.metadata?.imageUrl ?? null,
+      thumbnailUrl: version.thumbnailUrl ?? draft.metadata?.thumbnailUrl ?? null,
+    } : {}),
+  };
+  const result = await services.database.pool.query(
+    `update catalog_items set item_type=$1, display_name=$2, original_name=$3, description=$4, language=$5, publisher=$6,
+      publication_year=$7, player_count_min=$8, player_count_max=$9, recommended_age=$10, play_time_minutes=$11,
+      external_refs=$12::jsonb, metadata=$13::jsonb, updated_at=now() where id=$14 returning id`,
+    [
+      draft.itemType,
+      version?.name ?? draft.displayName,
+      draft.originalName,
+      draft.description,
+      version?.languages.join(', ') || draft.language,
+      version?.publishers[0] ?? draft.publisher,
+      version?.yearPublished ?? draft.publicationYear,
+      draft.playerCountMin,
+      draft.playerCountMax,
+      draft.recommendedAge,
+      draft.playTimeMinutes,
+      JSON.stringify(draft.externalRefs),
+      JSON.stringify(metadata),
+      itemId,
+    ],
+  );
+  if (!result.rows[0]) throw new CatalogWebAdminInputError('No se ha encontrado el artículo.');
+  await services.database.pool.query(
+    `insert into audit_log (actor_telegram_user_id, action_key, target_type, target_id, summary, details)
+     values ($1, 'catalog.item.web_bgg_imported', 'catalog-item', $2, 'Datos BGG cargados desde el modo web', $3::jsonb)`,
+    [actorTelegramUserId, String(itemId), JSON.stringify({ boardGameGeekId: draft.externalRefs?.boardGameGeekId ?? null, versionId: version?.id ?? null })],
+  );
+}
+
+async function translateCatalogWebBggDraftDescription(
+  draft: WikipediaBoardGameCatalogDraft,
+  translator: CatalogDescriptionTranslator,
+): Promise<WikipediaBoardGameCatalogDraft> {
+  const description = draft.description?.trim();
+  if (!description || description.length < 20 || (draft.itemType !== 'board-game' && draft.itemType !== 'expansion')) {
+    return draft;
+  }
+
+  const translationProfile = resolveCatalogTranslationProfile();
+  try {
+    const translated = await requestCatalogSpanishDescriptionTranslation(description, translator);
+    console.info(JSON.stringify({
+      event: 'catalog.web-bgg-description.translation.completed',
+      ...translationProfile,
+      title: draft.displayName,
+      originalLength: description.length,
+      translatedLength: translated.length,
+    }));
+    return { ...draft, description: translated };
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: 'catalog.web-bgg-description.translation.failed',
+      ...translationProfile,
+      title: draft.displayName,
+      error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+    }));
+    return draft;
+  }
+}
+
+async function requestCatalogSpanishDescriptionTranslation(
+  description: string,
+  translator: CatalogDescriptionTranslator,
+): Promise<string> {
+  const translated = normalizeCatalogTranslation(await translator({
+    description,
+    ...resolveCatalogTranslationProfile(),
+    targetLanguage: 'es',
+  }));
+  if (!translated) throw new Error('El servicio no ha devuelto una traducción válida.');
+  return translated;
+}
+
+function normalizeCatalogTranslation(value: string): string {
+  if (/ProviderModelNotFoundError|Model not found|Error:/i.test(value)) return '';
+  const cleaned = value
+    .replace(/\u001b\[[0-9;]*m/g, '')
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('>') && !/^sqlite-migration:/i.test(line) && !/^database migration/i.test(line))
+    .join('\n')
+    .replace(/^```(?:\w+)?\s*/i, '')
+    .replace(/```$/i, '')
+    .replace(/^traducci[oó]n(?: al castellano| al espa[nñ]ol)?:\s*/i, '')
+    .replace(/^descripci[oó]n traducida:\s*/i, '')
+    .trim();
+  return cleaned.length >= 10 ? cleaned : '';
+}
+
+function optionalCatalogTranslationTimeout(value: string | undefined): { deeplTimeoutMs?: number } {
+  if (!value?.trim()) return {};
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? { deeplTimeoutMs: parsed } : {};
+}
+
+function safeCatalogBggError(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  return [
+    'Falta la clave de la API de BoardGameGeek.',
+    'Escribe un texto o una URL de BoardGameGeek.',
+    'El ID de BoardGameGeek no es válido.',
+    'BoardGameGeek no ha devuelto datos para este juego.',
+    'La edición o el idioma seleccionado ya no está disponible en BGG.',
+  ].includes(message) ? message : 'No se ha podido consultar BoardGameGeek en este momento.';
+}
+
+function parseNullableSafeInteger(value: string | null, label: string): number | null {
+  if (value === null || value.trim() === '') return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new CatalogWebAdminInputError(`El campo ${label} no es válido.`);
+  return parsed;
+}
+
+function normalizeOptionalCatalogText(value: string | null, maxLength: number): string | null {
+  const normalized = value?.trim() ?? '';
+  if (!normalized) return null;
+  if (normalized.length > maxLength) throw new CatalogWebAdminInputError(`Uno de los textos supera el máximo de ${maxLength} caracteres.`);
+  return normalized;
+}
+
+function catalogWebAdminItemWithSubmittedValues(item: CatalogWebAdminItem, form: URLSearchParams): CatalogWebAdminItem {
+  return {
+    ...item,
+    family_id: item.family_id,
+    group_id: item.group_id,
+    owner_telegram_user_id: form.get('ownerTelegramUserId'),
+    item_type: form.get('itemType') ?? item.item_type,
+    display_name: form.get('displayName') ?? item.display_name,
+    original_name: form.get('originalName'),
+    description: form.get('description'),
+    language: form.get('language'),
+    publisher: form.get('publisher'),
+    publication_year: form.get('publicationYear'),
+    player_count_min: form.get('playerCountMin'),
+    player_count_max: form.get('playerCountMax'),
+    recommended_age: form.get('recommendedAge'),
+    play_time_minutes: form.get('playTimeMinutes'),
+    storage_position: form.get('storagePosition'),
+  };
 }
 
 async function handleScheduleWebCreateRequest(options: {
@@ -2316,6 +2792,7 @@ interface PublicCatalogItemRow {
   family_id: number | null;
   group_name: string | null;
   group_id: number | null;
+  owner_telegram_user_id: number | string | null;
   owner_name: string | null;
   publisher: string | null;
   publication_year: number | null;
@@ -3211,6 +3688,7 @@ async function fetchPublicCatalogItems(
         families.display_name as family_name,
         groups.id as group_id,
         groups.display_name as group_name,
+        items.owner_telegram_user_id,
         owners.display_name as owner_name,
         items.publisher,
         items.publication_year,
@@ -3274,6 +3752,7 @@ async function fetchPublicCatalogItemDetail(
         families.display_name as family_name,
         groups.id as group_id,
         groups.display_name as group_name,
+        items.owner_telegram_user_id,
         owners.display_name as owner_name,
         items.publisher,
         items.publication_year,
@@ -4279,11 +4758,7 @@ function renderCatalogCard(item: PublicCatalogItemRow): string {
   const media = mediaUrl
     ? `<img class="catalog-cover" src="${escapeHtml(mediaUrl)}" alt="${escapeHtml(item.media_alt_text ?? item.display_name)}" loading="lazy">`
     : `<div class="catalog-cover catalog-cover-placeholder" aria-hidden="true">${escapeHtml(getCatalogLetter(item.display_name))}</div>`;
-  const subtitle = [
-    renderCatalogType(item.item_type),
-    item.family_name,
-    item.group_name,
-  ].filter((value): value is string => Boolean(value)).join(' · ');
+  const subtitle = renderCatalogType(item.item_type);
   const originalName = item.original_name && item.original_name !== item.display_name
     ? `<p class="catalog-original">${escapeHtml(item.original_name)}</p>`
     : '';
@@ -4319,11 +4794,7 @@ function catalogDetailPage(settings: WebSettings, item: PublicCatalogItemRow): s
   const media = mediaUrl
     ? `<img class="catalog-detail-cover" src="${escapeHtml(mediaUrl)}" alt="${escapeHtml(item.media_alt_text ?? item.display_name)}">`
     : `<div class="catalog-detail-cover catalog-cover-placeholder" aria-hidden="true">${escapeHtml(getCatalogLetter(item.display_name))}</div>`;
-  const subtitle = [
-    renderCatalogType(item.item_type),
-    item.family_name,
-    item.group_name,
-  ].filter((value): value is string => Boolean(value)).join(' · ');
+  const subtitle = renderCatalogType(item.item_type);
   const status = item.active_loan_borrower
     ? `<span class="catalog-status catalog-status-loaned">Prestado a ${escapeHtml(item.active_loan_borrower)}${item.active_loan_due_at ? ` · hasta ${escapeHtml(formatShortDate(item.active_loan_due_at))}` : ''}</span>`
     : '<span class="catalog-status catalog-status-available">Disponible</span>';
@@ -4343,6 +4814,131 @@ function catalogDetailPage(settings: WebSettings, item: PublicCatalogItemRow): s
     headerLogoAsset: settings.home.logoAsset,
     body: `<p class="row"><a href="/catalogo">Volver al catalogo</a>${bggLink}</p><section class="catalog-detail-hero">${media}<div><p class="catalog-detail-kicker">${escapeHtml(subtitle)}</p>${originalName}${status}<dl class="catalog-facts catalog-detail-facts">${renderCatalogFactRows(item)}</dl></div></section>${description}`,
   });
+}
+
+function catalogWebAdminListPage(settings: WebSettings, actor: CatalogWebAdminActor, token: string, catalog: PublicCatalogPage, search: string): string {
+  const root = `/catalogo/admin/${encodeURIComponent(token)}`;
+  const rows = catalog.items.length === 0
+    ? '<p>No hay artículos que coincidan con la búsqueda.</p>'
+    : `<div class="catalog-admin-edit-list">${catalog.items.map((item) => `<article><div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(renderCatalogType(item.item_type))} · ${escapeHtml(item.owner_name ? `Propietario: ${item.owner_name}` : 'Sin propietario')}</small></div><a href="${root}/${encodeURIComponent(String(item.id))}">Editar juego</a></article>`).join('')}</div>`;
+  const pageLinks = [
+    catalog.page > 1 ? `<a href="${root}?q=${encodeURIComponent(search)}&page=${catalog.page - 1}">Anterior</a>` : '',
+    `<span>Página ${catalog.page} de ${catalog.totalPages} · ${catalog.totalItems} artículos</span>`,
+    catalog.page < catalog.totalPages ? `<a href="${root}?q=${encodeURIComponent(search)}&page=${catalog.page + 1}">Siguiente</a>` : '',
+  ].filter(Boolean).join(' ');
+  return renderHttpPage({
+    title: 'Administrar catálogo',
+    themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
+    shell: 'admin',
+    navItems: [{ href: root, label: 'Catálogo' }],
+    body: `<style>.catalog-admin-edit-list{display:grid;gap:8px}.catalog-admin-edit-list article{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:12px;border:1px solid var(--cawa-line);border-radius:8px;background:var(--cawa-surface)}.catalog-admin-edit-list article div{display:grid;gap:3px}.catalog-admin-edit-list small{color:var(--cawa-muted)}.catalog-admin-edit-list a{white-space:nowrap}@media(max-width:600px){.catalog-admin-edit-list article{align-items:flex-start;flex-direction:column}}</style><p>Acceso temporal de <strong>${escapeHtml(actor.display_name)}</strong>. Puedes reutilizar este enlace durante una hora desde su creación.</p><form class="admin-search-bar" method="get"><label>Buscar juego<input name="q" value="${escapeHtml(search)}" placeholder="Título, original o editorial"></label><button type="submit">Buscar</button></form><section>${rows}</section><p class="catalog-pagination">${pageLinks}</p>`,
+  });
+}
+
+function catalogWebAdminEditPage(
+  settings: WebSettings,
+  actor: CatalogWebAdminActor,
+  token: string,
+  data: { item: CatalogWebAdminItem; owners: CatalogWebAdminOwnerOption[] },
+  message = '',
+): string {
+  const item = data.item;
+  const root = `/catalogo/admin/${encodeURIComponent(token)}`;
+  const option = (value: number | string | null, label: string, selected: unknown) => `<option value="${escapeHtml(value ?? '')}"${String(value ?? '') === String(selected ?? '') ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  const ownerOptions = [option('', 'Sin propietario', item.owner_telegram_user_id), ...data.owners.map((entry) => option(entry.telegram_user_id, `${entry.display_name}${entry.username ? ` (@${entry.username})` : ''}`, item.owner_telegram_user_id))].join('');
+  const typeOptions: string = ([['board-game', 'Juego de mesa'], ['book', 'Libro'], ['rpg-book', 'Libro de rol'], ['expansion', 'Expansión'], ['accessory', 'Accesorio']] as Array<[string, string]>)
+    .map(([value, label]) => option(value, label, item.item_type)).join('');
+  const value = (field: keyof CatalogWebAdminItem) => escapeHtml(item[field] ?? '');
+  const successMessages = new Set(['Cambios guardados.', 'Descripción traducida y guardada.']);
+  const notice = message ? `<p class="admin-badge ${successMessages.has(message) ? 'admin-badge-ok' : 'admin-badge-danger'}" role="status">${escapeHtml(message)}</p>` : '';
+  const rawCoverUrl = readStringProperty(item.metadata, 'thumbnailUrl')
+    ?? readStringProperty(item.metadata, 'imageUrl')
+    ?? readStringProperty(item.metadata, 'coverUrl');
+  const boardGameGeekId = readStringProperty(item.external_refs, 'boardGameGeekId')
+    ?? readStringProperty(item.external_refs, 'bggId')
+    ?? readStringProperty(item.metadata, 'boardGameGeekId')
+    ?? readStringProperty(item.metadata, 'bggId');
+  const coverUrl = resolvePublicCatalogMediaUrl(rawCoverUrl)
+    ?? (boardGameGeekId && /^\d+$/.test(boardGameGeekId) ? `/catalogo/bgg-image/${boardGameGeekId}` : null);
+  const cover = coverUrl
+    ? `<figure class="catalog-admin-cover"><img src="${escapeHtml(coverUrl)}" alt="Carátula de ${escapeHtml(item.display_name)}"><figcaption>Carátula actual</figcaption></figure>`
+    : `<figure class="catalog-admin-cover catalog-admin-cover-empty"><span aria-hidden="true">Sin carátula</span><figcaption>Carátula actual</figcaption></figure>`;
+  const loadingOverlay = renderCatalogLoadingOverlay();
+  return renderHttpPage({
+    title: `Editar ${item.display_name}`,
+    themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
+    shell: 'admin',
+    navItems: [{ href: root, label: 'Catálogo' }],
+    body: `<style>.catalog-admin-overview{display:grid;grid-template-columns:150px minmax(0,1fr);gap:18px;align-items:stretch;margin:18px 0}.catalog-admin-cover{display:grid;place-items:center;align-content:center;gap:7px;margin:0;padding:10px;border:1px solid var(--cawa-line);border-radius:9px;background:var(--cawa-surface)}.catalog-admin-cover img{display:block;width:128px;height:172px;object-fit:contain}.catalog-admin-cover figcaption{color:var(--cawa-muted);font-size:12px;font-weight:700}.catalog-admin-cover-empty span{color:var(--cawa-muted);font-weight:750}.catalog-admin-overview .admin-action-card{margin:0;height:100%;box-sizing:border-box}.catalog-description-actions{display:grid;justify-items:start;gap:5px;margin-top:8px}.catalog-description-actions small{color:var(--cawa-muted)}@media(max-width:600px){.catalog-admin-overview{grid-template-columns:110px minmax(0,1fr);gap:10px}.catalog-admin-cover img{width:88px;height:120px}}</style>${notice}<p>Editando como <strong>${escapeHtml(actor.display_name)}</strong>. Estado actual: ${escapeHtml(item.lifecycle_status)}.</p><div class="catalog-admin-overview">${cover}<a class="admin-action-card" href="${root}/${encodeURIComponent(String(item.id))}?bgg=1&q=${encodeURIComponent(item.display_name)}"><strong>Cargar datos de BGG</strong><small>Buscar otra ficha, usar una URL exacta y escoger edición o idioma.</small></a></div><form method="post"><div class="admin-form-grid"><label>Nombre visible<input name="displayName" value="${value('display_name')}" maxlength="255" required></label><label>Nombre original<input name="originalName" value="${value('original_name')}" maxlength="255"></label><label>Tipo<select name="itemType" required>${typeOptions}</select></label><label>Propietario<select name="ownerTelegramUserId">${ownerOptions}</select></label><label>Idioma<input name="language" value="${value('language')}" maxlength="64"></label><label>Editorial<input name="publisher" value="${value('publisher')}" maxlength="255"></label><label>Año<input name="publicationYear" type="number" min="0" value="${value('publication_year')}"></label><label>Jugadores mínimos<input name="playerCountMin" type="number" min="0" value="${value('player_count_min')}"></label><label>Jugadores máximos<input name="playerCountMax" type="number" min="0" value="${value('player_count_max')}"></label><label>Edad recomendada<input name="recommendedAge" type="number" min="0" value="${value('recommended_age')}"></label><label>Duración (minutos)<input name="playTimeMinutes" type="number" min="0" value="${value('play_time_minutes')}"></label><label>Posición física<input name="storagePosition" value="${value('storage_position')}" maxlength="16" placeholder="A1"></label></div><label>Descripción<textarea name="description" maxlength="20000">${value('description')}</textarea></label><p class="catalog-description-actions"><button type="submit" name="action" value="translate-description" data-catalog-loading-title="Traduciendo la descripción" data-catalog-loading-detail="Estamos preparando la versión en castellano y guardándola automáticamente en el catálogo.">Traducir y guardar descripción</button><small>La descripción traducida se guarda automáticamente; no tendrás que pulsar «Guardar cambios».</small></p><p class="row"><button type="submit" name="action" value="save">Guardar cambios</button><a href="${root}">Volver al catálogo</a><a href="/catalogo/${encodeURIComponent(String(item.id))}">Ver ficha pública</a></p></form>${loadingOverlay}`,
+  });
+}
+
+function catalogWebAdminBggPage(
+  settings: WebSettings,
+  actor: CatalogWebAdminActor,
+  token: string,
+  item: CatalogWebAdminItem,
+  state: {
+    query: string;
+    candidates?: BoardGameGeekCandidate[];
+    inspected?: { draft: WikipediaBoardGameCatalogDraft; versions: BoardGameGeekVersionCandidate[] };
+    selectedId?: string;
+    error?: string;
+  },
+): string {
+  const itemUrl = `/catalogo/admin/${encodeURIComponent(token)}/${encodeURIComponent(String(item.id))}`;
+  const searchForm = `<form class="admin-search-bar bgg-search-bar" method="get"><input type="hidden" name="bgg" value="1"><label>Buscar en BoardGameGeek<input name="q" value="${escapeHtml(state.query)}" placeholder="Nombre o URL exacta de BGG" required></label><button type="submit">Buscar</button></form><p class="muted bgg-search-help">Puedes cambiar el texto tantas veces como necesites o pegar una URL como https://boardgamegeek.com/boardgame/12345/...</p>`;
+  const error = state.error ? `<p class="admin-badge admin-badge-danger" role="alert">${escapeHtml(state.error)}</p>` : '';
+  const results = state.candidates
+    ? state.candidates.length === 0
+      ? '<p>No se han encontrado resultados.</p>'
+      : `<section><h2>Resultados completos (${state.candidates.length})</h2><div class="catalog-admin-edit-list bgg-result-list">${state.candidates.map((candidate) => {
+        const coverUrl = candidate.thumbnailUrl ?? candidate.imageUrl;
+        const cover = coverUrl
+          ? `<img class="bgg-result-cover" src="${escapeHtml(coverUrl)}" alt="Carátula de ${escapeHtml(candidate.primaryName)}" loading="lazy" referrerpolicy="no-referrer">`
+          : '<span class="bgg-result-cover bgg-result-cover-empty" aria-hidden="true">BGG</span>';
+        return `<article class="bgg-result-card">${cover}<div class="bgg-result-copy"><strong>${escapeHtml(candidate.primaryName)}</strong><small>${candidate.yearPublished ?? 'Año desconocido'} · BGG #${escapeHtml(candidate.id)}${candidate.names.length > 1 ? ` · ${escapeHtml(candidate.names.join(' / '))}` : ''}</small></div><a href="${itemUrl}?bgg=1&q=${encodeURIComponent(state.query)}&bggId=${encodeURIComponent(candidate.id)}">Seleccionar</a></article>`;
+      }).join('')}</div></section>`
+    : '';
+  let selection = '';
+  if (state.inspected && state.selectedId) {
+    const draft = state.inspected.draft;
+    const rawBaseCoverUrl = draft.metadata?.thumbnailUrl ?? draft.metadata?.imageUrl;
+    const baseCoverUrl = typeof rawBaseCoverUrl === 'string' && rawBaseCoverUrl.trim() ? rawBaseCoverUrl : null;
+    const renderVersionCover = (url: string | null, name: string) => url
+      ? `<img class="bgg-version-cover" src="${escapeHtml(url)}" alt="Carátula de ${escapeHtml(name)}" loading="lazy" referrerpolicy="no-referrer">`
+      : '<span class="bgg-version-cover bgg-result-cover-empty" aria-hidden="true">Sin carátula</span>';
+    const renderVersionFact = (label: string, value: string | number | null) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value ?? 'No indicado')}</dd></div>`;
+    const versionOptions = [
+      `<label class="schedule-checkbox bgg-version-card"><input type="radio" name="versionId" value="" checked>${renderVersionCover(baseCoverUrl, draft.displayName)}<span class="bgg-version-copy"><strong>${escapeHtml(draft.displayName)}</strong><b>Ficha general de BGG</b><small>No representa una caja o impresión concreta. Úsala si sólo quieres los datos generales del juego.</small><dl class="bgg-version-facts">${renderVersionFact('Año original', draft.publicationYear)}</dl></span></label>`,
+      ...state.inspected.versions.map((version) => {
+        const coverUrl = version.thumbnailUrl ?? version.imageUrl;
+        return `<label class="schedule-checkbox bgg-version-card"><input type="radio" name="versionId" value="${escapeHtml(version.id)}">${renderVersionCover(coverUrl, version.name)}<span class="bgg-version-copy"><strong>${escapeHtml(version.name)}</strong><dl class="bgg-version-facts">${renderVersionFact('Idioma', version.languages.join(', ') || null)}${renderVersionFact('Editorial', version.publishers.join(', ') || null)}${renderVersionFact('Año', version.yearPublished)}${renderVersionFact('Código de producto', version.productCode)}</dl><small>Referencia técnica BGG #${escapeHtml(version.id)}</small></span></label>`;
+      }),
+    ].join('');
+    selection = `<section><h2>Elegir edición física</h2><p>Compara la carátula, el idioma, la editorial, el año y el código de producto. La primera opción es la ficha general del juego; las demás corresponden a cajas o impresiones concretas registradas en BGG.</p><p class="muted">Al cargar los datos, la descripción de BGG se traducirá automáticamente al castellano.</p><form method="post"><input type="hidden" name="action" value="bgg-apply"><input type="hidden" name="bggId" value="${escapeHtml(state.selectedId)}"><input type="hidden" name="query" value="${escapeHtml(state.query)}"><div class="schedule-equipment-list">${versionOptions}</div><p class="row"><button type="submit" data-catalog-loading-title="Cargando datos de BGG" data-catalog-loading-detail="Estamos consultando BGG, traduciendo la descripción y guardando los cambios.">Cargar estos datos</button><a href="https://boardgamegeek.com/boardgame/${escapeHtml(state.selectedId)}" target="_blank" rel="noopener noreferrer">Abrir ficha exacta</a></p></form></section>`;
+  }
+  return renderHttpPage({
+    title: `Cargar BGG para ${item.display_name}`,
+    themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
+    shell: 'admin',
+    navItems: [{ href: itemUrl, label: 'Volver al juego' }],
+    body: `<style>.bgg-search-bar label{margin:0}.bgg-search-bar input{margin:6px 0 0}.bgg-search-bar button{margin:0}.bgg-search-help{overflow-wrap:anywhere}.catalog-admin-edit-list{display:grid;gap:8px}.catalog-admin-edit-list article{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:12px;border:1px solid var(--cawa-line);border-radius:8px;background:var(--cawa-surface)}.bgg-result-list .bgg-result-card{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:14px;align-items:center}.bgg-result-cover,.bgg-version-cover{display:block;width:72px;height:96px;object-fit:contain;border:1px solid var(--cawa-line);border-radius:8px;background:var(--cawa-surface-alt)}.bgg-result-cover-empty{place-content:center;text-align:center;font-family:var(--font-heading);font-size:12px;font-weight:850;color:var(--cawa-muted)}.bgg-result-copy{display:grid;gap:4px;min-width:0}.bgg-result-copy small{overflow-wrap:anywhere}.schedule-equipment-list{display:grid;gap:8px}.schedule-checkbox{display:flex;gap:8px;padding:10px;border:1px solid var(--cawa-line);border-radius:8px}.schedule-checkbox input{width:auto}.bgg-version-card{display:grid;grid-template-columns:auto 72px minmax(0,1fr);align-items:start;gap:12px;padding:12px;cursor:pointer}.bgg-version-card>input{margin-top:42px}.bgg-version-copy{display:grid;gap:6px;min-width:0}.bgg-version-copy>b{width:max-content;padding:2px 7px;border-radius:999px;background:var(--cawa-accent-soft);color:var(--cawa-primary);font-size:12px}.bgg-version-copy>small{color:var(--cawa-muted)}.bgg-version-facts{display:grid;grid-template-columns:repeat(4,minmax(100px,1fr));gap:8px;margin:2px 0}.bgg-version-facts div{display:grid;gap:2px}.bgg-version-facts dt{color:var(--cawa-muted);font-size:12px;font-weight:700}.bgg-version-facts dd{margin:0;overflow-wrap:anywhere;font-size:14px;font-weight:650}@media(max-width:600px){.bgg-search-bar button{width:100%}.bgg-result-list .bgg-result-card{grid-template-columns:64px minmax(0,1fr)}.bgg-result-cover{width:64px;height:86px}.bgg-result-card>a{grid-column:2;justify-self:start}.bgg-version-card{grid-template-columns:auto 64px minmax(0,1fr);gap:9px}.bgg-version-card>input{margin-top:36px}.bgg-version-cover{width:64px;height:86px}.bgg-version-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}</style><p>Acceso de <strong>${escapeHtml(actor.display_name)}</strong>.</p>${error}${searchForm}${results}${selection}${selection ? renderCatalogLoadingOverlay() : ''}`,
+  });
+}
+
+function renderCatalogLoadingOverlay(): string {
+  return `<style>.catalog-loading-overlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;background:rgba(247,242,226,.88);backdrop-filter:blur(4px)}.catalog-loading-overlay[hidden]{display:none}.catalog-loading-card{display:grid;justify-items:center;gap:12px;width:min(420px,100%);padding:30px 26px;border:1px solid var(--cawa-line);border-radius:14px;background:var(--cawa-surface);box-shadow:0 18px 55px rgba(32,48,28,.2);text-align:center}.catalog-loading-spinner{display:block;box-sizing:border-box;flex:none;width:46px;height:46px;border:5px solid var(--cawa-brand-soft,rgba(24,75,31,.16));border-top-color:var(--cawa-brand,#184b1f);border-radius:50%;animation:catalog-loading-spin .85s linear infinite}.catalog-loading-card strong{font-family:var(--font-heading);font-size:21px}.catalog-loading-card p{margin:0;color:var(--cawa-muted)}@keyframes catalog-loading-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.catalog-loading-spinner{animation-duration:1.8s}}</style><div class="catalog-loading-overlay" data-catalog-loading-overlay role="status" aria-live="polite" aria-atomic="true" hidden><div class="catalog-loading-card"><span class="catalog-loading-spinner" aria-hidden="true"></span><strong data-catalog-loading-heading>Procesando</strong><p data-catalog-loading-copy>Esta operación puede tardar unos segundos. No cierres esta página.</p></div></div><script>(()=>{const overlay=document.querySelector('[data-catalog-loading-overlay]');if(!overlay)return;const heading=overlay.querySelector('[data-catalog-loading-heading]');const copy=overlay.querySelector('[data-catalog-loading-copy]');const reset=()=>{overlay.hidden=true;document.body.removeAttribute('aria-busy')};document.querySelectorAll('[data-catalog-loading-title]').forEach((button)=>{const form=button.form;if(!form)return;form.addEventListener('submit',(event)=>{if(event.submitter!==button||!form.checkValidity())return;if(heading)heading.textContent=button.getAttribute('data-catalog-loading-title')||'Procesando';if(copy)copy.textContent=button.getAttribute('data-catalog-loading-detail')||'Esta operación puede tardar unos segundos. No cierres esta página.';overlay.hidden=false;document.body.setAttribute('aria-busy','true')})});window.addEventListener('pageshow',reset)})();</script>`;
+}
+
+function catalogWebAdminUnavailablePage(message: string): string {
+  return page({ title: 'Acceso de catálogo no disponible', body: `<p>${escapeHtml(message)}</p>` });
 }
 
 function resolvePublicCatalogMediaUrl(value: string | null): string | null {
@@ -4875,7 +5471,6 @@ function adminCatalogPage(overview: AdminCatalogOverview): string {
   ].map(([label, value, detail]) => renderAdminMetric(String(label), String(value), String(detail))).join('');
   const actions = renderAdminActionGrid([
     ['Editar catalogo', 'Modificar juegos, libros, datos BGG/media y estado.', '/admin/resources/catalog_items'],
-    ['Familias y grupos', 'Mantener taxonomia interna del catalogo.', '/admin/resources/catalog_groups'],
     ['Prestamos', 'Revisar prestamos activos y fechas de retorno.', '/admin/resources/catalog_loans'],
     ['Vista publica', 'Comprobar busqueda, fichas y enlaces externos.', '/catalogo'],
   ]);
@@ -4884,7 +5479,7 @@ function adminCatalogPage(overview: AdminCatalogOverview): string {
     : `<table><thead><tr><th>Tipo</th><th>Articulos activos</th></tr></thead><tbody>${overview.typeCounts.map((item) => `<tr><td>${escapeHtml(renderCatalogType(item.item_type))}</td><td>${Number(item.count)}</td></tr>`).join('')}</tbody></table>`;
   const sampleRows = overview.sampleItems.length === 0
     ? '<p>No hay articulos activos.</p>'
-    : `<table><thead><tr><th>Articulo</th><th>Tipo</th><th>Familia</th><th>Prestamo</th><th>Datos</th><th>Acciones</th></tr></thead><tbody>${overview.sampleItems.map((item) => `<tr><td><strong>${escapeHtml(item.display_name)}</strong>${item.original_name ? `<br><small>${escapeHtml(item.original_name)}</small>` : ''}</td><td>${escapeHtml(renderCatalogType(item.item_type))}</td><td>${escapeHtml(item.family_name ?? item.group_name ?? '-')}</td><td>${item.active_loan_borrower ? renderStatusBadge(`Prestado a ${item.active_loan_borrower}`) : renderStatusBadge('Disponible')}</td><td>${renderCatalogItemFacts(item) || '-'}</td><td><a href="/admin/resources/catalog_items/${encodeURIComponent(String(item.id))}/edit">Editar</a> <a href="/catalogo/${encodeURIComponent(String(item.id))}">Ver</a></td></tr>`).join('')}</tbody></table>`;
+    : `<table><thead><tr><th>Articulo</th><th>Tipo</th><th>Prestamo</th><th>Datos</th><th>Acciones</th></tr></thead><tbody>${overview.sampleItems.map((item) => `<tr><td><strong>${escapeHtml(item.display_name)}</strong>${item.original_name ? `<br><small>${escapeHtml(item.original_name)}</small>` : ''}</td><td>${escapeHtml(renderCatalogType(item.item_type))}</td><td>${item.active_loan_borrower ? renderStatusBadge(`Prestado a ${item.active_loan_borrower}`) : renderStatusBadge('Disponible')}</td><td>${renderCatalogItemFacts(item) || '-'}</td><td><a href="/admin/resources/catalog_items/${encodeURIComponent(String(item.id))}/edit">Editar</a> <a href="/catalogo/${encodeURIComponent(String(item.id))}">Ver</a></td></tr>`).join('')}</tbody></table>`;
 
   return page({
     title: 'Catalogo admin',
@@ -5144,7 +5739,7 @@ function adminConfigPage(
   return page({
     title: 'Configuración general',
     shell: 'admin',
-    body: `${errorHtml}<section><h2>Creación web de actividades</h2><p>Cuando está activa, el flujo completo de Agenda ofrece un enlace personal de un solo uso. El formulario no aparece en la navegación pública.</p><form method="post" action="/admin/config/activity-form">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Estado<select name="enabled"><option value="false"${scheduleWebCreateSettings.enabled ? '' : ' selected'}>Desactivada</option><option value="true"${scheduleWebCreateSettings.enabled ? ' selected' : ''}>Activada</option></select></label><label>URL pública del bot<input name="publicBaseUrl" type="url" value="${escapeHtml(scheduleWebCreateSettings.publicBaseUrl)}" placeholder="https://cawa.hopto.org" required></label></div><p class="muted">Cada enlace caduca en 30 minutos, queda vinculado al usuario de Telegram y se consume al crear una actividad.</p><button type="submit">Guardar configuración</button></form></section><section><h2>Runtime config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Token de Telegram</h2><p>Cambiar este token reinicia la conexión real del bot con Telegram. Revisa el valor antes de confirmar.</p><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section>`,
+    body: `${errorHtml}<section><h2>Accesos web desde Telegram</h2><p>Esta URL pública se usa tanto para la creación web de actividades como para el modo temporal de administración del catálogo.</p><form method="post" action="/admin/config/activity-form">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Creación web de actividades<select name="enabled"><option value="false"${scheduleWebCreateSettings.enabled ? '' : ' selected'}>Desactivada</option><option value="true"${scheduleWebCreateSettings.enabled ? ' selected' : ''}>Activada</option></select></label><label>URL pública del bot<input name="publicBaseUrl" type="url" value="${escapeHtml(scheduleWebCreateSettings.publicBaseUrl)}" placeholder="https://cawa.hopto.org" required></label></div><p class="muted">Actividad: 30 minutos y un solo uso. Catálogo admin: 1 hora y reutilizable durante su vigencia.</p><button type="submit">Guardar configuración</button></form></section><section><h2>Runtime config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Token de Telegram</h2><p>Cambiar este token reinicia la conexión real del bot con Telegram. Revisa el valor antes de confirmar.</p><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section>`,
   });
 }
 

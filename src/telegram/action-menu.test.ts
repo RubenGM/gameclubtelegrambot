@@ -144,6 +144,7 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
   assert.deepEqual(menu, {
     menuId: 'private-admin-tools',
     replyKeyboard: [
+      [{ text: 'Catàleg web', semanticRole: 'primary' }],
       [{ text: 'Revisar sol·licituds', semanticRole: 'secondary' }, { text: 'Administrar usuaris', semanticRole: 'secondary' }],
       [{ text: 'Taules', semanticRole: 'primary' }, { text: 'Equipament', semanticRole: 'primary' }],
       [{ text: 'Benvingudes', semanticRole: 'secondary' }, { text: 'Actualitzar BGG', semanticRole: 'secondary' }],
@@ -152,8 +153,9 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
       [{ text: 'Calendar Google', semanticRole: 'secondary' }, { text: 'Menú soci', semanticRole: 'secondary' }],
       [{ text: 'Inici', semanticRole: 'navigation' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['review_access', 'manage_users'], ['tables', 'equipment'], ['welcome_templates', 'update_bgg'], ['llm_models', 'role_game_auto_scheduling'], ['printer_admin', 'image_generation_admin'], ['google_calendar', 'member_debug'], ['start', 'help']],
+    actionRows: [['catalog_web_admin'], ['review_access', 'manage_users'], ['tables', 'equipment'], ['welcome_templates', 'update_bgg'], ['llm_models', 'role_game_auto_scheduling'], ['printer_admin', 'image_generation_admin'], ['google_calendar', 'member_debug'], ['start', 'help']],
     actions: [
+      { id: 'catalog_web_admin', label: 'Catàleg web', telemetryActionKey: 'menu.catalog_web_admin', uxSection: 'admin' },
       { id: 'review_access', label: 'Revisar sol·licituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
       { id: 'manage_users', label: 'Administrar usuaris', telemetryActionKey: 'menu.manage_users', uxSection: 'admin' },
       { id: 'tables', label: 'Taules', telemetryActionKey: 'menu.tables_admin', uxSection: 'admin' },
@@ -178,6 +180,13 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
     actionId: 'welcome_templates',
     label: 'Benvingudes',
     telemetryActionKey: 'menu.welcome_templates',
+    uxSection: 'admin',
+  });
+  assert.deepEqual(resolveTelegramAdminMenuSelection({ context, text: 'Catálogo web' }), {
+    menuId: 'private-admin-tools',
+    actionId: 'catalog_web_admin',
+    label: 'Catàleg web',
+    telemetryActionKey: 'menu.catalog_web_admin',
     uxSection: 'admin',
   });
   assert.deepEqual(resolveTelegramAdminMenuSelection({ context, text: 'Equipamiento' }), {

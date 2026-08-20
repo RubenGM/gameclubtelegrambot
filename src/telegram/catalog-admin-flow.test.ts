@@ -598,7 +598,7 @@ function createContext({
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
   coverTitleResolver?: (input: { imagePath: string; question: string; model: string }) => Promise<string>;
-  descriptionTranslator?: (input: { description: string; model: string; targetLanguage: 'es' }) => Promise<string>;
+  descriptionTranslator?: (input: { description: string; model: string; reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; targetLanguage: 'es' }) => Promise<string>;
   externalImageDownloader?: CatalogMediaExternalImageDownloader;
   sendPrivateMessage?: (telegramUserId: number, message: string, options?: TelegramReplyOptions) => Promise<void>;
   storageRepository?: StorageCategoryRepository;
@@ -2441,7 +2441,7 @@ test('handleTelegramCatalogAdminText creates a regular book through lookup first
   context.messageText = "Fer servir el títol de l'API";
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'select-field');
-  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes('Família'), true);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes('Família'), false);
 
   context.messageText = 'Família';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
@@ -2558,7 +2558,7 @@ test('handleTelegramCatalogAdminText offers Open Library matches for rpg books a
   context.messageText = 'Quedar-me amb el meu títol';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'select-field');
-  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes('Família'), true);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard?.flat().includes('Família'), false);
 
   context.messageText = 'Família';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
@@ -3218,10 +3218,8 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}7`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Categoria:<\/b> Arkham Horror/);
-  assert.match(replies.at(-1)?.message ?? '', /Arkham Horror Core Set/);
-  assert.equal(replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.text === 'Arkham Horror Core Set')?.callbackData, `${catalogAdminCallbackPrefixes.inspect}3`);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Azul'));
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Categoria|Arkham Horror/);
+  assert.match(replies.at(-1)?.message ?? '', /A D - 3 artículos/);
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}4`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -3761,7 +3759,7 @@ test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and 
       };
     },
     descriptionTranslator: async (input) => {
-      translationCalls.push(`${input.model}:${input.description}`);
+      translationCalls.push(`${input.model}/${input.reasoningEffort}:${input.description}`);
       return 'Descripción traducida al castellano.';
     },
   });
@@ -3770,7 +3768,7 @@ test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and 
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
 
   assert.deepEqual(importCalls, ['Maracaibo [API #276025]']);
-  assert.deepEqual(translationCalls, ['gpt-5.4:Updated BGG description']);
+  assert.deepEqual(translationCalls, ['gpt-5.6-luna/medium:Updated BGG description']);
   const updated = await repository.findItemById(236);
   assert.equal(updated?.description, 'Descripción traducida al castellano.');
   assert.equal(updated?.publisher, "Game's Up");
@@ -4285,7 +4283,7 @@ test('handleTelegramCatalogAdminCallback translates only the current item descri
     auditRepository,
     language: 'es',
     descriptionTranslator: async (input) => {
-      translationCalls.push(`${input.model}:${input.description}`);
+      translationCalls.push(`${input.model}/${input.reasoningEffort}:${input.description}`);
       return 'Esta es una descripción larga en castellano sobre el juego.';
     },
   });
@@ -4293,7 +4291,7 @@ test('handleTelegramCatalogAdminCallback translates only the current item descri
   context.callbackData = `${catalogAdminCallbackPrefixes.translateDescription}262`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
 
-  assert.deepEqual(translationCalls, ['gpt-5.4:This is a long English description about the game.']);
+  assert.deepEqual(translationCalls, ['gpt-5.6-luna/medium:This is a long English description about the game.']);
   const updated = await repository.findItemById(262);
   assert.equal(updated?.description, 'Esta es una descripción larga en castellano sobre el juego.');
   assert.equal(updated?.publisher, 'GMT Games');
@@ -5033,10 +5031,8 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}1`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Categoria:<\/b> Mundodisco/);
-  assert.match(replies.at(-1)?.message ?? '', /Prestat a Anna/);
-  assert.match(replies.at(-1)?.message ?? '', /des de 04\/04\/2026/);
-  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Prendre prestat' || button.text === 'Retornar'));
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Categoria|Mundodisco/);
+  assert.match(replies.at(-1)?.message ?? '', /E M - 2 artículos/);
 });
 
 test('handleTelegramCatalogAdminText can search catalog items by name', async () => {

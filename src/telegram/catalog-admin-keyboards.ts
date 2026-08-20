@@ -1,4 +1,5 @@
 import type { CatalogItemType } from '../catalog/catalog-model.js';
+import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import { createTelegramI18n } from './i18n.js';
 import type { TelegramReplyButton, TelegramReplyKeyboardButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { buildSubmenuReplyKeyboard } from './submenu-keyboards.js';
@@ -122,7 +123,7 @@ export function buildEditFieldMenuOptions({
   const texts = createTelegramI18n(language).catalogAdmin;
   const replyKeyboard: TelegramReplyKeyboardButton[][] = [
     [texts.editFieldDisplayName, texts.editFieldItemType],
-    [texts.editFieldFamily, texts.editFieldGroup],
+    ...(catalogFamilyGroupUiEnabled ? [[texts.editFieldFamily, texts.editFieldGroup]] : []),
     [texts.editFieldOriginalName, texts.editFieldDescription],
     [texts.editFieldLanguage, texts.editFieldPublisher],
     [texts.editFieldPublicationYear, texts.editFieldRecommendedAge],
@@ -149,7 +150,7 @@ export function buildCreateFieldMenuOptions({
   const texts = createTelegramI18n(language).catalogAdmin;
   const replyKeyboard: TelegramReplyKeyboardButton[][] = [
     [texts.editFieldDisplayName, texts.editFieldItemType],
-    [texts.editFieldFamily, texts.editFieldGroup],
+    ...(catalogFamilyGroupUiEnabled ? [[texts.editFieldFamily, texts.editFieldGroup]] : []),
     [texts.editFieldOriginalName, texts.editFieldDescription],
     [texts.editFieldLanguage, texts.editFieldPublisher],
     [texts.editFieldPublicationYear, texts.editFieldRecommendedAge],

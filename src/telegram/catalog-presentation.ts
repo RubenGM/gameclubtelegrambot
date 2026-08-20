@@ -5,6 +5,7 @@ import type {
   CatalogMediaRecord,
   CatalogItemType,
 } from '../catalog/catalog-model.js';
+import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
 
 export function renderCatalogItemType(itemType: CatalogItemType, language: BotLanguage = 'ca'): string {
@@ -180,8 +181,8 @@ export function formatMemberCatalogItemDetails({
     `<b>${escapeHtml(item.displayName)}</b>`,
     '',
     formatHtmlField(texts.catalogAdmin.type, renderCatalogItemType(item.itemType, language)),
-    ...(family ? [formatHtmlField(texts.catalogAdmin.family, escapeHtml(family.displayName))] : []),
-    ...(group ? [formatHtmlField(texts.catalogAdmin.group, escapeHtml(group.displayName))] : []),
+    ...(catalogFamilyGroupUiEnabled && family ? [formatHtmlField(texts.catalogAdmin.family, escapeHtml(family.displayName))] : []),
+    ...(catalogFamilyGroupUiEnabled && group ? [formatHtmlField(texts.catalogAdmin.group, escapeHtml(group.displayName))] : []),
     ...(item.storagePosition ? [formatHtmlField(texts.catalogAdmin.storagePosition, escapeHtml(item.storagePosition))] : []),
     ...(ownerLine ? [ownerLine] : []),
     ...availabilityLines,

@@ -12,7 +12,9 @@ import type { MemberSignupInput, MemberSignupRecord, MemberSignupStore } from '.
 import { defaultWebSettings, normalizeWebSettings, type WebSettings, type WebSettingsStore } from './web-settings-store.js';
 import { createAppMetadataScheduleWebCreateSettingsStore } from '../schedule/schedule-web-create-settings.js';
 import { createScheduleWebCreateTokenStore } from '../schedule/schedule-web-create-token.js';
+import { createCatalogWebAdminTokenStore } from '../catalog/catalog-web-admin-token.js';
 import type { ScheduleWebCreateInput, ScheduleWebCreator } from '../schedule/schedule-web-creator.js';
+import type { BoardGameGeekWebImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import type { AppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
 
 test('admin http server exposes public feedback and protects admin pages', async () => {
@@ -52,6 +54,30 @@ test('admin http server exposes public feedback and protects admin pages', async
     pool: {
       query: async (sql: string, params: unknown[] = []) => {
         queries.push({ sql, params });
+        if (sql.includes("status = 'approved' and is_admin = true") && sql.includes('telegram_user_id = $1')) {
+          return { rows: Number(params[0]) === 77 ? [{ telegram_user_id: 77, display_name: 'Marta Admin' }] : [] };
+        }
+        if (sql.includes("select telegram_user_id, display_name, username from users where status = 'approved'")) {
+          return { rows: [{ telegram_user_id: 20, display_name: 'Ana Owner', username: 'ana_owner' }, { telegram_user_id: 77, display_name: 'Marta Admin', username: 'marta' }] };
+        }
+        if (sql.includes("select 1 from users where telegram_user_id = $1 and status = 'approved'")) {
+          return { rows: Number(params[0]) === 20 ? [{ '?column?': 1 }] : [] };
+        }
+        if (sql.includes('select * from catalog_items where id = $1')) {
+          return { rows: [{ id: 11, family_id: 5, group_id: 9, owner_telegram_user_id: null, item_type: 'board-game', display_name: 'Dune Imperium', original_name: 'Dune: Imperium', description: 'Juego de construcción de mazos', language: 'ES', publisher: 'Dire Wolf', publication_year: 2020, player_count_min: 1, player_count_max: 4, recommended_age: 14, play_time_minutes: 120, storage_position: 'B3', lifecycle_status: 'active', external_refs: { boardGameGeekId: '316554' }, metadata: null }] };
+        }
+        if (sql.includes('select id, display_name from catalog_groups')) {
+          return { rows: [{ id: 9, display_name: 'Estrategia' }] };
+        }
+        if (sql.includes('update catalog_items set owner_telegram_user_id=')) {
+          return { rows: [{ id: 11 }] };
+        }
+        if (sql.includes('update catalog_items set item_type=')) {
+          return { rows: [{ id: 11 }] };
+        }
+        if (sql.includes('update catalog_items set description=')) {
+          return { rows: [{ id: 11 }] };
+        }
         if (sql.includes('where telegram_user_id = $1') && sql.includes('is_approved = true')) {
           return {
             rows: Number(params[0]) === 77
@@ -381,6 +407,31 @@ test('admin http server exposes public feedback and protects admin pages', async
   const scheduleWebCreateTokenStore = createScheduleWebCreateTokenStore({
     storage: scheduleWebStorage,
   });
+  const catalogWebAdminTokenStore = createCatalogWebAdminTokenStore({
+    storage: scheduleWebStorage,
+    generateToken: () => 'c'.repeat(43),
+  });
+  const catalogWebAdminToken = (await catalogWebAdminTokenStore.issue({ telegramUserId: 77 })).token;
+  const catalogBggWebImportService: BoardGameGeekWebImportService = {
+    async search(query) {
+      if (query.includes('boardgamegeek.com')) return { candidates: [], directBoardGameGeekId: '12' };
+      return { candidates: Array.from({ length: 12 }, (_, index) => ({ id: String(index + 1), names: [`Juego ${index + 1}`], primaryName: `Juego ${index + 1}`, yearPublished: 2000 + index, imageUrl: `https://example.test/${index + 1}.jpg`, thumbnailUrl: `https://example.test/${index + 1}-thumb.jpg` })), directBoardGameGeekId: null };
+    },
+    async inspect(boardGameGeekId) {
+      return {
+        draft: { familyId: null, groupId: null, itemType: 'board-game', displayName: 'Game Twelve', originalName: 'Game Twelve', description: 'Long BGG description ready to translate.', language: null, publisher: 'BGG Publisher', publicationYear: 2011, playerCountMin: 2, playerCountMax: 4, recommendedAge: 10, playTimeMinutes: 90, externalRefs: { boardGameGeekId, boardGameGeekUrl: `https://boardgamegeek.com/boardgame/${boardGameGeekId}` }, metadata: { source: 'boardgamegeek', thumbnailUrl: 'https://example.test/general.jpg' } },
+        versions: [{ id: '120', name: 'Juego Doce', languages: ['Spanish'], publishers: ['Editorial ES'], yearPublished: 2012, productCode: 'ED-ES-12', imageUrl: 'https://example.test/es.jpg', thumbnailUrl: null }],
+      };
+    },
+  };
+  const translatedDescriptions: string[] = [];
+  const catalogDescriptionTranslator = async (input: { description: string; model: string; reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; targetLanguage: 'es' }) => {
+    translatedDescriptions.push(input.description);
+    assert.equal(input.model, 'gpt-5.6-luna');
+    assert.equal(input.reasoningEffort, 'medium');
+    assert.equal(input.targetLanguage, 'es');
+    return 'Descripción de BGG traducida automáticamente.';
+  };
   const scheduleWebCreated: ScheduleWebCreateInput[] = [];
   const scheduleWebCreator: ScheduleWebCreator = {
     async create(input) {
@@ -423,6 +474,9 @@ test('admin http server exposes public feedback and protects admin pages', async
     scheduleWebCreateSettingsStore,
     scheduleWebCreateTokenStore,
     scheduleWebCreator,
+    catalogWebAdminTokenStore,
+    catalogBggWebImportService,
+    catalogDescriptionTranslator,
     telegramSender: {
       async sendPrivateMessage(telegramUserId, message) {
         if (telegramUserId === 1002) {
@@ -494,6 +548,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(catalogHtml, /name="players"/);
     assert.match(catalogHtml, /name="availability"/);
     assert.doesNotMatch(catalogHtml, /name="family"/);
+    assert.doesNotMatch(catalogHtml, /Juego de mesa · Juegos de mesa · Estrategia/);
     assert.match(catalogHtml, /src="\/catalogo\/bgg-image\/316554"/);
     assert.match(catalogHtml, /href="\/catalogo\/11"/);
     assert.match(catalogHtml, /href="https:\/\/boardgamegeek\.com\/boardgame\/316554"/);
@@ -508,6 +563,95 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(catalogDetailHtml, /Juego de construccion de mazos, intriga y control de zonas\./);
     assert.match(catalogDetailHtml, /<dt>Posición<\/dt><dd>B3<\/dd>/);
     assert.match(catalogDetailHtml, /Abrir en BoardGameGeek/);
+
+    const catalogAdminMode = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}`);
+    assert.equal(catalogAdminMode.status, 200);
+    const catalogAdminModeHtml = await catalogAdminMode.text();
+    assert.match(catalogAdminModeHtml, /Administrar catálogo/);
+    assert.match(catalogAdminModeHtml, /Marta Admin/);
+    assert.match(catalogAdminModeHtml, /Dune Imperium/);
+    assert.match(catalogAdminModeHtml, new RegExp(`/catalogo/admin/${catalogWebAdminToken}/11`));
+    assert.equal(catalogAdminMode.headers.get('cache-control'), 'no-store');
+    assert.equal(catalogAdminMode.headers.get('referrer-policy'), 'no-referrer');
+
+    const catalogAdminEdit = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11`);
+    assert.equal(catalogAdminEdit.status, 200);
+    const catalogAdminEditHtml = await catalogAdminEdit.text();
+    assert.match(catalogAdminEditHtml, /Editar Dune Imperium/);
+    assert.match(catalogAdminEditHtml, /Ana Owner \(@ana_owner\)/);
+    assert.match(catalogAdminEditHtml, /name="ownerTelegramUserId"/);
+    assert.match(catalogAdminEditHtml, /Cargar datos de BGG/);
+    assert.match(catalogAdminEditHtml, /class="catalog-admin-cover"/);
+    assert.match(catalogAdminEditHtml, /src="\/catalogo\/bgg-image\/316554"/);
+    assert.match(catalogAdminEditHtml, /name="action" value="translate-description"[^>]*>Traducir y guardar descripción/);
+    assert.match(catalogAdminEditHtml, /se guarda automáticamente; no tendrás que pulsar «Guardar cambios»/);
+    assert.match(catalogAdminEditHtml, /data-catalog-loading-title="Traduciendo la descripción"/);
+    assert.match(catalogAdminEditHtml, /guardándola automáticamente en el catálogo/);
+    assert.match(catalogAdminEditHtml, /data-catalog-loading-overlay/);
+    assert.match(catalogAdminEditHtml, /\.catalog-loading-spinner\{display:block;box-sizing:border-box;flex:none/);
+    assert.match(catalogAdminEditHtml, /border:5px solid var\(--cawa-brand-soft,rgba\(24,75,31,\.16\)\)/);
+    assert.match(catalogAdminEditHtml, /border-top-color:var\(--cawa-brand,#184b1f\)/);
+    assert.doesNotMatch(catalogAdminEditHtml, /--cawa-(?:accent-soft|primary)/);
+    assert.match(catalogAdminEditHtml, /Esta operación puede tardar unos segundos/);
+    assert.doesNotMatch(catalogAdminEditHtml, /name="familyId"/);
+    assert.doesNotMatch(catalogAdminEditHtml, /name="groupId"/);
+
+    const catalogBggSearch = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11?bgg=1&q=Game%20Twelve`);
+    assert.equal(catalogBggSearch.status, 200);
+    const catalogBggSearchHtml = await catalogBggSearch.text();
+    assert.match(catalogBggSearchHtml, /Resultados completos \(12\)/);
+    assert.match(catalogBggSearchHtml, /Juego 12/);
+    assert.match(catalogBggSearchHtml, /Nombre o URL exacta de BGG/);
+    assert.match(catalogBggSearchHtml, /class="admin-search-bar bgg-search-bar"/);
+    assert.match(catalogBggSearchHtml, /class="bgg-result-cover" src="https:\/\/example\.test\/12-thumb\.jpg"/);
+    assert.match(catalogBggSearchHtml, /alt="Carátula de Juego 12"/);
+
+    const catalogBggInspect = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11?bgg=1&q=Game%20Twelve&bggId=12`);
+    assert.equal(catalogBggInspect.status, 200);
+    const catalogBggInspectHtml = await catalogBggInspect.text();
+    assert.match(catalogBggInspectHtml, /Elegir edición física/);
+    assert.match(catalogBggInspectHtml, /Juego Doce/);
+    assert.match(catalogBggInspectHtml, /Spanish/);
+    assert.match(catalogBggInspectHtml, /Ficha general de BGG/);
+    assert.match(catalogBggInspectHtml, /class="bgg-version-cover" src="https:\/\/example\.test\/general\.jpg"/);
+    assert.match(catalogBggInspectHtml, /class="bgg-version-cover" src="https:\/\/example\.test\/es\.jpg"/);
+    assert.match(catalogBggInspectHtml, /<dt>Idioma<\/dt><dd>Spanish<\/dd>/);
+    assert.match(catalogBggInspectHtml, /<dt>Editorial<\/dt><dd>Editorial ES<\/dd>/);
+    assert.match(catalogBggInspectHtml, /<dt>Código de producto<\/dt><dd>ED-ES-12<\/dd>/);
+    assert.match(catalogBggInspectHtml, /la descripción de BGG se traducirá automáticamente al castellano/);
+    assert.match(catalogBggInspectHtml, /data-catalog-loading-title="Cargando datos de BGG"/);
+    assert.match(catalogBggInspectHtml, /consultando BGG, traduciendo la descripción y guardando los cambios/);
+    assert.match(catalogBggInspectHtml, /data-catalog-loading-overlay/);
+
+    const catalogBggApply = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11`, {
+      method: 'POST', redirect: 'manual', body: new URLSearchParams({ action: 'bgg-apply', bggId: '12', versionId: '120', query: 'Game Twelve' }),
+    });
+    assert.equal(catalogBggApply.status, 303);
+    assert.ok(queries.some((query) => query.sql.includes('update catalog_items set item_type=') && query.params[1] === 'Juego Doce' && query.params[4] === 'Spanish'));
+    assert.deepEqual(translatedDescriptions, ['Long BGG description ready to translate.']);
+    assert.ok(queries.some((query) => query.sql.includes('update catalog_items set item_type=') && query.params[3] === 'Descripción de BGG traducida automáticamente.'));
+
+    const catalogTranslateDescription = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11`, {
+      method: 'POST', redirect: 'manual', body: new URLSearchParams({ action: 'translate-description', description: 'Existing English description ready to translate.' }),
+    });
+    assert.equal(catalogTranslateDescription.status, 303);
+    assert.equal(catalogTranslateDescription.headers.get('location'), `/catalogo/admin/${catalogWebAdminToken}/11?translated=1`);
+    assert.deepEqual(translatedDescriptions, ['Long BGG description ready to translate.', 'Existing English description ready to translate.']);
+    assert.ok(queries.some((query) => query.sql.includes('update catalog_items set description=') && query.params[0] === 'Descripción de BGG traducida automáticamente.'));
+    assert.ok(queries.some((query) => query.sql.includes("'catalog.item.web_description_translated'")));
+
+    const catalogAdminSave = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11`, {
+      method: 'POST',
+      redirect: 'manual',
+      body: new URLSearchParams({
+        displayName: 'Dune Imperium', originalName: 'Dune: Imperium', itemType: 'board-game', ownerTelegramUserId: '20',
+        familyId: '5', groupId: '9', language: 'ES', publisher: 'Dire Wolf', publicationYear: '2020', playerCountMin: '1',
+        playerCountMax: '4', recommendedAge: '14', playTimeMinutes: '120', storagePosition: 'B3', description: 'Actualizado',
+      }),
+    });
+    assert.equal(catalogAdminSave.status, 303);
+    assert.equal(catalogAdminSave.headers.get('location'), `/catalogo/admin/${catalogWebAdminToken}/11?saved=1`);
+    assert.ok(queries.some((query) => query.sql.includes('update catalog_items set owner_telegram_user_id=') && query.params[0] === 20));
     assert.match(catalogDetailHtml, /target="_blank" rel="noopener noreferrer">Abrir en BoardGameGeek/);
 
     const feedbackPage = await fetch(`${baseUrl}/feedback`);
@@ -775,6 +919,11 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(adminCatalogHtml, /Dune Imperium/);
     assert.match(adminCatalogHtml, /Juego de mesa/);
     assert.match(adminCatalogHtml, /\/admin\/resources\/catalog_items/);
+    assert.doesNotMatch(adminCatalogHtml, /Familias y grupos/);
+    assert.doesNotMatch(adminCatalogHtml, /<th>Familia<\/th>/);
+
+    const hiddenCatalogGroupsPage = await fetch(`${baseUrl}/admin/resources/catalog_groups`, { headers: { cookie } });
+    assert.equal(hiddenCatalogGroupsPage.status, 404);
 
     const adminStorageRootPage = await fetch(`${baseUrl}/admin/storage`, { headers: { cookie } });
     assert.equal(adminStorageRootPage.status, 200);

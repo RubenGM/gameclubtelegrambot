@@ -30,6 +30,8 @@ import {
   type WelcomeMessageTemplate,
 } from '../membership/welcome-template-store.js';
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
+import { createDatabaseCatalogWebAdminTokenStore } from '../catalog/catalog-web-admin-token.js';
+import { createAppMetadataScheduleWebCreateSettingsStore } from '../schedule/schedule-web-create-settings.js';
 import {
   createAppMetadataMembershipRequestNotificationSubscriptionStore,
   notifyApprovedAdminsOfMembershipRevocation,
@@ -3162,6 +3164,25 @@ async function handleTelegramActionMenuText(
       }
 
       return false;
+    }
+
+    if (selection.actionId === 'catalog_web_admin') {
+      if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isAdmin) return false;
+      try {
+        const storage = createDatabaseAppMetadataSessionStorage({ database: context.runtime.services.database.db });
+        const settings = await createAppMetadataScheduleWebCreateSettingsStore({ storage }).load();
+        const issued = await createDatabaseCatalogWebAdminTokenStore({ database: context.runtime.services.database.db }).issue({
+          telegramUserId: context.runtime.actor.telegramUserId,
+        });
+        const url = `${settings.publicBaseUrl}/catalogo/admin/${encodeURIComponent(issued.token)}`;
+        await context.reply(createTelegramI18n(language).common.catalogWebAdminOffer, {
+          inlineKeyboard: [[{ text: createTelegramI18n(language).actionMenu.catalogWebAdmin, url, semanticRole: 'primary' }]],
+        });
+      } catch (error) {
+        console.warn(JSON.stringify({ event: 'catalog.web_admin.token_issue_failed', error: error instanceof Error ? error.message : String(error) }));
+        await context.reply(createTelegramI18n(language).common.catalogWebAdminError);
+      }
+      return true;
     }
 
     if (selection.actionId === 'access') {

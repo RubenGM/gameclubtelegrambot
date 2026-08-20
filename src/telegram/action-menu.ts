@@ -245,6 +245,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isAdmin,
   },
   {
+    id: 'catalog_web_admin',
+    label: (language) => createTelegramI18n(language).actionMenu.catalogWebAdmin,
+    telemetryActionKey: 'menu.catalog_web_admin',
+    uxSection: 'admin',
+    buttonRole: 'primary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'venue_events',
     label: (language) => createTelegramI18n(language).actionMenu.venueEvents,
     telemetryActionKey: 'menu.venue_events',
@@ -377,7 +386,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-tools',
     matches: () => false,
-    rows: [['review_access', 'manage_users'], ['tables', 'equipment'], ['welcome_templates', 'update_bgg'], ['llm_models', 'role_game_auto_scheduling'], ['printer_admin', 'image_generation_admin'], ['google_calendar', 'member_debug'], ['start', 'help']],
+    rows: [['catalog_web_admin'], ['review_access', 'manage_users'], ['tables', 'equipment'], ['welcome_templates', 'update_bgg'], ['llm_models', 'role_game_auto_scheduling'], ['printer_admin', 'image_generation_admin'], ['google_calendar', 'member_debug'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',

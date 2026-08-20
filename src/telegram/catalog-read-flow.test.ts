@@ -333,12 +333,36 @@ test('handleTelegramCatalogReadCommand groups the overview by initial letter', a
   assert.match(replies[0]?.message ?? '', /Brass Birmingham/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Dune Imperium/);
   assert.match(replies[0]?.message ?? '', /catalog_read_item_1/);
+
+  replies.length = 0;
+  context.callbackData = `${catalogReadCallbackPrefixes.inspectFamily}999`;
+  assert.equal(await handleTelegramCatalogReadCallback(context), true);
+  assert.match(replies[0]?.message ?? '', /A B C - 5 articles/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Família|Family|Categoria/);
+
+  replies.length = 0;
+  context.callbackData = `${catalogReadCallbackPrefixes.inspectGroup}999`;
+  assert.equal(await handleTelegramCatalogReadCallback(context), true);
+  assert.match(replies[0]?.message ?? '', /A B C - 5 articles/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Grup|Group/);
 });
 
 test('catalog read item detail shows the owner as a clickable user', async () => {
   const repository = createRepository({
+    families: [buildFamily(3, 'Saga Dune')],
+    groups: [{
+      id: 4,
+      familyId: 3,
+      slug: 'dune-core',
+      displayName: 'Dune principal',
+      description: null,
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+    }],
     items: [
       buildItem(1, 'Dune Imperium', {
+        familyId: 3,
+        groupId: 4,
         ownerTelegramUserId: 20,
       }),
     ],
@@ -352,6 +376,7 @@ test('catalog read item detail shows the owner as a clickable user', async () =>
   assert.equal(await handleTelegramCatalogReadStartText(context), true);
 
   assert.match(replies.at(-1)?.message ?? '', /<b>Propietari:<\/b> <a href="https:\/\/t\.me\/ana_owner">Ana Owner \(@ana_owner\)<\/a>/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /Saga Dune|Dune principal|Família|Grup/);
 });
 
 test('handleTelegramCatalogReadCommand serializes number buckets without URL fragments', async () => {
@@ -693,4 +718,9 @@ test('handleTelegramCatalogReadText opens the catalog from the member keyboard a
   assert.match(replies[0]?.message ?? '', /A - 1 article/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Alpha/);
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
+
+  replies.length = 0;
+  context.messageText = '/catalog_search Alpha';
+  await handleTelegramCatalogReadCommand(context);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Ark Nova/);
 });

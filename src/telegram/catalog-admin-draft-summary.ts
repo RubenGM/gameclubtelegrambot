@@ -1,4 +1,5 @@
 import type { CatalogItemType } from '../catalog/catalog-model.js';
+import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import {
   formatHtmlField,
   renderCatalogItemType,
@@ -29,16 +30,18 @@ export async function formatCatalogAdminDraftSummary({
   itemTypeSupportsPlayers: (itemType: CatalogItemType) => boolean;
 }): Promise<string> {
   const texts = createTelegramI18n(normalizeBotLanguage(botLanguage, 'ca')).catalogAdmin;
-  const familyName = await resolveFamilyName(asNullableNumber(data.familyId));
-  const groupName = await resolveGroupName(asNullableNumber(data.groupId));
+  const familyName = catalogFamilyGroupUiEnabled ? await resolveFamilyName(asNullableNumber(data.familyId)) : null;
+  const groupName = catalogFamilyGroupUiEnabled ? await resolveGroupName(asNullableNumber(data.groupId)) : null;
   const itemType = String(data.itemType ?? 'board-game') as CatalogItemType;
 
   return [
     `<b>${texts.itemSummary}</b>`,
     formatHtmlField(texts.name, escapeHtmlPreview(String(data.displayName ?? ''), draftTextLimits.name)),
     formatHtmlField(texts.type, escapeHtml(renderCatalogItemType(itemType))),
-    formatHtmlField(texts.family, escapeHtmlPreview(familyName ?? texts.noFamily, draftTextLimits.shortText)),
-    formatHtmlField(texts.group, escapeHtmlPreview(groupName ?? texts.noGroup, draftTextLimits.shortText)),
+    ...(catalogFamilyGroupUiEnabled ? [
+      formatHtmlField(texts.family, escapeHtmlPreview(familyName ?? texts.noFamily, draftTextLimits.shortText)),
+      formatHtmlField(texts.group, escapeHtmlPreview(groupName ?? texts.noGroup, draftTextLimits.shortText)),
+    ] : []),
     formatHtmlField(texts.editFieldOriginalName, escapeHtmlPreview(asNullableString(data.originalName) ?? texts.noValue, draftTextLimits.name)),
     formatHtmlField(texts.description, escapeHtmlPreview(asNullableString(data.description) ?? texts.noDescription, draftTextLimits.description)),
     formatHtmlField(texts.language, escapeHtmlPreview(asNullableString(data.language) ?? texts.noValue, draftTextLimits.language)),

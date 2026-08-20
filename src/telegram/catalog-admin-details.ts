@@ -1,4 +1,5 @@
 import type { CatalogGroupRecord, CatalogItemRecord, CatalogItemType, CatalogMediaRecord } from '../catalog/catalog-model.js';
+import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import {
   escapeHtml,
   formatCatalogDescriptionLine,
@@ -49,8 +50,8 @@ export function formatCatalogAdminItemDetails({
     `<b>${escapeHtml(item.displayName)}</b> (#${item.id})`,
     '',
     formatHtmlField(texts.type, renderCatalogItemType(item.itemType, language)),
-    ...(familyName ? [formatHtmlField(texts.family, escapeHtml(familyName))] : []),
-    ...(groupName ? [formatHtmlField(texts.group, escapeHtml(groupName))] : []),
+    ...(catalogFamilyGroupUiEnabled && familyName ? [formatHtmlField(texts.family, escapeHtml(familyName))] : []),
+    ...(catalogFamilyGroupUiEnabled && groupName ? [formatHtmlField(texts.group, escapeHtml(groupName))] : []),
     ...(item.storagePosition ? [formatHtmlField(texts.storagePosition, escapeHtml(item.storagePosition))] : []),
     ...(ownerLine ? [ownerLine] : []),
     ...loanAvailabilityLines,
