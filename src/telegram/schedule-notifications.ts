@@ -8,6 +8,7 @@ import { eventsNewsGroupCategory, publicEventsNewsGroupCategory } from '../news/
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import type { TelegramSentMessage } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
+import { buildTelegramStartUrl } from './deep-links.js';
 
 export interface ScheduleCalendarChange {
   action: 'created' | 'updated' | 'deleted';
@@ -142,11 +143,14 @@ async function publishCalendarSnapshotForCategory({
     language,
     resolveActorDisplayName,
   });
+  const createAction = publicOnly
+    ? ''
+    : `\n\n<a href="${escapeHtml(buildTelegramStartUrl('schedule_create'))}"><b>${escapeHtml(texts.calendarBroadcastCreateAction)}</b></a>`;
   const replacedText = texts.calendarBroadcastReplaced;
 
   await Promise.all(
     groups.map(async (group) => {
-      const text = `${message}\n\n${footer}`;
+      const text = `${message}\n\n${footer}${createAction}`;
       try {
         const sent = await sendGroupMessage(group.chatId, text, {
           parseMode: 'HTML',

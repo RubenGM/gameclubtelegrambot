@@ -176,6 +176,7 @@ export const scheduleTexts = {
     calendarBroadcastActionUpdated: 'actualitzat',
     calendarBroadcastActionDeleted: 'eliminat',
     calendarBroadcastFooter: "{actor} ha {action} l'activitat {title} del {day}",
+    calendarBroadcastCreateAction: 'Fes la teva reserva',
     calendarBroadcastReplaced: '...',
   },
   es: {
@@ -355,6 +356,7 @@ export const scheduleTexts = {
     calendarBroadcastActionUpdated: 'actualizado',
     calendarBroadcastActionDeleted: 'eliminado',
     calendarBroadcastFooter: '{actor} ha {action} la actividad {title} del {day}',
+    calendarBroadcastCreateAction: 'Haz tu reserva',
     calendarBroadcastReplaced: '...',
   },
   en: {
@@ -534,6 +536,7 @@ export const scheduleTexts = {
     calendarBroadcastActionUpdated: 'updated',
     calendarBroadcastActionDeleted: 'deleted',
     calendarBroadcastFooter: '{actor} {action} the activity {title} for {day}',
+    calendarBroadcastCreateAction: 'Make your booking',
     calendarBroadcastReplaced: '...',
   },
 } as const;

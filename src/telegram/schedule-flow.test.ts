@@ -1787,6 +1787,20 @@ test('handleTelegramScheduleText offers a one-use web form when the general sett
   assert.ok(replies[1]?.options?.replyKeyboard);
 });
 
+test('handleTelegramScheduleStartText starts activity creation from the calendar deep link', async () => {
+  const { context, replies, getCurrentSession } = createContext({
+    actorTelegramUserId: 42,
+    language: 'es',
+  });
+
+  context.messageText = '/start schedule_create';
+
+  assert.equal(await handleTelegramScheduleStartText(context), true);
+  assert.equal(getCurrentSession()?.flowKey, 'schedule-create');
+  assert.equal(getCurrentSession()?.stepKey, 'title');
+  assert.equal(replies.at(-1)?.message, 'Escribe el título de la actividad.');
+});
+
 test('handleTelegramScheduleText localizes the back button for spanish create flow', async () => {
   const { context, replies, getCurrentSession } = createContext({ actorTelegramUserId: 42, language: 'es' });
 
@@ -2124,6 +2138,10 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
       day: 'Diumenge 5 abril',
     })),
   ));
+  assert.match(
+    groupMessages[0]?.message ?? '',
+    /<a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_create"><b>Fes la teva reserva<\/b><\/a>$/,
+  );
 });
 
 test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapshot message per destination', async () => {
@@ -2269,6 +2287,7 @@ test('publishPublicCalendarSnapshotToNewsGroups publishes only public schedule e
   assert.equal(groupMessages[0]?.chatId, -201);
   assert.match(groupMessages[0]?.message ?? '', /Evento público/);
   assert.doesNotMatch(groupMessages[0]?.message ?? '', /Evento privado/);
+  assert.doesNotMatch(groupMessages[0]?.message ?? '', /start=schedule_create/);
   assert.equal(
     await snapshotStorage.get('telegram.schedule.calendar_snapshot:public-events:-201:0'),
     JSON.stringify({ chatId: -201, messageThreadId: null, messageId: 903 }),

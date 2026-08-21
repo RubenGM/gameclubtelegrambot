@@ -273,7 +273,7 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
     return replyWithInspectableEventList(context, { includeMenuKeyboard: true });
   }
 
-  if (text === texts.create || text === scheduleLabels.create || text === '/schedule_create') {
+  if (text === texts.create || text === scheduleLabels.create || text === '/schedule_create' || text === '/start schedule_create') {
     await context.runtime.session.start({ flowKey: createFlowKey, stepKey: 'title', data: {} });
     await replyScheduleWebCreateOffer(context, language);
     await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
@@ -339,6 +339,10 @@ async function replyScheduleWebCreateOffer(
 }
 
 export async function handleTelegramScheduleStartText(context: TelegramScheduleContext): Promise<boolean> {
+  if (context.messageText?.trim() === '/start schedule_create') {
+    return handleTelegramScheduleText(context);
+  }
+
   const reservedSeatEventId = parseScheduleStartPayload(context.messageText, scheduleReservedSeatStartPayloadPrefix);
   if (reservedSeatEventId !== null && context.runtime.chat.kind === 'private') {
     if (!context.runtime.actor.isApproved) {
