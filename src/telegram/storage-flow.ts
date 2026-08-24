@@ -975,6 +975,11 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
     return true;
   }
 
+  const activeFlowKey = context.runtime.session.current?.flowKey;
+  if (activeFlowKey && !activeFlowKey.startsWith('storage-')) {
+    return false;
+  }
+
   if (text === texts.listCategories) {
     const categories = canManageStorageCategories(context)
       ? (await resolveRepository(context).listCategories()).filter(isVisibleUserStorageCategory)

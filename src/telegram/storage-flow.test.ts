@@ -595,6 +595,29 @@ test('handleTelegramStorageText does not claim the role-game material category a
   assert.deepEqual(replies, []);
 });
 
+test('handleTelegramStorageText does not claim a category name while another guided flow is active', async () => {
+  const repository = createRepository([
+    createCategory({ id: 7, slug: 'anima', displayName: 'Anima' }),
+  ]);
+  const { context, replies, getCurrentSession } = createContext(repository, {
+    canReadCategoryIds: [7],
+  });
+  await context.runtime.session.start({
+    flowKey: 'role-game-create',
+    stepKey: 'system',
+    data: { type: 'one_shot', title: 'Test' },
+  });
+  context.messageText = 'Anima';
+
+  const handled = await handleTelegramStorageText(context as never);
+
+  assert.equal(handled, false);
+  assert.equal(getCurrentSession()?.flowKey, 'role-game-create');
+  assert.equal(getCurrentSession()?.stepKey, 'system');
+  assert.deepEqual(getCurrentSession()?.data, { type: 'one_shot', title: 'Test' });
+  assert.deepEqual(replies, []);
+});
+
 test('handleTelegramStorageText leaves every localized catalog-search button to the catalog flow even with a Storage search session active', async () => {
   for (const language of supportedBotLanguages) {
     const { context, replies, getCurrentSession } = createContext(createRepository(), { language });
