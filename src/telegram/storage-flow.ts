@@ -15,6 +15,12 @@ import {
 } from '../storage/storage-catalog.js';
 import { isUserVisibleStorageCategoryPurpose } from '../storage/storage-internal-purpose.js';
 import {
+  downloadGoogleDrivePublicFile,
+  GoogleDrivePublicDownloadError,
+  parseGoogleDriveFileId,
+  type GoogleDrivePublicFileDownloader,
+} from '../storage/google-drive-public-download.js';
+import {
   createDatabaseStorageCategoryAccessRepository,
   type StorageCategoryAccessRepository,
   type StorageCategoryAccessUserRecord,
@@ -170,6 +176,7 @@ type StorageFlowContext = TelegramCommandHandlerContext & {
   messageThreadId?: number | undefined;
   messageId?: number | undefined;
   isForwardedMessage?: boolean | undefined;
+  googleDrivePublicFileDownloader?: GoogleDrivePublicFileDownloader | undefined;
   runtime: TelegramCommandHandlerContext['runtime'] & {
     bot: TelegramCommandHandlerContext['runtime']['bot'] & {
       getMe?: () => Promise<{ id: number; username?: string }>;
@@ -193,6 +200,12 @@ type StorageFlowContext = TelegramCommandHandlerContext & {
         media: TelegramPhotoMediaInput[];
         messageThreadId?: number;
       }) => Promise<Array<{ messageId: number }>>;
+      sendDocument?: (input: {
+        chatId: number;
+        filePath: string;
+        caption?: string;
+        messageThreadId?: number;
+      }) => Promise<{ messageId: number } | void>;
       deleteMessage?: (input: {
         chatId: number;
         messageId: number;
@@ -1723,6 +1736,20 @@ async function handleActiveCategoryViewAction(
     });
     await context.reply(texts.askListPage, buildSingleCancelOptions());
     return true;
+  }
+
+  if (looksLikeHttpUrl(text)) {
+    const uploadable = (await listUploadableCategories(context)).some((candidate) => candidate.id === category.id);
+    if (!uploadable) {
+      await context.reply(texts.invalidCategory, buildStorageMenuOptions(language, context));
+      return true;
+    }
+    await context.runtime.session.start({
+      flowKey: storageUploadFlowKey,
+      stepKey: 'upload-media',
+      data: { categoryId: category.id, categoryDisplayName: category.displayName, messages: [] },
+    });
+    return stageGoogleDrivePublicFile(context, text, language);
   }
 
   if (text === texts.upload) {
@@ -3318,6 +3345,9 @@ async function handleActiveUploadFlow(context: StorageFlowContext, text: string,
 
   if (session.stepKey === 'upload-media') {
     if (text !== texts.finishAttachments) {
+      if (looksLikeHttpUrl(text)) {
+        return stageGoogleDrivePublicFile(context, text, language);
+      }
       return false;
     }
 
@@ -3680,6 +3710,112 @@ async function handlePrivateUploadMedia(context: StorageFlowContext): Promise<bo
     },
   });
   return true;
+}
+
+async function stageGoogleDrivePublicFile(
+  context: StorageFlowContext,
+  publicUrl: string,
+  language: 'ca' | 'es' | 'en',
+): Promise<boolean> {
+  const session = context.runtime.session.current;
+  const texts = createTelegramI18n(language).storage;
+  if (!session || session.flowKey !== storageUploadFlowKey || session.stepKey !== 'upload-media') {
+    return false;
+  }
+  if (!parseGoogleDriveFileId(publicUrl)) {
+    await context.reply(texts.googleDriveInvalidUrl, buildUploadMediaOptions(language));
+    return true;
+  }
+  if (!context.runtime.bot.sendDocument) {
+    await context.reply(texts.googleDriveUnavailable, buildUploadMediaOptions(language));
+    return true;
+  }
+
+  const currentReceiptMessageId = asOptionalNumber(session.data.uploadReceiptMessageId);
+  let progress = currentReceiptMessageId
+    ? resumeTelegramEditableProgress(context, currentReceiptMessageId, {
+        editFailedEvent: 'storage.upload.drive-receipt-edit.failed',
+      })
+    : await startTelegramEditableProgress(context, texts.googleDriveDownloading, {
+        editFailedEvent: 'storage.upload.drive-receipt-edit.failed',
+      });
+  if (currentReceiptMessageId && !(await progress.update(texts.googleDriveDownloading))) {
+    progress = await startTelegramEditableProgress(context, texts.googleDriveDownloading, {
+      editFailedEvent: 'storage.upload.drive-receipt-edit.failed',
+    });
+  }
+
+  const downloader = context.googleDrivePublicFileDownloader ?? downloadGoogleDrivePublicFile;
+  try {
+    const downloaded = await downloader(publicUrl, { maxBytes: storageMaxAttachmentSizeBytes });
+    try {
+      await progress.update(
+        texts.googleDriveUploading
+          .replace('{file}', downloaded.fileName)
+          .replace('{size}', formatStorageFileSize(downloaded.sizeBytes)),
+      );
+      const sent = await context.runtime.bot.sendDocument({
+        chatId: context.runtime.chat.chatId,
+        filePath: downloaded.filePath,
+      });
+      if (!sent) {
+        throw new GoogleDrivePublicDownloadError('download_failed', 'Telegram did not confirm the staged document');
+      }
+
+      const draftMessages = asDraftMessages(session.data.messages);
+      draftMessages.push({
+        fromChatId: context.runtime.chat.chatId,
+        fromMessageId: sent.messageId,
+        attachmentKind: 'document',
+        telegramFileId: null,
+        telegramFileUniqueId: null,
+        caption: null,
+        originalFileName: downloaded.fileName,
+        mimeType: downloaded.mimeType,
+        fileSizeBytes: downloaded.sizeBytes,
+        mediaGroupId: null,
+        sortOrder: draftMessages.length,
+      });
+      const receiptMessage = texts.uploadRecorded.replace('{count}', String(draftMessages.length));
+      await progress.complete(receiptMessage);
+      await context.runtime.session.advance({
+        stepKey: 'upload-media',
+        data: {
+          ...session.data,
+          messages: draftMessages,
+          ...(progress.messageId ? { uploadReceiptMessageId: progress.messageId } : {}),
+        },
+      });
+    } finally {
+      await downloaded.cleanup();
+    }
+  } catch (error) {
+    await progress.complete(formatGoogleDriveDownloadError(texts, error));
+  }
+  return true;
+}
+
+function formatGoogleDriveDownloadError(
+  texts: ReturnType<typeof createTelegramI18n>['storage'],
+  error: unknown,
+): string {
+  if (error instanceof GoogleDrivePublicDownloadError) {
+    switch (error.code) {
+      case 'invalid_url': return texts.googleDriveInvalidUrl;
+      case 'not_public': return texts.googleDriveNotPublic;
+      case 'not_downloadable': return texts.googleDriveNotDownloadable;
+      case 'too_large':
+        return texts.attachmentTooLarge
+          .replace('{size}', texts.googleDriveUnknownSize)
+          .replace('{limit}', formatStorageFileSize(storageMaxAttachmentSizeBytes));
+      case 'download_failed': return texts.googleDriveDownloadFailed;
+    }
+  }
+  return texts.googleDriveDownloadFailed;
+}
+
+function looksLikeHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
 }
 
 async function handleForwardedStorageMessage(context: StorageFlowContext): Promise<boolean> {

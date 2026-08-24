@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
+import type { GoogleDrivePublicFileDownloader } from '../storage/google-drive-public-download.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
 import type {
@@ -359,6 +360,7 @@ function createContext(
     createdTopic = { chatId: -100555, name: 'Manuales', messageThreadId: 77 },
     failCreateForumTopic = false,
     supportsEditMessageText = false,
+    googleDrivePublicFileDownloader,
     printingMode = 'disabled',
     canPrint = false,
     language = 'es',
@@ -381,6 +383,7 @@ function createContext(
     createdTopic?: { chatId: number; name: string; messageThreadId: number };
     failCreateForumTopic?: boolean;
     supportsEditMessageText?: boolean;
+    googleDrivePublicFileDownloader?: GoogleDrivePublicFileDownloader;
     printingMode?: 'disabled' | 'enabled' | 'test';
     canPrint?: boolean;
     language?: BotLanguage;
@@ -394,6 +397,7 @@ function createContext(
   mediaGroups: Array<{ chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }>;
   deletedMessages: Array<{ chatId: number; messageId: number }>;
   privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }>;
+  sentDocuments: Array<{ chatId: number; filePath: string; caption?: string; messageThreadId?: number }>;
   getCurrentSession: () => ConversationSessionRecord | null;
 } {
   configureTelegramDeepLinks({ botUsername: 'cawatest_bot' });
@@ -404,6 +408,7 @@ function createContext(
   const mediaGroups: Array<{ chatId: number; media: TelegramPhotoMediaInput[]; messageThreadId?: number }> = [];
   const deletedMessages: Array<{ chatId: number; messageId: number }> = [];
   const privateMessages: Array<{ telegramUserId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const sentDocuments: Array<{ chatId: number; filePath: string; caption?: string; messageThreadId?: number }> = [];
   let currentSession: ConversationSessionRecord | null = null;
   let copiedMessageId = 900;
   let copyMessageCalls = 0;
@@ -514,6 +519,10 @@ function createContext(
           mediaGroups.push(messageThreadId === undefined ? { chatId, media } : { chatId, media, messageThreadId });
           return media.map((_, index) => ({ messageId: 1000 + index }));
         },
+        sendDocument: async ({ chatId, filePath, caption, messageThreadId }: { chatId: number; filePath: string; caption?: string; messageThreadId?: number }) => {
+          sentDocuments.push({ chatId, filePath, ...(caption ? { caption } : {}), ...(messageThreadId ? { messageThreadId } : {}) });
+          return { messageId: 8800 + sentDocuments.length };
+        },
         deleteMessage: async ({ chatId, messageId }: { chatId: number; messageId: number }) => {
           deletedMessages.push({ chatId, messageId });
         },
@@ -545,6 +554,7 @@ function createContext(
     ...(storageCategoryAccessRepository ? { storageCategoryAccessRepository } : {}),
     storageCategorySubscriptionRepository: resolvedStorageCategorySubscriptionRepository,
     storageDefaultChatStore,
+    ...(googleDrivePublicFileDownloader ? { googleDrivePublicFileDownloader } : {}),
   } as unknown as TelegramCommandHandlerContext & Record<string, unknown>;
 
   return {
@@ -556,6 +566,7 @@ function createContext(
     mediaGroups,
     deletedMessages,
     privateMessages,
+    sentDocuments,
     getCurrentSession: () => currentSession,
   };
 }
@@ -1301,6 +1312,97 @@ test('handleTelegramStorageMessage updates the upload batch receipt message', as
   assert.equal(replies.at(-1)?.options, undefined);
   assert.equal(getCurrentSession()?.data.uploadReceiptMessageId, 2);
   assert.equal((getCurrentSession()?.data.messages as unknown[] | undefined)?.length, 3);
+});
+
+test('handleTelegramStorageText downloads a public Google Drive file and adds it to the normal upload batch', async () => {
+  const repository = createRepository([createCategory()]);
+  let cleanupCalls = 0;
+  const { context, replies, editedMessages, sentDocuments, copiedMessages, getCurrentSession } = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [7],
+    supportsEditMessageText: true,
+    googleDrivePublicFileDownloader: async (publicUrl, options) => {
+      assert.equal(publicUrl, 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view?usp=sharing');
+      assert.equal(options.maxBytes, 2 * 1024 * 1024 * 1024);
+      return {
+        filePath: '/tmp/manual-drive.pdf',
+        fileName: 'manual-drive.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 4096,
+        cleanup: async () => { cleanupCalls += 1; },
+      };
+    },
+  });
+
+  context.messageText = '/start storage_category_7';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  delete context.messageText;
+  context.messageMedia = {
+    attachmentKind: 'document',
+    fileId: 'manual-file',
+    fileUniqueId: 'manual-unique',
+    caption: null,
+    originalFileName: 'manual-local.pdf',
+    mimeType: 'application/pdf',
+    fileSizeBytes: 1024,
+    mediaGroupId: null,
+    messageId: 77,
+  };
+  assert.equal(await handleTelegramStorageMessage(context as never), true);
+
+  delete context.messageMedia;
+  context.messageText = 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view?usp=sharing';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+
+  assert.deepEqual(sentDocuments, [{ chatId: 42, filePath: '/tmp/manual-drive.pdf' }]);
+  assert.equal(cleanupCalls, 1);
+  assert.equal(getCurrentSession()?.stepKey, 'upload-media');
+  assert.deepEqual(
+    (getCurrentSession()?.data.messages as Array<{ fromMessageId: number; originalFileName: string | null; fileSizeBytes: number | null }>).map((message) => ({
+      fromMessageId: message.fromMessageId,
+      originalFileName: message.originalFileName,
+      fileSizeBytes: message.fileSizeBytes,
+    })),
+    [
+      { fromMessageId: 77, originalFileName: 'manual-local.pdf', fileSizeBytes: 1024 },
+      { fromMessageId: 8801, originalFileName: 'manual-drive.pdf', fileSizeBytes: 4096 },
+    ],
+  );
+  assert.match(editedMessages.at(-3)?.text ?? '', /Descargando el archivo público de Google Drive/);
+  assert.match(editedMessages.at(-2)?.text ?? '', /Subiendo manual-drive\.pdf \(4 KB\) a Telegram/);
+  assert.equal(editedMessages.at(-1)?.text, 'Adjunto añadido al lote actual. Total: 2.');
+
+  context.messageText = 'Terminar adjuntos';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  context.messageText = 'Guardar juntos';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  context.messageText = '#drive';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  context.messageText = 'Completar';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+
+  assert.deepEqual(copiedMessages.slice(-2), [
+    { fromChatId: 42, messageId: 77, toChatId: -100123, messageThreadId: 10 },
+    { fromChatId: 42, messageId: 8801, toChatId: -100123, messageThreadId: 10 },
+  ]);
+  assert.equal(repository.__entries[0]?.messages[1]?.originalFileName, 'manual-drive.pdf');
+});
+
+test('handleTelegramStorageText rejects non-Drive and non-public Drive URLs without changing the upload batch', async () => {
+  const repository = createRepository([createCategory()]);
+  const { context, replies, sentDocuments, getCurrentSession } = createContext(repository, {
+    canReadCategoryIds: [7],
+    canUploadCategoryIds: [7],
+  });
+
+  context.messageText = '/start storage_category_7';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+  context.messageText = 'https://example.com/manual.pdf';
+  assert.equal(await handleTelegramStorageText(context as never), true);
+
+  assert.match(replies.at(-1)?.message ?? '', /enlace HTTPS público de archivo de Google Drive/);
+  assert.deepEqual(sentDocuments, []);
+  assert.deepEqual(getCurrentSession()?.data.messages, []);
 });
 
 test('handleTelegramStorageText shows categories directly in the storage menu', async () => {

@@ -85,10 +85,21 @@ export interface BoardGameGeekVersionCandidate {
   thumbnailUrl: string | null;
 }
 
+export interface BoardGameGeekSearchPage {
+  candidates: BoardGameGeekCandidate[];
+  directBoardGameGeekId: string | null;
+  totalCandidates: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export interface BoardGameGeekWebImportService {
-  search(query: string): Promise<{ candidates: BoardGameGeekCandidate[]; directBoardGameGeekId: string | null }>;
+  search(query: string, options?: { page?: number; pageSize?: number }): Promise<BoardGameGeekSearchPage>;
   inspect(boardGameGeekId: string): Promise<{ draft: WikipediaBoardGameCatalogDraft; versions: BoardGameGeekVersionCandidate[] }>;
 }
+
+const boardGameGeekThingBatchSize = 20;
 
 export type WikipediaBoardGameImportResult =
   | {
@@ -266,18 +277,32 @@ export function createBoardGameGeekWebImportService({
     return apiKey;
   };
   return {
-    async search(query) {
+    async search(query, options = {}) {
       const resolvedApiKey = requireApiKey();
       const normalizedQuery = query.trim();
       if (!normalizedQuery) throw new Error('Escribe un texto o una URL de BoardGameGeek.');
       const directBoardGameGeekId = parseBoardGameGeekCandidateId(normalizedQuery);
-      if (directBoardGameGeekId) return { candidates: [], directBoardGameGeekId };
+      if (directBoardGameGeekId) {
+        return { candidates: [], directBoardGameGeekId, totalCandidates: 0, page: 1, pageSize: boardGameGeekThingBatchSize, totalPages: 1 };
+      }
       const params = new URLSearchParams({ query: normalizedQuery, type: 'boardgame' });
       const xml = await fetchBoardGameGeekXml(fetchImpl, `https://boardgamegeek.com/xmlapi2/search?${params.toString()}`, resolvedApiKey);
-      const candidates = parseBoardGameGeekSearchResults(xml);
+      const allCandidates = parseBoardGameGeekSearchResults(xml);
+      const pageSize = Number.isFinite(options.pageSize)
+        ? Math.max(1, Math.min(boardGameGeekThingBatchSize, Math.trunc(options.pageSize ?? boardGameGeekThingBatchSize)))
+        : boardGameGeekThingBatchSize;
+      const totalCandidates = allCandidates.length;
+      const totalPages = Math.max(1, Math.ceil(totalCandidates / pageSize));
+      const requestedPage = Number.isFinite(options.page) ? Math.max(1, Math.trunc(options.page ?? 1)) : 1;
+      const page = Math.min(requestedPage, totalPages);
+      const pageCandidates = allCandidates.slice((page - 1) * pageSize, page * pageSize);
       return {
-        candidates: await enrichBoardGameGeekCandidatesWithImages(fetchImpl, resolvedApiKey, candidates),
+        candidates: await enrichBoardGameGeekCandidatesWithImages(fetchImpl, resolvedApiKey, pageCandidates),
         directBoardGameGeekId: null,
+        totalCandidates,
+        page,
+        pageSize,
+        totalPages,
       };
     },
     async inspect(boardGameGeekId) {
@@ -871,8 +896,8 @@ async function enrichBoardGameGeekCandidatesWithImages(
   candidates: BoardGameGeekCandidate[],
 ): Promise<BoardGameGeekCandidate[]> {
   const imageById = new Map<string, { imageUrl: string | null; thumbnailUrl: string | null }>();
-  for (let index = 0; index < candidates.length; index += 50) {
-    const batch = candidates.slice(index, index + 50);
+  for (let index = 0; index < candidates.length; index += boardGameGeekThingBatchSize) {
+    const batch = candidates.slice(index, index + boardGameGeekThingBatchSize);
     const xml = await importBoardGameGeekThingXml(fetchImpl, apiKey, batch.map((candidate) => candidate.id));
     for (const match of xml.matchAll(/<item\b([^>]*)>([\s\S]*?)<\/item>/g)) {
       const id = readXmlAttribute(match[1] ?? '', 'id');

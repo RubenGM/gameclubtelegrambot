@@ -145,6 +145,8 @@ const sessionCookieName = 'gameclub_admin_session';
 const maxBodyBytes = 64 * 1024;
 const maxAssetUploadBytes = 2 * 1024 * 1024;
 const publicCatalogPageSize = 24;
+const catalogWebAdminPageSizes = [12, 24, 48, 96] as const;
+type CatalogWebAdminView = 'list' | 'grid';
 const bundledBrandAssetNames = new Set(['cawa_logo.svg', 'cawa_casco.svg']);
 const defaultHttpServerConfig = {
   enabled: true,
@@ -1309,10 +1311,15 @@ async function handleCatalogWebAdminRequest(options: {
     }
     const settings = await options.webSettingsStore.load();
     const search = options.url.searchParams.get('q') ?? '';
+    const view: CatalogWebAdminView = options.url.searchParams.get('view') === 'grid' ? 'grid' : 'list';
+    const requestedPageSize = Number(options.url.searchParams.get('perPage'));
+    const pageSize = catalogWebAdminPageSizes.includes(requestedPageSize as typeof catalogWebAdminPageSizes[number])
+      ? requestedPageSize
+      : publicCatalogPageSize;
     const pageNumber = parsePositiveInteger(options.url.searchParams.get('page'), 1);
-    const catalog = await fetchPublicCatalogItems(options.services, { search, itemType: '', playerCount: null, availability: '', page: pageNumber });
+    const catalog = await fetchPublicCatalogItems(options.services, { search, itemType: '', playerCount: null, availability: '', page: pageNumber, pageSize });
     const message = options.url.searchParams.get('saved') === '1' ? 'Cambios guardados.' : '';
-    sendHtml(options.response, 200, catalogWebAdminListPage(settings, actor, options.token, catalog, search, message));
+    sendHtml(options.response, 200, catalogWebAdminListPage(settings, actor, options.token, catalog, search, view, message));
     return;
   }
 
@@ -1366,7 +1373,16 @@ async function handleCatalogWebAdminRequest(options: {
     }
     try {
       await updateCatalogWebAdminItem(options.services, options.itemId, actor.telegram_user_id, form);
-      redirect(options.response, `/catalogo/admin/${encodeURIComponent(options.token)}?saved=1`);
+      const returnParams = new URLSearchParams({ saved: '1' });
+      const returnQuery = options.url.searchParams.get('returnQ');
+      const returnView = options.url.searchParams.get('returnView');
+      const returnPageSize = options.url.searchParams.get('returnPerPage');
+      const returnPage = options.url.searchParams.get('returnPage');
+      if (returnQuery) returnParams.set('q', returnQuery);
+      if (returnView) returnParams.set('view', returnView);
+      if (returnPageSize) returnParams.set('perPage', returnPageSize);
+      if (returnPage) returnParams.set('page', returnPage);
+      redirect(options.response, `/catalogo/admin/${encodeURIComponent(options.token)}?${returnParams.toString()}`);
     } catch (error) {
       const data = await fetchCatalogWebAdminEditData(options.services, options.itemId);
       if (!data.item) {
@@ -1390,6 +1406,7 @@ async function handleCatalogWebAdminRequest(options: {
       return;
     }
     const query = options.url.searchParams.get('q') ?? data.item.display_name;
+    const bggPage = parsePositiveInteger(options.url.searchParams.get('bggPage'), 1);
     try {
       const selectedId = options.url.searchParams.get('bggId');
       if (selectedId) {
@@ -1397,13 +1414,19 @@ async function handleCatalogWebAdminRequest(options: {
         sendHtml(options.response, 200, catalogWebAdminBggPage(settings, actor, options.token, data.item, { query, inspected, selectedId }));
         return;
       }
-      const search = await options.catalogBggWebImportService.search(query);
+      const search = await options.catalogBggWebImportService.search(query, { page: bggPage, pageSize: 20 });
       if (search.directBoardGameGeekId) {
         const inspected = await options.catalogBggWebImportService.inspect(search.directBoardGameGeekId);
         sendHtml(options.response, 200, catalogWebAdminBggPage(settings, actor, options.token, data.item, { query, inspected, selectedId: search.directBoardGameGeekId }));
         return;
       }
-      sendHtml(options.response, 200, catalogWebAdminBggPage(settings, actor, options.token, data.item, { query, candidates: search.candidates }));
+      sendHtml(options.response, 200, catalogWebAdminBggPage(settings, actor, options.token, data.item, {
+        query,
+        candidates: search.candidates,
+        candidateTotal: search.totalCandidates,
+        candidatePage: search.page,
+        candidateTotalPages: search.totalPages,
+      }));
     } catch (error) {
       sendHtml(options.response, 502, catalogWebAdminBggPage(settings, actor, options.token, data.item, { query, error: safeCatalogBggError(error) }));
     }
@@ -3623,12 +3646,14 @@ async function fetchPublicCatalogItems(
     playerCount,
     availability,
     page,
+    pageSize = publicCatalogPageSize,
   }: {
     search: string;
     itemType: string;
     playerCount: number | null;
     availability: string;
     page: number;
+    pageSize?: number;
   },
 ): Promise<PublicCatalogPage> {
   const filters = ["items.lifecycle_status = 'active'"];
@@ -3637,6 +3662,9 @@ async function fetchPublicCatalogItems(
   const normalizedType = itemType.trim();
   const normalizedAvailability = availability.trim();
   const normalizedPage = Math.max(1, page);
+  const normalizedPageSize = Number.isFinite(pageSize)
+    ? Math.max(1, Math.min(96, Math.trunc(pageSize)))
+    : publicCatalogPageSize;
 
   if (normalizedSearch) {
     params.push(`%${normalizedSearch.toLowerCase()}%`);
@@ -3673,9 +3701,9 @@ async function fetchPublicCatalogItems(
     params,
   );
   const totalItems = Number(countResult.rows[0]?.count ?? 0);
-  const totalPages = Math.max(1, Math.ceil(totalItems / publicCatalogPageSize));
+  const totalPages = Math.max(1, Math.ceil(totalItems / normalizedPageSize));
   const resolvedPage = Math.min(normalizedPage, totalPages);
-  const itemParams = [...params, publicCatalogPageSize, (resolvedPage - 1) * publicCatalogPageSize];
+  const itemParams = [...params, normalizedPageSize, (resolvedPage - 1) * normalizedPageSize];
   const result = await services.database.pool.query<PublicCatalogItemRow>(
     `
       select
@@ -3727,7 +3755,7 @@ async function fetchPublicCatalogItems(
     items: result.rows,
     totalItems,
     page: resolvedPage,
-    pageSize: publicCatalogPageSize,
+    pageSize: normalizedPageSize,
     totalPages,
   };
 }
@@ -4817,17 +4845,49 @@ function catalogDetailPage(settings: WebSettings, item: PublicCatalogItemRow): s
   });
 }
 
-function catalogWebAdminListPage(settings: WebSettings, actor: CatalogWebAdminActor, token: string, catalog: PublicCatalogPage, search: string, message = ''): string {
+function catalogWebAdminListPage(
+  settings: WebSettings,
+  actor: CatalogWebAdminActor,
+  token: string,
+  catalog: PublicCatalogPage,
+  search: string,
+  view: CatalogWebAdminView,
+  message = '',
+): string {
   const root = `/catalogo/admin/${encodeURIComponent(token)}`;
   const notice = message ? `<p class="admin-badge admin-badge-ok" role="status">${escapeHtml(message)}</p>` : '';
+  const pageUrl = (page: number) => {
+    const params = new URLSearchParams({ q: search, view, perPage: String(catalog.pageSize), page: String(page) });
+    return `${root}?${escapeHtml(params.toString())}`;
+  };
+  const renderCover = (item: PublicCatalogItemRow) => {
+    const coverUrl = resolveCatalogWebAdminCoverUrl(item);
+    const alt = item.media_alt_text?.trim() || `Carátula de ${item.display_name}`;
+    return coverUrl
+      ? `<img class="catalog-admin-list-cover" src="${escapeHtml(coverUrl)}" alt="${escapeHtml(alt)}" loading="lazy">`
+      : '<span class="catalog-admin-list-cover catalog-admin-list-cover-empty" aria-label="Sin carátula">Sin carátula</span>';
+  };
+  const editUrl = (itemId: number) => {
+    const params = new URLSearchParams({
+      returnQ: search,
+      returnView: view,
+      returnPerPage: String(catalog.pageSize),
+      returnPage: String(catalog.page),
+    });
+    return `${root}/${encodeURIComponent(String(itemId))}?${escapeHtml(params.toString())}`;
+  };
   const rows = catalog.items.length === 0
     ? '<p>No hay artículos que coincidan con la búsqueda.</p>'
-    : `<div class="catalog-admin-edit-list">${catalog.items.map((item) => `<article><div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(renderCatalogType(item.item_type))} · ${escapeHtml(item.owner_name ? `Propietario: ${item.owner_name}` : 'Sin propietario')}</small></div><a href="${root}/${encodeURIComponent(String(item.id))}">Editar juego</a></article>`).join('')}</div>`;
+    : `<div class="catalog-admin-edit-list catalog-admin-edit-list-${view}" data-catalog-view="${view}">${catalog.items.map((item) => `<article>${renderCover(item)}<div class="catalog-admin-list-copy"><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(renderCatalogType(item.item_type))} · ${escapeHtml(item.owner_name ? `Propietario: ${item.owner_name}` : 'Sin propietario')}</small></div><a href="${editUrl(item.id)}">Editar juego</a></article>`).join('')}</div>`;
   const pageLinks = [
-    catalog.page > 1 ? `<a href="${root}?q=${encodeURIComponent(search)}&page=${catalog.page - 1}">Anterior</a>` : '',
+    catalog.page > 1 ? `<a href="${pageUrl(catalog.page - 1)}">Anterior</a>` : '',
     `<span>Página ${catalog.page} de ${catalog.totalPages} · ${catalog.totalItems} artículos</span>`,
-    catalog.page < catalog.totalPages ? `<a href="${root}?q=${encodeURIComponent(search)}&page=${catalog.page + 1}">Siguiente</a>` : '',
+    catalog.page < catalog.totalPages ? `<a href="${pageUrl(catalog.page + 1)}">Siguiente</a>` : '',
   ].filter(Boolean).join(' ');
+  const viewOptions = `<option value="list"${view === 'list' ? ' selected' : ''}>Lista</option><option value="grid"${view === 'grid' ? ' selected' : ''}>Cuadrícula</option>`;
+  const pageSizeOptions = catalogWebAdminPageSizes
+    .map((size) => `<option value="${size}"${catalog.pageSize === size ? ' selected' : ''}>${size}</option>`)
+    .join('');
   return renderHttpPage({
     title: 'Administrar catálogo',
     themeName: settings.theme,
@@ -4835,7 +4895,7 @@ function catalogWebAdminListPage(settings: WebSettings, actor: CatalogWebAdminAc
     headerLogoAsset: settings.home.logoAsset,
     shell: 'admin',
     navItems: [{ href: root, label: 'Catálogo' }],
-    body: `<style>.catalog-admin-edit-list{display:grid;gap:8px}.catalog-admin-edit-list article{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:12px;border:1px solid var(--cawa-line);border-radius:8px;background:var(--cawa-surface)}.catalog-admin-edit-list article div{display:grid;gap:3px}.catalog-admin-edit-list small{color:var(--cawa-muted)}.catalog-admin-edit-list a{white-space:nowrap}@media(max-width:600px){.catalog-admin-edit-list article{align-items:flex-start;flex-direction:column}}</style>${notice}<p>Acceso temporal de <strong>${escapeHtml(actor.display_name)}</strong>. Puedes reutilizar este enlace durante una hora desde su creación.</p><form class="admin-search-bar" method="get"><label>Buscar juego<input name="q" value="${escapeHtml(search)}" placeholder="Título, original o editorial"></label><button type="submit">Buscar</button></form><section>${rows}</section><p class="catalog-pagination">${pageLinks}</p>`,
+    body: `<style>.catalog-admin-controls{display:grid;grid-template-columns:minmax(220px,1fr) minmax(130px,auto) minmax(120px,auto) auto;gap:10px;align-items:end}.catalog-admin-controls label{margin:0}.catalog-admin-controls input,.catalog-admin-controls select{margin:6px 0 0}.catalog-admin-controls button{margin:0}.catalog-admin-edit-list{display:grid;gap:10px;margin-top:16px}.catalog-admin-edit-list article{min-width:0;border:1px solid var(--cawa-line);border-radius:10px;background:var(--cawa-surface);overflow:hidden}.catalog-admin-list-cover{display:block;object-fit:contain;background:var(--cawa-surface-alt)}.catalog-admin-list-cover-empty{display:grid;place-items:center;color:var(--cawa-muted);font-size:12px;font-weight:750;text-align:center}.catalog-admin-list-copy{display:grid;gap:3px;min-width:0}.catalog-admin-list-copy strong{overflow-wrap:anywhere}.catalog-admin-list-copy small{color:var(--cawa-muted)}.catalog-admin-edit-list article>a{white-space:nowrap}.catalog-admin-edit-list-list article{display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:14px;align-items:center;padding:8px 12px 8px 8px}.catalog-admin-edit-list-list .catalog-admin-list-cover{width:58px;height:76px;border-radius:6px}.catalog-admin-edit-list-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}.catalog-admin-edit-list-grid article{display:grid;grid-template-rows:220px auto auto;align-content:start}.catalog-admin-edit-list-grid .catalog-admin-list-cover{width:100%;height:220px;border-bottom:1px solid var(--cawa-line)}.catalog-admin-edit-list-grid .catalog-admin-list-copy{padding:12px 12px 5px}.catalog-admin-edit-list-grid article>a{margin:6px 12px 14px;justify-self:start}@media(max-width:700px){.catalog-admin-controls{grid-template-columns:1fr 1fr}.catalog-admin-controls label:first-child{grid-column:1/-1}.catalog-admin-controls button{width:100%}}@media(max-width:480px){.catalog-admin-edit-list-list article{grid-template-columns:52px minmax(0,1fr);gap:10px}.catalog-admin-edit-list-list .catalog-admin-list-cover{width:52px;height:70px}.catalog-admin-edit-list-list article>a{grid-column:2;justify-self:start}.catalog-admin-edit-list-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.catalog-admin-edit-list-grid article{grid-template-rows:170px auto auto}.catalog-admin-edit-list-grid .catalog-admin-list-cover{height:170px}.catalog-admin-edit-list-grid .catalog-admin-list-copy{padding:9px 9px 4px}.catalog-admin-edit-list-grid article>a{margin:5px 9px 11px}}</style>${notice}<p>Acceso temporal de <strong>${escapeHtml(actor.display_name)}</strong>. Puedes reutilizar este enlace durante una hora desde su creación.</p><form class="catalog-admin-controls" method="get"><label>Buscar juego<input name="q" value="${escapeHtml(search)}" placeholder="Título, original o editorial"></label><label>Vista<select name="view">${viewOptions}</select></label><label>Por página<select name="perPage">${pageSizeOptions}</select></label><button type="submit">Aplicar</button></form><section>${rows}</section><p class="catalog-pagination">${pageLinks}</p>`,
   });
 }
 
@@ -4887,6 +4947,9 @@ function catalogWebAdminBggPage(
   state: {
     query: string;
     candidates?: BoardGameGeekCandidate[];
+    candidateTotal?: number;
+    candidatePage?: number;
+    candidateTotalPages?: number;
     inspected?: { draft: WikipediaBoardGameCatalogDraft; versions: BoardGameGeekVersionCandidate[] };
     selectedId?: string;
     error?: string;
@@ -4898,13 +4961,13 @@ function catalogWebAdminBggPage(
   const results = state.candidates
     ? state.candidates.length === 0
       ? '<p>No se han encontrado resultados.</p>'
-      : `<section><h2>Resultados completos (${state.candidates.length})</h2><div class="catalog-admin-edit-list bgg-result-list">${state.candidates.map((candidate) => {
+      : `<section><h2>Resultados completos (${state.candidateTotal ?? state.candidates.length})</h2><div class="catalog-admin-edit-list bgg-result-list">${state.candidates.map((candidate) => {
         const coverUrl = candidate.thumbnailUrl ?? candidate.imageUrl;
         const cover = coverUrl
           ? `<img class="bgg-result-cover" src="${escapeHtml(coverUrl)}" alt="Carátula de ${escapeHtml(candidate.primaryName)}" loading="lazy" referrerpolicy="no-referrer">`
           : '<span class="bgg-result-cover bgg-result-cover-empty" aria-hidden="true">BGG</span>';
-        return `<article class="bgg-result-card">${cover}<div class="bgg-result-copy"><strong>${escapeHtml(candidate.primaryName)}</strong><small>${candidate.yearPublished ?? 'Año desconocido'} · BGG #${escapeHtml(candidate.id)}${candidate.names.length > 1 ? ` · ${escapeHtml(candidate.names.join(' / '))}` : ''}</small></div><a href="${itemUrl}?bgg=1&q=${encodeURIComponent(state.query)}&bggId=${encodeURIComponent(candidate.id)}">Seleccionar</a></article>`;
-      }).join('')}</div></section>`
+        return `<article class="bgg-result-card">${cover}<div class="bgg-result-copy"><strong>${escapeHtml(candidate.primaryName)}</strong><small>${candidate.yearPublished ?? 'Año desconocido'} · BGG #${escapeHtml(candidate.id)}${candidate.names.length > 1 ? ` · ${escapeHtml(candidate.names.join(' / '))}` : ''}</small></div><a href="${itemUrl}?bgg=1&amp;q=${encodeURIComponent(state.query)}&amp;bggId=${encodeURIComponent(candidate.id)}">Seleccionar</a></article>`;
+      }).join('')}</div>${renderBoardGameGeekSearchPagination(itemUrl, state.query, state.candidatePage ?? 1, state.candidateTotalPages ?? 1)}</section>`
     : '';
   let selection = '';
   if (state.inspected && state.selectedId) {
@@ -4935,6 +4998,17 @@ function catalogWebAdminBggPage(
   });
 }
 
+function renderBoardGameGeekSearchPagination(itemUrl: string, query: string, page: number, totalPages: number): string {
+  if (totalPages <= 1) return '';
+  const pageUrl = (targetPage: number) => `${itemUrl}?bgg=1&amp;q=${encodeURIComponent(query)}&amp;bggPage=${targetPage}`;
+  const links = [
+    page > 1 ? `<a href="${pageUrl(page - 1)}">Anterior</a>` : '',
+    `<span>Página ${page} de ${totalPages}</span>`,
+    page < totalPages ? `<a href="${pageUrl(page + 1)}">Siguiente</a>` : '',
+  ].filter(Boolean).join(' ');
+  return `<p class="catalog-pagination bgg-result-pagination">${links}</p>`;
+}
+
 function renderCatalogLoadingOverlay(): string {
   return `<style>.catalog-loading-overlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;background:rgba(247,242,226,.88);backdrop-filter:blur(4px)}.catalog-loading-overlay[hidden]{display:none}.catalog-loading-card{display:grid;justify-items:center;gap:12px;width:min(420px,100%);padding:30px 26px;border:1px solid var(--cawa-line);border-radius:14px;background:var(--cawa-surface);box-shadow:0 18px 55px rgba(32,48,28,.2);text-align:center}.catalog-loading-spinner{display:block;box-sizing:border-box;flex:none;width:46px;height:46px;border:5px solid var(--cawa-brand-soft,rgba(24,75,31,.16));border-top-color:var(--cawa-brand,#184b1f);border-radius:50%;animation:catalog-loading-spin .85s linear infinite}.catalog-loading-card strong{font-family:var(--font-heading);font-size:21px}.catalog-loading-card p{margin:0;color:var(--cawa-muted)}@keyframes catalog-loading-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.catalog-loading-spinner{animation-duration:1.8s}}</style><div class="catalog-loading-overlay" data-catalog-loading-overlay role="status" aria-live="polite" aria-atomic="true" hidden><div class="catalog-loading-card"><span class="catalog-loading-spinner" aria-hidden="true"></span><strong data-catalog-loading-heading>Procesando</strong><p data-catalog-loading-copy>Esta operación puede tardar unos segundos. No cierres esta página.</p></div></div><script>(()=>{const overlay=document.querySelector('[data-catalog-loading-overlay]');if(!overlay)return;const heading=overlay.querySelector('[data-catalog-loading-heading]');const copy=overlay.querySelector('[data-catalog-loading-copy]');const reset=()=>{overlay.hidden=true;document.body.removeAttribute('aria-busy')};document.querySelectorAll('[data-catalog-loading-title]').forEach((button)=>{const form=button.form;if(!form)return;form.addEventListener('submit',(event)=>{if(event.submitter!==button||!form.checkValidity())return;if(heading)heading.textContent=button.getAttribute('data-catalog-loading-title')||'Procesando';if(copy)copy.textContent=button.getAttribute('data-catalog-loading-detail')||'Esta operación puede tardar unos segundos. No cierres esta página.';overlay.hidden=false;document.body.setAttribute('aria-busy','true')})});window.addEventListener('pageshow',reset)})();</script>`;
 }
@@ -4959,6 +5033,17 @@ function resolveCatalogCoverUrl(item: PublicCatalogItemRow): string | null {
   if (bggId) {
     return `/catalogo/bgg-image/${bggId}`;
   }
+  return resolvePublicCatalogMediaUrl(item.media_url);
+}
+
+function resolveCatalogWebAdminCoverUrl(item: PublicCatalogItemRow): string | null {
+  const metadataCover = readStringProperty(item.metadata, 'thumbnailUrl')
+    ?? readStringProperty(item.metadata, 'imageUrl')
+    ?? readStringProperty(item.metadata, 'coverUrl');
+  const resolvedMetadataCover = resolvePublicCatalogMediaUrl(metadataCover);
+  if (resolvedMetadataCover) return resolvedMetadataCover;
+  const bggId = resolveBoardGameGeekId(item);
+  if (bggId && /^\d+$/.test(bggId)) return `/catalogo/bgg-image/${bggId}`;
   return resolvePublicCatalogMediaUrl(item.media_url);
 }
 

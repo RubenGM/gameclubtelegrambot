@@ -414,8 +414,8 @@ test('admin http server exposes public feedback and protects admin pages', async
   const catalogWebAdminToken = (await catalogWebAdminTokenStore.issue({ telegramUserId: 77 })).token;
   const catalogBggWebImportService: BoardGameGeekWebImportService = {
     async search(query) {
-      if (query.includes('boardgamegeek.com')) return { candidates: [], directBoardGameGeekId: '12' };
-      return { candidates: Array.from({ length: 12 }, (_, index) => ({ id: String(index + 1), names: [`Juego ${index + 1}`], primaryName: `Juego ${index + 1}`, yearPublished: 2000 + index, imageUrl: `https://example.test/${index + 1}.jpg`, thumbnailUrl: `https://example.test/${index + 1}-thumb.jpg` })), directBoardGameGeekId: null };
+      if (query.includes('boardgamegeek.com')) return { candidates: [], directBoardGameGeekId: '12', totalCandidates: 0, page: 1, pageSize: 20, totalPages: 1 };
+      return { candidates: Array.from({ length: 12 }, (_, index) => ({ id: String(index + 1), names: [`Juego ${index + 1}`], primaryName: `Juego ${index + 1}`, yearPublished: 2000 + index, imageUrl: `https://example.test/${index + 1}.jpg`, thumbnailUrl: `https://example.test/${index + 1}-thumb.jpg` })), directBoardGameGeekId: null, totalCandidates: 32, page: 1, pageSize: 20, totalPages: 2 };
     },
     async inspect(boardGameGeekId) {
       return {
@@ -571,8 +571,24 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(catalogAdminModeHtml, /Marta Admin/);
     assert.match(catalogAdminModeHtml, /Dune Imperium/);
     assert.match(catalogAdminModeHtml, new RegExp(`/catalogo/admin/${catalogWebAdminToken}/11`));
+    assert.match(catalogAdminModeHtml, /class="catalog-admin-edit-list catalog-admin-edit-list-list" data-catalog-view="list"/);
+    assert.match(catalogAdminModeHtml, /class="catalog-admin-list-cover" src="\/catalogo\/bgg-image\/316554" alt="Carátula de Dune Imperium" loading="lazy"/);
+    assert.doesNotMatch(catalogAdminModeHtml, /class="catalog-admin-list-cover" src="\/catalogo\/media\/99"/);
+    assert.match(catalogAdminModeHtml, /<label>Vista<select name="view"><option value="list" selected>Lista<\/option><option value="grid">Cuadrícula<\/option>/);
+    assert.match(catalogAdminModeHtml, /<label>Por página<select name="perPage">[\s\S]*<option value="24" selected>24<\/option>/);
+    assert.match(catalogAdminModeHtml, new RegExp(`href="/catalogo/admin/${catalogWebAdminToken}\\?q=&amp;view=list&amp;perPage=24&amp;page=2">Siguiente`));
     assert.equal(catalogAdminMode.headers.get('cache-control'), 'no-store');
     assert.equal(catalogAdminMode.headers.get('referrer-policy'), 'no-referrer');
+
+    const catalogAdminGrid = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}?q=dune&view=grid&perPage=12&page=2`);
+    assert.equal(catalogAdminGrid.status, 200);
+    const catalogAdminGridHtml = await catalogAdminGrid.text();
+    assert.match(catalogAdminGridHtml, /class="catalog-admin-edit-list catalog-admin-edit-list-grid" data-catalog-view="grid"/);
+    assert.match(catalogAdminGridHtml, /<option value="grid" selected>Cuadrícula<\/option>/);
+    assert.match(catalogAdminGridHtml, /<option value="12" selected>12<\/option>/);
+    assert.match(catalogAdminGridHtml, new RegExp(`/catalogo/admin/${catalogWebAdminToken}/11\\?returnQ=dune&amp;returnView=grid&amp;returnPerPage=12&amp;returnPage=2`));
+    assert.match(catalogAdminGridHtml, new RegExp(`href="/catalogo/admin/${catalogWebAdminToken}\\?q=dune&amp;view=grid&amp;perPage=12&amp;page=3">Siguiente`));
+    assert.ok(queries.some((query) => query.sql.includes('order by items.display_name asc') && query.params.at(-2) === 12 && query.params.at(-1) === 12));
 
     const catalogAdminEdit = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11`);
     assert.equal(catalogAdminEdit.status, 200);
@@ -599,12 +615,14 @@ test('admin http server exposes public feedback and protects admin pages', async
     const catalogBggSearch = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11?bgg=1&q=Game%20Twelve`);
     assert.equal(catalogBggSearch.status, 200);
     const catalogBggSearchHtml = await catalogBggSearch.text();
-    assert.match(catalogBggSearchHtml, /Resultados completos \(12\)/);
+    assert.match(catalogBggSearchHtml, /Resultados completos \(32\)/);
     assert.match(catalogBggSearchHtml, /Juego 12/);
     assert.match(catalogBggSearchHtml, /Nombre o URL exacta de BGG/);
     assert.match(catalogBggSearchHtml, /class="admin-search-bar bgg-search-bar"/);
     assert.match(catalogBggSearchHtml, /class="bgg-result-cover" src="https:\/\/example\.test\/12-thumb\.jpg"/);
     assert.match(catalogBggSearchHtml, /alt="Carátula de Juego 12"/);
+    assert.match(catalogBggSearchHtml, /Página 1 de 2/);
+    assert.match(catalogBggSearchHtml, new RegExp(`/catalogo/admin/${catalogWebAdminToken}/11\\?bgg=1&amp;q=Game%20Twelve&amp;bggPage=2">Siguiente`));
 
     const catalogBggInspect = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11?bgg=1&q=Game%20Twelve&bggId=12`);
     assert.equal(catalogBggInspect.status, 200);
@@ -643,7 +661,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.ok(queries.some((query) => query.sql.includes('update catalog_items set description=') && query.params[0] === 'Descripción de BGG traducida automáticamente.'));
     assert.ok(queries.some((query) => query.sql.includes("'catalog.item.web_description_translated'")));
 
-    const catalogAdminSave = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11`, {
+    const catalogAdminSave = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11?returnQ=dune&returnView=grid&returnPerPage=12&returnPage=2`, {
       method: 'POST',
       redirect: 'manual',
       body: new URLSearchParams({
@@ -653,13 +671,15 @@ test('admin http server exposes public feedback and protects admin pages', async
       }),
     });
     assert.equal(catalogAdminSave.status, 303);
-    assert.equal(catalogAdminSave.headers.get('location'), `/catalogo/admin/${catalogWebAdminToken}?saved=1`);
+    assert.equal(catalogAdminSave.headers.get('location'), `/catalogo/admin/${catalogWebAdminToken}?saved=1&q=dune&view=grid&perPage=12&page=2`);
     assert.ok(queries.some((query) => query.sql.includes('update catalog_items set owner_telegram_user_id=') && query.params[0] === 20));
     const catalogAdminAfterSave = await fetch(`${baseUrl}${catalogAdminSave.headers.get('location')}`);
     assert.equal(catalogAdminAfterSave.status, 200);
     const catalogAdminAfterSaveHtml = await catalogAdminAfterSave.text();
     assert.match(catalogAdminAfterSaveHtml, /Administrar catálogo/);
     assert.match(catalogAdminAfterSaveHtml, /class="admin-badge admin-badge-ok" role="status">Cambios guardados\.<\/p>/);
+    assert.match(catalogAdminAfterSaveHtml, /data-catalog-view="grid"/);
+    assert.match(catalogAdminAfterSaveHtml, /<option value="12" selected>12<\/option>/);
     assert.match(catalogDetailHtml, /target="_blank" rel="noopener noreferrer">Abrir en BoardGameGeek/);
 
     const feedbackPage = await fetch(`${baseUrl}/feedback`);

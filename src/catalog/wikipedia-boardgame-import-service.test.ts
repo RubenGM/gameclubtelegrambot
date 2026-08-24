@@ -29,6 +29,10 @@ test('BGG web import returns every search result and exposes language versions',
 
   const search = await service.search('Game Twelve');
   assert.equal(search.candidates.length, 12);
+  assert.equal(search.totalCandidates, 12);
+  assert.equal(search.page, 1);
+  assert.equal(search.pageSize, 20);
+  assert.equal(search.totalPages, 1);
   assert.equal(search.candidates[11]?.thumbnailUrl, 'https://example.test/12-thumb.jpg');
   assert.equal(search.candidates[11]?.imageUrl, 'https://example.test/12.jpg');
   const detail = await service.inspect('12');
@@ -44,7 +48,40 @@ test('BGG web import returns every search result and exposes language versions',
 
 test('BGG web import accepts an exact BoardGameGeek URL without searching', async () => {
   const service = createBoardGameGeekWebImportService({ bggApiKey: 'test-key', fetchImpl: (async () => { throw new Error('search must not run'); }) as typeof fetch });
-  assert.deepEqual(await service.search('https://boardgamegeek.com/boardgame/315196/example'), { candidates: [], directBoardGameGeekId: '315196' });
+  assert.deepEqual(await service.search('https://boardgamegeek.com/boardgame/315196/example'), { candidates: [], directBoardGameGeekId: '315196', totalCandidates: 0, page: 1, pageSize: 20, totalPages: 1 });
+});
+
+test('BGG web import paginates before requesting covers and never exceeds 20 IDs', async () => {
+  const requests: string[] = [];
+  const service = createBoardGameGeekWebImportService({
+    bggApiKey: 'test-key',
+    fetchImpl: (async (input: string | URL) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes('/search?')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => `<items>${Array.from({ length: 45 }, (_, index) => `<item type="boardgame" id="${index + 1}"><name type="primary" value="Juego ${index + 1}"/></item>`).join('')}</items>`,
+        } as Response;
+      }
+      assert.match(url, /id=41%2C42%2C43%2C44%2C45&stats=1$/);
+      return {
+        ok: true,
+        status: 200,
+        text: async () => `<items>${Array.from({ length: 5 }, (_, index) => `<item type="boardgame" id="${index + 41}"><thumbnail>https://example.test/${index + 41}.jpg</thumbnail></item>`).join('')}</items>`,
+      } as Response;
+    }) as typeof fetch,
+  });
+
+  const search = await service.search('Juego', { page: 3, pageSize: 20 });
+
+  assert.equal(search.totalCandidates, 45);
+  assert.equal(search.page, 3);
+  assert.equal(search.totalPages, 3);
+  assert.deepEqual(search.candidates.map((candidate) => candidate.id), ['41', '42', '43', '44', '45']);
+  assert.equal(search.candidates[0]?.thumbnailUrl, 'https://example.test/41.jpg');
+  assert.equal(requests.length, 2);
 });
 
 test('createWikipediaBoardGameImportService preserves ambiguous candidates', async () => {
