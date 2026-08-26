@@ -5,7 +5,7 @@ salida: crear, editar o cancelar una actividad desde el bot se refleja en el
 calendario seleccionado, pero las ediciones hechas directamente en Google no se
 importan de vuelta al bot.
 
-## Preparación inicial
+## Preparación inicial desde la web
 
 1. En Google Cloud, crea o elige un proyecto y habilita **Google Calendar API**.
 2. Crea una cuenta de servicio y descarga su clave JSON. No la subas al
@@ -14,20 +14,27 @@ importan de vuelta al bot.
    `client_email` de esa cuenta de servicio. Dale el permiso **Hacer cambios y
    gestionar el uso compartido**: es necesario para que el bot pueda crear
    eventos y alternar el acceso público/privado.
-4. En el directorio de despliegue del bot, guarda el JSON completo como secreto
-   en `config/.env`:
+4. Entra en `Admin → Google Calendar` y sube el archivo JSON. El panel valida
+   que sea una cuenta de servicio y lo guarda con permisos `0600` en:
 
-   ```bash
-   GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
-   ```
+   `/var/lib/gameclubtelegrambot/google-calendar-service-account.json`
 
-5. Ejecuta `./startup.sh` para validar la configuración, copiarla al entorno del
-   servicio y reiniciarlo. No lo guardes sólo en `/etc/gameclubtelegrambot/.env`,
-   porque el despliegue lo regenera.
+5. El panel comprobará la conexión y mostrará los calendarios que la cuenta
+   puede modificar. Selecciona uno, elige acceso privado o público e inicia la
+   sincronización. No hace falta reiniciar el bot.
 
-El secreto también está disponible en `npm run config:edit`, dentro de la
-sección **Google Calendar**. Nunca se persiste en `runtime.json`, en
-`app_metadata` ni en los logs.
+El secreto no se persiste en `runtime.json`, `app_metadata` ni los logs. El
+archivo queda fuera del árbol desplegado, por lo que sobrevive a `./startup.sh`.
+La configuración antigua mediante
+`GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON` sigue siendo compatible y se
+muestra en la web como «Variable de entorno»; un archivo subido desde el panel
+tiene prioridad.
+
+La misma pantalla permite reemplazar las credenciales, probar la conexión,
+introducir manualmente un ID/enlace con `cid`, abrir el calendario seleccionado,
+detener la sincronización y retirar el archivo web con confirmación explícita.
+Retirar credenciales detiene la sincronización, pero no borra eventos existentes
+de Google Calendar.
 
 ## Administración desde Telegram
 

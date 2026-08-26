@@ -1,6 +1,6 @@
 import type { ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { AppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
-import type { GoogleCalendarServiceAccountConfig } from './google-calendar-client.js';
+import { resolveGoogleCalendarServiceAccountIdentity, type GoogleCalendarServiceAccountConfig } from './google-calendar-client.js';
 import { synchronizeFutureGoogleCalendarScheduleEvents } from './google-calendar-sync.js';
 
 export interface GoogleCalendarSyncWorker {
@@ -31,6 +31,7 @@ export function createGoogleCalendarSyncWorker({
   let running = false;
   const tick = async () => {
     if (running) return;
+    if (!resolveGoogleCalendarServiceAccountIdentity(config)) return;
     running = true;
     try {
       await synchronizeFutureGoogleCalendarScheduleEvents({ repository, storage, config });

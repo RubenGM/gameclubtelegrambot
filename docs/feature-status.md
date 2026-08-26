@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-08-18.
+Última revisión: 2026-08-26.
 
 Este documento refleja lo que existe en el código actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -22,7 +22,7 @@ Este documento refleja lo que existe en el código actual, no solo lo que aparec
 | Mesas                                        | 🟢 Operativo        | Administración de mesas y consulta de tablas activas para socios.                                                                     |
 | Equipamiento                                 | 🟢 Operativo        | Alta admin y reserva múltiple de equipamiento en actividades, con detalle y avisos de solapamiento.                                   |
 | Agenda de actividades                        | 🟢 Operativo        | Creación Telegram/web con token, reservas de mesa/equipamiento, promoción, altas/bajas, conflictos y recordatorios.                  |
-| Google Calendar                              | 🟢 Operativo        | Selección admin, acceso público/privado, sincronización Agenda → Google y enlace limpio desde grupos/topics.                          |
+| Google Calendar                              | 🟢 Operativo        | Configuración web completa, acceso público/privado, sincronización Agenda → Google y enlace limpio desde grupos/topics.              |
 | Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
 | Catálogo                                     | 🟢 Operativo        | CRUD, posiciones físicas fila/columna, búsqueda, media con Storage, BGG/Open Library/Wikipedia y progreso editable.                   |
 | Préstamos                                    | 🟢 Operativo        | Acceso directo a Mis préstamos, recordatorios privados semanales, devolución directa, alta admin y dashboard de préstamos activos.  |
@@ -245,6 +245,14 @@ Estado: `operativo`.
 
 Integración Google Calendar:
 
+- `Admin → Google Calendar` permite completar la puesta en marcha desde cero:
+  subir o reemplazar el JSON de cuenta de servicio, probar la conexión, listar
+  calendarios modificables, seleccionar por lista o ID/enlace, cambiar la
+  accesibilidad, abrir el enlace, iniciar/detener la sincronización y retirar
+  las credenciales web con confirmación.
+- El archivo web se valida, se guarda con modo `0600` fuera del árbol de
+  despliegue y se lee dinámicamente, de modo que no requiere reiniciar el bot y
+  sobrevive a `./startup.sh`. La variable de entorno anterior sigue soportada.
 - `Inicio → Admin → Calendar Google` y `/google_calendar` permiten seleccionar el calendario asociado, alternar su accesibilidad pública/privada (privado por defecto) e iniciar o detener la sincronización automática.
 - La Agenda conserva la autoridad: las altas, ediciones y cancelaciones se envían a Google Calendar, mientras que los cambios manuales en Google no se importan al bot.
 - Al iniciar la sincronización se reconcilian las actividades futuras existentes; un worker cada cinco minutos reintenta la sincronización de actividades futuras y cancelaciones recientes.
@@ -562,7 +570,7 @@ Implementado:
 - TUI `npm run backup:console`.
 - Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
 - Panel web admin protegido por contraseña de elevación, sesión firmada, token CSRF en acciones POST y límite de intentos de login por la dirección remota que observa Node.
-- `/admin` abre en un dashboard de estado y métricas principales con toolbar operativa, métricas compactas y tarjetas de navegación por dominio; la operación queda separada en secciones: socios/usuarios en `/admin/users`, bienvenidas de grupo en `/admin/welcome`, actividades en `/admin/activities`, catálogo en `/admin/catalog`, Storage en `/admin/storage`, servicio/logs en `/admin/service`, configuración general —incluida la creación web de actividades y la URL pública usada por los accesos web emitidos desde Telegram— y cambio de token en `/admin/config`, backups en `/admin/backups`, feedback en `/admin/feedback`, feeds en `/admin/news` y altas web en `/admin/member-signups`.
+- `/admin` abre en un dashboard de estado y métricas principales con toolbar operativa, métricas compactas y tarjetas de navegación por dominio; la operación queda separada en secciones: socios/usuarios en `/admin/users`, bienvenidas de grupo en `/admin/welcome`, actividades en `/admin/activities`, catálogo en `/admin/catalog`, Storage en `/admin/storage`, Google Calendar en `/admin/google-calendar`, servicio/logs en `/admin/service`, configuración general —incluida la creación web de actividades y la URL pública usada por los accesos web emitidos desde Telegram— y cambio de token en `/admin/config`, backups en `/admin/backups`, feedback en `/admin/feedback`, feeds en `/admin/news` y altas web en `/admin/member-signups`.
 - `/admin/config` permite activar o desactivar la creación web de actividades y configurar la URL pública usada en los enlaces de Telegram; el ajuste se persiste en `app_metadata` y tiene efecto inmediato.
 - Configuración de la web pública desde `/admin/web`, persistida en `app_metadata`, con marca CAWA Girona, temas allowlisted, enlaces destacados, contenido de `/club` y referencias a logo/hero/imágenes auxiliares. La shell pública/admin aplica una capa visual más rica con textura de fondo, cabecera con presencia, tarjetas métricas, formularios y tablas refinadas desde el CSS base compartido.
 - La shell pública/admin usa los SVG de marca incluidos (`/brand/cawa_logo.svg` como logo por defecto y `/brand/cawa_casco.svg` como favicon), manteniendo los assets subidos desde `/admin/web` como override.
@@ -615,7 +623,7 @@ Pendiente:
 | Autorización y auditoría | `src/authorization/service.test.ts`, `src/audit/audit-log.test.ts` |
 | LLM / Admin IA | `src/telegram/llm-command-flow.test.ts`, `src/telegram/llm-command-router.test.ts`, `src/telegram/llm-command-service.test.ts`, `src/telegram/llm-command-schema.test.ts`, `src/telegram/llm-command-prompt.test.ts`, `src/telegram/llm-command-read-actions.test.ts`, `src/telegram/llm-command-metrics.test.ts`, `src/telegram/llm-model-admin-flow.test.ts`, `src/telegram/llm-model-settings.test.ts`, `src/telegram/admin-ai-flow.test.ts` |
 | Agenda | `src/telegram/schedule-flow.test.ts`, `src/telegram/calendar-flow.test.ts`, `src/telegram/schedule-parsing.test.ts`, `src/telegram/schedule-presentation.test.ts`, `src/telegram/promotion-destination-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-catalog-store.test.ts`, `src/schedule/schedule-table-selection.test.ts`, `src/schedule/*reminder*.test.ts` |
-| Google Calendar | `src/google-calendar/google-calendar-settings.test.ts`, `src/google-calendar/google-calendar-sync.test.ts`, `src/telegram/google-calendar-public-link-flow.test.ts` |
+| Google Calendar | `src/google-calendar/google-calendar-admin-service.test.ts`, `src/google-calendar/google-calendar-settings.test.ts`, `src/google-calendar/google-calendar-sync.test.ts`, `src/telegram/google-calendar-public-link-flow.test.ts`, `src/http/admin-http-server.test.ts` |
 | Mesas | `src/telegram/table-admin-flow.test.ts`, `src/telegram/table-read-flow.test.ts` |
 | Equipamiento | `src/equipment/equipment-catalog.test.ts`, `src/telegram/equipment-admin-flow.test.ts`, `src/telegram/schedule-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-catalog-store.test.ts` |
 | Eventos del local | `src/telegram/venue-event-admin-flow.test.ts`, `src/venue-events/venue-event-catalog.test.ts`, `src/venue-events/venue-event-catalog-store.test.ts`, `src/venue-events/venue-event-impact-signals.test.ts`, `src/telegram/today-at-club-summary.test.ts` |

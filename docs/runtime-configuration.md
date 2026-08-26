@@ -75,6 +75,9 @@ El contracte runtime actual inclou:
 - `notion.enabled` opcional; activa les fonts Notion exclusives de cada partida de Rol
 - `notion.credentialEncryptionKey` secret obligatori quan Notion està actiu; xifra localment els tokens que aporta cada DM, no és un token de Notion del club
 - `googleCalendar.serviceAccountJson` opcional; JSON complet d'una compte de servei amb accés d'escriptura al calendari del club
+- `googleCalendar.serviceAccountFile` opcional; ruta del JSON protegit gestionat
+  des del panell web, amb default operatiu
+  `/var/lib/gameclubtelegrambot/google-calendar-service-account.json`
 - `database.host`
 - `database.port`
 - `database.name`
@@ -269,7 +272,12 @@ L'editor TUI pot escriure aquest split automàticament:
 - `bgg.apiKey` activa BoardGameGeek com a font principal per a la importació de jocs i s'envia com a `Authorization: Bearer ...`; si no hi és, el sistema continua amb Wikipedia com a fallback extrem.
 - `translation.deeplApiKey` activa DeepL com a traductor ràpid per a descripcions importades; si falla o no està configurat, el bot usa Codex com a fallback mitjançant `GAMECLUB_CATALOG_CODEX_BIN` o `GAMECLUB_CODEX_BIN`. El perfil Codex compartit per defecte és `gpt-5.6-luna` amb raonament `medium`; `GAMECLUB_BGG_DESCRIPTION_TRANSLATION_MODEL` i `GAMECLUB_BGG_DESCRIPTION_TRANSLATION_REASONING_EFFORT` permeten substituir-lo sense canviar el codi.
 - `notion.enabled` no configura cap compte del club: permet que cada DM de Rol enviï el seu token d'integració durant el flux privat. `GAMECLUB_NOTION_CREDENTIAL_ENCRYPTION_KEY` ha de ser una clau aleatòria de 32 bytes (64 caràcters hex) exclusivament del servidor, guardada només a `config/.env`, ignorat per Git. `./startup.sh` la copia al fitxer d'entorn del servei; no la configuris només a `/etc`, perquè el desplegament la substituirà. Si es perd, els tokens ja xifrats no es podran recuperar i caldrà que els DM els vinculin de nou.
-- `googleCalendar.serviceAccountJson` es proveeix com `GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON`; no s'ha de guardar al JSON runtime. Comparteix el calendari amb el `client_email` de la compte de servei i dona-li permís per fer canvis i gestionar l'ús compartit. La selecció i la sincronització es controlen després des de `Inicio → Admin → Calendar Google`.
+- La via recomanada de Google Calendar és `Admin → Google Calendar`: el panell
+  valida el JSON i el desa fora del desplegament a
+  `/var/lib/gameclubtelegrambot/google-calendar-service-account.json`. La via
+  anterior `GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON` continua disponible;
+  el fitxer web té prioritat quan existeix. Comparteix el calendari amb el
+  `client_email` i dona-li permís per fer canvis i gestionar l'ús compartit.
 - el runtime final mai no necessita recuperar la contrasenya d'elevació original; només necessita poder verificar-la en el futur.
 - `bootstrap.firstAdmin.*` descriu la identitat inicial que el wizard ha de persistir; el sistema no l'ha d'inferir a partir del primer usuari que escriu al bot.
 - `bootstrap.firstAdmin.telegramUserId` és la identitat canònica; `username` només és ajuda humana i no s'ha d'usar com a clau única.

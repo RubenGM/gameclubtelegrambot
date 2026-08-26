@@ -30,6 +30,7 @@ import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalo
 import { createAppMetadataRoleGameAutoSchedulingStore } from '../role-games/role-game-auto-scheduling-store.js';
 import { createDatabaseAppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
 import { createGoogleCalendarSyncWorker, type GoogleCalendarSyncWorker } from '../google-calendar/google-calendar-sync-worker.js';
+import { defaultGoogleCalendarServiceAccountFile } from '../google-calendar/google-calendar-client.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { flushDueCatalogLoanNewsEvents } from '../telegram/catalog-loan-news-buffer.js';
 
@@ -170,11 +171,14 @@ export function createApp({
     }),
   startGoogleCalendarSync = ({ services }) =>
     createGoogleCalendarSyncWorker({
-      enabled: Boolean(config.googleCalendar?.serviceAccountJson),
+      enabled: true,
       intervalMs: 5 * 60_000,
       repository: createDatabaseScheduleRepository({ database: services.database.db }),
       storage: createDatabaseAppMetadataSessionStorage({ database: services.database.db }),
-      config: config.googleCalendar,
+      config: config.googleCalendar = {
+        ...config.googleCalendar,
+        serviceAccountFile: config.googleCalendar?.serviceAccountFile ?? defaultGoogleCalendarServiceAccountFile,
+      },
       logger: {
         error: logger.error?.bind(logger) ?? (() => {}),
       },

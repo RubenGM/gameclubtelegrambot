@@ -46,6 +46,7 @@ GAMECLUB_TELEGRAM_LOCAL_BOT_API_HOST='127.0.0.1'
 GAMECLUB_TELEGRAM_LOCAL_BOT_API_PORT='8081'
 GAMECLUB_TELEGRAM_LOCAL_BOT_API_DATA_DIR='/var/lib/gameclubtelegrambot/telegram-bot-api'
 GAMECLUB_TELEGRAM_LOCAL_BOT_API_TEMP_DIR='/var/lib/gameclubtelegrambot/telegram-bot-api/tmp'
+GAMECLUB_GOOGLE_CALENDAR_DATA_DIR='/var/lib/gameclubtelegrambot'
 VISUDO_BIN="$(command -v visudo 2>/dev/null || true)"
 VISUDO_BIN="${VISUDO_BIN:-/usr/sbin/visudo}"
 
@@ -277,6 +278,7 @@ install_runtime_config() {
   fi
 
   run_root_cmd install -d -m 0750 -o root -g "$OPERATOR_GROUP" "$CONFIG_DIR"
+  run_root_cmd install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$GAMECLUB_GOOGLE_CALENDAR_DATA_DIR"
 
   source_realpath="$(realpath "$CONFIG_SOURCE")"
   target_realpath="$(realpath -m "$CONFIG_TARGET")"

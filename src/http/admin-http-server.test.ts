@@ -16,6 +16,7 @@ import { createCatalogWebAdminTokenStore } from '../catalog/catalog-web-admin-to
 import type { ScheduleWebCreateInput, ScheduleWebCreator } from '../schedule/schedule-web-creator.js';
 import type { BoardGameGeekWebImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import type { AppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
+import type { GoogleCalendarAdminService, GoogleCalendarAdminState } from '../google-calendar/google-calendar-admin-service.js';
 
 test('admin http server exposes public feedback and protects admin pages', async () => {
   const tmp = await mkdtemp(join(tmpdir(), 'gameclub-http-'));
@@ -462,6 +463,56 @@ test('admin http server exposes public feedback and protects admin pages', async
     },
   };
 
+  let googleCalendarState: GoogleCalendarAdminState = {
+    settings: { calendarId: null, calendarUrl: null, visibility: 'private', syncEnabled: false },
+    credentials: { configured: false, source: 'none', identity: null, webFilePath: null },
+    calendars: [],
+    connectionError: null,
+  };
+  const googleCalendarActions: string[] = [];
+  const googleCalendarAdminService: GoogleCalendarAdminService = {
+    async loadState() { return googleCalendarState; },
+    async saveCredentials() {
+      googleCalendarActions.push('credentials');
+      const identity = { clientEmail: 'calendar-bot@example.test', projectId: 'club-project' };
+      googleCalendarState = {
+        ...googleCalendarState,
+        credentials: { configured: true, source: 'web-file', identity, webFilePath: '/tmp/credentials.json' },
+        calendars: [{ id: 'club@example.com', summary: 'Calendario CAWA', accessRole: 'owner' }],
+      };
+      return identity;
+    },
+    async removeWebCredentials() {
+      googleCalendarActions.push('remove');
+      googleCalendarState = {
+        ...googleCalendarState,
+        settings: { ...googleCalendarState.settings, syncEnabled: false },
+        credentials: { configured: false, source: 'none', identity: null, webFilePath: null },
+        calendars: [],
+      };
+    },
+    async testConnection() { googleCalendarActions.push('test'); return { calendars: 1, clientEmail: 'calendar-bot@example.test' }; },
+    async configureCalendar({ calendarIdOrUrl, visibility }) {
+      googleCalendarActions.push(`configure:${calendarIdOrUrl}:${visibility}`);
+      googleCalendarState = {
+        ...googleCalendarState,
+        settings: {
+          calendarId: calendarIdOrUrl,
+          calendarUrl: 'https://calendar.google.com/calendar/u/0?cid=test',
+          visibility,
+          syncEnabled: false,
+        },
+      };
+      return { id: calendarIdOrUrl, summary: 'Calendario CAWA', accessRole: 'owner' };
+    },
+    async setVisibility() {},
+    async setSynchronization(enabled) {
+      googleCalendarActions.push(enabled ? 'sync:start' : 'sync:stop');
+      googleCalendarState = { ...googleCalendarState, settings: { ...googleCalendarState.settings, syncEnabled: enabled } };
+      return { synchronized: enabled ? 3 : 0 };
+    },
+  };
+
   const server = createAdminHttpServer({
     config,
     services: { database: database as never },
@@ -477,6 +528,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     catalogWebAdminTokenStore,
     catalogBggWebImportService,
     catalogDescriptionTranslator,
+    googleCalendarAdminService,
     telegramSender: {
       async sendPrivateMessage(telegramUserId, message) {
         if (telegramUserId === 1002) {
@@ -777,6 +829,68 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(configHtml, /Creación web de actividades/);
     assert.match(configHtml, /Desactivada/);
     assert.doesNotMatch(configHtml, /Logs/);
+
+    const googleCalendarPage = await fetch(`${baseUrl}/admin/google-calendar`, { headers: { cookie } });
+    assert.equal(googleCalendarPage.status, 200);
+    assert.equal(googleCalendarPage.headers.get('cache-control'), 'no-store');
+    assert.equal(googleCalendarPage.headers.get('referrer-policy'), 'no-referrer');
+    const googleCalendarHtml = await googleCalendarPage.text();
+    assert.match(googleCalendarHtml, /Sube el JSON para empezar/);
+    assert.match(googleCalendarHtml, /Archivo JSON de cuenta de servicio/);
+    assert.match(googleCalendarHtml, /Agenda → Google Calendar/);
+    assert.doesNotMatch(googleCalendarHtml, /private_key/);
+
+    const googleBoundary = 'google-calendar-test-boundary';
+    const uploadGoogleCredentials = await fetch(`${baseUrl}/admin/google-calendar`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie, 'content-type': `multipart/form-data; boundary=${googleBoundary}` },
+      body: buildMultipartBody(googleBoundary, { csrfToken, action: 'upload-credentials' }, {
+        name: 'credentials',
+        filename: 'service-account.json',
+        contentType: 'application/json',
+        content: Buffer.from('{"type":"service_account"}'),
+      }) as unknown as BodyInit,
+    });
+    assert.equal(uploadGoogleCredentials.status, 303);
+    assert.ok(googleCalendarActions.includes('credentials'));
+
+    const configuredGooglePage = await fetch(`${baseUrl}/admin/google-calendar`, { headers: { cookie } });
+    const configuredGoogleHtml = await configuredGooglePage.text();
+    assert.match(configuredGoogleHtml, /calendar-bot@example\.test/);
+    assert.match(configuredGoogleHtml, /Calendario CAWA/);
+    assert.match(configuredGoogleHtml, /Probar conexión ahora/);
+
+    const selectGoogleCalendar = await fetch(`${baseUrl}/admin/google-calendar`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({
+        csrfToken,
+        action: 'configure-calendar',
+        calendarId: 'club@example.com',
+        visibility: 'private',
+      }),
+    });
+    assert.equal(selectGoogleCalendar.status, 303);
+    assert.ok(googleCalendarActions.includes('configure:club@example.com:private'));
+
+    const startGoogleSync = await fetch(`${baseUrl}/admin/google-calendar`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, action: 'start-sync' }),
+    });
+    assert.equal(startGoogleSync.status, 303);
+    assert.ok(googleCalendarActions.includes('sync:start'));
+
+    const invalidGoogleRemoval = await fetch(`${baseUrl}/admin/google-calendar`, {
+      method: 'POST',
+      headers: { cookie },
+      body: new URLSearchParams({ csrfToken, action: 'remove-credentials', confirm: 'WRONG' }),
+    });
+    assert.equal(invalidGoogleRemoval.status, 400);
+    assert.match(await invalidGoogleRemoval.text(), /REMOVE_GOOGLE/);
 
     const enableScheduleWebResponse = await fetch(`${baseUrl}/admin/config/activity-form`, {
       method: 'POST',

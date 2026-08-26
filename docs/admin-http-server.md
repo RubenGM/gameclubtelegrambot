@@ -98,6 +98,9 @@ Les seccions principals són:
 - `/admin/backups`: creació, restauració i eliminació de backups
 - `/admin/service`: estat, logs i control del servei
 - `/admin/config`: estat runtime i canvi del token de Telegram
+- `/admin/google-calendar`: càrrega protegida del JSON de compte de servei,
+  prova de connexió, selecció de calendari, accés públic/privat i sincronització
+  Agenda → Google Calendar
 - `/admin/resources`: gestor avançat de recursos
 - `/admin/resources/club_equipment`: alta, edició i desactivació de l'equipament reservable
 
@@ -151,6 +154,8 @@ sol·licituds d'alta.
 
 - cos normal màxim: 64 KiB
 - asset de marca màxim: 2 MiB
+- JSON de compte de servei de Google Calendar: màxim 256 KiB; es valida abans
+  d'escriure i queda a `/var/lib/gameclubtelegrambot/` amb mode `0600`
 - formats d'asset acceptats: PNG, JPEG, WEBP i GIF
 - pàgina de catàleg públic: 24 articles
 - noms d'assets validats abans de resoldre paths

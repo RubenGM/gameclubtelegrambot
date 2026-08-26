@@ -58,6 +58,15 @@ import {
   type ScheduleWebTelegramSender,
 } from '../schedule/schedule-web-creator.js';
 import { buildStartsAt } from '../telegram/schedule-parsing.js';
+import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
+import { createAppMetadataGoogleCalendarSettingsStore } from '../google-calendar/google-calendar-settings.js';
+import {
+  createGoogleCalendarAdminService,
+  safeGoogleCalendarError,
+  type GoogleCalendarAdminService,
+  type GoogleCalendarAdminState,
+} from '../google-calendar/google-calendar-admin-service.js';
+import { defaultGoogleCalendarServiceAccountFile } from '../google-calendar/google-calendar-client.js';
 
 export interface AdminHttpServer {
   start(): Promise<void>;
@@ -85,6 +94,7 @@ export interface CreateAdminHttpServerOptions {
   catalogWebAdminTokenStore?: CatalogWebAdminTokenStore;
   catalogBggWebImportService?: BoardGameGeekWebImportService;
   catalogDescriptionTranslator?: CatalogDescriptionTranslator;
+  googleCalendarAdminService?: GoogleCalendarAdminService;
 }
 
 interface Session {
@@ -306,6 +316,7 @@ export function createAdminHttpServer({
   catalogWebAdminTokenStore,
   catalogBggWebImportService,
   catalogDescriptionTranslator,
+  googleCalendarAdminService,
 }: CreateAdminHttpServerOptions): AdminHttpServer {
   const httpConfig = {
     ...defaultHttpServerConfig,
@@ -354,6 +365,17 @@ export function createAdminHttpServer({
     ...optionalCatalogTranslationTimeout(process.env.GAMECLUB_DEEPL_TIMEOUT_MS),
     codexBin: process.env.GAMECLUB_CATALOG_CODEX_BIN?.trim() ?? process.env.GAMECLUB_CODEX_BIN?.trim() ?? './scripts/codex-cawa.sh',
   });
+  const normalizedGoogleCalendarConfig = config.googleCalendar = {
+    ...config.googleCalendar,
+    serviceAccountFile: config.googleCalendar?.serviceAccountFile ?? defaultGoogleCalendarServiceAccountFile,
+  };
+  const googleCalendarAdmin = googleCalendarAdminService ?? createGoogleCalendarAdminService({
+    config: normalizedGoogleCalendarConfig,
+    settingsStore: createAppMetadataGoogleCalendarSettingsStore({
+      storage: createDatabaseAppMetadataSessionStorage({ database: services.database.db }),
+    }),
+    scheduleRepository: createDatabaseScheduleRepository({ database: services.database.db }),
+  });
   let server: Server | undefined;
 
   const handler = async (request: IncomingMessage, response: ServerResponse) => {
@@ -380,6 +402,7 @@ export function createAdminHttpServer({
         catalogWebAdminTokenStore: catalogWebAdminTokens,
         catalogBggWebImportService: catalogBggWebImporter,
         catalogDescriptionTranslator: catalogTranslator,
+        googleCalendarAdminService: googleCalendarAdmin,
         ...(telegramSender ? { telegramSender } : {}),
       });
     } catch (error) {
@@ -449,6 +472,7 @@ async function routeRequest(options: {
   catalogWebAdminTokenStore: CatalogWebAdminTokenStore;
   catalogBggWebImportService: BoardGameGeekWebImportService;
   catalogDescriptionTranslator: CatalogDescriptionTranslator;
+  googleCalendarAdminService: GoogleCalendarAdminService;
   telegramSender?: HttpTelegramSender;
 }): Promise<void> {
   const { request, response } = options;
@@ -663,6 +687,28 @@ async function routeRequest(options: {
       options.scheduleWebCreateSettingsStore.load(),
     ]);
     sendHtml(response, 200, adminConfigPage(status, adminSession.csrfToken, scheduleWebCreateSettings));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/admin/google-calendar') {
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    const state = await options.googleCalendarAdminService.loadState();
+    sendHtml(response, 200, googleCalendarAdminPage(
+      state,
+      adminSession.csrfToken,
+      url.searchParams.get('notice') ?? '',
+    ));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/admin/google-calendar') {
+    await handleGoogleCalendarAdminAction({
+      request,
+      response,
+      session: adminSession,
+      service: options.googleCalendarAdminService,
+    });
     return;
   }
 
@@ -2477,6 +2523,77 @@ async function handleWebAssetAction({
   }
   await webSettingsStore.save(updateWebSettingsAsset(settings, target, assetPath));
   return true;
+}
+
+async function handleGoogleCalendarAdminAction({
+  request,
+  response,
+  session,
+  service,
+}: {
+  request: IncomingMessage;
+  response: ServerResponse;
+  session: Session;
+  service: GoogleCalendarAdminService;
+}): Promise<void> {
+  response.setHeader('Cache-Control', 'no-store');
+  response.setHeader('Referrer-Policy', 'no-referrer');
+  const contentType = String(request.headers['content-type'] ?? '');
+  const multipart = contentType.toLowerCase().startsWith('multipart/form-data')
+    ? await readMultipartForm(request)
+    : null;
+  const form = multipart?.fields ?? await readForm(request);
+  if (!isValidCsrf(form, session)) {
+    sendHtml(response, 403, page('Acción rechazada', '<p>La sesión admin no es válida. Vuelve a entrar.</p>'));
+    return;
+  }
+
+  const action = form.get('action') ?? '';
+  try {
+    if (action === 'upload-credentials') {
+      const file = multipart?.files.get('credentials');
+      if (!file || file.content.length === 0) throw new Error('Selecciona el archivo JSON de la cuenta de servicio.');
+      if (!file.filename.toLowerCase().endsWith('.json')) throw new Error('El archivo de credenciales debe tener extensión .json.');
+      const identity = await service.saveCredentials(file.content);
+      redirectWithNotice(response, '/admin/google-calendar', `Credenciales guardadas para ${identity.clientEmail}.`);
+      return;
+    }
+    if (action === 'test-connection') {
+      const result = await service.testConnection();
+      redirectWithNotice(response, '/admin/google-calendar', `Conexión correcta: ${result.calendars} calendarios modificables.`);
+      return;
+    }
+    if (action === 'configure-calendar') {
+      const calendarIdOrUrl = (form.get('manualCalendar') ?? '').trim() || (form.get('calendarId') ?? '').trim();
+      const visibility = form.get('visibility');
+      if (visibility !== 'private' && visibility !== 'public') throw new Error('La accesibilidad seleccionada no es válida.');
+      const calendar = await service.configureCalendar({ calendarIdOrUrl, visibility });
+      redirectWithNotice(response, '/admin/google-calendar', `Calendario “${calendar.summary}” configurado correctamente.`);
+      return;
+    }
+    if (action === 'start-sync' || action === 'stop-sync') {
+      const result = await service.setSynchronization(action === 'start-sync');
+      const notice = action === 'start-sync'
+        ? `Sincronización activada; ${result.synchronized} actividades futuras procesadas.`
+        : 'Sincronización automática detenida. Los eventos existentes no se han borrado.';
+      redirectWithNotice(response, '/admin/google-calendar', notice);
+      return;
+    }
+    if (action === 'remove-credentials') {
+      if (form.get('confirm') !== 'REMOVE_GOOGLE') throw new Error('Escribe REMOVE_GOOGLE para retirar las credenciales web.');
+      await service.removeWebCredentials();
+      redirectWithNotice(response, '/admin/google-calendar', 'Credenciales web retiradas y sincronización detenida.');
+      return;
+    }
+    throw new Error('La acción solicitada no es válida.');
+  } catch (error) {
+    const state = await service.loadState();
+    sendHtml(response, 400, googleCalendarAdminPage(state, session.csrfToken, '', safeGoogleCalendarError(error)));
+  }
+}
+
+function redirectWithNotice(response: ServerResponse, path: string, notice: string): void {
+  redirect(response, `${path}?notice=${encodeURIComponent(notice)}`);
 }
 
 type WebAssetTarget = 'logo' | 'hero' | `gallery${1 | 2 | 3}`;
@@ -5392,6 +5509,7 @@ function adminDashboardPage(
     ['Sistema', 'Backups', 'Copias, restauración protegida y borrado confirmado.', '/admin/backups'],
     ['Sistema', 'Servicio y logs', 'Estado systemd, logs recientes y acciones de servicio.', '/admin/service'],
     ['Sistema', 'Configuración general', 'Creación web de actividades, token de Telegram y ajustes del bot.', '/admin/config'],
+    ['Integraciones', 'Google Calendar', 'Credenciales, calendario, privacidad y sincronización de la Agenda.', '/admin/google-calendar'],
     ['Avanzado', 'Recursos avanzados', 'Edicion directa de tablas permitidas para administracion puntual.', '/admin/resources'],
     ['Vista publica', 'Ver actividades', 'Comprobar la agenda como la ve un visitante.', '/actividades'],
     ['Vista publica', 'Ver catalogo', 'Comprobar el catalogo publico publicado.', '/catalogo'],
@@ -5827,6 +5945,47 @@ function adminConfigPage(
     title: 'Configuración general',
     shell: 'admin',
     body: `${errorHtml}<section><h2>Accesos web desde Telegram</h2><p>Esta URL pública se usa tanto para la creación web de actividades como para el modo temporal de administración del catálogo.</p><form method="post" action="/admin/config/activity-form">${csrfInput(csrfToken)}<div class="admin-form-grid"><label>Creación web de actividades<select name="enabled"><option value="false"${scheduleWebCreateSettings.enabled ? '' : ' selected'}>Desactivada</option><option value="true"${scheduleWebCreateSettings.enabled ? ' selected' : ''}>Activada</option></select></label><label>URL pública del bot<input name="publicBaseUrl" type="url" value="${escapeHtml(scheduleWebCreateSettings.publicBaseUrl)}" placeholder="https://cawa.hopto.org" required></label></div><p class="muted">Actividad: 30 minutos y un solo uso. Catálogo admin: 1 hora y reutilizable durante su vigencia.</p><button type="submit">Guardar configuración</button></form></section><section><h2>Runtime config</h2><ul>${status.configFiles.map((item) => `<li>${escapeHtml(item.label)}: ${escapeHtml(item.path)} · ${escapeHtml(item.state)}</li>`).join('')}</ul></section><section><h2>Token de Telegram</h2><p>Cambiar este token reinicia la conexión real del bot con Telegram. Revisa el valor antes de confirmar.</p><form method="post" action="/admin/token">${csrfInput(csrfToken)}<label>Nou token de Telegram<input name="token" type="password" autocomplete="off" pattern="\\d+:[A-Za-z0-9_-]{20,}"></label><button type="submit">Revisar cambio de token</button></form></section>`,
+  });
+}
+
+function googleCalendarAdminPage(
+  state: GoogleCalendarAdminState,
+  csrfToken: string,
+  notice = '',
+  error = '',
+): string {
+  const credentialsLabel = state.credentials.source === 'web-file'
+    ? 'Archivo web protegido'
+    : state.credentials.source === 'environment'
+      ? 'Variable de entorno'
+      : 'Sin configurar';
+  const connectionLabel = !state.credentials.configured
+    ? renderStatusBadge('pendiente')
+    : state.connectionError
+      ? renderStatusBadge('error')
+      : renderStatusBadge('conectado');
+  const selectedCalendar = state.settings.calendarId ?? '';
+  const knownSelected = state.calendars.some((calendar) => calendar.id === selectedCalendar);
+  const calendarOptions = [
+    '<option value="">Selecciona un calendario</option>',
+    ...state.calendars.map((calendar) => `<option value="${escapeHtml(calendar.id)}"${calendar.id === selectedCalendar ? ' selected' : ''}>${escapeHtml(calendar.summary)} · ${escapeHtml(calendar.accessRole)}</option>`),
+    ...(!knownSelected && selectedCalendar ? [`<option value="${escapeHtml(selectedCalendar)}" selected>${escapeHtml(selectedCalendar)} · actualmente seleccionado</option>`] : []),
+  ].join('');
+  const noticeHtml = notice ? `<p class="admin-notice" role="status">${escapeHtml(notice)}</p>` : '';
+  const errorHtml = error ? `<p class="admin-error" role="alert">${escapeHtml(error)}</p>` : '';
+  const connectionError = state.connectionError
+    ? `<p class="admin-error" role="alert"><strong>No se pudo consultar Google:</strong> ${escapeHtml(state.connectionError)}</p>`
+    : '';
+  const identity = state.credentials.identity;
+  const currentUrl = state.settings.calendarUrl
+    ? `<p><a href="${escapeHtml(state.settings.calendarUrl)}" target="_blank" rel="noopener noreferrer">Abrir calendario configurado</a></p>`
+    : '<p class="muted">Todavía no hay un calendario asociado.</p>';
+  const controlsDisabled = state.credentials.configured ? '' : ' disabled';
+
+  return page({
+    title: 'Google Calendar',
+    shell: 'admin',
+    body: `${noticeHtml}${errorHtml}<div class="admin-metrics"><article class="admin-metric-card"><h2>Credenciales</h2><p>${escapeHtml(credentialsLabel)}</p><small>${identity ? escapeHtml(identity.clientEmail) : 'Sube el JSON para empezar'}</small></article><article class="admin-metric-card"><h2>Conexión</h2><p>${connectionLabel}</p><small>${state.credentials.configured && !state.connectionError ? `${state.calendars.length} calendarios modificables` : 'Google Calendar API'}</small></article><article class="admin-metric-card"><h2>Calendario</h2><p>${escapeHtml(state.settings.calendarId ?? 'Sin seleccionar')}</p><small>${state.settings.visibility === 'public' ? 'Público' : 'Privado'}</small></article><article class="admin-metric-card"><h2>Sincronización</h2><p>${state.settings.syncEnabled ? renderStatusBadge('activa') : renderStatusBadge('detenida')}</p><small>Agenda → Google Calendar</small></article></div>${connectionError}<section><h2>1. Cuenta de servicio</h2><p>Sube el archivo JSON descargado de Google Cloud. Se valida y se guarda con permisos restringidos; la clave privada nunca se muestra en esta página ni se guarda en la base de datos.</p><form method="post" action="/admin/google-calendar" enctype="multipart/form-data">${csrfInput(csrfToken)}<input type="hidden" name="action" value="upload-credentials"><label>Archivo JSON de cuenta de servicio<input name="credentials" type="file" accept="application/json,.json" required></label><button type="submit">Guardar y comprobar credenciales</button></form>${state.credentials.configured ? `<form class="row" method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}<button name="action" value="test-connection" type="submit">Probar conexión ahora</button></form>` : ''}${state.credentials.source === 'environment' ? '<p class="muted">La credencial actual procede del entorno del servicio. Si subes un archivo desde aquí, tendrá prioridad sin eliminar la configuración externa.</p>' : ''}</section><section><h2>2. Calendario y accesibilidad</h2><p>Comparte primero el calendario con el correo de la cuenta de servicio usando el permiso «Hacer cambios y gestionar el uso compartido».</p><form method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}<input type="hidden" name="action" value="configure-calendar"><div class="admin-form-grid"><label>Calendarios disponibles<select name="calendarId"${controlsDisabled}>${calendarOptions}</select></label><label>ID o enlace manual<input name="manualCalendar" placeholder="club@group.calendar.google.com o enlace con cid"${controlsDisabled}></label><label>Accesibilidad<select name="visibility"${controlsDisabled}><option value="private"${state.settings.visibility === 'private' ? ' selected' : ''}>Privado</option><option value="public"${state.settings.visibility === 'public' ? ' selected' : ''}>Público</option></select></label></div><p class="muted">Hacerlo público permite que cualquiera con el enlace vea los detalles. En privado, Google debe conceder acceso a cada socio o grupo.</p><button type="submit"${controlsDisabled}>Guardar calendario y accesibilidad</button></form>${currentUrl}</section><section><h2>3. Sincronización automática</h2><p>La Agenda del bot seguirá siendo la fuente de verdad. Al iniciar se copiarán todas las actividades futuras; después se enviarán altas, cambios y cancelaciones y se reconciliarán cada cinco minutos.</p><form class="row" method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}${state.settings.syncEnabled ? '<button class="button-danger" name="action" value="stop-sync" type="submit">Detener sincronización</button>' : `<button name="action" value="start-sync" type="submit"${!state.credentials.configured || !state.settings.calendarId ? ' disabled' : ''}>Iniciar sincronización</button>`}</form></section>${state.credentials.source === 'web-file' ? `<section class="admin-danger-panel"><h2>Retirar credenciales web</h2><p>Detendrá la sincronización y eliminará el archivo protegido subido desde este panel. No borra los eventos existentes en Google Calendar.</p><form method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}<input type="hidden" name="action" value="remove-credentials"><label>Confirmación<input name="confirm" autocomplete="off" placeholder="REMOVE_GOOGLE" required></label><button class="button-danger" type="submit">Retirar credenciales</button></form></section>` : ''}`,
   });
 }
 

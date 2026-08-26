@@ -1,4 +1,5 @@
 import { createSign } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import type { GoogleCalendarVisibility } from './google-calendar-settings.js';
 import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
@@ -6,9 +7,16 @@ import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
 const calendarScope = 'https://www.googleapis.com/auth/calendar';
 const tokenEndpoint = 'https://oauth2.googleapis.com/token';
 const calendarApiBaseUrl = 'https://www.googleapis.com/calendar/v3';
+export const defaultGoogleCalendarServiceAccountFile = '/var/lib/gameclubtelegrambot/google-calendar-service-account.json';
 
 export interface GoogleCalendarServiceAccountConfig {
   serviceAccountJson?: string | undefined;
+  serviceAccountFile?: string | undefined;
+}
+
+export interface GoogleCalendarServiceAccountIdentity {
+  clientEmail: string;
+  projectId: string | null;
 }
 
 export interface GoogleCalendarSummary {
@@ -48,7 +56,7 @@ export function createGoogleCalendarClient({
   fetchFn?: typeof fetch;
   now?: () => number;
 }): GoogleCalendarClient {
-  const credentials = parseCredentials(config?.serviceAccountJson);
+  const credentials = parseCredentials(resolveServiceAccountJson(config));
   let cachedToken: { value: string; expiresAt: number } | null = null;
 
   const accessToken = async (): Promise<string> => {
@@ -157,6 +165,22 @@ export function createGoogleCalendarClient({
   };
 }
 
+export function inspectGoogleCalendarServiceAccountJson(raw: string): GoogleCalendarServiceAccountIdentity {
+  const credentials = parseCredentials(raw);
+  return { clientEmail: credentials.clientEmail, projectId: credentials.projectId };
+}
+
+export function resolveGoogleCalendarServiceAccountIdentity(
+  config: GoogleCalendarServiceAccountConfig | undefined,
+): GoogleCalendarServiceAccountIdentity | null {
+  try {
+    const raw = resolveServiceAccountJson(config);
+    return raw ? inspectGoogleCalendarServiceAccountJson(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function buildGoogleCalendarUrl(calendarId: string): string {
   return `https://calendar.google.com/calendar/u/0?cid=${Buffer.from(calendarId, 'utf8').toString('base64url')}`;
 }
@@ -201,18 +225,36 @@ function toGoogleEvent(event: ScheduleEventRecord): Record<string, unknown> {
   };
 }
 
-function parseCredentials(raw: string | undefined): { clientEmail: string; privateKey: string } {
+function resolveServiceAccountJson(config: GoogleCalendarServiceAccountConfig | undefined): string | undefined {
+  const filePath = config?.serviceAccountFile?.trim();
+  if (filePath) {
+    try {
+      return readFileSync(filePath, 'utf8');
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT')) {
+        throw new GoogleCalendarConfigurationError('No se pudo leer el archivo de credenciales de Google Calendar.');
+      }
+    }
+  }
+  return config?.serviceAccountJson;
+}
+
+function parseCredentials(raw: string | undefined): { clientEmail: string; privateKey: string; projectId: string | null } {
   if (!raw?.trim()) {
-    throw new GoogleCalendarConfigurationError('Falta GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON.');
+    throw new GoogleCalendarConfigurationError('Faltan las credenciales de la cuenta de servicio de Google Calendar.');
   }
   try {
-    const value = JSON.parse(raw) as { client_email?: unknown; private_key?: unknown };
-    if (typeof value.client_email !== 'string' || !value.client_email.trim() || typeof value.private_key !== 'string' || !value.private_key.trim()) {
+    const value = JSON.parse(raw) as { type?: unknown; client_email?: unknown; private_key?: unknown; project_id?: unknown };
+    if (value.type !== 'service_account' || typeof value.client_email !== 'string' || !value.client_email.trim() || typeof value.private_key !== 'string' || !value.private_key.trim()) {
       throw new Error('missing fields');
     }
-    return { clientEmail: value.client_email.trim(), privateKey: value.private_key.replace(/\\n/g, '\n') };
+    return {
+      clientEmail: value.client_email.trim(),
+      privateKey: value.private_key.replace(/\\n/g, '\n'),
+      projectId: typeof value.project_id === 'string' && value.project_id.trim() ? value.project_id.trim() : null,
+    };
   } catch {
-    throw new GoogleCalendarConfigurationError('GAMECLUB_GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON no contiene una cuenta de servicio válida.');
+    throw new GoogleCalendarConfigurationError('El JSON no contiene una cuenta de servicio de Google válida.');
   }
 }
 

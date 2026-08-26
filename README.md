@@ -81,7 +81,8 @@ componentes, persistencia, workers, seguridad e integraciones.
 
 Algunas funciones requieren dependencias o credenciales adicionales:
 
-- cuenta de servicio de Google Calendar;
+- cuenta de servicio de Google Calendar, configurable mediante archivo JSON
+  desde `Admin → Google Calendar`;
 - integración de Notion y clave de cifrado;
 - Codex para lenguaje natural y generación de imágenes;
 - CUPS, LibreOffice e ImageMagick para impresión;

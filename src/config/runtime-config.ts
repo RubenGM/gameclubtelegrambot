@@ -97,6 +97,7 @@ const notionConfigSchema = z
 const googleCalendarConfigSchema = z
   .object({
     serviceAccountJson: z.string().trim().min(1).optional(),
+    serviceAccountFile: z.string().trim().min(1).optional(),
   })
   .optional();
 
