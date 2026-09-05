@@ -1370,7 +1370,7 @@ test('handleTelegramScheduleText uses the full-create defaults, shows the select
   assert.match(replies.at(-1)?.message ?? '', /<b>Tipo:<\/b> Mesa cerrada/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Mesa:<\/b> Sin mesa/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 3), [
-    [texts.editFieldDuration, texts.detailsAttendanceMode],
+    [texts.editFieldDuration, texts.editFieldAttendanceMode],
     [texts.editFieldTable, texts.editFieldEquipment],
     [texts.editFieldDescription],
   ]);
@@ -1415,6 +1415,11 @@ test('handleTelegramScheduleText asks for capacity and creates a simple activity
 
   context.messageText = '16:00';
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'attendance-mode');
+  assert.equal(replies.at(-1)?.message, createTelegramI18n('ca').schedule.askAttendanceMode);
+
+  context.messageText = createTelegramI18n('ca').schedule.attendanceClosed;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create-simple',
     stepKey: 'capacity',
@@ -1423,7 +1428,7 @@ test('handleTelegramScheduleText asks for capacity and creates a simple activity
       date: '2026-04-05',
       time: '16:00',
       durationMinutes: 180,
-      attendanceMode: 'open',
+      attendanceMode: 'closed',
       isPublic: false,
       initialOccupiedSeats: 0,
       tableId: null,
@@ -1451,7 +1456,7 @@ test('handleTelegramScheduleText asks for capacity and creates a simple activity
     description: null,
     startsAt: '2026-04-05T14:00:00.000Z',
     durationMinutes: 180,
-    attendanceMode: 'open',
+    attendanceMode: 'closed',
     isPublic: false,
     initialOccupiedSeats: 0,
     capacity: 7,
@@ -1487,6 +1492,9 @@ test('handleTelegramScheduleText creates a simple activity after selecting minut
 
   context.messageText = ':30';
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'attendance-mode');
+  context.messageText = createTelegramI18n('ca').schedule.attendanceOpen;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
   context.messageText = '6';
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -1509,6 +1517,9 @@ test('handleTelegramScheduleText validates capacity and returns to time in simpl
   context.messageText = '16:00';
   await handleTelegramScheduleText(context);
 
+  context.messageText = texts.attendanceOpen;
+  await handleTelegramScheduleText(context);
+
   context.messageText = '0';
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
@@ -1519,10 +1530,18 @@ test('handleTelegramScheduleText validates capacity and returns to time in simpl
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create-simple',
-    stepKey: 'time',
-    data: { title: 'Heat', date: '2026-04-05' },
+    stepKey: 'attendance-mode',
+    data: {
+      title: 'Heat',
+      date: '2026-04-05',
+      time: '16:00',
+      durationMinutes: 180,
+      isPublic: false,
+      initialOccupiedSeats: 0,
+      tableId: null,
+    },
   });
-  assert.equal(replies.at(-1)?.message, texts.askTime);
+  assert.equal(replies.at(-1)?.message, texts.askAttendanceMode);
 });
 
 test('handleTelegramScheduleText keeps summary-customized open activities member-only by default', async () => {
@@ -3157,7 +3176,7 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
     replyKeyboard: [
       ['Títol', scheduleLabels.editFieldDate],
       [scheduleLabels.editFieldTime, scheduleLabels.editFieldDuration],
-      [scheduleLabels.editFieldCapacity],
+      [scheduleLabels.editFieldCapacity, scheduleLabels.editFieldAttendanceMode],
       [scheduleLabels.editFieldInitialOccupiedSeats],
       [scheduleLabels.editFieldPublicVisibility],
       [scheduleLabels.editFieldTable, scheduleLabels.editFieldEquipment],
@@ -3191,11 +3210,18 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
   assert.equal(await handleTelegramScheduleText(context), true);
   context.messageText = scheduleLabels.noTable;
   assert.equal(await handleTelegramScheduleText(context), true);
+  context.messageText = scheduleLabels.editFieldAttendanceMode;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'attendance-mode');
+  context.messageText = texts.attendanceClosed;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Tipus:<\/b> Taula tancada/);
   context.messageText = texts.confirmEdit;
   assert.equal(await handleTelegramScheduleText(context), true);
 
   assert.equal((await scheduleRepository.findEventById(3))?.title, 'Root Deluxe');
   assert.equal((await scheduleRepository.findEventById(3))?.capacity, 5);
+  assert.equal((await scheduleRepository.findEventById(3))?.attendanceMode, 'closed');
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.updated');
   assert.equal(auditRepository.__events.at(-1)?.targetId, '3');
 });

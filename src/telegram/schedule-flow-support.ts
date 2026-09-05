@@ -166,7 +166,6 @@ const defaultCreateScheduleValues = {
 } as const;
 const simpleScheduleDefaults = {
   durationMinutes: defaultScheduleDurationMinutes,
-  attendanceMode: 'open',
   isPublic: false,
   initialOccupiedSeats: 0,
   tableId: null,
@@ -754,8 +753,8 @@ async function handleCreateSession(
     const time = parseTime(text);
     if (!(time instanceof Error)) {
       if (isSimpleCreate) {
-        await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...simpleScheduleDefaults } });
-        await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+        await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, time, ...simpleScheduleDefaults } });
+        await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
         return true;
       }
       await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...defaultCreateScheduleValues } });
@@ -786,8 +785,8 @@ async function handleCreateSession(
     }
     const time = buildTimeFromHourAndMinute(timeHour, minuteSelection);
     if (isSimpleCreate) {
-      await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...simpleScheduleDefaults } });
-      await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+      await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, time, ...simpleScheduleDefaults } });
+      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...defaultCreateScheduleValues } });
@@ -890,6 +889,14 @@ async function handleCreateSession(
       });
       return true;
     }
+    if (isSimpleCreate) {
+      await context.runtime.session.advance({
+        stepKey: 'capacity',
+        data: { ...data, attendanceMode, isPublic: false, initialOccupiedSeats: 0 },
+      });
+      await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+      return true;
+    }
     if (attendanceMode === 'open') {
       await context.runtime.session.advance({ stepKey: 'public-visibility', data: { ...data, attendanceMode } });
       await context.reply(texts.askPublicVisibility, buildPublicVisibilityOptions(language));
@@ -963,7 +970,7 @@ async function handleCreateSession(
       await context.reply(texts.askDuration, buildCreateDurationOptions(language));
       return true;
     }
-    if (text === texts.detailsAttendanceMode) {
+    if (text === texts.editFieldAttendanceMode || text === scheduleLabels.editFieldAttendanceMode || text === texts.detailsAttendanceMode) {
       await context.runtime.session.advance({ stepKey: 'confirm-attendance-mode', data });
       await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
       return true;
@@ -1274,10 +1281,17 @@ async function handleCreateSessionBack(
   if (stepKey === 'capacity') {
     if (isSimpleCreate) {
       await context.runtime.session.advance({
-        stepKey: 'time',
-        data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date },
+        stepKey: 'attendance-mode',
+        data: {
+          title: data.title,
+          ...descriptionPatch,
+          ...linkedCatalogPatch,
+          date: data.date,
+          time: data.time,
+          ...simpleScheduleDefaults,
+        },
       });
-      await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
+      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
       return true;
     }
     if (data.attendanceMode === 'open') {
@@ -1408,6 +1422,9 @@ async function handleEditSession(
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
   const event = await loadEventOrThrow(context, Number(data.eventId));
+  const editedAttendanceMode = data.attendanceMode === 'open' || data.attendanceMode === 'closed'
+    ? data.attendanceMode
+    : event.attendanceMode;
     if (stepKey === 'select-field') {
       if (text === texts.confirmEdit || text === scheduleLabels.confirmEdit) {
         await persistEditedScheduleEvent(context, event, data);
@@ -1443,12 +1460,17 @@ async function handleEditSession(
       await context.reply(texts.askEditCapacity, buildKeepCurrentKeyboard(language));
       return true;
     }
-    if (event.attendanceMode === 'open' && (text === texts.editFieldInitialOccupiedSeats || text === scheduleLabels.editFieldInitialOccupiedSeats)) {
+    if (text === texts.editFieldAttendanceMode || text === scheduleLabels.editFieldAttendanceMode) {
+      await context.runtime.session.advance({ stepKey: 'attendance-mode', data });
+      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+      return true;
+    }
+    if (editedAttendanceMode === 'open' && (text === texts.editFieldInitialOccupiedSeats || text === scheduleLabels.editFieldInitialOccupiedSeats)) {
       await context.runtime.session.advance({ stepKey: 'initial-occupied-seats', data });
       await context.reply(texts.askEditInitialOccupiedSeats, buildEditInitialOccupiedSeatsOptions(language));
       return true;
     }
-    if (event.attendanceMode === 'open' && (text === texts.editFieldPublicVisibility || text === scheduleLabels.editFieldPublicVisibility)) {
+    if (editedAttendanceMode === 'open' && (text === texts.editFieldPublicVisibility || text === scheduleLabels.editFieldPublicVisibility)) {
       await context.runtime.session.advance({ stepKey: 'public-visibility', data });
       await context.reply(texts.askPublicVisibility, buildEditPublicVisibilityOptions(language));
       return true;
@@ -1462,7 +1484,7 @@ async function handleEditSession(
       await promptEditEquipmentSelection(context, event, data);
       return true;
     }
-    await context.reply(texts.selectFieldPrompt, buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', hasPublicVisibility: event.attendanceMode === 'open', language }));
+    await context.reply(texts.selectFieldPrompt, buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: editedAttendanceMode === 'open', hasPublicVisibility: editedAttendanceMode === 'open', language }));
     return true;
   }
 
@@ -1599,7 +1621,7 @@ async function handleEditSession(
       await context.reply(texts.invalidCapacity, buildKeepCurrentKeyboard(language));
       return true;
     }
-    if (event.attendanceMode === 'open') {
+    if (editedAttendanceMode === 'open') {
       const initialOccupiedSeats = Number(data.initialOccupiedSeats ?? event.initialOccupiedSeats);
       const attendance = await getScheduleEventAttendance({ repository: resolveScheduleRepository(context), eventId: event.id });
       const activeParticipantCount = attendance.activeParticipantTelegramUserIds.length;
@@ -1609,6 +1631,17 @@ async function handleEditSession(
       }
     }
     return returnToEditMenu(context, event, data, { capacity });
+  }
+  if (stepKey === 'attendance-mode') {
+    const attendanceMode = parseAttendanceModeSelection(text, texts);
+    if (attendanceMode === null) {
+      await context.reply(texts.invalidAttendanceMode, buildAttendanceModeOptions(language));
+      return true;
+    }
+    return returnToEditMenu(context, event, data, {
+      attendanceMode,
+      ...(attendanceMode === 'closed' ? { isPublic: false, initialOccupiedSeats: 0 } : {}),
+    });
   }
   if (stepKey === 'initial-occupied-seats') {
     if (text === texts.keepCurrent || text === scheduleLabels.keepCurrent) {
@@ -1676,7 +1709,7 @@ async function returnToEditMenu(
         equipmentRepository: resolveEquipmentRepository(context),
         resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
       })}\n\n${texts.selectFieldPrompt}`,
-      { ...buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: event.attendanceMode === 'open', hasPublicVisibility: event.attendanceMode === 'open', language }), parseMode: 'HTML' },
+      { ...buildEditFieldMenuOptionsForEvent({ hasInitialOccupiedSeats: nextData.attendanceMode === 'open' || (!('attendanceMode' in nextData) && event.attendanceMode === 'open'), hasPublicVisibility: nextData.attendanceMode === 'open' || (!('attendanceMode' in nextData) && event.attendanceMode === 'open'), language }), parseMode: 'HTML' },
     );
   return true;
 }
@@ -1726,7 +1759,7 @@ async function persistEditedScheduleEvent(
     tableId,
     equipmentIds,
     catalogItemId: event.catalogItemId ?? null,
-    attendanceMode: event.attendanceMode,
+    attendanceMode: data.attendanceMode === 'open' || data.attendanceMode === 'closed' ? data.attendanceMode : event.attendanceMode,
     isPublic: Object.prototype.hasOwnProperty.call(data, 'isPublic') ? data.isPublic === true : event.isPublic,
     initialOccupiedSeats: Number(data.initialOccupiedSeats ?? event.initialOccupiedSeats),
     capacity: Number(data.capacity ?? event.capacity),

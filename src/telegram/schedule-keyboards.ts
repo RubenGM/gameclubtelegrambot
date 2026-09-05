@@ -15,6 +15,7 @@ export const scheduleLabels = {
   editFieldDate: 'Data inici',
   editFieldTime: 'Hora inici',
   editFieldDuration: 'Durada',
+  editFieldAttendanceMode: 'Tipus de taula',
   editFieldCapacity: 'Places',
   editFieldInitialOccupiedSeats: 'Places ocupades inicials',
   editFieldPublicVisibility: 'Visibilitat',
@@ -161,7 +162,7 @@ export function buildCreateConfirmOptions(language: BotLanguage = 'ca'): Telegra
   const texts = createTelegramI18n(language).schedule;
   return {
     replyKeyboard: [
-      [texts.editFieldDuration, texts.detailsAttendanceMode],
+      [texts.editFieldDuration, texts.editFieldAttendanceMode],
       [texts.editFieldTable, texts.editFieldEquipment],
       [texts.editFieldDescription],
       [successButton(texts.confirmCreate)],
@@ -266,7 +267,7 @@ export function buildEditFieldMenuOptionsForEvent({
     replyKeyboard: [
       [texts.editFieldTitle, texts.editFieldDate],
       [texts.editFieldTime, texts.editFieldDuration],
-      [texts.editFieldCapacity],
+      [texts.editFieldCapacity, texts.editFieldAttendanceMode],
       ...(hasInitialOccupiedSeats ? [[texts.editFieldInitialOccupiedSeats]] : []),
       ...(hasPublicVisibility ? [[texts.editFieldPublicVisibility]] : []),
       [texts.editFieldTable, texts.editFieldEquipment],
