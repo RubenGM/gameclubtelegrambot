@@ -110,7 +110,7 @@ Implementado:
 - Menú principal dinámico por rol, estado, chat y sesión en `src/telegram/action-menu.ts`.
 - El menú aprobado/admin muestra "LFG (buscar grupo)", "Rol", "Avisos" y una acción visible para cambiar el nombre mostrado por el bot; el menú raíz de admins añade un botón `Admin` que abre las herramientas administrativas sin mezclar solicitudes, usuarios, mesas admin y bienvenidas con las acciones diarias.
 - `Inicio` y `/start` normal limpian cualquier sesión activa antes de reconstruir la portada, evitando dejar al usuario atrapado con un teclado de `/cancel`, y muestran hasta 3 avisos activos recientes.
-- Ayuda contextual en `src/telegram/command-registry.ts` y sección activa gestionada desde `runtime-boundary-registration.ts`.
+- Ayuda contextual en `src/telegram/command-registry.ts` y sección activa gestionada desde `runtime-boundary-registration.ts`; tanto `Ayuda` como `/help` vuelven a adjuntar el menú dinámico para reflejar inmediatamente permisos y features activas.
 - Soporte visible para `ca`, `es` y `en`.
 
 Riesgos o pendientes:

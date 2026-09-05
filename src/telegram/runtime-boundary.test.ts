@@ -290,6 +290,19 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
         nextStatus: 'approved',
       },
     },
+    {
+      actionKey: 'telegram.menu.shown',
+      targetType: 'telegram-menu',
+      targetId: 'private-admin-default',
+      summary: 'Telegram menu shown: private-admin-default',
+      details: {
+        chatKind: 'private',
+        actorRole: 'admin',
+        language: 'ca',
+        visibleActionIds: ['schedule', 'catalog', 'storage', 'group_purchases', 'lfg', 'role_games', 'notices', 'change_display_name', 'admin', 'image_generation', 'language', 'help'],
+        visibleLabels: ['Activitats', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'LFG (buscar grup)', 'Rol', 'Avisos', 'Canviar nom', 'Admin', 'Generació d’imatges', 'Idioma', 'Ajuda'],
+      },
+    },
   ]);
 });
 
@@ -1242,6 +1255,7 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
   assert.match(replies[0]?.message ?? '', /sol·licituds/i);
   assert.match(replies[1]?.message ?? '', /Què pots fer ara/);
+  assert.deepEqual(replyKeyboardLabels(replies[1]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Rol'], ['Avisos', 'Canviar nom'], ['Admin'], ['Generació d’imatges'], ['Idioma', 'Ajuda']]);
   assert.match(replies[2]?.message ?? '', /Sol·licituds pendents/);
   assert.deepEqual(
     replies[2]?.options?.inlineKeyboard?.flat().map((button) => button.text),
@@ -2947,6 +2961,7 @@ test('createTelegramBoundary shows contextual help after opening a submenu', asy
   assert.equal(telegram.status.bot, 'connected');
   assert.match(replies.at(-1)?.message ?? '', /Detalls del menú actual: Emmagatzematge/);
   assert.match(replies.at(-1)?.message ?? '', /pots veure categories, cercar arxius, obrir entrades per ID/i);
+  assert.deepEqual(replyKeyboardLabels(replies.at(-1)?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes', 'LFG (buscar grup)'], ['Rol', 'Avisos'], ['Canviar nom'], ['Idioma', 'Ajuda']]);
 });
 
 test('createTelegramBoundary routes plain text keyboard actions for schedule management', async () => {

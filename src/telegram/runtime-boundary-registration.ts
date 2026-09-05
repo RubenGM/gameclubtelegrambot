@@ -2222,13 +2222,7 @@ function createDefaultCommands({
       access: 'public',
       description: 'Mostra ajuda contextual',
       handle: async (context) => {
-        await context.reply(
-          renderTelegramHelpMessage({
-            commands: createDefaultCommands({ publicName, adminElevationPasswordHash }),
-            context,
-            section: resolveHelpSection(context),
-          }),
-        );
+        await replyWithHelpAndCurrentKeyboard(context, { publicName, adminElevationPasswordHash });
       },
     },
   ];
@@ -2612,13 +2606,7 @@ function registerMembershipCallbacks({
   });
 
   bot.onCallback('menu:help', async (context) => {
-    await context.reply(
-      renderTelegramHelpMessage({
-        commands: createDefaultCommands({ publicName, adminElevationPasswordHash }),
-        context,
-        section: resolveHelpSection(context),
-      }),
-    );
+    await replyWithHelpAndCurrentKeyboard(context, { publicName, adminElevationPasswordHash });
   });
 
   bot.onCallback('approve_access:', async (context) => {
@@ -3208,13 +3196,7 @@ async function handleTelegramActionMenuText(
     }
 
     if (selection.actionId === 'help') {
-      await context.reply(
-        renderTelegramHelpMessage({
-          commands: createDefaultCommands(commandConfig),
-          context,
-          section: resolveHelpSection(context),
-        }),
-      );
+      await replyWithHelpAndCurrentKeyboard(context, commandConfig);
       return true;
     }
 
@@ -3426,6 +3408,20 @@ async function replyWithStartAndDefaultKeyboard(context: TelegramCommandHandlerC
   });
   await context.reply(startReply.message, startReply.options);
   return true;
+}
+
+async function replyWithHelpAndCurrentKeyboard(
+  context: TelegramCommandHandlerContext,
+  commandConfig: { publicName: string; adminElevationPasswordHash: string },
+): Promise<void> {
+  await context.reply(
+    renderTelegramHelpMessage({
+      commands: createDefaultCommands(commandConfig),
+      context,
+      section: resolveHelpSection(context),
+    }),
+    await buildReplyOptionsForCurrentActionMenu(context),
+  );
 }
 
 async function clearTelegramTemporaryState(context: TelegramCommandHandlerContext): Promise<number> {
