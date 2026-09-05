@@ -147,6 +147,8 @@ function sampleRecurringGame(overrides: Partial<RoleGameRecord> = {}): RoleGameR
     defaultIsPublicScheduleEvent: false,
     autoAddConfirmedPlayers: false,
     allowPlayerManualScheduling: false,
+    preferredWeekday: null,
+    preferredStartTime: null,
     schedulingMode: 'recurring',
     recurrenceRule: { intervalWeeks: 1, weekday: 1, time: '12:00' },
     recurrenceWindowCount: 6,

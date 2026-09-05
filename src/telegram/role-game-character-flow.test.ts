@@ -64,6 +64,7 @@ const game: RoleGameRecord = {
   visibility: 'members', publicJoinPolicy: 'members_only', entryMode: 'request', acceptanceMode: 'manual_review', capacity: 6,
   primaryGmTelegramUserId: 900, defaultDurationMinutes: 180, defaultTableId: null, defaultAttendanceMode: 'closed',
   defaultIsPublicScheduleEvent: false, autoAddConfirmedPlayers: true, allowPlayerManualScheduling: false,
+  preferredWeekday: null, preferredStartTime: null,
   schedulingMode: 'manual', recurrenceRule: null, recurrenceWindowCount: 0, createdByTelegramUserId: 900,
   createdAt: '2026-07-14T10:00:00.000Z', updatedAt: '2026-07-14T10:00:00.000Z', closedAt: null,
 };

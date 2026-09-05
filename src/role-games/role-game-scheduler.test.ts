@@ -644,6 +644,8 @@ function sampleGame(overrides: Partial<RoleGameRecord> = {}): RoleGameRecord {
     defaultIsPublicScheduleEvent: false,
     autoAddConfirmedPlayers: true,
     allowPlayerManualScheduling: false,
+    preferredWeekday: null,
+    preferredStartTime: null,
     schedulingMode: 'manual',
     recurrenceRule: null,
     recurrenceWindowCount: 0,

@@ -448,6 +448,8 @@ export const roleGames = pgTable(
     defaultIsPublicScheduleEvent: boolean('default_is_public_schedule_event').notNull().default(false),
     autoAddConfirmedPlayers: boolean('auto_add_confirmed_players').notNull().default(false),
     allowPlayerManualScheduling: boolean('allow_player_manual_scheduling').notNull().default(false),
+    preferredWeekday: integer('preferred_weekday'),
+    preferredStartTime: varchar('preferred_start_time', { length: 5 }),
     schedulingMode: varchar('scheduling_mode', { length: 16 }).notNull().default('manual'),
     recurrenceRule: jsonb('recurrence_rule'),
     recurrenceWindowCount: integer('recurrence_window_count').notNull().default(0),

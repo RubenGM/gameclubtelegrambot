@@ -85,6 +85,8 @@ export function createDatabaseRoleGameRepository({
             defaultIsPublicScheduleEvent: input.defaultIsPublicScheduleEvent,
             autoAddConfirmedPlayers: input.autoAddConfirmedPlayers,
             allowPlayerManualScheduling: input.allowPlayerManualScheduling,
+            preferredWeekday: input.preferredWeekday,
+            preferredStartTime: input.preferredStartTime,
             schedulingMode: input.schedulingMode,
             recurrenceRule: input.recurrenceRule,
             recurrenceWindowCount: input.recurrenceWindowCount,
@@ -1141,6 +1143,8 @@ function mapRoleGameUpdateInput(input: UpdateRoleGameInput): Partial<RoleGameRow
   if (input.defaultIsPublicScheduleEvent !== undefined) values.defaultIsPublicScheduleEvent = input.defaultIsPublicScheduleEvent;
   if (input.autoAddConfirmedPlayers !== undefined) values.autoAddConfirmedPlayers = input.autoAddConfirmedPlayers;
   if (input.allowPlayerManualScheduling !== undefined) values.allowPlayerManualScheduling = input.allowPlayerManualScheduling;
+  if (input.preferredWeekday !== undefined) values.preferredWeekday = input.preferredWeekday;
+  if (input.preferredStartTime !== undefined) values.preferredStartTime = input.preferredStartTime;
   if (input.schedulingMode !== undefined) values.schedulingMode = input.schedulingMode;
   if (input.recurrenceRule !== undefined) values.recurrenceRule = input.recurrenceRule;
   if (input.recurrenceWindowCount !== undefined) values.recurrenceWindowCount = input.recurrenceWindowCount;
@@ -1221,6 +1225,8 @@ function mapRoleGameRow(row: RoleGameRow): RoleGameRecord {
     defaultIsPublicScheduleEvent: row.defaultIsPublicScheduleEvent,
     autoAddConfirmedPlayers: row.autoAddConfirmedPlayers,
     allowPlayerManualScheduling: row.allowPlayerManualScheduling,
+    preferredWeekday: row.preferredWeekday as RoleGameRecord['preferredWeekday'],
+    preferredStartTime: row.preferredStartTime,
     schedulingMode: row.schedulingMode as RoleGameRecord['schedulingMode'],
     recurrenceRule: row.recurrenceRule as RoleGameRecurrenceRule | null,
     recurrenceWindowCount: row.recurrenceWindowCount,

@@ -58,6 +58,8 @@ integrationTest('PostgreSQL transfers ownership atomically and approves only one
       defaultIsPublicScheduleEvent: false,
       autoAddConfirmedPlayers: false,
       allowPlayerManualScheduling: false,
+      preferredWeekday: null,
+      preferredStartTime: null,
       schedulingMode: 'manual',
       recurrenceRule: null,
       recurrenceWindowCount: 0,

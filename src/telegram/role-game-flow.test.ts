@@ -1264,12 +1264,12 @@ test('handleTelegramRoleGameText creates a recurring campaign with recurrence se
   await sendRoleGameText(context, 'Revisión manual');
   assert.match(lastReply(context).message, /publicar ahora/i);
   await sendRoleGameText(context, 'Configurar y publicar en Agenda');
-  assert.match(lastReply(context).message, /frecuencia/i);
+  assert.match(lastReply(context).message, /cada cuántas semanas/i);
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.slice(0, 2).map((row) => row.map(buttonText)), [
     ['Sin días fijos'],
-    ['1', '2'],
+    ['Cada semana', 'Cada 2 semanas'],
   ]);
-  await sendRoleGameText(context, '2');
+  await sendRoleGameText(context, 'Cada 2 semanas');
   assert.match(lastReply(context).message, /día de la semana/i);
   assert.deepEqual(lastReply(context).options?.replyKeyboard?.slice(0, 4).flat().map(buttonText), [
     'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo',
@@ -1624,8 +1624,15 @@ test('cancelling the Agenda confirmation leaves a manual role-game session unwri
 
 test('manual role-game scheduling replaces only the next linked future session after confirmation', async () => {
   const game = sampleRoleGame({ id: 822, primaryGmTelegramUserId: 42, schedulingMode: 'recurring' });
-  const next = sampleScheduleEvent({ id: 1, startsAt: '2026-08-06T18:00:00.000Z' });
-  const later = sampleScheduleEvent({ id: 2, startsAt: '2026-08-13T18:00:00.000Z' });
+  const nextStartsAt = new Date();
+  nextStartsAt.setDate(nextStartsAt.getDate() + 1);
+  nextStartsAt.setHours(18, 0, 0, 0);
+  const laterStartsAt = new Date(nextStartsAt);
+  laterStartsAt.setDate(laterStartsAt.getDate() + 7);
+  const replacementStartsAt = new Date(laterStartsAt);
+  replacementStartsAt.setDate(replacementStartsAt.getDate() + 7);
+  const next = sampleScheduleEvent({ id: 1, startsAt: nextStartsAt.toISOString() });
+  const later = sampleScheduleEvent({ id: 2, startsAt: laterStartsAt.toISOString() });
   const scheduleRepository = createFakeScheduleRepository({ events: [next, later] });
   const context = createRoleGameTestContext({
     messageText: '',
@@ -1642,7 +1649,11 @@ test('manual role-game scheduling replaces only the next linked future session a
 
   await handleTelegramRoleGameCallback(context);
   delete context.callbackData;
-  await sendRoleGameText(context, '20/08/2026');
+  await sendRoleGameText(context, [
+    String(replacementStartsAt.getDate()).padStart(2, '0'),
+    String(replacementStartsAt.getMonth() + 1).padStart(2, '0'),
+    String(replacementStartsAt.getFullYear()),
+  ].join('/'));
   await sendRoleGameText(context, '18:00');
 
   assert.match(lastReply(context).message, /Ya hay una próxima sesión programada/i);
@@ -1652,7 +1663,7 @@ test('manual role-game scheduling replaces only the next linked future session a
 
   assert.equal((await scheduleRepository.findEventById(next.id))?.lifecycleStatus, 'cancelled');
   assert.equal((await scheduleRepository.findEventById(later.id))?.lifecycleStatus, 'scheduled');
-  assert.equal((await scheduleRepository.findEventById(3))?.startsAt, '2026-08-20T16:00:00.000Z');
+  assert.equal((await scheduleRepository.findEventById(3))?.startsAt, replacementStartsAt.toISOString());
 });
 
 test('Agenda confirmation is shown again when exact manual-session details change before writing', async () => {
@@ -1717,7 +1728,10 @@ test('handleTelegramRoleGameCallback hides manual scheduling for paused campaign
 test('handleTelegramRoleGameCallback lets managers configure recurrence with confirmation', async () => {
   let updatedGame: RoleGameRecord | null = null;
   const game = sampleRoleGame({ id: 88, primaryGmTelegramUserId: 42, schedulingMode: 'manual' });
-  const futureEvent = sampleScheduleEvent({ id: 1, startsAt: new Date(2026, 7, 6, 18, 0).toISOString() });
+  const futureEventDate = new Date();
+  futureEventDate.setDate(futureEventDate.getDate() + 1);
+  futureEventDate.setHours(18, 0, 0, 0);
+  const futureEvent = sampleScheduleEvent({ id: 1, startsAt: futureEventDate.toISOString() });
   const roleGameRepository = createFakeRoleGameRepository({
     gamesById: [game],
     membersByGameId: new Map([[game.id, []]]),
@@ -1736,7 +1750,7 @@ test('handleTelegramRoleGameCallback lets managers configure recurrence with con
 
   assert.equal(await handleTelegramRoleGameCallback(context), true);
   assert.equal(getCurrentSession(context)?.flowKey, 'role-game-recurrence-config');
-  assert.match(lastReply(context).message, /frecuencia/i);
+  assert.match(lastReply(context).message, /cada cuántas semanas/i);
 
   delete context.callbackData;
   await sendRoleGameText(context, '1');
@@ -1875,6 +1889,96 @@ test('handleTelegramRoleGameCallback lets confirmed players schedule when the ga
 
   assert.equal((await scheduleRepository.findEventById(1))?.createdByTelegramUserId, 77);
   assert.equal(roleGameRepository.createdSessionLinks.at(0)?.createdByTelegramUserId, 77);
+});
+
+test('confirmed players can accept the preferred next session in one click', async () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const preferredTable = {
+    id: 8,
+    displayName: 'Mesa de rol',
+    description: null,
+    recommendedCapacity: 6,
+    lifecycleStatus: 'active' as const,
+    createdAt: '2026-07-09T10:00:00.000Z',
+    updatedAt: '2026-07-09T10:00:00.000Z',
+    deactivatedAt: null,
+  };
+  const game = sampleRoleGame({
+    id: 831,
+    primaryGmTelegramUserId: 42,
+    allowPlayerManualScheduling: true,
+    preferredWeekday: tomorrow.getDay() as RoleGameRecord['preferredWeekday'],
+    preferredStartTime: '18:00',
+    defaultTableId: preferredTable.id,
+  });
+  const player = sampleRoleGameMember({ roleGameId: game.id, telegramUserId: 77, role: 'player', status: 'confirmed' });
+  const scheduleRepository = createFakeScheduleRepository();
+  const roleGameRepository = createFakeRoleGameRepository({
+    gamesById: [game],
+    membersByGameId: new Map([[game.id, [player]]]),
+  });
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: `role_game:schedule:${game.id}`,
+    roleGameRepository,
+    scheduleRepository,
+    tableRepository: {
+      ...createEmptyTableRepository(),
+      findTableById: async (tableId) => tableId === preferredTable.id ? preferredTable : null,
+      listTables: async () => [preferredTable],
+    },
+    actor: { telegramUserId: player.telegramUserId },
+  });
+
+  assert.equal(await handleTelegramRoleGameCallback(context), true);
+  assert.equal(await scheduleRepository.findEventById(1), null);
+  assert.equal(getCurrentSession(context)?.stepKey, 'proposal');
+  assert.match(lastReply(context).message, /¿Quieres programar la siguiente partida el .+, a las 18:00\?/);
+  assert.match(lastReply(context).message, /Mesa preferida: Mesa de rol/);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(0)?.map(buttonText), ['Aceptar', 'Modificar']);
+  assert.deepEqual(lastReply(context).options?.replyKeyboard?.at(1)?.map(buttonText), ['Cancelar']);
+
+  delete context.callbackData;
+  await sendRoleGameText(context, 'Aceptar');
+
+  const event = await scheduleRepository.findEventById(1);
+  assert.equal(event?.tableId, preferredTable.id);
+  assert.equal(event?.createdByTelegramUserId, player.telegramUserId);
+  assert.equal(new Date(event?.startsAt ?? '').getDay(), tomorrow.getDay());
+  assert.equal(new Date(event?.startsAt ?? '').getHours(), 18);
+  assert.equal(getCurrentSession(context), null);
+});
+
+test('modifying a preferred proposal returns to manual date and time without writing', async () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const game = sampleRoleGame({
+    id: 832,
+    allowPlayerManualScheduling: true,
+    preferredWeekday: tomorrow.getDay() as RoleGameRecord['preferredWeekday'],
+    preferredStartTime: '18:00',
+  });
+  const player = sampleRoleGameMember({ roleGameId: game.id, telegramUserId: 77, role: 'player', status: 'confirmed' });
+  const scheduleRepository = createFakeScheduleRepository();
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: `role_game:schedule:${game.id}`,
+    roleGameRepository: createFakeRoleGameRepository({
+      gamesById: [game],
+      membersByGameId: new Map([[game.id, [player]]]),
+    }),
+    scheduleRepository,
+    actor: { telegramUserId: player.telegramUserId },
+  });
+
+  await handleTelegramRoleGameCallback(context);
+  delete context.callbackData;
+  await sendRoleGameText(context, 'Modificar');
+
+  assert.equal(getCurrentSession(context)?.stepKey, 'date');
+  assert.match(lastReply(context).message, /fecha/i);
+  assert.equal(await scheduleRepository.findEventById(1), null);
 });
 
 test('handleTelegramRoleGameCallback blocks confirmed players from manual scheduling when disabled', async () => {
@@ -2125,6 +2229,90 @@ test('handleTelegramRoleGameCallback adapts old edit callbacks to the configurat
   assert.equal(getCurrentSession(context), null);
   assert.match(lastReply(context).message, /Partida actualizada/);
   assert.match(lastReply(context).message, /Título nuevo/);
+});
+
+test('primary GM can edit preferred weekday, time and table for quick player scheduling', async () => {
+  const game = sampleRoleGame({ id: 341, primaryGmTelegramUserId: 42 });
+  const preferredTable = {
+    id: 7,
+    displayName: 'Mesa grande',
+    description: null,
+    recommendedCapacity: 8,
+    lifecycleStatus: 'active' as const,
+    createdAt: '2026-07-09T10:00:00.000Z',
+    updatedAt: '2026-07-09T10:00:00.000Z',
+    deactivatedAt: null,
+  };
+  const repository = createFakeRoleGameRepository({
+    gamesById: [game],
+    onUpdateGame: async (input) => {
+      Object.assign(game, input, { id: game.id });
+      return game;
+    },
+  });
+  const tableRepository: ClubTableRepository = {
+    ...createEmptyTableRepository(),
+    findTableById: async (tableId) => tableId === preferredTable.id ? preferredTable : null,
+    listTables: async () => [preferredTable],
+  };
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: `role_game:edit:${game.id}`,
+    roleGameRepository: repository,
+    tableRepository,
+  });
+
+  await handleTelegramRoleGameCallback(context);
+  delete context.callbackData;
+  await sendRoleGameText(context, 'Editar partida');
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Día preferido'));
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === 'Mesa preferida'));
+  await sendRoleGameText(context, 'Día preferido');
+  await sendRoleGameText(context, 'Domingo');
+
+  context.callbackData = `role_game:edit:${game.id}`;
+  await handleTelegramRoleGameCallback(context);
+  delete context.callbackData;
+  await sendRoleGameText(context, 'Editar partida');
+  await sendRoleGameText(context, 'Hora preferida');
+  await sendRoleGameText(context, '18:00');
+
+  context.callbackData = `role_game:edit:${game.id}`;
+  await handleTelegramRoleGameCallback(context);
+  delete context.callbackData;
+  await sendRoleGameText(context, 'Editar partida');
+  await sendRoleGameText(context, 'Mesa preferida');
+  assert.ok(lastReply(context).options?.replyKeyboard?.flat().some((button) => buttonText(button) === preferredTable.displayName));
+  await sendRoleGameText(context, preferredTable.displayName);
+
+  assert.equal(game.preferredWeekday, 0);
+  assert.equal(game.preferredStartTime, '18:00');
+  assert.equal(game.defaultTableId, preferredTable.id);
+});
+
+test('admins can edit preferred role-game defaults even when they did not create the game', async () => {
+  const game = sampleRoleGame({ id: 342, primaryGmTelegramUserId: 99 });
+  const repository = createFakeRoleGameRepository({
+    gamesById: [game],
+    onUpdateGame: async (input) => {
+      Object.assign(game, input, { id: game.id });
+      return game;
+    },
+  });
+  const context = createRoleGameTestContext({
+    messageText: '',
+    callbackData: `role_game:edit:${game.id}`,
+    roleGameRepository: repository,
+    actor: { isAdmin: true },
+  });
+
+  await handleTelegramRoleGameCallback(context);
+  delete context.callbackData;
+  await sendRoleGameText(context, 'Editar partida');
+  await sendRoleGameText(context, 'Día preferido');
+  await sendRoleGameText(context, 'Viernes');
+
+  assert.equal(game.preferredWeekday, 5);
 });
 
 test('primary GM can cancel a campaign from configuration after explicit confirmation', async () => {
@@ -3686,6 +3874,8 @@ function sampleRoleGame(overrides: Partial<RoleGameRecord> = {}): RoleGameRecord
     defaultIsPublicScheduleEvent: false,
     autoAddConfirmedPlayers: true,
     allowPlayerManualScheduling: false,
+    preferredWeekday: null,
+    preferredStartTime: null,
     schedulingMode: 'manual',
     recurrenceRule: null,
     recurrenceWindowCount: 0,

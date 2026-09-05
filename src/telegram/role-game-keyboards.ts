@@ -78,6 +78,14 @@ export function buildRoleGameCreateConfirmationKeyboard(language: BotLanguage = 
   ]);
 }
 
+export function buildRoleGamePreferredSessionKeyboard(language: BotLanguage = 'ca'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).roleGames;
+  return buildRoleGameReplyKeyboard(language, [
+    [successButton(texts.acceptPreferredSession), primaryButton(texts.modifyPreferredSession)],
+    [dangerButton(texts.cancelPreferredSession)],
+  ]);
+}
+
 export function buildRoleGameCreationConfirmationKeyboard({
   language = 'ca',
   publishToAgenda,

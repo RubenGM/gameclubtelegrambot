@@ -48,6 +48,7 @@ import {
 import type { ScheduleEventRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import type { ClubTableRepository } from '../tables/table-catalog.js';
+import { listSchedulableTables, requireSchedulableTableSelection } from '../schedule/schedule-table-selection.js';
 import type { VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
 import {
@@ -94,6 +95,7 @@ import {
   buildRoleGameParticipantActionConfirmationKeyboard,
   buildRoleGameMaterialsKeyboard,
   buildRoleGameParticipantDetailKeyboard,
+  buildRoleGamePreferredSessionKeyboard,
   buildRoleGameParticipantsKeyboard,
   buildRoleGameSessionsKeyboard,
   roleGameCallbackPrefixes,
@@ -186,7 +188,7 @@ type RoleGameCreateStep =
   | 'initial-session-time'
   | 'confirm';
 
-type RoleGameManualSessionStep = 'date' | 'time' | 'confirm';
+type RoleGameManualSessionStep = 'proposal' | 'date' | 'time' | 'confirm';
 type RoleGameRecurrenceConfigStep = 'interval' | 'weekday' | 'date' | 'time' | 'window' | 'confirm';
 type RoleGameEditField =
   | 'title'
@@ -197,6 +199,9 @@ type RoleGameEditField =
   | 'entryMode'
   | 'acceptanceMode'
   | 'allowPlayerManualScheduling'
+  | 'preferredWeekday'
+  | 'preferredStartTime'
+  | 'defaultTableId'
   | 'defaultIsPublicScheduleEvent'
   | 'status';
 type RoleGameEditStep = 'field' | 'value';
@@ -217,6 +222,8 @@ interface RoleGameCreateDraft {
   defaultIsPublicScheduleEvent?: boolean;
   autoAddConfirmedPlayers?: boolean;
   allowPlayerManualScheduling?: boolean;
+  preferredWeekday?: RoleGameRecurrenceRule['weekday'] | null;
+  preferredStartTime?: string | null;
   schedulingMode?: RoleGameSchedulingMode;
   recurrenceRule?: RoleGameRecurrenceRule | null;
   recurrenceWindowCount?: number;
@@ -386,7 +393,10 @@ export async function handleTelegramRoleGameText(context: TelegramRoleGameContex
     return false;
   }
 
-  if (text === texts.cancel) {
+  if (
+    text === texts.cancel ||
+    (isRoleGameManualSessionSession(context) && text === texts.cancelPreferredSession)
+  ) {
     await context.runtime.session.cancel();
     await context.reply(createTelegramI18n(language).common.flowCancelled, buildRoleGameHomeKeyboard(language));
     return true;
@@ -802,7 +812,7 @@ async function handleRoleGameCreateStep(
           'recurrence-interval',
           draft,
           texts.promptRecurrenceIntervalWeeks,
-          buildRoleGameFrequencyRows(texts.optionNoFixedDays),
+          buildRoleGameFrequencyRows(texts.optionNoFixedDays, texts.optionEveryWeek, texts.optionEveryTwoWeeks),
         );
       }
       draft.schedulingMode = 'manual';
@@ -820,7 +830,7 @@ async function handleRoleGameCreateStep(
           'recurrence-interval',
           draft,
           texts.promptRecurrenceIntervalWeeks,
-          buildRoleGameFrequencyRows(texts.optionNoFixedDays),
+          buildRoleGameFrequencyRows(texts.optionNoFixedDays, texts.optionEveryWeek, texts.optionEveryTwoWeeks),
         );
       }
       if (draft.type === 'one_shot') {
@@ -830,7 +840,12 @@ async function handleRoleGameCreateStep(
       return true;
     }
     if (step === 'recurrence-interval') {
-      const intervalWeeks = parseRoleGameFrequency(text, texts.optionNoFixedDays);
+      const intervalWeeks = parseRoleGameFrequency(
+        text,
+        texts.optionNoFixedDays,
+        texts.optionEveryWeek,
+        texts.optionEveryTwoWeeks,
+      );
       if (intervalWeeks === null) {
         draft.publishToAgendaOnCreate = false;
         draft.schedulingMode = 'manual';
@@ -941,6 +956,8 @@ async function handleRoleGameCreateStep(
         defaultIsPublicScheduleEvent: draft.defaultIsPublicScheduleEvent ?? false,
         autoAddConfirmedPlayers: draft.autoAddConfirmedPlayers ?? true,
         allowPlayerManualScheduling: draft.allowPlayerManualScheduling ?? false,
+        preferredWeekday: draft.preferredWeekday ?? null,
+        preferredStartTime: draft.preferredStartTime ?? null,
         schedulingMode: draft.schedulingMode ?? 'manual',
         recurrenceRule: draft.recurrenceRule ?? null,
         recurrenceWindowCount: draft.recurrenceWindowCount ?? 0,
@@ -1010,6 +1027,42 @@ async function handleRoleGameManualSessionStep(
   const step = session.stepKey as RoleGameManualSessionStep;
 
   try {
+    if (step === 'proposal' && text === texts.modifyPreferredSession) {
+      await context.runtime.session.advance({ stepKey: 'date', data: { gameId: draft.gameId } });
+      await context.reply(texts.promptManualSessionDate, buildRoleGameCreateStepKeyboard({ language }));
+      return true;
+    }
+    if (step === 'proposal' && text === texts.acceptPreferredSession) {
+      const gameId = requireDraftValue(draft.gameId);
+      const game = await resolveRepository(context).findGameById(gameId);
+      if (!game) {
+        await context.runtime.session.cancel();
+        await context.reply(texts.notFound, buildRoleGameHomeKeyboard(language));
+        return true;
+      }
+      const actorMember = await resolveRepository(context).findMemberByTelegramUserId(game.id, context.runtime.actor.telegramUserId);
+      if (!canScheduleManualRoleGameSession(context, game, actorMember)) {
+        await context.runtime.session.cancel();
+        await context.reply(texts.permissionDenied, buildRoleGameHomeKeyboard(language));
+        return true;
+      }
+      if (game.preferredWeekday === null || game.preferredStartTime === null) {
+        await context.runtime.session.advance({ stepKey: 'date', data: { gameId } });
+        await context.reply(texts.promptManualSessionDate, buildRoleGameCreateStepKeyboard({ language }));
+        return true;
+      }
+      const proposal = buildNextPreferredRoleGameSession(game, new Date());
+      const signature = buildRoleGameAgendaPreviewSignature(game, [proposal.startsAt]);
+      const nextSession = await findNearestFutureRoleGameSession(context, game.id);
+      if (
+        signature !== draft.agendaPreviewSignature ||
+        proposal.startsAt !== draft.agendaPreviewStartsAt?.[0] ||
+        (nextSession?.id ?? undefined) !== draft.overwrittenScheduleEventId
+      ) {
+        return replyWithRoleGamePreferredSessionProposal(context, { language, game });
+      }
+      return finalizeRoleGameManualSession(context, { game, draft, language });
+    }
     if (step === 'date') {
       const date = parseDate(text);
       if (date instanceof Error) {
@@ -1092,30 +1145,7 @@ async function handleRoleGameManualSessionStep(
         });
         return true;
       }
-      if (draft.overwrittenScheduleEventId) {
-        const existing = await resolveScheduleRepository(context).findEventById(draft.overwrittenScheduleEventId);
-        if (existing && existing.lifecycleStatus !== 'cancelled' && existing.startsAt > new Date().toISOString()) {
-          await resolveScheduleRepository(context).cancelEvent({
-            eventId: existing.id,
-            actorTelegramUserId: context.runtime.actor.telegramUserId,
-            reason: 'Reemplazada por la siguiente sesión manual de Rol',
-          });
-        }
-      }
-      const sessionResult = await createManualRoleGameSession({
-        roleGameRepository: resolveRepository(context),
-        scheduleRepository: resolveScheduleRepository(context),
-        game,
-        startsAt: requireDraftValue(draft.agendaPreviewStartsAt)[0]!,
-        actorTelegramUserId: context.runtime.actor.telegramUserId,
-      });
-      await runAfterScheduleSaveSideEffects(context, sessionResult.event, 'created');
-      await context.runtime.session.cancel();
-      await context.reply(`${texts.sessionScheduled}\n\n${formatRoleGameScheduleEventLink(sessionResult.event.id, sessionResult.event.startsAt)}`, {
-        ...buildRoleGameHomeKeyboard(language),
-        parseMode: 'HTML',
-      });
-      return true;
+      return finalizeRoleGameManualSession(context, { game, draft, language });
     }
   } catch {
     await context.reply(texts.invalidCreateValue, buildRoleGameCreateStepKeyboard({ language }));
@@ -1123,6 +1153,106 @@ async function handleRoleGameManualSessionStep(
   }
 
   await context.reply(texts.invalidCreateValue, buildRoleGameCreateStepKeyboard({ language }));
+  return true;
+}
+
+async function replyWithRoleGamePreferredSessionProposal(
+  context: TelegramRoleGameContext,
+  { language, game }: { language: BotLanguage; game: RoleGameRecord },
+): Promise<boolean> {
+  const texts = createTelegramI18n(language).roleGames;
+  const proposal = buildNextPreferredRoleGameSession(game, new Date());
+  const nextSession = await findNearestFutureRoleGameSession(context, game.id);
+  const draft: RoleGameManualSessionDraft = {
+    gameId: game.id,
+    date: proposal.date,
+    time: proposal.time,
+    agendaPreviewStartsAt: [proposal.startsAt],
+    agendaPreviewSignature: buildRoleGameAgendaPreviewSignature(game, [proposal.startsAt]),
+    ...(nextSession ? { overwrittenScheduleEventId: nextSession.id } : {}),
+  };
+  await context.runtime.session.start({
+    flowKey: roleGameManualSessionFlowKey,
+    stepKey: 'proposal',
+    data: { ...draft },
+  });
+  const table = game.defaultTableId !== null && context.tableRepository
+    ? await context.tableRepository.findTableById(game.defaultTableId)
+    : null;
+  const tableLabel = table?.displayName ?? texts.optionNoTable;
+  await context.reply([
+    texts.preferredSessionProposal
+      .replace('{date}', formatRoleGameDateOption(new Date(proposal.startsAt), language))
+      .replace('{time}', proposal.time),
+    texts.preferredSessionTable.replace('{table}', escapeHtml(tableLabel)),
+    nextSession
+      ? texts.promptManualSessionOverwrite.replace('{session}', formatRoleGameScheduleEventLink(nextSession.id, nextSession.startsAt))
+      : null,
+  ].filter((line): line is string => Boolean(line)).join('\n\n'), {
+    ...buildRoleGamePreferredSessionKeyboard(language),
+    parseMode: 'HTML',
+  });
+  return true;
+}
+
+function buildNextPreferredRoleGameSession(
+  game: Pick<RoleGameRecord, 'preferredWeekday' | 'preferredStartTime'>,
+  now: Date,
+): { date: string; time: string; startsAt: string } {
+  if (game.preferredWeekday === null || game.preferredStartTime === null) {
+    throw new Error('preferred role game schedule is incomplete');
+  }
+  const candidate = startOfLocalDay(now);
+  candidate.setDate(candidate.getDate() + ((game.preferredWeekday - candidate.getDay() + 7) % 7));
+  let date = formatLocalIsoDate(candidate);
+  let startsAt = buildStartsAt(date, game.preferredStartTime);
+  if (new Date(startsAt).getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 7);
+    date = formatLocalIsoDate(candidate);
+    startsAt = buildStartsAt(date, game.preferredStartTime);
+  }
+  return { date, time: game.preferredStartTime, startsAt };
+}
+
+async function finalizeRoleGameManualSession(
+  context: TelegramRoleGameContext,
+  {
+    game,
+    draft,
+    language,
+  }: {
+    game: RoleGameRecord;
+    draft: RoleGameManualSessionDraft;
+    language: BotLanguage;
+  },
+): Promise<boolean> {
+  if (game.defaultTableId !== null && context.tableRepository) {
+    await requireSchedulableTableSelection({ repository: context.tableRepository, tableId: game.defaultTableId });
+  }
+  if (draft.overwrittenScheduleEventId) {
+    const existing = await resolveScheduleRepository(context).findEventById(draft.overwrittenScheduleEventId);
+    if (existing && existing.lifecycleStatus !== 'cancelled' && existing.startsAt > new Date().toISOString()) {
+      await resolveScheduleRepository(context).cancelEvent({
+        eventId: existing.id,
+        actorTelegramUserId: context.runtime.actor.telegramUserId,
+        reason: 'Reemplazada por la siguiente sesión manual de Rol',
+      });
+    }
+  }
+  const sessionResult = await createManualRoleGameSession({
+    roleGameRepository: resolveRepository(context),
+    scheduleRepository: resolveScheduleRepository(context),
+    game,
+    startsAt: requireDraftValue(draft.agendaPreviewStartsAt)[0]!,
+    actorTelegramUserId: context.runtime.actor.telegramUserId,
+  });
+  await runAfterScheduleSaveSideEffects(context, sessionResult.event, 'created');
+  await context.runtime.session.cancel();
+  const texts = createTelegramI18n(language).roleGames;
+  await context.reply(`${texts.sessionScheduled}\n\n${formatRoleGameScheduleEventLink(sessionResult.event.id, sessionResult.event.startsAt)}`, {
+    ...buildRoleGameHomeKeyboard(language),
+    parseMode: 'HTML',
+  });
   return true;
 }
 
@@ -1141,7 +1271,12 @@ async function handleRoleGameRecurrenceConfigStep(
 
   try {
     if (step === 'interval') {
-      const intervalWeeks = parseRoleGameFrequency(text, texts.optionNoFixedDays);
+      const intervalWeeks = parseRoleGameFrequency(
+        text,
+        texts.optionNoFixedDays,
+        texts.optionEveryWeek,
+        texts.optionEveryTwoWeeks,
+      );
       if (intervalWeeks === null) {
         draft.schedulingMode = 'manual';
         draft.agendaPreviewStartsAt = [];
@@ -1305,6 +1440,9 @@ async function startRoleGameManualSession(
     await context.reply(texts.permissionDenied, buildRoleGameHomeKeyboard(language));
     return true;
   }
+  if (game.preferredWeekday !== null && game.preferredStartTime !== null) {
+    return replyWithRoleGamePreferredSessionProposal(context, { language, game });
+  }
   await context.runtime.session.start({
     flowKey: roleGameManualSessionFlowKey,
     stepKey: 'date',
@@ -1340,7 +1478,7 @@ async function startRoleGameRecurrenceConfiguration(
   });
   await context.reply(texts.promptRecurrenceIntervalWeeks, buildRoleGameCreateStepKeyboard({
     language,
-    rows: buildRoleGameFrequencyRows(texts.optionNoFixedDays),
+    rows: buildRoleGameFrequencyRows(texts.optionNoFixedDays, texts.optionEveryWeek, texts.optionEveryTwoWeeks),
   }));
   return true;
 }
@@ -1363,7 +1501,10 @@ async function handleRoleGameEditStep(
       const field = parseRoleGameEditField(text, language);
       draft.field = field;
       await context.runtime.session.advance({ stepKey: 'value', data: draft });
-      await context.reply(resolveRoleGameEditPrompt(field, language), buildRoleGameEditValueKeyboard(field, language));
+      await context.reply(
+        resolveRoleGameEditPrompt(field, language),
+        await buildRoleGameEditValueKeyboard(context, field, language),
+      );
       return true;
     }
 
@@ -1384,7 +1525,7 @@ async function handleRoleGameEditStep(
         return true;
       }
 
-      const updated = await repository.updateGame(buildRoleGameEditUpdateInput({
+      const updated = await repository.updateGame(await buildRoleGameEditUpdateInput(context, {
         gameId,
         field,
         text,
@@ -1401,7 +1542,7 @@ async function handleRoleGameEditStep(
     await context.reply(texts.invalidCreateValue, isRoleGameEditFieldStep(context)
       ? buildRoleGameEditFieldKeyboard(language)
       : draft.field
-        ? buildRoleGameEditValueKeyboard(draft.field, language)
+        ? await buildRoleGameEditValueKeyboard(context, draft.field, language)
         : buildRoleGameCreateStepKeyboard({ language }));
     return true;
   }
@@ -3893,6 +4034,9 @@ function parseRoleGameEditField(text: string, language: BotLanguage): RoleGameEd
     entryMode: texts.editEntryModeOption,
     acceptanceMode: texts.editAcceptanceModeOption,
     allowPlayerManualScheduling: texts.editPlayerSchedulingOption,
+    preferredWeekday: texts.editPreferredWeekdayOption,
+    preferredStartTime: texts.editPreferredStartTimeOption,
+    defaultTableId: texts.editPreferredTableOption,
     defaultIsPublicScheduleEvent: texts.editPublicScheduleOption,
     status: texts.editStatusOption,
   });
@@ -3909,6 +4053,9 @@ function resolveRoleGameEditPrompt(field: RoleGameEditField, language: BotLangua
     entryMode: texts.promptEditEntryMode,
     acceptanceMode: texts.promptEditAcceptanceMode,
     allowPlayerManualScheduling: texts.promptEditPlayerScheduling,
+    preferredWeekday: texts.promptEditPreferredWeekday,
+    preferredStartTime: texts.promptEditPreferredStartTime,
+    defaultTableId: texts.promptEditPreferredTable,
     defaultIsPublicScheduleEvent: texts.promptEditPublicSchedule,
     status: texts.promptEditStatus,
   };
@@ -3937,6 +4084,11 @@ function buildRoleGameEditFieldKeyboard(language: BotLanguage) {
         { text: texts.editPlayerSchedulingOption, semanticRole: 'primary' },
       ],
       [
+        { text: texts.editPreferredWeekdayOption, semanticRole: 'primary' },
+        { text: texts.editPreferredStartTimeOption, semanticRole: 'primary' },
+      ],
+      [{ text: texts.editPreferredTableOption, semanticRole: 'primary' }],
+      [
         { text: texts.editPublicScheduleOption, semanticRole: 'primary' },
         { text: texts.editStatusOption, semanticRole: 'primary' },
       ],
@@ -3944,8 +4096,37 @@ function buildRoleGameEditFieldKeyboard(language: BotLanguage) {
   });
 }
 
-function buildRoleGameEditValueKeyboard(field: RoleGameEditField, language: BotLanguage) {
+async function buildRoleGameEditValueKeyboard(
+  context: TelegramRoleGameContext,
+  field: RoleGameEditField,
+  language: BotLanguage,
+) {
   const texts = createTelegramI18n(language).roleGames;
+  if (field === 'preferredWeekday') {
+    return buildRoleGameCreateStepKeyboard({
+      language,
+      rows: [
+        ...buildRoleGameWeekdayRows(language),
+        [{ text: texts.optionNoPreference, semanticRole: 'danger' }],
+      ],
+    });
+  }
+  if (field === 'defaultTableId') {
+    const tables = context.tableRepository
+      ? await listSchedulableTables({ repository: context.tableRepository })
+      : [];
+    const tableRows: TelegramReplyButton[][] = [];
+    for (let index = 0; index < tables.length; index += 2) {
+      tableRows.push(tables.slice(index, index + 2).map((table) => ({
+        text: table.displayName,
+        semanticRole: 'primary' as const,
+      })));
+    }
+    return buildRoleGameCreateStepKeyboard({
+      language,
+      rows: [...tableRows, [{ text: texts.optionNoTable, semanticRole: 'danger' }]],
+    });
+  }
   if (field === 'visibility') {
     return buildRoleGameCreateStepKeyboard({
       language,
@@ -3996,7 +4177,7 @@ function buildRoleGameEditValueKeyboard(field: RoleGameEditField, language: BotL
   return buildRoleGameCreateStepKeyboard({ language });
 }
 
-function buildRoleGameEditUpdateInput({
+async function buildRoleGameEditUpdateInput(context: TelegramRoleGameContext, {
   gameId,
   field,
   text,
@@ -4006,7 +4187,7 @@ function buildRoleGameEditUpdateInput({
   field: RoleGameEditField;
   text: string;
   language: BotLanguage;
-}): UpdateRoleGameInput {
+}): Promise<UpdateRoleGameInput> {
   const texts = createTelegramI18n(language).roleGames;
   if (field === 'title') return { gameId, title: text.trim() };
   if (field === 'system') return { gameId, system: text.trim() };
@@ -4046,6 +4227,29 @@ function buildRoleGameEditUpdateInput({
   if (field === 'allowPlayerManualScheduling') {
     return { gameId, allowPlayerManualScheduling: parseBooleanOption(text, language) };
   }
+  if (field === 'preferredWeekday') {
+    return {
+      gameId,
+      preferredWeekday: normalizeOptionText(text) === normalizeOptionText(texts.optionNoPreference)
+        ? null
+        : parseWeekday(text),
+    };
+  }
+  if (field === 'preferredStartTime') {
+    const preferredStartTime = text.trim() === '-' ? null : parseTimeValue(text);
+    return { gameId, preferredStartTime };
+  }
+  if (field === 'defaultTableId') {
+    if (normalizeOptionText(text) === normalizeOptionText(texts.optionNoTable)) {
+      return { gameId, defaultTableId: null };
+    }
+    if (!context.tableRepository) throw new Error('table repository unavailable');
+    const tables = await listSchedulableTables({ repository: context.tableRepository });
+    const table = tables.find((candidate) => normalizeOptionText(candidate.displayName) === normalizeOptionText(text));
+    if (!table) throw new Error('invalid table');
+    await requireSchedulableTableSelection({ repository: context.tableRepository, tableId: table.id });
+    return { gameId, defaultTableId: table.id };
+  }
   if (field === 'defaultIsPublicScheduleEvent') {
     return { gameId, defaultIsPublicScheduleEvent: parseBooleanOption(text, language) };
   }
@@ -4081,19 +4285,35 @@ function parseBoundedInteger(text: string, min: number, max: number): number {
   return value;
 }
 
-function parseRoleGameFrequency(text: string, noFixedDaysLabel: string): number | null {
-  if (normalizeOptionText(text) === normalizeOptionText(noFixedDaysLabel)) {
+function parseRoleGameFrequency(
+  text: string,
+  noFixedDaysLabel: string,
+  everyWeekLabel: string,
+  everyTwoWeeksLabel: string,
+): number | null {
+  const normalized = normalizeOptionText(text);
+  if (normalized === normalizeOptionText(noFixedDaysLabel)) {
     return null;
+  }
+  if (normalized === normalizeOptionText(everyWeekLabel)) {
+    return 1;
+  }
+  if (normalized === normalizeOptionText(everyTwoWeeksLabel)) {
+    return 2;
   }
   return parseBoundedInteger(text, 1, 52);
 }
 
-function buildRoleGameFrequencyRows(noFixedDaysLabel: string): TelegramReplyButton[][] {
+function buildRoleGameFrequencyRows(
+  noFixedDaysLabel: string,
+  everyWeekLabel: string,
+  everyTwoWeeksLabel: string,
+): TelegramReplyButton[][] {
   return [
     [{ text: noFixedDaysLabel, semanticRole: 'primary' }],
     [
-      { text: '1', semanticRole: 'primary' },
-      { text: '2', semanticRole: 'primary' },
+      { text: everyWeekLabel, semanticRole: 'primary' },
+      { text: everyTwoWeeksLabel, semanticRole: 'primary' },
     ],
   ];
 }
@@ -4518,6 +4738,8 @@ function buildRoleGameRecordFromCreateDraft(draft: RoleGameCreateDraft): RoleGam
     defaultIsPublicScheduleEvent: draft.defaultIsPublicScheduleEvent ?? false,
     autoAddConfirmedPlayers: draft.autoAddConfirmedPlayers ?? true,
     allowPlayerManualScheduling: draft.allowPlayerManualScheduling ?? false,
+    preferredWeekday: draft.preferredWeekday ?? null,
+    preferredStartTime: draft.preferredStartTime ?? null,
     schedulingMode: draft.schedulingMode ?? 'manual',
     recurrenceRule: draft.recurrenceRule ?? null,
     recurrenceWindowCount: draft.recurrenceWindowCount ?? 0,

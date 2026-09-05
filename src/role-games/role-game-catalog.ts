@@ -57,6 +57,8 @@ export interface RoleGameRecord {
   defaultIsPublicScheduleEvent: boolean;
   autoAddConfirmedPlayers: boolean;
   allowPlayerManualScheduling: boolean;
+  preferredWeekday: RoleGameRecurrenceRule['weekday'] | null;
+  preferredStartTime: string | null;
   schedulingMode: RoleGameSchedulingMode;
   recurrenceRule: RoleGameRecurrenceRule | null;
   recurrenceWindowCount: number;
@@ -228,6 +230,8 @@ export interface CreateRoleGameInput {
   defaultIsPublicScheduleEvent: boolean;
   autoAddConfirmedPlayers: boolean;
   allowPlayerManualScheduling: boolean;
+  preferredWeekday: RoleGameRecurrenceRule['weekday'] | null;
+  preferredStartTime: string | null;
   schedulingMode: RoleGameSchedulingMode;
   recurrenceRule: RoleGameRecurrenceRule | null;
   recurrenceWindowCount: number;
@@ -261,6 +265,8 @@ export interface UpdateRoleGameInput {
   defaultIsPublicScheduleEvent?: boolean;
   autoAddConfirmedPlayers?: boolean;
   allowPlayerManualScheduling?: boolean;
+  preferredWeekday?: RoleGameRecurrenceRule['weekday'] | null;
+  preferredStartTime?: string | null;
   schedulingMode?: RoleGameSchedulingMode;
   recurrenceRule?: RoleGameRecurrenceRule | null;
   recurrenceWindowCount?: number;
@@ -986,6 +992,8 @@ function normalizeCreateRoleGameInput(input: CreateRoleGameInput): CreateRoleGam
     createdByTelegramUserId: normalizeTelegramUserId(input.createdByTelegramUserId, 'creator'),
     defaultDurationMinutes: normalizePositiveInteger(input.defaultDurationMinutes, 'default duration minutes', 15, 24 * 60),
     defaultTableId: input.defaultTableId === null ? null : normalizeEntityId(input.defaultTableId, 'table'),
+    preferredWeekday: input.preferredWeekday === null ? null : normalizeWeekday(input.preferredWeekday),
+    preferredStartTime: input.preferredStartTime === null ? null : normalizeTime(input.preferredStartTime),
     recurrenceRule,
     recurrenceWindowCount: normalizeNonNegativeInteger(input.recurrenceWindowCount, 'recurrence window count', 24),
   };

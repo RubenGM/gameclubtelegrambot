@@ -437,6 +437,8 @@ test('database role game repository updates game metadata and lists visible game
     status: 'paused',
     visibility: 'private',
     capacity: 6,
+    preferredWeekday: 0,
+    preferredStartTime: '18:00',
   });
   const visibleToMember = await repository.listVisibleGames({
     actor: { telegramUserId: 100, isAdmin: false, isApproved: true },
@@ -448,6 +450,8 @@ test('database role game repository updates game metadata and lists visible game
   assert.equal(updated.title, 'Masks ampliada');
   assert.equal(updated.status, 'paused');
   assert.equal(updated.capacity, 6);
+  assert.equal(updated.preferredWeekday, 0);
+  assert.equal(updated.preferredStartTime, '18:00');
   assert.deepEqual(
     visibleToMember.map((game) => game.id),
     [publicGame.id, privateGame.id],
@@ -637,6 +641,8 @@ function createCampaignInput(overrides: Partial<CreateRoleGameInput> = {}): Crea
     defaultIsPublicScheduleEvent: false,
     autoAddConfirmedPlayers: true,
     allowPlayerManualScheduling: true,
+    preferredWeekday: null,
+    preferredStartTime: null,
     schedulingMode: 'manual',
     recurrenceRule: null,
     recurrenceWindowCount: 0,
