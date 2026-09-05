@@ -441,7 +441,7 @@ Estado: `operativo`.
 
 Implementado:
 
-- `/group_purchases` con crear y listar.
+- `/group_purchases` con crear y listar; el detalle permite consultar las personas confirmadas y a creador/admin ampliar, cambiar o retirar los plazos de inscripción y confirmación.
 - Modos de compra por unidad o coste compartido.
 - Descripciones enriquecidas con texto y adjuntos opcionales, botón directo de edición para admins/creador y enlaces de descripción en mensajes privados y de grupo; al editar se conserva un único mensaje de detalle e intenta borrar el anterior.
 - Deadlines de unión y confirmación.

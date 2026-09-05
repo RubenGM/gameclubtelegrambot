@@ -45,6 +45,9 @@ export function formatGroupPurchaseDetailMessage({
   if (purchase.joinDeadlineAt) {
     lines.push(`${texts.joinDeadlineLabel}: ${formatShortDate(purchase.joinDeadlineAt)}`);
   }
+  if (purchase.confirmDeadlineAt) {
+    lines.push(`${texts.confirmDeadlineLabel}: ${formatShortDate(purchase.confirmDeadlineAt)}`);
+  }
 
   return lines.join('\n');
 }

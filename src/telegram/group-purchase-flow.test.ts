@@ -526,6 +526,7 @@ test('handleTelegramGroupPurchaseStartText opens purchase detail from /start pay
         inlineKeyboard: [
           [{ text: 'Apuntar-me com interessat', callbackData: 'group_purchase:join_interested:7' }],
           [{ text: 'Apuntar-me i confirmar', callbackData: 'group_purchase:join_confirmed:7' }],
+          [{ text: 'Veure persones confirmades', callbackData: 'group_purchase:view_confirmed:7' }],
         ],
       },
     },
@@ -793,6 +794,7 @@ test('create flow stores a rich description message and publishes the open-descr
     [{ text: 'Detalle de compra conjunta', url: 'https://t.me/cawa_management_bot?start=group_purchase_1' }],
     [{ text: 'Descripción', url: 'https://t.me/cawa_management_bot?start=group_purchase_details_1' }],
     [{ text: 'Participar', url: 'https://t.me/cawa_management_bot?start=group_purchase_join_1' }],
+    [{ text: 'Ver usuarios confirmados', url: 'https://t.me/cawa_management_bot?start=group_purchase_confirmed_1' }],
   ]);
 
   context.messageText = '/start group_purchase_details_1';
@@ -1056,8 +1058,10 @@ test('creator detail view exposes participant management actions', async () => {
     [{ text: 'Apuntar-me i confirmar', callbackData: 'group_purchase:join_confirmed:7' }],
     [{ text: 'Editar compra', callbackData: 'group_purchase:edit_purchase:7' }],
     [{ text: 'Editar descripció', callbackData: 'group_purchase:edit_description:7' }],
+    [{ text: 'Ampliar o canviar dates', callbackData: 'group_purchase:edit_deadlines:7' }],
     [{ text: 'Gestionar participants', callbackData: 'group_purchase:manage_participants:7' }],
     [{ text: 'Cerrar compra', callbackData: 'group_purchase:lifecycle:7:closed' }, { text: 'Cancelar compra', callbackData: 'group_purchase:lifecycle:7:cancelled' }, { text: 'Archivar', callbackData: 'group_purchase:lifecycle:7:archived' }],
+    [{ text: 'Veure persones confirmades', callbackData: 'group_purchase:view_confirmed:7' }],
   ]);
 });
 
@@ -1070,9 +1074,24 @@ test('participant without custom fields does not see the no-op edit values actio
   await handleTelegramGroupPurchaseStartText(context);
 
   assert.deepEqual(replies[0]?.options?.inlineKeyboard, [
+    [{ text: 'Veure persones confirmades', callbackData: 'group_purchase:view_confirmed:58' }],
     [{ text: 'Desapuntar-me', callbackData: 'group_purchase:leave:58' }],
     [{ text: 'Confirmar-me', callbackData: 'group_purchase:confirm:58' }],
   ]);
+});
+
+test('confirmed participant list is available without exposing pending participants', async () => {
+  const repository = createRepository([buildPurchase({ id: 60 })]);
+  await repository.upsertParticipant({ purchaseId: 60, participantTelegramUserId: 77, status: 'confirmed' });
+  await repository.upsertParticipant({ purchaseId: 60, participantTelegramUserId: 88, status: 'interested' });
+  const { context, replies } = createContext(repository);
+  context.callbackData = 'group_purchase:view_confirmed:60';
+
+  await handleTelegramGroupPurchaseCallback(context);
+
+  assert.match(replies[0]?.message ?? '', /Participant 77/);
+  assert.match(replies[0]?.message ?? '', /@participant77/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /Participant 88/);
 });
 
 test('group purchase join deep link asks privately whether to confirm now', async () => {
@@ -1170,6 +1189,30 @@ test('creator can edit purchase title and description', async () => {
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'group_purchase.updated');
 });
 
+test('creator can extend join and confirmation deadlines', async () => {
+  const repository = createRepository([buildPurchase({ id: 53, createdByTelegramUserId: 7 })]);
+  const auditRepository = createAuditRepository();
+  const { context, getCurrentSession } = createContext(repository, { auditRepository });
+
+  context.callbackData = 'group_purchase:edit_deadlines:53';
+  await handleTelegramGroupPurchaseCallback(context);
+  assert.equal(getCurrentSession()?.stepKey, 'join-deadline');
+
+  delete context.callbackData;
+  context.messageText = '30/10';
+  await handleTelegramGroupPurchaseText(context);
+  assert.equal(getCurrentSession()?.stepKey, 'confirm-deadline');
+
+  context.messageText = '31/10';
+  await handleTelegramGroupPurchaseText(context);
+
+  const purchase = await repository.findPurchaseById(53);
+  assert.match(purchase?.joinDeadlineAt ?? '', /-10-30T23:59:59\.000Z$/);
+  assert.match(purchase?.confirmDeadlineAt ?? '', /-10-31T23:59:59\.000Z$/);
+  assert.equal(auditRepository.__events.at(-1)?.actionKey, 'group_purchase.updated');
+  assert.equal(getCurrentSession(), null);
+});
+
 test('editing a purchase publishes the updated summary with its description link', async () => {
   const repository = createRepository([buildPurchase({
     id: 52,
@@ -1217,6 +1260,7 @@ test('editing a purchase publishes the updated summary with its description link
     [{ text: 'Detalle de compra conjunta', url: 'https://t.me/cawa_management_bot?start=group_purchase_52' }],
     [{ text: 'Descripción', url: 'https://t.me/cawa_management_bot?start=group_purchase_details_52' }],
     [{ text: 'Participar', url: 'https://t.me/cawa_management_bot?start=group_purchase_join_52' }],
+    [{ text: 'Ver usuarios confirmados', url: 'https://t.me/cawa_management_bot?start=group_purchase_confirmed_52' }],
   ]);
 });
 
@@ -1403,6 +1447,7 @@ test('shared-cost participant changes are published to enabled notification grou
   assert.deepEqual(groupMessages[1]?.options?.inlineKeyboard, [
     [{ text: 'Detalle de compra conjunta', url: 'https://t.me/cawa_management_bot?start=group_purchase_61' }],
     [{ text: 'Participar', url: 'https://t.me/cawa_management_bot?start=group_purchase_join_61' }],
+    [{ text: 'Ver usuarios confirmados', url: 'https://t.me/cawa_management_bot?start=group_purchase_confirmed_61' }],
   ]);
   assert.match(groupMessages[2]?.message ?? '', /Rubén se ha echado atrás/);
   assert.match(groupMessages[2]?.message ?? '', /Usuarios confirmados actualmente: 0/);
