@@ -838,6 +838,10 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(googleCalendarHtml, /Sube el JSON para empezar/);
     assert.match(googleCalendarHtml, /Archivo JSON de cuenta de servicio/);
     assert.match(googleCalendarHtml, /Agenda → Google Calendar/);
+    assert.match(googleCalendarHtml, /calendar-empty-state/);
+    assert.match(googleCalendarHtml, /calendar-manual-details/);
+    assert.match(googleCalendarHtml, /name="manualCalendar"/);
+    assert.match(googleCalendarHtml, /calendar-visibility-options/);
     assert.doesNotMatch(googleCalendarHtml, /private_key/);
 
     const googleBoundary = 'google-calendar-test-boundary';
@@ -858,7 +862,12 @@ test('admin http server exposes public feedback and protects admin pages', async
     const configuredGooglePage = await fetch(`${baseUrl}/admin/google-calendar`, { headers: { cookie } });
     const configuredGoogleHtml = await configuredGooglePage.text();
     assert.match(configuredGoogleHtml, /calendar-bot@example\.test/);
+    assert.match(configuredGoogleHtml, /calendar-guide-callout/);
+    assert.match(configuredGoogleHtml, /data-copy-target="service-account-email"/);
+    assert.match(configuredGoogleHtml, /calendar-card/);
     assert.match(configuredGoogleHtml, /Calendario CAWA/);
+    assert.match(configuredGoogleHtml, /Propietario/);
+    assert.match(configuredGoogleHtml, /Comprobar calendarios compartidos/);
     assert.match(configuredGoogleHtml, /Probar conexión ahora/);
 
     const selectGoogleCalendar = await fetch(`${baseUrl}/admin/google-calendar`, {
@@ -874,6 +883,30 @@ test('admin http server exposes public feedback and protects admin pages', async
     });
     assert.equal(selectGoogleCalendar.status, 303);
     assert.ok(googleCalendarActions.includes('configure:club@example.com:private'));
+
+    const selectedGooglePage = await fetch(`${baseUrl}/admin/google-calendar`, { headers: { cookie } });
+    const selectedGoogleHtml = await selectedGooglePage.text();
+    assert.match(selectedGoogleHtml, /calendar-active-badge/);
+    assert.match(selectedGoogleHtml, /value="club@example\.com"[^>]*checked/);
+
+    const selectManualCalendar = await fetch(`${baseUrl}/admin/google-calendar`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie },
+      body: new URLSearchParams({
+        csrfToken,
+        action: 'configure-calendar',
+        manualCalendar: 'custom@group.calendar.google.com',
+        visibility: 'public',
+      }),
+    });
+    assert.equal(selectManualCalendar.status, 303);
+    assert.ok(googleCalendarActions.includes('configure:custom@group.calendar.google.com:public'));
+
+    const manualGooglePage = await fetch(`${baseUrl}/admin/google-calendar`, { headers: { cookie } });
+    const manualGoogleHtml = await manualGooglePage.text();
+    assert.match(manualGoogleHtml, /calendar-manual-details[^>]*open/);
+    assert.match(manualGoogleHtml, /value="custom@group\.calendar\.google\.com"/);
 
     const startGoogleSync = await fetch(`${baseUrl}/admin/google-calendar`, {
       method: 'POST',

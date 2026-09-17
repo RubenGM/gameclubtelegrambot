@@ -246,10 +246,12 @@ Estado: `operativo`.
 Integración Google Calendar:
 
 - `Admin → Google Calendar` permite completar la puesta en marcha desde cero:
-  subir o reemplazar el JSON de cuenta de servicio, probar la conexión, listar
-  calendarios modificables, seleccionar por lista o ID/enlace, cambiar la
-  accesibilidad, abrir el enlace, iniciar/detener la sincronización y retirar
-  las credenciales web con confirmación.
+  subir o reemplazar el JSON de cuenta de servicio, probar la conexión, guía de
+  compartición con copia de correo en un clic y comprobación reactiva, selector
+  de calendario mediante tarjetas interactivas, estado asistido ante 0
+  calendarios, acordeón plegable para ID o enlace manual con ayuda contextual,
+  cambiar la accesibilidad, abrir el enlace, iniciar/detener la sincronización y
+  retirar las credenciales web con confirmación.
 - El archivo web se valida, se guarda con modo `0600` fuera del árbol de
   despliegue y se lee dinámicamente, de modo que no requiere reiniciar el bot y
   sobrevive a `./startup.sh`. La variable de entorno anterior sigue soportada.

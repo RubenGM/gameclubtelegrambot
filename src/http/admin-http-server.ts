@@ -5966,11 +5966,6 @@ function googleCalendarAdminPage(
       : renderStatusBadge('conectado');
   const selectedCalendar = state.settings.calendarId ?? '';
   const knownSelected = state.calendars.some((calendar) => calendar.id === selectedCalendar);
-  const calendarOptions = [
-    '<option value="">Selecciona un calendario</option>',
-    ...state.calendars.map((calendar) => `<option value="${escapeHtml(calendar.id)}"${calendar.id === selectedCalendar ? ' selected' : ''}>${escapeHtml(calendar.summary)} · ${escapeHtml(calendar.accessRole)}</option>`),
-    ...(!knownSelected && selectedCalendar ? [`<option value="${escapeHtml(selectedCalendar)}" selected>${escapeHtml(selectedCalendar)} · actualmente seleccionado</option>`] : []),
-  ].join('');
   const noticeHtml = notice ? `<p class="admin-notice" role="status">${escapeHtml(notice)}</p>` : '';
   const errorHtml = error ? `<p class="admin-error" role="alert">${escapeHtml(error)}</p>` : '';
   const connectionError = state.connectionError
@@ -5982,10 +5977,142 @@ function googleCalendarAdminPage(
     : '<p class="muted">Todavía no hay un calendario asociado.</p>';
   const controlsDisabled = state.credentials.configured ? '' : ' disabled';
 
+  const cardsOrEmptyState = !state.credentials.configured
+    ? `<div class="calendar-empty-state"><p><strong>Configura primero las credenciales en la sección 1.</strong></p><p>Sube el archivo JSON de la cuenta de servicio para habilitar la selección de calendarios.</p></div>`
+    : state.calendars.length > 0
+      ? `<div class="calendar-cards-grid">${state.calendars.map((calendar) => {
+          const isSelected = calendar.id === selectedCalendar;
+          const roleLabel = calendar.accessRole === 'owner'
+            ? 'Propietario'
+            : calendar.accessRole === 'writer'
+              ? 'Editor'
+              : calendar.accessRole === 'reader'
+                ? 'Lector'
+                : calendar.accessRole;
+          return `<label class="calendar-card${isSelected ? ' selected' : ''}"><input type="radio" name="calendarId" value="${escapeHtml(calendar.id)}"${isSelected ? ' checked' : ''}${controlsDisabled}><div class="calendar-card-body"><div class="calendar-card-header"><span class="calendar-card-title">${escapeHtml(calendar.summary)}</span><span class="calendar-role-badge">${escapeHtml(roleLabel)}</span>${isSelected ? '<span class="calendar-active-badge">Activo</span>' : ''}</div><code class="calendar-card-id">${escapeHtml(calendar.id)}</code></div></label>`;
+        }).join('')}</div>`
+      : `<div class="calendar-empty-state"><p><strong>Aún no se ha detectado ningún calendario compartido con esta cuenta.</strong></p><p>Asegúrate de haber completado el paso 1 compartiendo el calendario con el correo de la cuenta de servicio y pulsa «Comprobar calendarios compartidos».</p></div>`;
+
+  const guideEmailBlock = identity
+    ? `<p>Copia el correo de la cuenta de servicio y dale acceso en Google Calendar:</p><div class="calendar-email-box"><code id="service-account-email">${escapeHtml(identity.clientEmail)}</code><button type="button" class="calendar-copy-btn" data-copy-target="service-account-email">Copiar correo</button></div>`
+    : '<p class="muted">Configura primero la cuenta de servicio en la sección 1 para ver el correo de compartición.</p>';
+
+  const manualValue = !knownSelected && selectedCalendar ? selectedCalendar : '';
+
   return page({
     title: 'Google Calendar',
     shell: 'admin',
-    body: `${noticeHtml}${errorHtml}<div class="admin-metrics"><article class="admin-metric-card"><h2>Credenciales</h2><p>${escapeHtml(credentialsLabel)}</p><small>${identity ? escapeHtml(identity.clientEmail) : 'Sube el JSON para empezar'}</small></article><article class="admin-metric-card"><h2>Conexión</h2><p>${connectionLabel}</p><small>${state.credentials.configured && !state.connectionError ? `${state.calendars.length} calendarios modificables` : 'Google Calendar API'}</small></article><article class="admin-metric-card"><h2>Calendario</h2><p>${escapeHtml(state.settings.calendarId ?? 'Sin seleccionar')}</p><small>${state.settings.visibility === 'public' ? 'Público' : 'Privado'}</small></article><article class="admin-metric-card"><h2>Sincronización</h2><p>${state.settings.syncEnabled ? renderStatusBadge('activa') : renderStatusBadge('detenida')}</p><small>Agenda → Google Calendar</small></article></div>${connectionError}<section><h2>1. Cuenta de servicio</h2><p>Sube el archivo JSON descargado de Google Cloud. Se valida y se guarda con permisos restringidos; la clave privada nunca se muestra en esta página ni se guarda en la base de datos.</p><form method="post" action="/admin/google-calendar" enctype="multipart/form-data">${csrfInput(csrfToken)}<input type="hidden" name="action" value="upload-credentials"><label>Archivo JSON de cuenta de servicio<input name="credentials" type="file" accept="application/json,.json" required></label><button type="submit">Guardar y comprobar credenciales</button></form>${state.credentials.configured ? `<form class="row" method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}<button name="action" value="test-connection" type="submit">Probar conexión ahora</button></form>` : ''}${state.credentials.source === 'environment' ? '<p class="muted">La credencial actual procede del entorno del servicio. Si subes un archivo desde aquí, tendrá prioridad sin eliminar la configuración externa.</p>' : ''}</section><section><h2>2. Calendario y accesibilidad</h2><p>Comparte primero el calendario con el correo de la cuenta de servicio usando el permiso «Hacer cambios y gestionar el uso compartido».</p><form method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}<input type="hidden" name="action" value="configure-calendar"><div class="admin-form-grid"><label>Calendarios disponibles<select name="calendarId"${controlsDisabled}>${calendarOptions}</select></label><label>ID o enlace manual<input name="manualCalendar" placeholder="club@group.calendar.google.com o enlace con cid"${controlsDisabled}></label><label>Accesibilidad<select name="visibility"${controlsDisabled}><option value="private"${state.settings.visibility === 'private' ? ' selected' : ''}>Privado</option><option value="public"${state.settings.visibility === 'public' ? ' selected' : ''}>Público</option></select></label></div><p class="muted">Hacerlo público permite que cualquiera con el enlace vea los detalles. En privado, Google debe conceder acceso a cada socio o grupo.</p><button type="submit"${controlsDisabled}>Guardar calendario y accesibilidad</button></form>${currentUrl}</section><section><h2>3. Sincronización automática</h2><p>La Agenda del bot seguirá siendo la fuente de verdad. Al iniciar se copiarán todas las actividades futuras; después se enviarán altas, cambios y cancelaciones y se reconciliarán cada cinco minutos.</p><form class="row" method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}${state.settings.syncEnabled ? '<button class="button-danger" name="action" value="stop-sync" type="submit">Detener sincronización</button>' : `<button name="action" value="start-sync" type="submit"${!state.credentials.configured || !state.settings.calendarId ? ' disabled' : ''}>Iniciar sincronización</button>`}</form></section>${state.credentials.source === 'web-file' ? `<section class="admin-danger-panel"><h2>Retirar credenciales web</h2><p>Detendrá la sincronización y eliminará el archivo protegido subido desde este panel. No borra los eventos existentes en Google Calendar.</p><form method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}<input type="hidden" name="action" value="remove-credentials"><label>Confirmación<input name="confirm" autocomplete="off" placeholder="REMOVE_GOOGLE" required></label><button class="button-danger" type="submit">Retirar credenciales</button></form></section>` : ''}`,
+    body: `<style>
+.calendar-guide-callout{background:linear-gradient(180deg,var(--cawa-surface),color-mix(in srgb,var(--cawa-surface-alt) 60%,var(--cawa-surface)));border:1px solid var(--cawa-line);border-radius:10px;padding:16px 18px;margin:14px 0 22px;box-shadow:0 4px 14px color-mix(in srgb,var(--cawa-text) 5%,transparent)}
+.calendar-guide-callout h3{margin:0 0 10px;font-size:16px;color:var(--cawa-brand)}
+.calendar-email-box{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:var(--cawa-surface-alt);border:1px solid var(--cawa-line);border-radius:8px;padding:8px 12px;margin:10px 0 14px}
+.calendar-email-box code{font-family:monospace;font-size:13px;font-weight:700;word-break:break-all;flex:1 1 auto;color:var(--cawa-text)}
+.calendar-copy-btn{min-height:32px;padding:5px 12px;font-size:12px;font-weight:700;white-space:nowrap;background:var(--cawa-surface);color:var(--cawa-brand);border:1px solid var(--cawa-line);border-radius:6px;cursor:pointer;box-shadow:none;transition:all .15s ease}
+.calendar-copy-btn:hover{background:var(--cawa-surface-alt);border-color:var(--cawa-brand)}
+.calendar-copy-btn.copied{background:color-mix(in srgb,#2fb96f 16%,var(--cawa-surface));border-color:#167f45;color:#116b3a}
+.calendar-guide-steps{margin:10px 0 16px;padding-left:20px;font-size:13.5px;line-height:1.55;color:var(--cawa-text)}
+.calendar-guide-steps li{margin-bottom:7px}
+.calendar-guide-steps li:last-child{margin-bottom:0}
+.calendar-refresh-form{margin:10px 0 0}
+.button-secondary{background:var(--cawa-surface);color:var(--cawa-brand);border:1px solid var(--cawa-line);box-shadow:none}
+.button-secondary:hover{background:var(--cawa-surface-alt);border-color:var(--cawa-brand)}
+.calendar-cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin:12px 0 18px}
+.calendar-card{display:flex;align-items:flex-start;gap:12px;padding:14px;border:2px solid var(--cawa-line);border-radius:8px;background:var(--cawa-surface);cursor:pointer;transition:border-color .15s ease,background-color .15s ease,box-shadow .15s ease;user-select:none}
+.calendar-card:hover{border-color:color-mix(in srgb,var(--cawa-brand) 50%,var(--cawa-line))}
+.calendar-card.selected,.calendar-card:has(input:checked){border-color:var(--cawa-brand);background:color-mix(in srgb,var(--cawa-brand-soft) 40%,var(--cawa-surface));box-shadow:0 0 0 1px var(--cawa-brand)}
+.calendar-card input[type="radio"]{width:auto;margin:3px 0 0;cursor:pointer}
+.calendar-card-body{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1}
+.calendar-card-header{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.calendar-card-title{font-weight:750;font-size:14px;color:var(--cawa-text);overflow-wrap:anywhere}
+.calendar-role-badge{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--cawa-surface-alt);border:1px solid var(--cawa-line);color:var(--cawa-muted)}
+.calendar-active-badge{font-size:11px;font-weight:800;padding:2px 7px;border-radius:999px;background:var(--cawa-brand);color:#fff}
+.calendar-card-id{font-family:monospace;font-size:11px;color:var(--cawa-muted);overflow-wrap:anywhere}
+.calendar-empty-state{text-align:center;padding:24px 18px;border:1.5px dashed var(--cawa-line);border-radius:8px;background:color-mix(in srgb,var(--cawa-surface-alt) 45%,var(--cawa-surface));margin:12px 0 18px}
+.calendar-empty-state p{margin:0 0 8px;color:var(--cawa-muted);font-size:13.5px}
+.calendar-empty-state p strong{color:var(--cawa-text);display:block;font-size:15px;margin-bottom:4px}
+.calendar-manual-details{margin:16px 0;border:1px solid var(--cawa-line);border-radius:8px;padding:12px 16px;background:var(--cawa-surface)}
+.calendar-manual-details summary{font-size:13.5px;font-weight:700;cursor:pointer;color:var(--cawa-brand)}
+.calendar-manual-details summary:hover{text-decoration:underline}
+.calendar-manual-content{margin-top:12px}
+.calendar-manual-content label{display:block;font-size:13px;margin-bottom:6px}
+.calendar-manual-content input{margin:6px 0 8px}
+.calendar-manual-content small{display:block;color:var(--cawa-muted);font-size:12px;line-height:1.35}
+.calendar-visibility-fieldset{border:0;padding:0;margin:18px 0}
+.calendar-visibility-legend{font-family:var(--font-heading);font-weight:750;font-size:15px;margin-bottom:8px;color:var(--cawa-text)}
+.calendar-visibility-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.calendar-visibility-card{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:2px solid var(--cawa-line);border-radius:8px;background:var(--cawa-surface);cursor:pointer;transition:border-color .15s ease,background-color .15s ease}
+.calendar-visibility-card:hover{border-color:color-mix(in srgb,var(--cawa-brand) 50%,var(--cawa-line))}
+.calendar-visibility-card:has(input:checked){border-color:var(--cawa-brand);background:color-mix(in srgb,var(--cawa-brand-soft) 40%,var(--cawa-surface))}
+.calendar-visibility-card input[type="radio"]{width:auto;margin:3px 0 0;cursor:pointer}
+.calendar-visibility-card strong{display:block;font-size:13.5px}
+.calendar-visibility-card span{display:block;font-size:12px;color:var(--cawa-muted);margin-top:3px;line-height:1.3}
+</style>${noticeHtml}${errorHtml}<div class="admin-metrics"><article class="admin-metric-card"><h2>Credenciales</h2><p>${escapeHtml(credentialsLabel)}</p><small>${identity ? escapeHtml(identity.clientEmail) : 'Sube el JSON para empezar'}</small></article><article class="admin-metric-card"><h2>Conexión</h2><p>${connectionLabel}</p><small>${state.credentials.configured && !state.connectionError ? `${state.calendars.length} calendarios modificables` : 'Google Calendar API'}</small></article><article class="admin-metric-card"><h2>Calendario</h2><p>${escapeHtml(state.settings.calendarId ?? 'Sin seleccionar')}</p><small>${state.settings.visibility === 'public' ? 'Público' : 'Privado'}</small></article><article class="admin-metric-card"><h2>Sincronización</h2><p>${state.settings.syncEnabled ? renderStatusBadge('activa') : renderStatusBadge('detenida')}</p><small>Agenda → Google Calendar</small></article></div>${connectionError}<section><h2>1. Cuenta de servicio</h2><p>Sube el archivo JSON descargado de Google Cloud. Se valida y se guarda con permisos restringidos; la clave privada nunca se muestra en esta página ni se guarda en la base de datos.</p><form method="post" action="/admin/google-calendar" enctype="multipart/form-data">${csrfInput(csrfToken)}<input type="hidden" name="action" value="upload-credentials"><label>Archivo JSON de cuenta de servicio<input name="credentials" type="file" accept="application/json,.json" required></label><button type="submit">Guardar y comprobar credenciales</button></form>${state.credentials.configured ? `<form class="row" method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}<button name="action" value="test-connection" type="submit">Probar conexión ahora</button></form>` : ''}${state.credentials.source === 'environment' ? '<p class="muted">La credencial actual procede del entorno del servicio. Si subes un archivo desde aquí, tendrá prioridad sin eliminar la configuración externa.</p>' : ''}</section><section><h2>2. Calendario y accesibilidad</h2><div class="calendar-guide-callout"><h3>Paso 1: Comparte tu calendario con el bot</h3>${guideEmailBlock}<ol class="calendar-guide-steps"><li>Abre <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer">Google Calendar</a> con la cuenta que administra el calendario del club.</li><li>En el menú del calendario deseado (tres puntos ⋮), entra en <strong>Configurar y compartir</strong> &rarr; <strong>Compartir con determinadas personas o grupos</strong>.</li><li>Añade el correo copiado con el permiso: <strong>«Hacer cambios y gestionar el uso compartido»</strong> (o al menos <em>«Hacer cambios en eventos»</em>).</li><li>Pulsa el botón de abajo para detectar el calendario inmediatamente.</li></ol>${state.credentials.configured ? `<form class="calendar-refresh-form" method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}<button name="action" value="test-connection" type="submit" class="button-secondary">Comprobar calendarios compartidos</button></form>` : ''}</div><form method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}<input type="hidden" name="action" value="configure-calendar"><h3>Paso 2: Selecciona el calendario</h3>${cardsOrEmptyState}<details class="calendar-manual-details"${!knownSelected && selectedCalendar ? ' open' : ''}><summary>¿No aparece en la lista o prefieres introducirlo manualmente?</summary><div class="calendar-manual-content"><label>ID del calendario o enlace con <code>cid</code>:<input name="manualCalendar" value="${escapeHtml(manualValue)}" placeholder="club@group.calendar.google.com o enlace con cid"${controlsDisabled}></label><small>En Google Calendar, lo encontrarás en: <em>Configuración del calendario &rarr; Integrar el calendario &rarr; ID de calendario</em>.</small></div></details><fieldset class="calendar-visibility-fieldset"><legend class="calendar-visibility-legend">Paso 3: Accesibilidad</legend><div class="calendar-visibility-options"><label class="calendar-visibility-card"><input type="radio" name="visibility" value="private"${state.settings.visibility === 'private' ? ' checked' : ''}${controlsDisabled}><div><strong>🔒 Privado</strong><span>Solo los socios o grupos autorizados en Google pueden ver las actividades.</span></div></label><label class="calendar-visibility-card"><input type="radio" name="visibility" value="public"${state.settings.visibility === 'public' ? ' checked' : ''}${controlsDisabled}><div><strong>🌐 Público</strong><span>Cualquier persona con el enlace puede consultar los eventos del calendario.</span></div></label></div></fieldset><button type="submit"${controlsDisabled}>Guardar calendario y accesibilidad</button></form>${currentUrl}</section><section><h2>3. Sincronización automática</h2><p>La Agenda del bot seguirá siendo la fuente de verdad. Al iniciar se copiarán todas las actividades futuras; después se enviarán altas, cambios y cancelaciones y se reconciliarán cada cinco minutos.</p><form class="row" method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}${state.settings.syncEnabled ? '<button class="button-danger" name="action" value="stop-sync" type="submit">Detener sincronización</button>' : `<button name="action" value="start-sync" type="submit"${!state.credentials.configured || !state.settings.calendarId ? ' disabled' : ''}>Iniciar sincronización</button>`}</form></section>${state.credentials.source === 'web-file' ? `<section class="admin-danger-panel"><h2>Retirar credenciales web</h2><p>Detendrá la sincronización y eliminará el archivo protegido subido desde este panel. No borra los eventos existentes en Google Calendar.</p><form method="post" action="/admin/google-calendar">${csrfInput(csrfToken)}<input type="hidden" name="action" value="remove-credentials"><label>Confirmación<input name="confirm" autocomplete="off" placeholder="REMOVE_GOOGLE" required></label><button class="button-danger" type="submit">Retirar credenciales</button></form></section>` : ''}<script>
+(() => {
+  const copyBtn = document.querySelector('[data-copy-target]');
+  if (copyBtn) {
+    const originalText = copyBtn.textContent;
+    copyBtn.addEventListener('click', async () => {
+      const targetId = copyBtn.getAttribute('data-copy-target');
+      const targetEl = targetId ? document.getElementById(targetId) : null;
+      if (!targetEl) return;
+      const textToCopy = (targetEl.textContent || '').trim();
+      let success = false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(textToCopy);
+          success = true;
+        } catch {
+          success = false;
+        }
+      }
+      if (!success) {
+        try {
+          const range = document.createRange();
+          range.selectNodeContents(targetEl);
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+            success = document.execCommand('copy');
+            sel.removeAllRanges();
+          }
+        } catch {
+          success = false;
+        }
+      }
+      if (success) {
+        copyBtn.textContent = '✓ ¡Copiado!';
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+          copyBtn.textContent = originalText;
+          copyBtn.classList.remove('copied');
+        }, 2500);
+      }
+    });
+  }
+
+  const manualInput = document.querySelector('input[name="manualCalendar"]');
+  const radioCards = document.querySelectorAll('input[type="radio"][name="calendarId"]');
+  if (manualInput && radioCards.length > 0) {
+    manualInput.addEventListener('input', () => {
+      if (manualInput.value.trim().length > 0) {
+        radioCards.forEach((radio) => {
+          radio.checked = false;
+          radio.closest('.calendar-card')?.classList.remove('selected');
+        });
+      }
+    });
+    radioCards.forEach((radio) => {
+      radio.addEventListener('change', () => {
+        if (radio.checked) {
+          manualInput.value = '';
+          radioCards.forEach((r) => r.closest('.calendar-card')?.classList.toggle('selected', r.checked));
+        }
+      });
+    });
+  }
+})();
+</script>`,
   });
 }
 
