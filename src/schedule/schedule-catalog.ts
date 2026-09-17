@@ -30,8 +30,8 @@ export interface ScheduleEventRecord {
 
 export interface ScheduleEventParticipationRecord extends ScheduleEventRecord {
   participantStatus: ScheduleParticipantStatus;
-  participationRole?: ScheduleParticipationRole;
-  guestCount?: number;
+  participationRole?: ScheduleParticipationRole | undefined;
+  guestCount?: number | undefined;
   participantJoinedAt: string;
   participantUpdatedAt: string;
 }
@@ -40,8 +40,8 @@ export interface ScheduleParticipantRecord {
   scheduleEventId: number;
   participantTelegramUserId: number;
   status: ScheduleParticipantStatus;
-  participationRole?: ScheduleParticipationRole;
-  guestCount?: number;
+  participationRole?: ScheduleParticipationRole | undefined;
+  guestCount?: number | undefined;
   addedByTelegramUserId: number;
   removedByTelegramUserId: number | null;
   reminderLeadHours?: number | null;
@@ -450,7 +450,7 @@ export async function getScheduleCapacitySnapshot({
     };
   }
 
-  const occupiedSeats = event.initialOccupiedSeats + activePlayerCount;
+  const occupiedSeats = (event.initialOccupiedSeats ?? 0) + activePlayerCount;
   const availableSeats = Math.max(0, event.capacity - occupiedSeats);
 
   return {

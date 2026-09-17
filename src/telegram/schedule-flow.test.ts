@@ -94,7 +94,7 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
         durationMinutes: input.durationMinutes,
         attendanceMode: input.attendanceMode,
         isPublic: input.isPublic,
-        initialOccupiedSeats: input.initialOccupiedSeats,
+        initialOccupiedSeats: input.initialOccupiedSeats ?? 0,
         capacity: input.capacity,
         lifecycleStatus: 'scheduled',
         createdAt,
@@ -167,11 +167,14 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
     },
     async upsertParticipant(input) {
       const key = `${input.eventId}:${input.participantTelegramUserId}`;
+      const existing = participants.get(key);
       const next: ScheduleParticipantRecord = {
-        ...participants.get(key),
+        ...existing,
         scheduleEventId: input.eventId,
         participantTelegramUserId: input.participantTelegramUserId,
         status: input.status,
+        participationRole: input.participationRole ?? existing?.participationRole ?? 'player',
+        guestCount: input.status === 'removed' ? 0 : (input.guestCount ?? existing?.guestCount ?? 0),
         addedByTelegramUserId: input.actorTelegramUserId,
         removedByTelegramUserId: input.status === 'removed' ? input.actorTelegramUserId : null,
         ...(input.reminderPreferenceConfigured === undefined
@@ -3004,7 +3007,10 @@ test('handleTelegramScheduleCallback shows activity attendance and allows joinin
   assert.match(replies.at(-1)?.message ?? '', /<b>Places ocupades:<\/b> 1\/3/);
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
-    inlineKeyboard: [[{ text: 'Apuntar-me', callbackData: 'schedule:join:6' }]],
+    inlineKeyboard: [
+      [{ text: '🎮 Apuntar-me a jugar', callbackData: 'schedule:join:6' }],
+      [{ text: "👀 Apuntar-me d'espectador", callbackData: 'schedule:join_spec:6' }],
+    ],
   });
 });
 
@@ -3161,7 +3167,8 @@ test('handleTelegramScheduleCallback lets an organizer edit their own activity',
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
     inlineKeyboard: [
-      [{ text: 'Apuntar-me', callbackData: 'schedule:join:3' }],
+      [{ text: '🎮 Apuntar-me a jugar', callbackData: 'schedule:join:3' }],
+      [{ text: "👀 Apuntar-me d'espectador", callbackData: 'schedule:join_spec:3' }],
       [{ text: 'Editar activitat', callbackData: 'schedule:select_edit:3' }, { text: 'Eliminar activitat', callbackData: 'schedule:select_cancel:3' }],
       [{ text: 'Promocionar activitat', callbackData: 'schedule:promote:3' }],
     ],
@@ -3440,7 +3447,8 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
   assert.deepEqual(replies.at(-1)?.options, {
     parseMode: 'HTML',
     inlineKeyboard: [
-      [{ text: 'Apuntar-me', callbackData: 'schedule:join:8' }],
+      [{ text: '🎮 Apuntar-me a jugar', callbackData: 'schedule:join:8' }],
+      [{ text: "👀 Apuntar-me d'espectador", callbackData: 'schedule:join_spec:8' }],
       [{ text: 'Editar activitat', callbackData: 'schedule:select_edit:8' }, { text: 'Eliminar activitat', callbackData: 'schedule:select_cancel:8' }],
       [{ text: 'Promocionar activitat', callbackData: 'schedule:promote:8' }],
     ],
@@ -3738,4 +3746,192 @@ test('handleTelegramScheduleText sends private conflict notifications after edit
   assert.match(privateMessages[0]?.message ?? '', /possible conflicte/);
   assert.match(privateMessages[0]?.message ?? '', /Catan/);
   assert.match(privateMessages[0]?.message ?? '', /Gaia Project/);
+});
+
+test('handleTelegramScheduleCallback allows joining directly as spectator, displaying in spectator list with zero occupied seats', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 50,
+      title: 'Game of Thrones',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 240,
+      capacity: 6,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await scheduleRepository.upsertParticipant({ eventId: 50, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active', participationRole: 'player' });
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+
+  context.callbackData = `${scheduleCallbackPrefixes.joinSpectator}50`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /T'has apuntat correctament a <b>Game of Thrones<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Places ocupades:<\/b> 1\/6/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Acompanyants \/ Espectadors:<\/b>\s*\n- <a href="tg:\/\/user\?id=77">Biel<\/a>/);
+
+  context.callbackData = `${scheduleCallbackPrefixes.inspect}50`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.deepEqual(replies.at(-1)?.options, {
+    parseMode: 'HTML',
+    inlineKeyboard: [
+      [{ text: '👥 Acompanyants (+0)', callbackData: 'schedule:guests:50' }],
+      [{ text: '🎮 Passar a jugar', callbackData: 'schedule:switch:50:player' }],
+      [{ text: 'Sortir', callbackData: 'schedule:leave:50' }],
+    ],
+  });
+});
+
+test('handleTelegramScheduleCallback switches roles between player and spectator and respects capacity', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 51,
+      title: 'Dune',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 1,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  await scheduleRepository.upsertParticipant({ eventId: 51, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active', participationRole: 'player' });
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+
+  // User 77 joins as spectator
+  context.callbackData = `${scheduleCallbackPrefixes.joinSpectator}51`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+
+  // User 77 tries to switch to player when capacity is full (1/1)
+  context.callbackData = `${scheduleCallbackPrefixes.switchRole}51:player`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.equal(replies.at(-1)?.message, 'La darrera plaça de joc ha estat ocupada per un altre soci.');
+
+  // Create event with capacity 2
+  const event2 = await scheduleRepository.createEvent({
+    title: 'Brass',
+    description: null,
+    startsAt: '2026-04-05T16:00:00.000Z',
+    organizerTelegramUserId: 42,
+    createdByTelegramUserId: 42,
+    tableId: null,
+    durationMinutes: 120,
+    attendanceMode: 'open',
+    isPublic: true,
+    initialOccupiedSeats: 0,
+    capacity: 2,
+  });
+  await scheduleRepository.upsertParticipant({ eventId: event2.id, participantTelegramUserId: 42, actorTelegramUserId: 42, status: 'active', participationRole: 'player' });
+
+  // Join as spectator
+  context.callbackData = `${scheduleCallbackPrefixes.joinSpectator}${event2.id}`;
+  await handleTelegramScheduleCallback(context);
+
+  // Switch to player when seat available
+  context.callbackData = `${scheduleCallbackPrefixes.switchRole}${event2.id}:player`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Places ocupades:<\/b> 2\/2/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Assistents:<\/b>\s*\n- <a href="tg:\/\/user\?id=42">Ada \(@ada\)<\/a>\n- <a href="tg:\/\/user\?id=77">Biel<\/a>/);
+
+  // Switch back to spectator
+  context.callbackData = `${scheduleCallbackPrefixes.switchRole}${event2.id}:spectator`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Places ocupades:<\/b> 1\/2/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Acompanyants \/ Espectadors:<\/b>\s*\n- <a href="tg:\/\/user\?id=77">Biel<\/a>/);
+});
+
+test('handleTelegramScheduleCallback manages companion count with +/- buttons and reset', async () => {
+  const scheduleRepository = createScheduleRepository([
+    {
+      id: 52,
+      title: 'Terraforming Mars',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 120,
+      capacity: 4,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+  const { context, replies } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+
+  // Join as player
+  context.callbackData = `${scheduleCallbackPrefixes.join}52`;
+  await handleTelegramScheduleCallback(context);
+
+  // Open manage guests dialog
+  context.callbackData = `${scheduleCallbackPrefixes.manageGuests}52`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Actualment en tens: 0/);
+  assert.deepEqual(replies.at(-1)?.options, {
+    parseMode: 'HTML',
+    inlineKeyboard: [
+      [
+        { text: '➖ 1', callbackData: 'schedule:gdelta:52:-1' },
+        { text: '➕ 1', callbackData: 'schedule:gdelta:52:+1' },
+      ],
+      [
+        { text: '0 acompanyants', callbackData: 'schedule:gdelta:52:0' },
+      ],
+      [
+        { text: "« Tornar a l'activitat", callbackData: 'schedule:inspect:52' },
+      ],
+    ],
+  });
+
+  // Increment to 1 companion
+  context.callbackData = `${scheduleCallbackPrefixes.guestDelta}52:+1`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Actualment en tens: 1/);
+
+  // Increment to 2 companions
+  context.callbackData = `${scheduleCallbackPrefixes.guestDelta}52:+1`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Actualment en tens: 2/);
+
+  // View activity detail - occupied seats is 1/4 (guests do not count as players)
+  context.callbackData = `${scheduleCallbackPrefixes.inspect}52`;
+  await handleTelegramScheduleCallback(context);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Places ocupades:<\/b> 1\/4/);
+  assert.match(replies.at(-1)?.message ?? '', /Biel<\/a> \(\+2\)/);
+  assert.deepEqual(replies.at(-1)?.options?.inlineKeyboard?.[0], [
+    { text: '👥 Acompanyants (+2)', callbackData: 'schedule:guests:52' },
+  ]);
+
+  // Decrement to 1
+  context.callbackData = `${scheduleCallbackPrefixes.guestDelta}52:-1`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Actualment en tens: 1/);
+
+  // Reset to 0
+  context.callbackData = `${scheduleCallbackPrefixes.guestDelta}52:0`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Actualment en tens: 0/);
+
+  // Leave activity
+  context.callbackData = `${scheduleCallbackPrefixes.leave}52`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /Has sortit correctament/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Places ocupades:<\/b> 0\/4/);
 });

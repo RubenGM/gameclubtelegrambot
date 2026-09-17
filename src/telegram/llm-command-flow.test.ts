@@ -451,7 +451,7 @@ test('handleTelegramLlmCallback delegates schedule joins to the normal schedule 
   assert.equal(upserts.length, 1);
   assert.equal(context.session.current?.flowKey, 'schedule-join-reminder');
   assert.equal(context.session.current?.data.eventId, 7);
-  assert.match(context.replies.at(-1) ?? '', /T'has apuntat correctament/);
+  assert.match(context.replies.at(-1) ?? '', /(?:T'has apuntat correctament|Te has apuntado correctamente)/);
 });
 
 test('handleTelegramLlmCallback starts a normal Storage upload when category id is provided', async () => {

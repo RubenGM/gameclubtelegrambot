@@ -180,28 +180,78 @@ export function buildScheduleDetailActionOptions({
   actor,
   event,
   isAttending,
+  participationRole,
+  guestCount = 0,
+  availableSeats,
   language = 'ca',
   callbackPrefixes,
 }: {
-  actor: TelegramActor;
+  actor: Pick<TelegramActor, 'isAdmin' | 'telegramUserId'>;
   event: ScheduleEventRecord;
   isAttending: boolean;
-  language?: BotLanguage;
+  participationRole?: 'player' | 'spectator' | undefined;
+  guestCount?: number | undefined;
+  availableSeats?: number | undefined;
+  language?: BotLanguage | undefined;
   callbackPrefixes: {
     join: string;
     leave: string;
     selectEdit: string;
     selectCancel: string;
     promote: string;
+    joinSpectator?: string | undefined;
+    manageGuests?: string | undefined;
+    switchRole?: string | undefined;
   };
 }): TelegramReplyOptions {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca')).schedule;
   const rows: TelegramReplyOptions['inlineKeyboard'] = [];
 
   if (event.attendanceMode === 'open') {
-    rows.push([
-      { text: isAttending ? texts.leaveButton : texts.joinButton, callbackData: `${isAttending ? callbackPrefixes.leave : callbackPrefixes.join}${event.id}` },
-    ]);
+    if (!isAttending) {
+      if (availableSeats === undefined || availableSeats > 0) {
+        rows.push([{ text: texts.joinAsPlayer, callbackData: `${callbackPrefixes.join}${event.id}` }]);
+        rows.push([
+          {
+            text: texts.joinAsSpectator,
+            callbackData: `${callbackPrefixes.joinSpectator ?? 'schedule:join_spec:'}${event.id}`,
+          },
+        ]);
+      } else {
+        rows.push([
+          {
+            text: texts.joinAsSpectatorFull,
+            callbackData: `${callbackPrefixes.joinSpectator ?? 'schedule:join_spec:'}${event.id}`,
+          },
+        ]);
+      }
+    } else {
+      rows.push([
+        {
+          text: texts.manageGuestsButton.replace('{count}', String(guestCount)),
+          callbackData: `${callbackPrefixes.manageGuests ?? 'schedule:guests:'}${event.id}`,
+        },
+      ]);
+      const currentRole = participationRole ?? 'player';
+      if (currentRole === 'player') {
+        rows.push([
+          {
+            text: texts.switchToSpectator,
+            callbackData: `${callbackPrefixes.switchRole ?? 'schedule:switch:'}${event.id}:spectator`,
+          },
+        ]);
+      } else {
+        if (availableSeats === undefined || availableSeats > 0) {
+          rows.push([
+            {
+              text: texts.switchToPlayer,
+              callbackData: `${callbackPrefixes.switchRole ?? 'schedule:switch:'}${event.id}:player`,
+            },
+          ]);
+        }
+      }
+      rows.push([{ text: texts.leaveButton, callbackData: `${callbackPrefixes.leave}${event.id}` }]);
+    }
   }
 
   if (actor.isAdmin || event.createdByTelegramUserId === actor.telegramUserId) {
