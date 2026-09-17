@@ -1,0 +1,3 @@
+ALTER TABLE "schedule_event_participants" ADD COLUMN "participation_role" varchar(16) DEFAULT 'player' NOT NULL;--> statement-breakpoint
+ALTER TABLE "schedule_event_participants" ADD COLUMN "guest_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "schedule_event_participants" ADD CONSTRAINT "schedule_event_participants_guest_count_non_negative" CHECK ("schedule_event_participants"."guest_count" >= 0);

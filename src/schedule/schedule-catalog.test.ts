@@ -10,6 +10,8 @@ import {
   getScheduleEventAttendance,
   joinScheduleEvent,
   leaveScheduleEvent,
+  setScheduleEventParticipantGuests,
+  setScheduleEventParticipantRole,
   setScheduleEventParticipantStatus,
   updateScheduleEvent,
   type ScheduleEventRecord,
@@ -121,6 +123,8 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         scheduleEventId: input.eventId,
         participantTelegramUserId: input.participantTelegramUserId,
         status: input.status,
+        participationRole: input.participationRole ?? existing?.participationRole ?? 'player',
+        guestCount: input.status === 'removed' ? 0 : (input.guestCount ?? existing?.guestCount ?? 0),
         addedByTelegramUserId: existing?.addedByTelegramUserId ?? input.actorTelegramUserId,
         removedByTelegramUserId: input.status === 'removed' ? input.actorTelegramUserId : null,
         joinedAt: existing?.joinedAt ?? '2026-04-04T10:30:00.000Z',
@@ -763,3 +767,216 @@ test('detectScheduleConflicts also finds overlapping reservations for the same e
   assert.deepEqual(conflicts.overlappingEventIds, [31]);
   assert.deepEqual(conflicts.impactedTelegramUserIds, [77]);
 });
+
+test('joinScheduleEvent with role spectator does not consume game seats and allows joining when full', async () => {
+  const repository = createRepository([
+    {
+      id: 50,
+      title: 'Game of Thrones',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 1,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+
+  // Player 1 joins (filling the capacity of 1)
+  await joinScheduleEvent({
+    repository,
+    eventId: 50,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+    role: 'player',
+  });
+
+  const snapshotFull = await getScheduleCapacitySnapshot({ repository, eventId: 50 });
+  assert.equal(snapshotFull.availableSeats, 0);
+  assert.equal(snapshotFull.isFull, true);
+
+  // Player 2 attempts to join as player -> fails
+  await assert.rejects(
+    () =>
+      joinScheduleEvent({
+        repository,
+        eventId: 50,
+        participantTelegramUserId: 77,
+        actorTelegramUserId: 77,
+        role: 'player',
+      }),
+    /L'activitat ja no té places disponibles/,
+  );
+
+  // Spectator joins successfully even though table is full
+  const spectator = await joinScheduleEvent({
+    repository,
+    eventId: 50,
+    participantTelegramUserId: 77,
+    actorTelegramUserId: 77,
+    role: 'spectator',
+  });
+  assert.equal(spectator.participationRole, 'spectator');
+  assert.equal(spectator.status, 'active');
+
+  // Capacity remains 0 available, 1 occupied
+  const snapshotAfterSpectator = await getScheduleCapacitySnapshot({ repository, eventId: 50 });
+  assert.equal(snapshotAfterSpectator.occupiedSeats, 1);
+  assert.equal(snapshotAfterSpectator.availableSeats, 0);
+});
+
+test('setScheduleEventParticipantRole allows switching roles and correctly recalculates available seats', async () => {
+  const repository = createRepository([
+    {
+      id: 51,
+      title: 'Dune',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 1,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+
+  // User 42 joins as spectator
+  await joinScheduleEvent({
+    repository,
+    eventId: 51,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+    role: 'spectator',
+  });
+
+  // Since seat is available, spectator switches to player
+  await setScheduleEventParticipantRole({
+    repository,
+    eventId: 51,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+    role: 'player',
+  });
+
+  let snapshot = await getScheduleCapacitySnapshot({ repository, eventId: 51 });
+  assert.equal(snapshot.occupiedSeats, 1);
+  assert.equal(snapshot.availableSeats, 0);
+
+  // User 77 joins as spectator
+  await joinScheduleEvent({
+    repository,
+    eventId: 51,
+    participantTelegramUserId: 77,
+    actorTelegramUserId: 77,
+    role: 'spectator',
+  });
+
+  // User 77 cannot switch to player because table is full
+  await assert.rejects(
+    () =>
+      setScheduleEventParticipantRole({
+        repository,
+        eventId: 51,
+        participantTelegramUserId: 77,
+        actorTelegramUserId: 77,
+        role: 'player',
+      }),
+    /L'activitat ja no té places disponibles/,
+  );
+
+  // User 42 switches to spectator, freeing the seat
+  await setScheduleEventParticipantRole({
+    repository,
+    eventId: 51,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+    role: 'spectator',
+  });
+
+  snapshot = await getScheduleCapacitySnapshot({ repository, eventId: 51 });
+  assert.equal(snapshot.occupiedSeats, 0);
+  assert.equal(snapshot.availableSeats, 1);
+
+  // Now User 77 can switch to player
+  await setScheduleEventParticipantRole({
+    repository,
+    eventId: 51,
+    participantTelegramUserId: 77,
+    actorTelegramUserId: 77,
+    role: 'player',
+  });
+
+  snapshot = await getScheduleCapacitySnapshot({ repository, eventId: 51 });
+  assert.equal(snapshot.occupiedSeats, 1);
+  assert.equal(snapshot.availableSeats, 0);
+});
+
+test('setScheduleEventParticipantGuests sets guestCount without affecting game seat capacity', async () => {
+  const repository = createRepository([
+    {
+      id: 52,
+      title: 'Catan',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+
+  await joinScheduleEvent({
+    repository,
+    eventId: 52,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+  });
+
+  const updated = await setScheduleEventParticipantGuests({
+    repository,
+    eventId: 52,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+    guestCount: 3,
+  });
+  assert.equal(updated.guestCount, 3);
+
+  // Capacity still shows 1 occupied seat (the player), 2 available
+  const snapshot = await getScheduleCapacitySnapshot({ repository, eventId: 52 });
+  assert.equal(snapshot.occupiedSeats, 1);
+  assert.equal(snapshot.availableSeats, 2);
+
+  // Reject negative guest count
+  await assert.rejects(
+    () =>
+      setScheduleEventParticipantGuests({
+        repository,
+        eventId: 52,
+        participantTelegramUserId: 42,
+        actorTelegramUserId: 42,
+        guestCount: -1,
+      }),
+    /El nombre d'acompanyants no pot ser negatiu/,
+  );
+});
+

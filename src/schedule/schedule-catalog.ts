@@ -1,6 +1,7 @@
 export type ScheduleEventLifecycleStatus = 'scheduled' | 'cancelled';
 export type ScheduleParticipantStatus = 'active' | 'removed';
 export type ScheduleAttendanceMode = 'open' | 'closed';
+export type ScheduleParticipationRole = 'player' | 'spectator';
 
 export interface ScheduleEventRecord {
   id: number;
@@ -29,6 +30,8 @@ export interface ScheduleEventRecord {
 
 export interface ScheduleEventParticipationRecord extends ScheduleEventRecord {
   participantStatus: ScheduleParticipantStatus;
+  participationRole?: ScheduleParticipationRole;
+  guestCount?: number;
   participantJoinedAt: string;
   participantUpdatedAt: string;
 }
@@ -37,6 +40,8 @@ export interface ScheduleParticipantRecord {
   scheduleEventId: number;
   participantTelegramUserId: number;
   status: ScheduleParticipantStatus;
+  participationRole?: ScheduleParticipationRole;
+  guestCount?: number;
   addedByTelegramUserId: number;
   removedByTelegramUserId: number | null;
   reminderLeadHours?: number | null;
@@ -106,6 +111,8 @@ export interface ScheduleRepository {
     participantTelegramUserId: number;
     actorTelegramUserId: number;
     status: ScheduleParticipantStatus;
+    participationRole?: ScheduleParticipationRole;
+    guestCount?: number;
     reminderLeadHours?: number | null;
     reminderPreferenceConfigured?: boolean;
   }): Promise<ScheduleParticipantRecord>;
@@ -292,12 +299,16 @@ export async function setScheduleEventParticipantStatus({
   participantTelegramUserId,
   actorTelegramUserId,
   status,
+  participationRole,
+  guestCount,
 }: {
   repository: ScheduleRepository;
   eventId: number;
   participantTelegramUserId: number;
   actorTelegramUserId: number;
   status: ScheduleParticipantStatus;
+  participationRole?: ScheduleParticipationRole;
+  guestCount?: number;
 }): Promise<ScheduleParticipantRecord> {
   const event = await repository.findEventById(eventId);
   if (!event) {
@@ -316,11 +327,18 @@ export async function setScheduleEventParticipantStatus({
   }
 
   const existing = await repository.findParticipant(eventId, participantTelegramUserId);
-  if (existing?.status === status) {
+  const targetRole = participationRole ?? existing?.participationRole ?? 'player';
+  const targetGuests = status === 'removed' ? 0 : (guestCount ?? existing?.guestCount ?? 0);
+
+  if (
+    existing?.status === status &&
+    (existing?.participationRole ?? 'player') === targetRole &&
+    (existing?.guestCount ?? 0) === targetGuests
+  ) {
     return existing;
   }
 
-  if (status === 'active') {
+  if (status === 'active' && targetRole === 'player') {
     const snapshot = await getScheduleCapacitySnapshot({ repository, eventId });
     if (snapshot.availableSeats <= 0) {
       throw new Error("L'activitat ja no té places disponibles");
@@ -332,6 +350,8 @@ export async function setScheduleEventParticipantStatus({
     participantTelegramUserId: normalizeTelegramUserId(participantTelegramUserId, 'participant'),
     actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
     status,
+    participationRole: targetRole,
+    guestCount: targetGuests,
   });
 }
 
@@ -414,9 +434,13 @@ export async function getScheduleCapacitySnapshot({
     throw new Error(`Schedule event ${eventId} not found`);
   }
 
-  const activeParticipantCount = (await repository.listParticipants(eventId)).filter(
+  const activeParticipants = (await repository.listParticipants(eventId)).filter(
     (participant) => participant.status === 'active',
+  );
+  const activePlayerCount = activeParticipants.filter(
+    (participant) => (participant.participationRole ?? 'player') === 'player',
   ).length;
+
   if (event.attendanceMode === 'closed') {
     return {
       capacity: event.capacity,
@@ -426,7 +450,7 @@ export async function getScheduleCapacitySnapshot({
     };
   }
 
-  const occupiedSeats = event.initialOccupiedSeats + activeParticipantCount;
+  const occupiedSeats = event.initialOccupiedSeats + activePlayerCount;
   const availableSeats = Math.max(0, event.capacity - occupiedSeats);
 
   return {
@@ -442,11 +466,13 @@ export async function joinScheduleEvent({
   eventId,
   participantTelegramUserId,
   actorTelegramUserId,
+  role = 'player',
 }: {
   repository: ScheduleRepository;
   eventId: number;
   participantTelegramUserId: number;
   actorTelegramUserId: number;
+  role?: ScheduleParticipationRole;
 }): Promise<ScheduleParticipantRecord> {
   const event = await repository.findEventById(eventId);
   if (!event) {
@@ -467,6 +493,7 @@ export async function joinScheduleEvent({
     participantTelegramUserId,
     actorTelegramUserId,
     status: 'active',
+    participationRole: role,
   });
 }
 
@@ -500,6 +527,99 @@ export async function leaveScheduleEvent({
     participantTelegramUserId,
     actorTelegramUserId,
     status: 'removed',
+    guestCount: 0,
+  });
+}
+
+export async function setScheduleEventParticipantRole({
+  repository,
+  eventId,
+  participantTelegramUserId,
+  actorTelegramUserId,
+  role,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+  participantTelegramUserId: number;
+  actorTelegramUserId: number;
+  role: ScheduleParticipationRole;
+}): Promise<ScheduleParticipantRecord> {
+  const event = await repository.findEventById(eventId);
+  if (!event) {
+    throw new Error(`Schedule event ${eventId} not found`);
+  }
+  if (event.lifecycleStatus === 'cancelled') {
+    throw new Error('No es poden gestionar participants en una activitat cancel.lada');
+  }
+  if (event.attendanceMode === 'closed') {
+    throw new Error('No es poden gestionar participants en una activitat tancada');
+  }
+
+  const existing = await repository.findParticipant(eventId, participantTelegramUserId);
+  if (!existing || existing.status !== 'active') {
+    throw new Error('Aquesta persona no està apuntada a l’activitat');
+  }
+  if ((existing.participationRole ?? 'player') === role) {
+    return existing;
+  }
+
+  if (role === 'player') {
+    const snapshot = await getScheduleCapacitySnapshot({ repository, eventId });
+    if (snapshot.availableSeats <= 0) {
+      throw new Error("L'activitat ja no té places disponibles");
+    }
+  }
+
+  return repository.upsertParticipant({
+    eventId,
+    participantTelegramUserId: normalizeTelegramUserId(participantTelegramUserId, 'participant'),
+    actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
+    status: 'active',
+    participationRole: role,
+    guestCount: existing.guestCount ?? 0,
+  });
+}
+
+export async function setScheduleEventParticipantGuests({
+  repository,
+  eventId,
+  participantTelegramUserId,
+  actorTelegramUserId,
+  guestCount,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+  participantTelegramUserId: number;
+  actorTelegramUserId: number;
+  guestCount: number;
+}): Promise<ScheduleParticipantRecord> {
+  if (!Number.isInteger(guestCount) || guestCount < 0) {
+    throw new Error("El nombre d'acompanyants no pot ser negatiu");
+  }
+
+  const event = await repository.findEventById(eventId);
+  if (!event) {
+    throw new Error(`Schedule event ${eventId} not found`);
+  }
+  if (event.lifecycleStatus === 'cancelled') {
+    throw new Error('No es poden gestionar participants en una activitat cancel.lada');
+  }
+  if (event.attendanceMode === 'closed') {
+    throw new Error('No es poden gestionar participants en una activitat tancada');
+  }
+
+  const existing = await repository.findParticipant(eventId, participantTelegramUserId);
+  if (!existing || existing.status !== 'active') {
+    throw new Error('Aquesta persona no està apuntada a l’activitat');
+  }
+
+  return repository.upsertParticipant({
+    eventId,
+    participantTelegramUserId: normalizeTelegramUserId(participantTelegramUserId, 'participant'),
+    actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
+    status: 'active',
+    participationRole: existing.participationRole ?? 'player',
+    guestCount,
   });
 }
 
@@ -511,6 +631,7 @@ export async function getScheduleEventAttendance({
   eventId: number;
 }): Promise<{
   activeParticipantTelegramUserIds: number[];
+  activeParticipants: ScheduleParticipantRecord[];
   snapshot: {
     capacity: number;
     occupiedSeats: number;
@@ -518,15 +639,17 @@ export async function getScheduleEventAttendance({
     isFull: boolean;
   };
 }> {
-  const participants = await repository.listParticipants(eventId);
-  const activeParticipantTelegramUserIds = participants
-    .filter((participant) => participant.status === 'active')
+  const activeParticipants = (await repository.listParticipants(eventId)).filter(
+    (participant) => participant.status === 'active',
+  );
+  const activeParticipantTelegramUserIds = activeParticipants
     .map((participant) => participant.participantTelegramUserId)
     .sort((left, right) => left - right);
-
+  const snapshot = await getScheduleCapacitySnapshot({ repository, eventId });
   return {
     activeParticipantTelegramUserIds,
-    snapshot: await getScheduleCapacitySnapshot({ repository, eventId }),
+    activeParticipants,
+    snapshot,
   };
 }
 

@@ -379,6 +379,13 @@
       "when": 1788175106937,
       "tag": "0053_same_black_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1789666981188,
+      "tag": "0054_low_the_hunter",
+      "breakpoints": true
     }
   ]
 }
