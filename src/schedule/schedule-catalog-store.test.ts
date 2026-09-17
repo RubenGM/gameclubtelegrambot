@@ -301,3 +301,59 @@ test('createDatabaseScheduleRepository persists participant reminder preference'
   assert.equal(participant.reminderLeadHours, 2);
   assert.equal(participant.reminderPreferenceConfigured, true);
 });
+
+test('createDatabaseScheduleRepository persists participant role and guest count', async () => {
+  const repository = createDatabaseScheduleRepository({
+    database: {
+      insert: (table: { [key: string]: unknown }) => {
+        if ((table as unknown) !== scheduleEventParticipantsTable) {
+          throw new Error('unexpected table');
+        }
+
+        return {
+          values: (values: Record<string, unknown>) => {
+            assert.equal(values.participationRole, 'spectator');
+            assert.equal(values.guestCount, 2);
+
+            return {
+              onConflictDoUpdate: ({ set }: { set: Record<string, unknown> }) => {
+                assert.equal(set.participationRole, 'spectator');
+                assert.equal(set.guestCount, 2);
+
+                return {
+                  returning: async () => [
+                    {
+                      scheduleEventId: 7,
+                      participantTelegramUserId: 42,
+                      status: 'active',
+                      participationRole: 'spectator',
+                      guestCount: 2,
+                      addedByTelegramUserId: 99,
+                      removedByTelegramUserId: null,
+                      joinedAt: new Date('2026-04-04T10:00:00.000Z'),
+                      updatedAt: new Date('2026-04-04T11:00:00.000Z'),
+                      leftAt: null,
+                    },
+                  ],
+                };
+              },
+            };
+          },
+        };
+      },
+    } as never,
+  });
+
+  const participant = await repository.upsertParticipant({
+    eventId: 7,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 99,
+    status: 'active',
+    participationRole: 'spectator',
+    guestCount: 2,
+  });
+
+  assert.equal(participant.participationRole, 'spectator');
+  assert.equal(participant.guestCount, 2);
+});
+

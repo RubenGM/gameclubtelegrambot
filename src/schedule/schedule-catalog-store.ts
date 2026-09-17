@@ -196,6 +196,8 @@ export function createDatabaseScheduleRepository({
       participantTelegramUserId,
       actorTelegramUserId,
       status,
+      participationRole,
+      guestCount,
       reminderLeadHours,
       reminderPreferenceConfigured,
     }) {
@@ -203,12 +205,20 @@ export function createDatabaseScheduleRepository({
       const reminderFields = reminderPreferenceConfigured === undefined
         ? {}
         : { reminderLeadHours: reminderLeadHours ?? null, reminderPreferenceConfigured };
+      const roleFields = participationRole === undefined
+        ? {}
+        : { participationRole };
+      const guestFields = guestCount === undefined
+        ? {}
+        : { guestCount };
       const updated = await database
         .insert(scheduleEventParticipants)
         .values({
           scheduleEventId: eventId,
           participantTelegramUserId,
           status,
+          participationRole: participationRole ?? 'player',
+          guestCount: guestCount ?? 0,
           addedByTelegramUserId: actorTelegramUserId,
           removedByTelegramUserId: status === 'removed' ? actorTelegramUserId : null,
           ...reminderFields,
@@ -219,6 +229,8 @@ export function createDatabaseScheduleRepository({
           target: [scheduleEventParticipants.scheduleEventId, scheduleEventParticipants.participantTelegramUserId],
           set: {
             status,
+            ...roleFields,
+            ...(status === 'removed' ? { guestCount: 0 } : guestFields),
             removedByTelegramUserId: status === 'removed' ? actorTelegramUserId : null,
             leftAt: status === 'removed' ? now : null,
             ...reminderFields,
@@ -368,6 +380,8 @@ function mapScheduleParticipantRow(
     scheduleEventId: row.scheduleEventId,
     participantTelegramUserId: row.participantTelegramUserId,
     status: row.status as ScheduleParticipantRecord['status'],
+    participationRole: row.participationRole as ScheduleParticipantRecord['participationRole'],
+    guestCount: row.guestCount,
     addedByTelegramUserId: row.addedByTelegramUserId,
     removedByTelegramUserId: row.removedByTelegramUserId,
     reminderLeadHours: row.reminderLeadHours,
