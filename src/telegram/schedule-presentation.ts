@@ -181,7 +181,8 @@ export function buildScheduleDetailActionOptions({
   event,
   isAttending,
   participationRole,
-  guestCount = 0,
+  companionCount = 0,
+  spectatorCount = 0,
   availableSeats,
   language = 'ca',
   callbackPrefixes,
@@ -190,7 +191,8 @@ export function buildScheduleDetailActionOptions({
   event: ScheduleEventRecord;
   isAttending: boolean;
   participationRole?: 'player' | 'spectator' | undefined;
-  guestCount?: number | undefined;
+  companionCount?: number | undefined;
+  spectatorCount?: number | undefined;
   availableSeats?: number | undefined;
   language?: BotLanguage | undefined;
   callbackPrefixes: {
@@ -200,6 +202,8 @@ export function buildScheduleDetailActionOptions({
     selectCancel: string;
     promote: string;
     joinSpectator?: string | undefined;
+    manageCompanions?: string | undefined;
+    manageSpectators?: string | undefined;
     manageGuests?: string | undefined;
     switchRole?: string | undefined;
   };
@@ -226,14 +230,20 @@ export function buildScheduleDetailActionOptions({
         ]);
       }
     } else {
-      rows.push([
-        {
-          text: texts.manageGuestsButton.replace('{count}', String(guestCount)),
-          callbackData: `${callbackPrefixes.manageGuests ?? 'schedule:guests:'}${event.id}`,
-        },
-      ]);
       const currentRole = participationRole ?? 'player';
       if (currentRole === 'player') {
+        rows.push([
+          {
+            text: texts.manageCompanionsButton.replace('{count}', String(companionCount)),
+            callbackData: `${callbackPrefixes.manageCompanions ?? 'schedule:comp:'}${event.id}`,
+          },
+        ]);
+        rows.push([
+          {
+            text: texts.manageSpectatorsButton.replace('{count}', String(spectatorCount)),
+            callbackData: `${callbackPrefixes.manageSpectators ?? 'schedule:spec:'}${event.id}`,
+          },
+        ]);
         rows.push([
           {
             text: texts.switchToSpectator,
@@ -241,6 +251,12 @@ export function buildScheduleDetailActionOptions({
           },
         ]);
       } else {
+        rows.push([
+          {
+            text: texts.manageSpectatorsButton.replace('{count}', String(spectatorCount)),
+            callbackData: `${callbackPrefixes.manageSpectators ?? 'schedule:spec:'}${event.id}`,
+          },
+        ]);
         if (availableSeats === undefined || availableSeats > 0) {
           rows.push([
             {

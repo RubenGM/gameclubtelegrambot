@@ -164,36 +164,40 @@ test('buildScheduleDetailActionOptions allows attending user to manage companion
     switchRole: 'schedule:switch:',
   };
 
-  // Attending as player with 2 guests
+  // Attending as player with 2 companions and 1 spectator
   const playerOptions = buildScheduleDetailActionOptions({
     actor,
     event,
     isAttending: true,
     participationRole: 'player',
-    guestCount: 2,
+    companionCount: 2,
+    spectatorCount: 1,
     availableSeats: 1,
     language: 'es',
     callbackPrefixes: prefixes,
   });
 
   const playerButtons = playerOptions.inlineKeyboard?.flat().map((btn) => btn.text) ?? [];
-  assert.ok(playerButtons.includes('👥 Acompañantes (+2)'));
+  assert.ok(playerButtons.includes('👥 Acompañantes a jugar (+2)'));
+  assert.ok(playerButtons.includes('👀 Espectadores (+1)'));
   assert.ok(playerButtons.includes('👀 Pasar a espectador'));
   assert.ok(playerButtons.includes('Salir'));
 
-  // Attending as spectator with 0 guests when seats are available
+  // Attending as spectator with 0 spectators when seats are available
   const spectatorOptions = buildScheduleDetailActionOptions({
     actor,
     event,
     isAttending: true,
     participationRole: 'spectator',
-    guestCount: 0,
+    companionCount: 0,
+    spectatorCount: 0,
     availableSeats: 1,
     language: 'es',
     callbackPrefixes: prefixes,
   });
   const spectatorButtons = spectatorOptions.inlineKeyboard?.flat().map((btn) => btn.text) ?? [];
-  assert.ok(spectatorButtons.includes('👥 Acompañantes (+0)'));
+  assert.ok(!spectatorButtons.some((b) => b.includes('Acompañantes a jugar')));
+  assert.ok(spectatorButtons.includes('👀 Espectadores (+0)'));
   assert.ok(spectatorButtons.includes('🎮 Pasar a jugar'));
   assert.ok(spectatorButtons.includes('Salir'));
 
@@ -203,13 +207,15 @@ test('buildScheduleDetailActionOptions allows attending user to manage companion
     event,
     isAttending: true,
     participationRole: 'spectator',
-    guestCount: 0,
+    companionCount: 0,
+    spectatorCount: 0,
     availableSeats: 0,
     language: 'es',
     callbackPrefixes: prefixes,
   });
   const fullSpectatorButtons = fullSpectatorOptions.inlineKeyboard?.flat().map((btn) => btn.text) ?? [];
-  assert.ok(fullSpectatorButtons.includes('👥 Acompañantes (+0)'));
+  assert.ok(!fullSpectatorButtons.some((b) => b.includes('Acompañantes a jugar')));
+  assert.ok(fullSpectatorButtons.includes('👀 Espectadores (+0)'));
   assert.ok(!fullSpectatorButtons.includes('🎮 Pasar a jugar'));
   assert.ok(fullSpectatorButtons.includes('Salir'));
 });

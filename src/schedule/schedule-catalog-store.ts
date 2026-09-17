@@ -197,7 +197,8 @@ export function createDatabaseScheduleRepository({
       actorTelegramUserId,
       status,
       participationRole,
-      guestCount,
+      companionCount,
+      spectatorCount,
       reminderLeadHours,
       reminderPreferenceConfigured,
     }) {
@@ -208,9 +209,12 @@ export function createDatabaseScheduleRepository({
       const roleFields = participationRole === undefined
         ? {}
         : { participationRole };
-      const guestFields = guestCount === undefined
+      const companionFields = companionCount === undefined
         ? {}
-        : { guestCount };
+        : { companionCount };
+      const spectatorFields = spectatorCount === undefined
+        ? {}
+        : { spectatorCount };
       const updated = await database
         .insert(scheduleEventParticipants)
         .values({
@@ -218,7 +222,8 @@ export function createDatabaseScheduleRepository({
           participantTelegramUserId,
           status,
           participationRole: participationRole ?? 'player',
-          guestCount: guestCount ?? 0,
+          companionCount: companionCount ?? 0,
+          spectatorCount: spectatorCount ?? 0,
           addedByTelegramUserId: actorTelegramUserId,
           removedByTelegramUserId: status === 'removed' ? actorTelegramUserId : null,
           ...reminderFields,
@@ -230,7 +235,7 @@ export function createDatabaseScheduleRepository({
           set: {
             status,
             ...roleFields,
-            ...(status === 'removed' ? { guestCount: 0 } : guestFields),
+            ...(status === 'removed' ? { companionCount: 0, spectatorCount: 0 } : { ...companionFields, ...spectatorFields }),
             removedByTelegramUserId: status === 'removed' ? actorTelegramUserId : null,
             leftAt: status === 'removed' ? now : null,
             ...reminderFields,
@@ -381,7 +386,8 @@ function mapScheduleParticipantRow(
     participantTelegramUserId: row.participantTelegramUserId,
     status: row.status as ScheduleParticipantRecord['status'],
     participationRole: row.participationRole as ScheduleParticipantRecord['participationRole'],
-    guestCount: row.guestCount,
+    companionCount: row.companionCount,
+    spectatorCount: row.spectatorCount,
     addedByTelegramUserId: row.addedByTelegramUserId,
     removedByTelegramUserId: row.removedByTelegramUserId,
     reminderLeadHours: row.reminderLeadHours,

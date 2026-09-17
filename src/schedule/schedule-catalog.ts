@@ -31,7 +31,8 @@ export interface ScheduleEventRecord {
 export interface ScheduleEventParticipationRecord extends ScheduleEventRecord {
   participantStatus: ScheduleParticipantStatus;
   participationRole?: ScheduleParticipationRole | undefined;
-  guestCount?: number | undefined;
+  companionCount?: number | undefined;
+  spectatorCount?: number | undefined;
   participantJoinedAt: string;
   participantUpdatedAt: string;
 }
@@ -41,7 +42,8 @@ export interface ScheduleParticipantRecord {
   participantTelegramUserId: number;
   status: ScheduleParticipantStatus;
   participationRole?: ScheduleParticipationRole | undefined;
-  guestCount?: number | undefined;
+  companionCount?: number | undefined;
+  spectatorCount?: number | undefined;
   addedByTelegramUserId: number;
   removedByTelegramUserId: number | null;
   reminderLeadHours?: number | null;
@@ -112,7 +114,8 @@ export interface ScheduleRepository {
     actorTelegramUserId: number;
     status: ScheduleParticipantStatus;
     participationRole?: ScheduleParticipationRole;
-    guestCount?: number;
+    companionCount?: number;
+    spectatorCount?: number;
     reminderLeadHours?: number | null;
     reminderPreferenceConfigured?: boolean;
   }): Promise<ScheduleParticipantRecord>;
@@ -300,7 +303,8 @@ export async function setScheduleEventParticipantStatus({
   actorTelegramUserId,
   status,
   participationRole,
-  guestCount,
+  companionCount,
+  spectatorCount,
 }: {
   repository: ScheduleRepository;
   eventId: number;
@@ -308,7 +312,8 @@ export async function setScheduleEventParticipantStatus({
   actorTelegramUserId: number;
   status: ScheduleParticipantStatus;
   participationRole?: ScheduleParticipationRole;
-  guestCount?: number;
+  companionCount?: number;
+  spectatorCount?: number;
 }): Promise<ScheduleParticipantRecord> {
   const event = await repository.findEventById(eventId);
   if (!event) {
@@ -328,19 +333,25 @@ export async function setScheduleEventParticipantStatus({
 
   const existing = await repository.findParticipant(eventId, participantTelegramUserId);
   const targetRole = participationRole ?? existing?.participationRole ?? 'player';
-  const targetGuests = status === 'removed' ? 0 : (guestCount ?? existing?.guestCount ?? 0);
+  const targetCompanions = status === 'removed' ? 0 : (targetRole === 'spectator' ? 0 : (companionCount ?? existing?.companionCount ?? 0));
+  const targetSpectators = status === 'removed' ? 0 : (spectatorCount ?? existing?.spectatorCount ?? 0);
 
   if (
     existing?.status === status &&
     (existing?.participationRole ?? 'player') === targetRole &&
-    (existing?.guestCount ?? 0) === targetGuests
+    (existing?.companionCount ?? 0) === targetCompanions &&
+    (existing?.spectatorCount ?? 0) === targetSpectators
   ) {
     return existing;
   }
 
   if (status === 'active' && targetRole === 'player') {
     const snapshot = await getScheduleCapacitySnapshot({ repository, eventId });
-    if (snapshot.availableSeats <= 0) {
+    const previouslyOccupied = (existing?.status === 'active' && (existing?.participationRole ?? 'player') === 'player')
+      ? 1 + (existing?.companionCount ?? 0)
+      : 0;
+    const needed = (1 + targetCompanions) - previouslyOccupied;
+    if (needed > 0 && snapshot.availableSeats < needed) {
       throw new Error("L'activitat ja no té places disponibles");
     }
   }
@@ -351,7 +362,8 @@ export async function setScheduleEventParticipantStatus({
     actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
     status,
     participationRole: targetRole,
-    guestCount: targetGuests,
+    companionCount: targetCompanions,
+    spectatorCount: targetSpectators,
   });
 }
 
@@ -437,9 +449,9 @@ export async function getScheduleCapacitySnapshot({
   const activeParticipants = (await repository.listParticipants(eventId)).filter(
     (participant) => participant.status === 'active',
   );
-  const activePlayerCount = activeParticipants.filter(
-    (participant) => (participant.participationRole ?? 'player') === 'player',
-  ).length;
+  const activePlayerCount = activeParticipants
+    .filter((participant) => (participant.participationRole ?? 'player') === 'player')
+    .reduce((sum, participant) => sum + 1 + (participant.companionCount ?? 0), 0);
 
   if (event.attendanceMode === 'closed') {
     return {
@@ -494,6 +506,8 @@ export async function joinScheduleEvent({
     actorTelegramUserId,
     status: 'active',
     participationRole: role,
+    companionCount: 0,
+    spectatorCount: 0,
   });
 }
 
@@ -527,7 +541,8 @@ export async function leaveScheduleEvent({
     participantTelegramUserId,
     actorTelegramUserId,
     status: 'removed',
-    guestCount: 0,
+    companionCount: 0,
+    spectatorCount: 0,
   });
 }
 
@@ -576,25 +591,86 @@ export async function setScheduleEventParticipantRole({
     actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
     status: 'active',
     participationRole: role,
-    guestCount: existing.guestCount ?? 0,
+    companionCount: role === 'spectator' ? 0 : (existing.companionCount ?? 0),
+    spectatorCount: existing.spectatorCount ?? 0,
   });
 }
 
-export async function setScheduleEventParticipantGuests({
+export async function setScheduleEventParticipantCompanions({
   repository,
   eventId,
   participantTelegramUserId,
   actorTelegramUserId,
-  guestCount,
+  companionCount,
 }: {
   repository: ScheduleRepository;
   eventId: number;
   participantTelegramUserId: number;
   actorTelegramUserId: number;
-  guestCount: number;
+  companionCount: number;
 }): Promise<ScheduleParticipantRecord> {
-  if (!Number.isInteger(guestCount) || guestCount < 0) {
+  if (!Number.isInteger(companionCount) || companionCount < 0) {
     throw new Error("El nombre d'acompanyants no pot ser negatiu");
+  }
+
+  const event = await repository.findEventById(eventId);
+  if (!event) {
+    throw new Error(`Schedule event ${eventId} not found`);
+  }
+  if (event.lifecycleStatus === 'cancelled') {
+    throw new Error('No es poden gestionar participants en una activitat cancel.lada');
+  }
+  if (event.attendanceMode === 'closed') {
+    throw new Error('No es poden gestionar participants en una activitat tancada');
+  }
+
+  const existing = await repository.findParticipant(eventId, participantTelegramUserId);
+  if (!existing || existing.status !== 'active') {
+    throw new Error('Aquesta persona no està apuntada a l’activitat');
+  }
+  if ((existing.participationRole ?? 'player') !== 'player') {
+    throw new Error('Només els jugadors poden afegir acompanyants a jugar');
+  }
+
+  const currentCount = existing.companionCount ?? 0;
+  if (companionCount === currentCount) {
+    return existing;
+  }
+
+  const delta = companionCount - currentCount;
+  if (delta > 0) {
+    const snapshot = await getScheduleCapacitySnapshot({ repository, eventId });
+    if (snapshot.availableSeats < delta) {
+      throw new Error("No queden places lliures a la taula per afegir més acompanyants");
+    }
+  }
+
+  return repository.upsertParticipant({
+    eventId,
+    participantTelegramUserId: normalizeTelegramUserId(participantTelegramUserId, 'participant'),
+    actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
+    status: 'active',
+    participationRole: 'player',
+    companionCount,
+    spectatorCount: existing.spectatorCount ?? 0,
+  });
+}
+
+export async function setScheduleEventParticipantSpectators({
+  repository,
+  eventId,
+  participantTelegramUserId,
+  actorTelegramUserId,
+  spectatorCount,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+  participantTelegramUserId: number;
+  actorTelegramUserId: number;
+  spectatorCount: number;
+}): Promise<ScheduleParticipantRecord> {
+  if (!Number.isInteger(spectatorCount) || spectatorCount < 0) {
+    throw new Error("El nombre d'espectadors no pot ser negatiu");
   }
 
   const event = await repository.findEventById(eventId);
@@ -619,7 +695,30 @@ export async function setScheduleEventParticipantGuests({
     actorTelegramUserId: normalizeTelegramUserId(actorTelegramUserId, 'actor'),
     status: 'active',
     participationRole: existing.participationRole ?? 'player',
-    guestCount,
+    companionCount: existing.companionCount ?? 0,
+    spectatorCount,
+  });
+}
+
+export async function setScheduleEventParticipantGuests({
+  repository,
+  eventId,
+  participantTelegramUserId,
+  actorTelegramUserId,
+  guestCount,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+  participantTelegramUserId: number;
+  actorTelegramUserId: number;
+  guestCount: number;
+}): Promise<ScheduleParticipantRecord> {
+  return setScheduleEventParticipantCompanions({
+    repository,
+    eventId,
+    participantTelegramUserId,
+    actorTelegramUserId,
+    companionCount: guestCount,
   });
 }
 

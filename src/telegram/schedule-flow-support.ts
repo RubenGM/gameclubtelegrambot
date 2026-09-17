@@ -16,8 +16,10 @@ import {
   joinScheduleEvent,
   leaveScheduleEvent,
   listScheduleEvents,
+  setScheduleEventParticipantCompanions,
   setScheduleEventParticipantGuests,
   setScheduleEventParticipantRole,
+  setScheduleEventParticipantSpectators,
   updateScheduleEvent,
   type ScheduleEventRecord,
   type ScheduleRepository,
@@ -157,6 +159,10 @@ export const scheduleCallbackPrefixes = {
   promote: 'schedule:promote:',
   promoteTo: 'schedule:promote_to:',
   tableSelection: 'schedule:table:',
+  manageCompanions: 'schedule:comp:',
+  companionDelta: 'schedule:cdelta:',
+  manageSpectators: 'schedule:spec:',
+  spectatorDelta: 'schedule:sdelta:',
   manageGuests: 'schedule:guests:',
   guestDelta: 'schedule:gdelta:',
   switchRole: 'schedule:switch:',
@@ -358,7 +364,8 @@ async function resolveScheduleDetailActionOptions(
     event,
     isAttending,
     participationRole: participant?.participationRole,
-    guestCount: participant?.guestCount ?? 0,
+    companionCount: participant?.companionCount ?? 0,
+    spectatorCount: participant?.spectatorCount ?? 0,
     availableSeats: snapshot.availableSeats,
     language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
     callbackPrefixes: scheduleCallbackPrefixes,
@@ -629,6 +636,178 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     return true;
   }
 
+  if (callbackData.startsWith(scheduleCallbackPrefixes.manageCompanions)) {
+    const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.manageCompanions, 'activitat');
+    const event = await loadEventOrThrow(context, eventId);
+    if (!canReadScheduleEvent(context.runtime.actor, event)) {
+      return false;
+    }
+    const repository = resolveScheduleRepository(context);
+    const participant = await repository.findParticipant(eventId, context.runtime.actor.telegramUserId);
+    if (!participant || participant.status !== 'active' || (participant.participationRole ?? 'player') !== 'player') {
+      return false;
+    }
+    const snapshot = await getScheduleCapacitySnapshot({ repository, eventId });
+    const count = participant.companionCount ?? 0;
+    const prompt = texts.companionPrompt
+      .replace('{count}', String(count))
+      .replace('{available}', String(snapshot.availableSeats));
+    const replyOptions: TelegramReplyOptions = {
+      inlineKeyboard: [
+        [
+          { text: '➖ 1', callbackData: `${scheduleCallbackPrefixes.companionDelta}${eventId}:-1` },
+          { text: '➕ 1', callbackData: `${scheduleCallbackPrefixes.companionDelta}${eventId}:+1` },
+        ],
+        [
+          { text: texts.companionZeroButton, callbackData: `${scheduleCallbackPrefixes.companionDelta}${eventId}:0` },
+        ],
+        [
+          { text: texts.backToActivity, callbackData: `${scheduleCallbackPrefixes.inspect}${eventId}` },
+        ],
+      ],
+      parseMode: 'HTML',
+    };
+    await context.reply(prompt, replyOptions);
+    return true;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.companionDelta)) {
+    const payload = callbackData.slice(scheduleCallbackPrefixes.companionDelta.length);
+    const [idStr, deltaStr] = payload.split(':');
+    const eventId = Number(idStr);
+    const event = await loadEventOrThrow(context, eventId);
+    if (!canReadScheduleEvent(context.runtime.actor, event)) {
+      return false;
+    }
+    const repository = resolveScheduleRepository(context);
+    const participant = await repository.findParticipant(eventId, context.runtime.actor.telegramUserId);
+    if (!participant || participant.status !== 'active' || (participant.participationRole ?? 'player') !== 'player') {
+      return false;
+    }
+    const currentCount = participant.companionCount ?? 0;
+    let newCount = currentCount;
+    if (deltaStr === '0') {
+      newCount = 0;
+    } else if (deltaStr === '+1') {
+      newCount = currentCount + 1;
+    } else if (deltaStr === '-1') {
+      newCount = Math.max(0, currentCount - 1);
+    }
+    try {
+      await setScheduleEventParticipantCompanions({
+        repository,
+        eventId,
+        participantTelegramUserId: context.runtime.actor.telegramUserId,
+        actorTelegramUserId: context.runtime.actor.telegramUserId,
+        companionCount: newCount,
+      });
+    } catch {
+      await context.reply(texts.noSeatsForCompanion);
+      return true;
+    }
+    const snapshot = await getScheduleCapacitySnapshot({ repository, eventId });
+    const prompt = texts.companionPrompt
+      .replace('{count}', String(newCount))
+      .replace('{available}', String(snapshot.availableSeats));
+    const replyOptions: TelegramReplyOptions = {
+      inlineKeyboard: [
+        [
+          { text: '➖ 1', callbackData: `${scheduleCallbackPrefixes.companionDelta}${eventId}:-1` },
+          { text: '➕ 1', callbackData: `${scheduleCallbackPrefixes.companionDelta}${eventId}:+1` },
+        ],
+        [
+          { text: texts.companionZeroButton, callbackData: `${scheduleCallbackPrefixes.companionDelta}${eventId}:0` },
+        ],
+        [
+          { text: texts.backToActivity, callbackData: `${scheduleCallbackPrefixes.inspect}${eventId}` },
+        ],
+      ],
+      parseMode: 'HTML',
+    };
+    await context.reply(prompt, replyOptions);
+    return true;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.manageSpectators)) {
+    const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.manageSpectators, 'activitat');
+    const event = await loadEventOrThrow(context, eventId);
+    if (!canReadScheduleEvent(context.runtime.actor, event)) {
+      return false;
+    }
+    const participant = await resolveScheduleRepository(context).findParticipant(eventId, context.runtime.actor.telegramUserId);
+    if (!participant || participant.status !== 'active') {
+      return false;
+    }
+    const count = participant.spectatorCount ?? 0;
+    const prompt = texts.spectatorPrompt.replace('{count}', String(count));
+    const replyOptions: TelegramReplyOptions = {
+      inlineKeyboard: [
+        [
+          { text: '➖ 1', callbackData: `${scheduleCallbackPrefixes.spectatorDelta}${eventId}:-1` },
+          { text: '➕ 1', callbackData: `${scheduleCallbackPrefixes.spectatorDelta}${eventId}:+1` },
+        ],
+        [
+          { text: texts.spectatorZeroButton, callbackData: `${scheduleCallbackPrefixes.spectatorDelta}${eventId}:0` },
+        ],
+        [
+          { text: texts.backToActivity, callbackData: `${scheduleCallbackPrefixes.inspect}${eventId}` },
+        ],
+      ],
+      parseMode: 'HTML',
+    };
+    await context.reply(prompt, replyOptions);
+    return true;
+  }
+
+  if (callbackData.startsWith(scheduleCallbackPrefixes.spectatorDelta)) {
+    const payload = callbackData.slice(scheduleCallbackPrefixes.spectatorDelta.length);
+    const [idStr, deltaStr] = payload.split(':');
+    const eventId = Number(idStr);
+    const event = await loadEventOrThrow(context, eventId);
+    if (!canReadScheduleEvent(context.runtime.actor, event)) {
+      return false;
+    }
+    const repository = resolveScheduleRepository(context);
+    const participant = await repository.findParticipant(eventId, context.runtime.actor.telegramUserId);
+    if (!participant || participant.status !== 'active') {
+      return false;
+    }
+    const currentCount = participant.spectatorCount ?? 0;
+    let newCount = currentCount;
+    if (deltaStr === '0') {
+      newCount = 0;
+    } else if (deltaStr === '+1') {
+      newCount = currentCount + 1;
+    } else if (deltaStr === '-1') {
+      newCount = Math.max(0, currentCount - 1);
+    }
+    await setScheduleEventParticipantSpectators({
+      repository,
+      eventId,
+      participantTelegramUserId: context.runtime.actor.telegramUserId,
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      spectatorCount: newCount,
+    });
+    const prompt = texts.spectatorPrompt.replace('{count}', String(newCount));
+    const replyOptions: TelegramReplyOptions = {
+      inlineKeyboard: [
+        [
+          { text: '➖ 1', callbackData: `${scheduleCallbackPrefixes.spectatorDelta}${eventId}:-1` },
+          { text: '➕ 1', callbackData: `${scheduleCallbackPrefixes.spectatorDelta}${eventId}:+1` },
+        ],
+        [
+          { text: texts.spectatorZeroButton, callbackData: `${scheduleCallbackPrefixes.spectatorDelta}${eventId}:0` },
+        ],
+        [
+          { text: texts.backToActivity, callbackData: `${scheduleCallbackPrefixes.inspect}${eventId}` },
+        ],
+      ],
+      parseMode: 'HTML',
+    };
+    await context.reply(prompt, replyOptions);
+    return true;
+  }
+
   if (callbackData.startsWith(scheduleCallbackPrefixes.manageGuests)) {
     const eventId = parseEntityId(callbackData, scheduleCallbackPrefixes.manageGuests, 'activitat');
     const event = await loadEventOrThrow(context, eventId);
@@ -636,7 +815,9 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
       return false;
     }
     const participant = await resolveScheduleRepository(context).findParticipant(eventId, context.runtime.actor.telegramUserId);
-    const count = participant?.guestCount ?? 0;
+    const count = (participant?.participationRole ?? 'player') === 'player'
+      ? (participant?.companionCount ?? 0)
+      : (participant?.spectatorCount ?? 0);
     const prompt = texts.guestPrompt.replace('{count}', String(count));
     const replyOptions: TelegramReplyOptions = {
       inlineKeyboard: [
@@ -670,7 +851,9 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     if (!participant || participant.status !== 'active') {
       return false;
     }
-    const currentCount = participant.guestCount ?? 0;
+    const currentCount = (participant.participationRole ?? 'player') === 'player'
+      ? (participant.companionCount ?? 0)
+      : (participant.spectatorCount ?? 0);
     let newCount = currentCount;
     if (deltaStr === '0') {
       newCount = 0;
@@ -2431,27 +2614,35 @@ async function formatScheduleEventView(
   const relevantVenueEvents = await listRelevantVenueEventsForScheduleEvent(context, event);
   const membershipRepository = resolveMembershipRepository(context);
 
-  const players: Array<{ label: string; guestCount: number }> = [];
-  const spectators: Array<{ label: string; guestCount: number }> = [];
+  const players: Array<{ label: string; companionCount: number; spectatorCount: number }> = [];
+  const spectators: Array<{ label: string; spectatorCount: number }> = [];
 
   for (const participant of attendance.activeParticipants) {
     const user = await membershipRepository.findUserByTelegramUserId(participant.participantTelegramUserId);
     const label = formatParticipantLabel(context, participant.participantTelegramUserId, user);
-    const guestCount = participant.guestCount ?? 0;
+    const companionCount = participant.companionCount ?? 0;
+    const spectatorCount = participant.spectatorCount ?? 0;
     if (participant.participationRole === 'spectator') {
-      spectators.push({ label, guestCount });
+      spectators.push({ label, spectatorCount });
     } else {
-      players.push({ label, guestCount });
+      players.push({ label, companionCount, spectatorCount });
     }
   }
 
   const creator = await membershipRepository.findUserByTelegramUserId(event.createdByTelegramUserId);
   const creatorLabel = formatParticipantLabel(context, event.createdByTelegramUserId, creator);
 
-  const playerLines = players.map(
-    ({ label, guestCount }) =>
-      `- ${label}${guestCount > 0 ? ` (+${guestCount})` : ''}`,
-  );
+  const playerLines = players.map(({ label, companionCount, spectatorCount }) => {
+    const tags: string[] = [];
+    if (companionCount > 0) {
+      tags.push(texts.companionTag.replace('{count}', String(companionCount)));
+    }
+    if (spectatorCount > 0) {
+      tags.push(texts.spectatorTag.replace('{count}', String(spectatorCount)));
+    }
+    const suffix = tags.length > 0 ? ` (${tags.join(', ')})` : '';
+    return `- ${label}${suffix}`;
+  });
   for (let index = 0; index < event.initialOccupiedSeats; index += 1) {
     const assignLink = canAssignReservedSeats(context.runtime.actor, event)
       ? ` - <a href="${escapeHtml(buildTelegramStartUrl(`${scheduleReservedSeatStartPayloadPrefix}${event.id}`))}">${escapeHtml(texts.assignReservedSeat)}</a>`
@@ -2459,10 +2650,12 @@ async function formatScheduleEventView(
     playerLines.push(`- ${escapeHtml(texts.reservedSeat)}${assignLink}`);
   }
 
-  const spectatorLines = spectators.map(
-    ({ label, guestCount }) =>
-      `- ${label}${guestCount > 0 ? ` (+${guestCount})` : ''}`,
-  );
+  const spectatorLines = spectators.map(({ label, spectatorCount }) => {
+    const suffix = spectatorCount > 0
+      ? ` (${texts.spectatorTag.replace('{count}', String(spectatorCount))})`
+      : '';
+    return `- ${label}${suffix}`;
+  });
 
   const detailLines = [
     formatScheduleEventDetails({

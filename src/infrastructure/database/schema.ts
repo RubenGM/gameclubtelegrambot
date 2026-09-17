@@ -381,7 +381,8 @@ export const scheduleEventParticipants = pgTable(
       .references(() => users.telegramUserId),
     status: varchar('status', { length: 16 }).notNull().default('active'),
     participationRole: varchar('participation_role', { length: 16 }).notNull().default('player'),
-    guestCount: integer('guest_count').notNull().default(0),
+    companionCount: integer('companion_count').notNull().default(0),
+    spectatorCount: integer('spectator_count').notNull().default(0),
     addedByTelegramUserId: bigint('added_by_telegram_user_id', { mode: 'number' })
       .notNull()
       .references(() => users.telegramUserId),
@@ -399,9 +400,13 @@ export const scheduleEventParticipants = pgTable(
       table.scheduleEventId,
       table.participantTelegramUserId,
     ),
-    guestCountNonNegative: check(
-      'schedule_event_participants_guest_count_non_negative',
-      sql`${table.guestCount} >= 0`,
+    companionCountNonNegative: check(
+      'schedule_event_participants_companion_count_non_negative',
+      sql`${table.companionCount} >= 0`,
+    ),
+    spectatorCountNonNegative: check(
+      'schedule_event_participants_spectator_count_non_negative',
+      sql`${table.spectatorCount} >= 0`,
     ),
   }),
 );

@@ -312,13 +312,15 @@ test('createDatabaseScheduleRepository persists participant role and guest count
 
         return {
           values: (values: Record<string, unknown>) => {
-            assert.equal(values.participationRole, 'spectator');
-            assert.equal(values.guestCount, 2);
+            assert.equal(values.participationRole, 'player');
+            assert.equal(values.companionCount, 1);
+            assert.equal(values.spectatorCount, 2);
 
             return {
               onConflictDoUpdate: ({ set }: { set: Record<string, unknown> }) => {
-                assert.equal(set.participationRole, 'spectator');
-                assert.equal(set.guestCount, 2);
+                assert.equal(set.participationRole, 'player');
+                assert.equal(set.companionCount, 1);
+                assert.equal(set.spectatorCount, 2);
 
                 return {
                   returning: async () => [
@@ -326,8 +328,9 @@ test('createDatabaseScheduleRepository persists participant role and guest count
                       scheduleEventId: 7,
                       participantTelegramUserId: 42,
                       status: 'active',
-                      participationRole: 'spectator',
-                      guestCount: 2,
+                      participationRole: 'player',
+                      companionCount: 1,
+                      spectatorCount: 2,
                       addedByTelegramUserId: 99,
                       removedByTelegramUserId: null,
                       joinedAt: new Date('2026-04-04T10:00:00.000Z'),
@@ -349,11 +352,13 @@ test('createDatabaseScheduleRepository persists participant role and guest count
     participantTelegramUserId: 42,
     actorTelegramUserId: 99,
     status: 'active',
-    participationRole: 'spectator',
-    guestCount: 2,
+    participationRole: 'player',
+    companionCount: 1,
+    spectatorCount: 2,
   });
 
-  assert.equal(participant.participationRole, 'spectator');
-  assert.equal(participant.guestCount, 2);
+  assert.equal(participant.participationRole, 'player');
+  assert.equal(participant.companionCount, 1);
+  assert.equal(participant.spectatorCount, 2);
 });
 

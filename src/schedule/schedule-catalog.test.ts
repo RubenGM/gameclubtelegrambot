@@ -10,8 +10,10 @@ import {
   getScheduleEventAttendance,
   joinScheduleEvent,
   leaveScheduleEvent,
+  setScheduleEventParticipantCompanions,
   setScheduleEventParticipantGuests,
   setScheduleEventParticipantRole,
+  setScheduleEventParticipantSpectators,
   setScheduleEventParticipantStatus,
   updateScheduleEvent,
   type ScheduleEventRecord,
@@ -124,7 +126,8 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
         participantTelegramUserId: input.participantTelegramUserId,
         status: input.status,
         participationRole: input.participationRole ?? existing?.participationRole ?? 'player',
-        guestCount: input.status === 'removed' ? 0 : (input.guestCount ?? existing?.guestCount ?? 0),
+        companionCount: input.status === 'removed' ? 0 : (input.companionCount ?? existing?.companionCount ?? 0),
+        spectatorCount: input.status === 'removed' ? 0 : (input.spectatorCount ?? existing?.spectatorCount ?? 0),
         addedByTelegramUserId: existing?.addedByTelegramUserId ?? input.actorTelegramUserId,
         removedByTelegramUserId: input.status === 'removed' ? input.actorTelegramUserId : null,
         joinedAt: existing?.joinedAt ?? '2026-04-04T10:30:00.000Z',
@@ -924,7 +927,7 @@ test('setScheduleEventParticipantRole allows switching roles and correctly recal
   assert.equal(snapshot.availableSeats, 0);
 });
 
-test('setScheduleEventParticipantGuests sets guestCount without affecting game seat capacity', async () => {
+test('setScheduleEventParticipantSpectators sets spectatorCount without affecting game seat capacity', async () => {
   const repository = createRepository([
     {
       id: 52,
@@ -952,31 +955,115 @@ test('setScheduleEventParticipantGuests sets guestCount without affecting game s
     actorTelegramUserId: 42,
   });
 
-  const updated = await setScheduleEventParticipantGuests({
+  const updated = await setScheduleEventParticipantSpectators({
     repository,
     eventId: 52,
     participantTelegramUserId: 42,
     actorTelegramUserId: 42,
-    guestCount: 3,
+    spectatorCount: 3,
   });
-  assert.equal(updated.guestCount, 3);
+  assert.equal(updated.spectatorCount, 3);
 
   // Capacity still shows 1 occupied seat (the player), 2 available
   const snapshot = await getScheduleCapacitySnapshot({ repository, eventId: 52 });
   assert.equal(snapshot.occupiedSeats, 1);
   assert.equal(snapshot.availableSeats, 2);
 
-  // Reject negative guest count
+  // Reject negative spectator count
   await assert.rejects(
     () =>
-      setScheduleEventParticipantGuests({
+      setScheduleEventParticipantSpectators({
         repository,
         eventId: 52,
         participantTelegramUserId: 42,
         actorTelegramUserId: 42,
-        guestCount: -1,
+        spectatorCount: -1,
       }),
-    /El nombre d'acompanyants no pot ser negatiu/,
+    /El nombre d'espectadors no pot ser negatiu/,
+  );
+});
+
+test('setScheduleEventParticipantCompanions sets companionCount and occupies table seats', async () => {
+  const repository = createRepository([
+    {
+      id: 53,
+      title: 'Terraforming Mars',
+      description: null,
+      startsAt: '2026-04-05T16:00:00.000Z',
+      organizerTelegramUserId: 42,
+      createdByTelegramUserId: 42,
+      tableId: null,
+      durationMinutes: 180,
+      capacity: 3,
+      lifecycleStatus: 'scheduled',
+      createdAt: '2026-04-04T10:00:00.000Z',
+      updatedAt: '2026-04-04T10:00:00.000Z',
+      cancelledAt: null,
+      cancelledByTelegramUserId: null,
+      cancellationReason: null,
+    },
+  ]);
+
+  await joinScheduleEvent({
+    repository,
+    eventId: 53,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+  });
+
+  // Player adds 1 companion: occupies 1 (self) + 1 (companion) = 2 seats
+  const updated = await setScheduleEventParticipantCompanions({
+    repository,
+    eventId: 53,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+    companionCount: 1,
+  });
+  assert.equal(updated.companionCount, 1);
+
+  let snapshot = await getScheduleCapacitySnapshot({ repository, eventId: 53 });
+  assert.equal(snapshot.occupiedSeats, 2);
+  assert.equal(snapshot.availableSeats, 1);
+
+  // Cannot add 2 more companions (would need 2 seats, only 1 available)
+  await assert.rejects(
+    () =>
+      setScheduleEventParticipantCompanions({
+        repository,
+        eventId: 53,
+        participantTelegramUserId: 42,
+        actorTelegramUserId: 42,
+        companionCount: 3,
+      }),
+    /No queden places lliures a la taula per afegir més acompanyants/,
+  );
+
+  // Switching player to spectator resets companionCount to 0 and frees all table seats
+  const spectatorRecord = await setScheduleEventParticipantRole({
+    repository,
+    eventId: 53,
+    participantTelegramUserId: 42,
+    actorTelegramUserId: 42,
+    role: 'spectator',
+  });
+  assert.equal(spectatorRecord.participationRole, 'spectator');
+  assert.equal(spectatorRecord.companionCount, 0);
+
+  snapshot = await getScheduleCapacitySnapshot({ repository, eventId: 53 });
+  assert.equal(snapshot.occupiedSeats, 0);
+  assert.equal(snapshot.availableSeats, 3);
+
+  // Spectator cannot add companions to play
+  await assert.rejects(
+    () =>
+      setScheduleEventParticipantCompanions({
+        repository,
+        eventId: 53,
+        participantTelegramUserId: 42,
+        actorTelegramUserId: 42,
+        companionCount: 1,
+      }),
+    /Només els jugadors poden afegir acompanyants a jugar/,
   );
 });
 

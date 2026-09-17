@@ -386,6 +386,13 @@
       "when": 1789666981188,
       "tag": "0054_low_the_hunter",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1789671500000,
+      "tag": "0055_add_companion_and_spectator_counts",
+      "breakpoints": true
     }
   ]
 }
