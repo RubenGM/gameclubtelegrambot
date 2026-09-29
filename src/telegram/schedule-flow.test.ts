@@ -2200,6 +2200,12 @@ test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapsho
   ]);
   const snapshotStorage = createMemoryAppMetadataStorage(new Map([
     ['telegram.schedule.calendar_snapshot:-200:0', JSON.stringify({ chatId: -200, messageThreadId: null, messageId: 901 })],
+    ['google_calendar.settings', JSON.stringify({
+      calendarId: 'cawagirona@gmail.com',
+      calendarUrl: 'https://calendar.google.com/calendar/u/0?cid=test',
+      visibility: 'public',
+      syncEnabled: true,
+    })],
   ]));
   const deletedMessages: Array<{ chatId: number; messageId: number }> = [];
   const editedMessages: Array<{ chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }> = [];
@@ -2229,6 +2235,10 @@ test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapsho
   assert.equal(groupMessages.length, 1);
   assert.match(groupMessages[0]?.message ?? '', /<i>Cementiri i vampirs sota un\.\.\.<\/i>/);
   assert.match(groupMessages[0]?.message ?? '', /schedule_event_1">Veure descripció<\/a>/);
+  assert.match(
+    groupMessages[0]?.message ?? '',
+    /Fes la teva reserva<\/b><\/a>\n\n<a href="https:\/\/calendar\.google\.com\/calendar\/embed\?src=cawagirona%40gmail\.com&amp;ctz=Europe%2FMadrid"><b>Ver en Google Calendar<\/b><\/a>$/,
+  );
   assert.doesNotMatch(groupMessages[0]?.message ?? '', /lluna plena/);
   assert.deepEqual(deletedMessages, [{ chatId: -200, messageId: 901 }]);
   assert.deepEqual(editedMessages, []);

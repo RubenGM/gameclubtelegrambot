@@ -202,6 +202,7 @@ export const scheduleTexts = {
     calendarBroadcastActionDeleted: 'eliminat',
     calendarBroadcastFooter: "{actor} ha {action} l'activitat {title} del {day}",
     calendarBroadcastCreateAction: 'Fes la teva reserva',
+    calendarBroadcastGoogleCalendarAction: 'Ver en Google Calendar',
     calendarBroadcastReplaced: '...',
   },
   es: {
@@ -407,6 +408,7 @@ export const scheduleTexts = {
     calendarBroadcastActionDeleted: 'eliminado',
     calendarBroadcastFooter: '{actor} ha {action} la actividad {title} del {day}',
     calendarBroadcastCreateAction: 'Haz tu reserva',
+    calendarBroadcastGoogleCalendarAction: 'Ver en Google Calendar',
     calendarBroadcastReplaced: '...',
   },
   en: {
@@ -612,6 +614,7 @@ export const scheduleTexts = {
     calendarBroadcastActionDeleted: 'deleted',
     calendarBroadcastFooter: '{actor} {action} the activity {title} for {day}',
     calendarBroadcastCreateAction: 'Make your booking',
+    calendarBroadcastGoogleCalendarAction: 'View in Google Calendar',
     calendarBroadcastReplaced: '...',
   },
 } as const;

@@ -72,7 +72,16 @@ export function createGoogleCalendarAdminService({
       let connectionError: string | null = null;
       if (identity) {
         try {
-          calendars = await createClient().listAccessibleCalendars();
+          const client = createClient();
+          calendars = await client.listAccessibleCalendars();
+          if (settings.calendarId && !calendars.some((c) => c.id === settings.calendarId)) {
+            try {
+              const configured = await client.getCalendar(settings.calendarId);
+              calendars = [configured, ...calendars];
+            } catch {
+              // Ignore if configured calendar cannot be reached
+            }
+          }
         } catch (error) {
           connectionError = safeGoogleCalendarError(error);
         }
@@ -123,7 +132,17 @@ export function createGoogleCalendarAdminService({
     async testConnection() {
       const identity = resolveGoogleCalendarServiceAccountIdentity(config);
       if (!identity) throw new Error('Primero sube un JSON válido de cuenta de servicio.');
-      const calendars = await createClient().listAccessibleCalendars();
+      const client = createClient();
+      let calendars = await client.listAccessibleCalendars();
+      const settings = await settingsStore.getSettings();
+      if (settings.calendarId && !calendars.some((c) => c.id === settings.calendarId)) {
+        try {
+          const configured = await client.getCalendar(settings.calendarId);
+          calendars = [configured, ...calendars];
+        } catch {
+          // Ignore if configured calendar cannot be reached
+        }
+      }
       return { calendars: calendars.length, clientEmail: identity.clientEmail };
     },
 
@@ -208,6 +227,14 @@ async function requireSelectedCalendar(settingsStore: GoogleCalendarSettingsStor
 }
 
 export function safeGoogleCalendarError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+  let message = error instanceof Error ? error.message : String(error);
+  if (error instanceof Error && error.message === 'fetch failed' && 'cause' in error && error.cause) {
+    const cause = error.cause;
+    if (cause instanceof Error) {
+      message = `Fallo de red (${cause.message || cause.name})`;
+    } else if (typeof cause === 'object' && cause !== null && 'message' in cause) {
+      message = `Fallo de red (${String((cause as { message: unknown }).message)})`;
+    }
+  }
   return message.replace(/(?:private_key|access_token|client_secret)[^\s,}]*/gi, '<oculto>').slice(0, 400);
 }

@@ -9,6 +9,8 @@ import type { AppMetadataSessionStorage } from './conversation-session-store.js'
 import type { TelegramSentMessage } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { buildTelegramStartUrl } from './deep-links.js';
+import { buildGoogleCalendarEmbedUrl } from '../google-calendar/google-calendar-client.js';
+import { createAppMetadataGoogleCalendarSettingsStore } from '../google-calendar/google-calendar-settings.js';
 
 export interface ScheduleCalendarChange {
   action: 'created' | 'updated' | 'deleted';
@@ -146,11 +148,14 @@ async function publishCalendarSnapshotForCategory({
   const createAction = publicOnly
     ? ''
     : `\n\n<a href="${escapeHtml(buildTelegramStartUrl('schedule_create'))}"><b>${escapeHtml(texts.calendarBroadcastCreateAction)}</b></a>`;
+  const googleCalendarAction = publicOnly
+    ? ''
+    : await buildGoogleCalendarBroadcastAction({ snapshotStorage, label: texts.calendarBroadcastGoogleCalendarAction });
   const replacedText = texts.calendarBroadcastReplaced;
 
   await Promise.all(
     groups.map(async (group) => {
-      const text = `${message}\n\n${footer}${createAction}`;
+      const text = `${message}\n\n${footer}${createAction}${googleCalendarAction}`;
       try {
         const sent = await sendGroupMessage(group.chatId, text, {
           parseMode: 'HTML',
@@ -177,6 +182,27 @@ async function publishCalendarSnapshotForCategory({
       }
     }),
   );
+}
+
+async function buildGoogleCalendarBroadcastAction({
+  snapshotStorage,
+  label,
+}: {
+  snapshotStorage: AppMetadataSessionStorage | undefined;
+  label: string;
+}): Promise<string> {
+  if (!snapshotStorage) return '';
+  try {
+    const settings = await createAppMetadataGoogleCalendarSettingsStore({ storage: snapshotStorage }).getSettings();
+    if (!settings.calendarId) return '';
+    return `\n\n<a href="${escapeHtml(buildGoogleCalendarEmbedUrl(settings.calendarId))}"><b>${escapeHtml(label)}</b></a>`;
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: 'schedule.calendar-broadcast.google-calendar-link.failed',
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    return '';
+  }
 }
 
 async function rememberAndDeletePreviousCalendarSnapshot({

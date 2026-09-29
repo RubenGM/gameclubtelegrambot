@@ -258,7 +258,9 @@ Integración Google Calendar:
 - `Inicio → Admin → Calendar Google` y `/google_calendar` permiten seleccionar el calendario asociado, alternar su accesibilidad pública/privada (privado por defecto) e iniciar o detener la sincronización automática.
 - La Agenda conserva la autoridad: las altas, ediciones y cancelaciones se envían a Google Calendar, mientras que los cambios manuales en Google no se importan al bot.
 - Al iniciar la sincronización se reconcilian las actividades futuras existentes; un worker cada cinco minutos reintenta la sincronización de actividades futuras y cancelaciones recientes.
+- Los eventos sincronizados en Google Calendar incluyen en su descripción el aforo y el enlace directo al detalle web público de la actividad (`https://cawa.hopto.org/actividades/<id>`).
 - En grupos y topics, `@cawa_management_bot calendar` publica el enlace configurado en el mismo destino e intenta borrar el trigger si Telegram autoriza al bot. Un calendario privado sigue requiriendo que Google haya concedido acceso al socio o grupo.
+- Los resúmenes internos de Agenda publicados en grupos y topics muestran, después de `Fes la teva reserva`, un acceso al calendario configurado generado dinámicamente como vista incrustada de Google Calendar con la zona `Europe/Madrid`; el acceso no se añade al feed público ni cuando falta un calendario seleccionado.
 - La preparación de cuenta de servicio, permisos y secreto runtime está documentada en `docs/google-calendar.md`.
 
 Implementado:
@@ -588,7 +590,7 @@ Implementado:
 - Assets públicos de portada servidos desde `/assets/...`, guardados bajo `data/http-assets/` con nombre generado, validación de MIME/extensión y límite de 2 MiB.
 - Restaurar o eliminar backups desde el panel web exige pantalla intermedia y confirmación textual (`RESTORE`/`DELETE`) además de CSRF.
 - Detener el servicio, cambiar el token de Telegram y hacer borrados hard en recursos avanzados requieren confirmación textual (`STOP`, `CHANGE_TOKEN` o `DELETE`); el token pendiente no se reimprime en HTML.
-- Secciones públicas iniciales: `/actividades` lista próximas actividades programadas agrupadas por día, ordenadas por fecha y con mesa, juego enlazado, asistentes cuando existen, organizador, plazas en mesas abiertas y duración legible cuando se ha configurado explícitamente; `/catalogo` lista artículos activos con búsqueda, filtro básico por tipo y paginación.
+- Secciones públicas iniciales: `/actividades` lista próximas actividades programadas agrupadas por día, ordenadas por fecha y con mesa, juego enlazado, asistentes cuando existen, organizador, plazas en mesas abiertas y duración legible cuando se ha configurado explícitamente; cada actividad enlaza a su detalle público en `/actividades/:id` con descripción completa, lista de asistentes confirmados y enlace directo para apuntarse en Telegram; `/catalogo` lista artículos activos con búsqueda, filtro básico por tipo y paginación.
 - La ruta con token `/actividad/nueva/<token>` queda fuera de la navegación pública; sólo se ofrece a socios aprobados desde el flujo completo de Agenda cuando el interruptor admin está activo.
 - Comando Telegram admin `/restart` para limpiar estado temporal y reiniciar el servicio bajo systemd.
 - Deteccion/instalacion asistida de dependencias Debian como `pg_dump` y `psql`.

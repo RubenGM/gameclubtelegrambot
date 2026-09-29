@@ -1,5 +1,12 @@
 import { createSign } from 'node:crypto';
+import { setDefaultResultOrder } from 'node:dns';
 import { readFileSync } from 'node:fs';
+
+try {
+  setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignore in environments where setDefaultResultOrder is not supported.
+}
 
 import type { GoogleCalendarVisibility } from './google-calendar-settings.js';
 import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
@@ -12,6 +19,7 @@ export const defaultGoogleCalendarServiceAccountFile = '/var/lib/gameclubtelegra
 export interface GoogleCalendarServiceAccountConfig {
   serviceAccountJson?: string | undefined;
   serviceAccountFile?: string | undefined;
+  publicBaseUrl?: string | undefined;
 }
 
 export interface GoogleCalendarServiceAccountIdentity {
@@ -113,6 +121,14 @@ export function createGoogleCalendarClient({
     },
     async getCalendar(calendarId) {
       const payload = await request(`/calendars/${encodeURIComponent(calendarId)}`);
+      try {
+        await request('/users/me/calendarList', {
+          method: 'POST',
+          body: JSON.stringify({ id: calendarId }),
+        });
+      } catch {
+        // Ignore failure when registering calendar into calendarList.
+      }
       return parseCalendar(payload, calendarId);
     },
     async setVisibility(calendarId, visibility) {
@@ -140,7 +156,8 @@ export function createGoogleCalendarClient({
     },
     async upsertScheduleEvent({ calendarId, event }) {
       const eventId = googleEventId(event.id);
-      const payload = JSON.stringify(toGoogleEvent(event));
+      const publicBaseUrl = config?.publicBaseUrl ?? 'https://cawa.hopto.org';
+      const payload = JSON.stringify(toGoogleEvent(event, publicBaseUrl));
       const path = `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`;
       try {
         await request(path, { method: 'PUT', body: payload });
@@ -148,7 +165,7 @@ export function createGoogleCalendarClient({
         if (!(error instanceof GoogleCalendarApiError) || error.status !== 404) throw error;
         await request(`/calendars/${encodeURIComponent(calendarId)}/events`, {
           method: 'POST',
-          body: JSON.stringify({ ...toGoogleEvent(event), id: eventId }),
+          body: JSON.stringify({ ...toGoogleEvent(event, publicBaseUrl), id: eventId }),
         });
       }
     },
@@ -185,6 +202,11 @@ export function buildGoogleCalendarUrl(calendarId: string): string {
   return `https://calendar.google.com/calendar/u/0?cid=${Buffer.from(calendarId, 'utf8').toString('base64url')}`;
 }
 
+export function buildGoogleCalendarEmbedUrl(calendarId: string): string {
+  const query = new URLSearchParams({ src: calendarId, ctz: 'Europe/Madrid' });
+  return `https://calendar.google.com/calendar/embed?${query.toString()}`;
+}
+
 export function parseGoogleCalendarIdentifier(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -209,12 +231,18 @@ function googleEventId(scheduleEventId: number): string {
   return `gameclubschedule${scheduleEventId}`;
 }
 
-function toGoogleEvent(event: ScheduleEventRecord): Record<string, unknown> {
+export function toGoogleEvent(
+  event: Pick<ScheduleEventRecord, 'id' | 'title' | 'description' | 'startsAt' | 'durationMinutes' | 'capacity'>,
+  publicBaseUrl = 'https://cawa.hopto.org',
+): Record<string, unknown> {
   const endsAt = new Date(new Date(event.startsAt).getTime() + event.durationMinutes * 60_000).toISOString();
+  const normalizedBase = publicBaseUrl.trim().replace(/\/+$/, '');
+  const detailUrl = `${normalizedBase}/actividades/${event.id}`;
   const description = [
     event.description?.trim() || null,
     `Plazas: ${event.capacity}`,
     `Actividad del club #${event.id}`,
+    `Detalles y asistentes:\n${detailUrl}`,
   ].filter((line): line is string => Boolean(line)).join('\n\n');
   return {
     summary: event.title,

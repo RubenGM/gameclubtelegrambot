@@ -247,57 +247,60 @@ test('admin http server exposes public feedback and protects admin pages', async
           };
         }
         if (sql.includes('from schedule_events')) {
-          return {
-            rows: [{
-              id: 7,
-              title: 'Partida abierta',
-              description: 'Mesa de iniciacion',
-              starts_at: '2026-05-23T17:00:00.000Z',
-              duration_minutes: 180,
-              capacity: 6,
-              initial_occupied_seats: 2,
-              attendance_mode: 'open',
-              table_name: 'Mesa grande',
-              table_description: 'Zona central',
-              table_recommended_capacity: 6,
-              catalog_item_id: 11,
-              catalog_item_name: 'Dune Imperium',
-              catalog_item_type: 'board-game',
-              catalog_item_publisher: 'Dire Wolf',
-              catalog_item_publication_year: 2020,
-              catalog_item_player_count_min: 1,
-              catalog_item_player_count_max: 4,
-              catalog_item_recommended_age: 14,
-              catalog_item_play_time_minutes: 120,
-              organizer_name: 'Ada',
-              confirmed_attendees: 2,
-              attendee_names: ['Ada', 'Marta'],
-            }, {
-              id: 8,
-              title: 'Mesa cerrada',
-              description: null,
-              starts_at: '2026-05-23T19:00:00.000Z',
-              duration_minutes: 120,
-              capacity: 5,
-              initial_occupied_seats: 1,
-              attendance_mode: 'closed',
-              table_name: 'Mesa pequeña',
-              table_description: null,
-              table_recommended_capacity: 5,
-              catalog_item_id: null,
-              catalog_item_name: null,
-              catalog_item_type: null,
-              catalog_item_publisher: null,
-              catalog_item_publication_year: null,
-              catalog_item_player_count_min: null,
-              catalog_item_player_count_max: null,
-              catalog_item_recommended_age: null,
-              catalog_item_play_time_minutes: null,
-              organizer_name: null,
-              confirmed_attendees: 0,
-              attendee_names: [],
-            }],
-          };
+          const events = [{
+            id: 7,
+            title: 'Partida abierta',
+            description: 'Mesa de iniciacion',
+            starts_at: '2026-05-23T17:00:00.000Z',
+            duration_minutes: 180,
+            capacity: 6,
+            initial_occupied_seats: 2,
+            attendance_mode: 'open',
+            table_name: 'Mesa grande',
+            table_description: 'Zona central',
+            table_recommended_capacity: 6,
+            catalog_item_id: 11,
+            catalog_item_name: 'Dune Imperium',
+            catalog_item_type: 'board-game',
+            catalog_item_publisher: 'Dire Wolf',
+            catalog_item_publication_year: 2020,
+            catalog_item_player_count_min: 1,
+            catalog_item_player_count_max: 4,
+            catalog_item_recommended_age: 14,
+            catalog_item_play_time_minutes: 120,
+            organizer_name: 'Ada',
+            confirmed_attendees: 2,
+            attendee_names: ['Ada', 'Marta'],
+          }, {
+            id: 8,
+            title: 'Mesa cerrada',
+            description: null,
+            starts_at: '2026-05-23T19:00:00.000Z',
+            duration_minutes: 120,
+            capacity: 5,
+            initial_occupied_seats: 1,
+            attendance_mode: 'closed',
+            table_name: 'Mesa pequeña',
+            table_description: null,
+            table_recommended_capacity: 5,
+            catalog_item_id: null,
+            catalog_item_name: null,
+            catalog_item_type: null,
+            catalog_item_publisher: null,
+            catalog_item_publication_year: null,
+            catalog_item_player_count_min: null,
+            catalog_item_player_count_max: null,
+            catalog_item_recommended_age: null,
+            catalog_item_play_time_minutes: null,
+            organizer_name: null,
+            confirmed_attendees: 0,
+            attendee_names: [],
+          }];
+          if (sql.includes('events.id = $1')) {
+            const found = events.find((e) => e.id === Number(params[0]));
+            return { rows: found ? [found] : [] };
+          }
+          return { rows: events };
         }
         if (sql.includes('from catalog_families')) {
           return { rows: [{ id: 5, display_name: 'Juegos de mesa' }] };
@@ -585,6 +588,26 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.doesNotMatch(activitiesHtml, /capacidad recomendada/);
     assert.doesNotMatch(activitiesHtml, /Mesa cerrada · 1\/5 plazas/);
     assert.equal((activitiesHtml.match(/Asistentes confirmados/g) ?? []).length, 1);
+    assert.match(activitiesHtml, /href="\/actividades\/7"/);
+    assert.match(activitiesHtml, /href="\/actividades\/8"/);
+    assert.match(activitiesHtml, />Ver detalle<\/a>/);
+
+    const activityDetailPage = await fetch(`${baseUrl}/actividades/7`);
+    assert.equal(activityDetailPage.status, 200);
+    const detailHtml = await activityDetailPage.text();
+    assert.match(detailHtml, /Partida abierta/);
+    assert.match(detailHtml, /Mesa de iniciacion/);
+    assert.match(detailHtml, /Dune Imperium/);
+    assert.match(detailHtml, /Ada/);
+    assert.match(detailHtml, /Marta/);
+    assert.match(detailHtml, /4\/6 plazas/);
+    assert.match(detailHtml, /href="\/actividades"/);
+    assert.match(detailHtml, /https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_7/);
+    assert.match(detailHtml, /class="activity-detail-actions"/);
+    assert.match(detailHtml, /Apuntarse en Telegram/);
+
+    const missingActivityPage = await fetch(`${baseUrl}/actividades/9999`);
+    assert.equal(missingActivityPage.status, 404);
 
     const catalogPage = await fetch(`${baseUrl}/catalogo?q=dune&type=board-game&page=2`);
     assert.equal(catalogPage.status, 200);

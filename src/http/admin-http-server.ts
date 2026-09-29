@@ -38,6 +38,7 @@ import { escapeHtml, renderHttpPage, type RenderHttpPageOptions } from './http-p
 import { listHttpThemes } from './http-theme.js';
 import { createDatabaseMemberSignupStore, type MemberSignupRecord, type MemberSignupStore } from './member-signup-store.js';
 import { createAppMetadataWebSettingsStore, type WebSettings, type WebSettingsStore } from './web-settings-store.js';
+import { buildTelegramStartUrl } from '../telegram/deep-links.js';
 import { createNotionWebhookHandler, type NotionWebhookEvent } from '../notion/notion-webhook.js';
 import { decryptNotionCredential, encryptNotionCredential } from '../notion/notion-credential-crypto.js';
 import { createDatabaseRoleGameRepository } from '../role-games/role-game-catalog-store.js';
@@ -531,6 +532,18 @@ async function routeRequest(options: {
     const settings = await options.webSettingsStore.load();
     const events = await fetchPublicScheduleEvents(options.services);
     sendHtml(response, 200, activitiesPage(settings, events));
+    return;
+  }
+
+  const activityDetailMatch = request.method === 'GET' ? /^\/actividades\/(\d+)$/.exec(url.pathname) : null;
+  if (activityDetailMatch?.[1]) {
+    const settings = await options.webSettingsStore.load();
+    const event = await fetchPublicScheduleEventDetail(options.services, Number(activityDetailMatch[1]));
+    if (!event) {
+      sendHtml(response, 404, notFoundPage());
+      return;
+    }
+    sendHtml(response, 200, activityDetailPage(settings, event));
     return;
   }
 
@@ -3755,6 +3768,76 @@ async function fetchPublicScheduleEvents(
   return result.rows;
 }
 
+async function fetchPublicScheduleEventDetail(
+  services: InfrastructureRuntimeServices,
+  eventId: number,
+): Promise<PublicScheduleEventRow | null> {
+  const result = await services.database.pool.query<PublicScheduleEventRow>(
+    `
+      select
+        events.id,
+        events.title,
+        events.description,
+        events.starts_at,
+        events.duration_minutes,
+        events.capacity,
+        events.initial_occupied_seats,
+        events.attendance_mode,
+        tables.display_name as table_name,
+        tables.description as table_description,
+        tables.recommended_capacity as table_recommended_capacity,
+        catalog_items.id as catalog_item_id,
+        catalog_items.display_name as catalog_item_name,
+        catalog_items.item_type as catalog_item_type,
+        catalog_items.publisher as catalog_item_publisher,
+        catalog_items.publication_year as catalog_item_publication_year,
+        catalog_items.player_count_min as catalog_item_player_count_min,
+        catalog_items.player_count_max as catalog_item_player_count_max,
+        catalog_items.recommended_age as catalog_item_recommended_age,
+        catalog_items.play_time_minutes as catalog_item_play_time_minutes,
+        organizers.display_name as organizer_name,
+        coalesce(count(participants.participant_telegram_user_id) filter (where participants.status = 'active'), 0)::int as confirmed_attendees,
+        coalesce(
+          array_remove(array_agg(participant_users.display_name order by participant_users.display_name) filter (where participants.status = 'active'), null),
+          '{}'
+        ) as attendee_names
+      from schedule_events events
+      left join club_tables tables on tables.id = events.table_id
+      left join catalog_items on catalog_items.id = events.catalog_item_id
+      left join users organizers on organizers.telegram_user_id = events.organizer_telegram_user_id
+      left join schedule_event_participants participants on participants.schedule_event_id = events.id
+      left join users participant_users on participant_users.telegram_user_id = participants.participant_telegram_user_id
+      where events.id = $1 and events.lifecycle_status = 'scheduled'
+      group by
+        events.id,
+        events.title,
+        events.description,
+        events.starts_at,
+        events.duration_minutes,
+        events.capacity,
+        events.initial_occupied_seats,
+        events.attendance_mode,
+        tables.display_name,
+        tables.description,
+        tables.recommended_capacity,
+        catalog_items.id,
+        catalog_items.display_name,
+        catalog_items.item_type,
+        catalog_items.publisher,
+        catalog_items.publication_year,
+        catalog_items.player_count_min,
+        catalog_items.player_count_max,
+        catalog_items.recommended_age,
+        catalog_items.play_time_minutes,
+        organizers.display_name
+      limit 1
+    `,
+    [eventId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 async function fetchPublicCatalogItems(
   services: InfrastructureRuntimeServices,
   {
@@ -4809,7 +4892,56 @@ function renderActivityCard(event: PublicScheduleEventRow): string {
     event.table_name ? ['Mesa', formatActivityTable(event)] : null,
   ].filter((fact): fact is [string, string] => fact !== null);
 
-  return `<article class="activity-card"><div class="activity-card-main"><p class="activity-time">${escapeHtml(timeLabel)}</p><h3>${escapeHtml(event.title)}</h3>${catalogLink}${event.description ? `<p>${escapeHtml(event.description)}</p>` : ''}</div><dl class="activity-facts">${facts.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>${attendeePanel}</article>`;
+  return `<article class="activity-card"><div class="activity-card-main"><p class="activity-time">${escapeHtml(timeLabel)}</p><h3><a href="/actividades/${event.id}">${escapeHtml(event.title)}</a></h3>${catalogLink}${event.description ? `<p>${escapeHtml(event.description)}</p>` : ''}</div><dl class="activity-facts">${facts.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>${attendeePanel}<div class="activity-actions"><a href="/actividades/${event.id}">Ver detalle</a></div></article>`;
+}
+
+function activityDetailPage(settings: WebSettings, event: PublicScheduleEventRow): string {
+  const confirmedAttendees = Number(event.confirmed_attendees ?? 0);
+  const occupiedSeats = event.initial_occupied_seats + confirmedAttendees;
+  const seats = event.capacity > 0
+    ? `${occupiedSeats}/${event.capacity} plazas`
+    : 'sin aforo configurado';
+  const attendanceMode = event.attendance_mode === 'closed' ? 'Mesa cerrada' : 'Mesa abierta';
+  const attendeeNames = normalizeStringArray(event.attendee_names);
+  const timeLabel = formatActivityTimeRange(event.starts_at, event.duration_minutes);
+  const dayLabel = formatActivityDayHeading(event.starts_at);
+  const attendanceLabel = event.attendance_mode === 'closed' ? attendanceMode : `${attendanceMode} · ${seats}`;
+
+  const facts = [
+    ['Fecha', dayLabel],
+    ['Horario', timeLabel],
+    hasPublicActivityDuration(event.duration_minutes) ? ['Duracion', formatHumanDuration(event.duration_minutes)] : null,
+    ['Asistencia', attendanceLabel],
+    event.catalog_item_name ? ['Juego enlazado', formatActivityCatalogItem(event)] : null,
+    event.organizer_name ? ['Organiza', event.organizer_name] : null,
+    event.table_name ? ['Mesa', formatActivityTable(event)] : null,
+  ].filter((fact): fact is [string, string] => fact !== null);
+
+  const catalogLink = event.catalog_item_name
+    ? `<a class="activity-linked-game" href="/catalogo?q=${encodeURIComponent(event.catalog_item_name)}">${escapeHtml(event.catalog_item_name)}</a>`
+    : '';
+
+  const telegramUrl = buildTelegramStartUrl(`schedule_event_${event.id}`);
+  const telegramIcon = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>';
+  const telegramAction = `<div class="activity-detail-actions"><a class="activity-cta-button" href="${escapeHtml(telegramUrl)}" target="_blank" rel="noopener noreferrer">${telegramIcon}<span>Apuntarse en Telegram</span></a></div>`;
+
+  const descriptionSection = event.description
+    ? `<section class="activity-detail-section"><h2>Descripción</h2><p class="activity-detail-description">${escapeHtml(event.description)}</p></section>`
+    : '<section class="activity-detail-section"><h2>Descripción</h2><p class="muted">No hay descripción adicional para esta actividad.</p></section>';
+
+  const attendeesSection = attendeeNames.length > 0
+    ? `<section class="activity-detail-section"><h2>Asistentes confirmados (${attendeeNames.length})</h2><div class="activity-attendees"><ul>${attendeeNames.map((name) => `<li>${escapeHtml(name)}</li>`).join('')}</ul></div></section>`
+    : '<section class="activity-detail-section"><h2>Asistentes confirmados</h2><p class="muted">Aún no hay asistentes confirmados inscritos.</p></section>';
+
+  const body = `<p class="row"><a href="/actividades">← Volver a actividades</a></p><article class="activity-detail-card"><div class="activity-detail-header"><p class="activity-time">${escapeHtml(dayLabel)} · ${escapeHtml(timeLabel)}</p><h2>${escapeHtml(event.title)}</h2>${catalogLink}</div><dl class="activity-facts">${facts.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>${descriptionSection}${attendeesSection}${telegramAction}</article>`;
+
+  return page({
+    title: `${event.title} · Actividades`,
+    themeName: settings.theme,
+    headerBrandName: settings.brand.name,
+    headerLogoAsset: settings.home.logoAsset,
+    body,
+  });
 }
 
 function formatActivityTable(event: PublicScheduleEventRow): string {
