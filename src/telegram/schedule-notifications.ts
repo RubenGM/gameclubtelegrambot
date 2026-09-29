@@ -15,6 +15,7 @@ import { createAppMetadataGoogleCalendarSettingsStore } from '../google-calendar
 export interface ScheduleCalendarChange {
   action: 'created' | 'updated' | 'deleted';
   event: ScheduleEventRecord;
+  previousEvent?: ScheduleEventRecord;
 }
 
 export async function notifyScheduleConflicts({
@@ -81,6 +82,7 @@ export interface PublishCalendarSnapshotInput {
   venueEventRepository?: VenueEventRepository;
   tableRepository?: ClubTableRepository;
   resolveActorDisplayName: () => Promise<string>;
+  now?: Date;
 }
 
 export async function publishCalendarSnapshotToNewsGroups(input: PublishCalendarSnapshotInput): Promise<void> {
@@ -113,11 +115,19 @@ async function publishCalendarSnapshotForCategory({
   resolveActorDisplayName,
   categoryKey,
   publicOnly = false,
+  now = new Date(),
 }: PublishCalendarSnapshotInput & {
   categoryKey: string;
   publicOnly?: boolean;
 }): Promise<void> {
   if (!sendGroupMessage) {
+    return;
+  }
+
+  const startsAtTo = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const withinHorizon = (event: ScheduleEventRecord) => new Date(event.startsAt).getTime() <= new Date(startsAtTo).getTime();
+  // Moving an already visible activity out of the window must still refresh the feed.
+  if (!withinHorizon(change.event) && !(change.previousEvent && withinHorizon(change.previousEvent))) {
     return;
   }
 
@@ -130,6 +140,8 @@ async function publishCalendarSnapshotForCategory({
 
   const entries = await loadUpcomingCalendarEntries({
     database,
+    now,
+    startsAtTo,
     ...(scheduleRepository ? { scheduleRepository } : {}),
     ...(venueEventRepository ? { venueEventRepository } : {}),
     ...(tableRepository ? { tableRepository } : {}),

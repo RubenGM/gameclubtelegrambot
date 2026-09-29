@@ -45,6 +45,7 @@ export async function loadUpcomingCalendarEntries({
   venueEventRepository,
   tableRepository,
   publicOnly = false,
+  startsAtTo,
 }: {
   database: unknown;
   now?: Date;
@@ -52,16 +53,18 @@ export async function loadUpcomingCalendarEntries({
   venueEventRepository?: VenueEventRepository;
   tableRepository?: ClubTableRepository;
   publicOnly?: boolean;
+  startsAtTo?: string;
 }): Promise<CalendarEntry[]> {
   const startsAtFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
 
   const [scheduleEvents, venueEvents] = await Promise.all([
-    listScheduleEvents({ repository: scheduleRepository ?? createDatabaseScheduleRepository({ database: database as never }), includeCancelled: false, startsAtFrom }),
+    listScheduleEvents({ repository: scheduleRepository ?? createDatabaseScheduleRepository({ database: database as never }), includeCancelled: false, startsAtFrom, ...(startsAtTo ? { startsAtTo } : {}) }),
     listVenueEvents({ repository: venueEventRepository ?? createDatabaseVenueEventRepository({ database: database as never }), includeCancelled: false, startsAtFrom }),
   ]);
 
   const tableNames = new Map<number, string | null>();
-  const visibleScheduleEvents = publicOnly ? scheduleEvents.filter((event) => event.isPublic) : scheduleEvents;
+  const withinHorizon = (event: { startsAt: string }) => !startsAtTo || new Date(event.startsAt).getTime() <= new Date(startsAtTo).getTime();
+  const visibleScheduleEvents = scheduleEvents.filter((event) => (!publicOnly || event.isPublic) && withinHorizon(event));
   const scheduleEntries = await Promise.all(
     visibleScheduleEvents.map(async (event) => {
       const tableName = event.tableId ? await loadTableName(database, tableRepository, tableNames, event.tableId) : null;
@@ -85,7 +88,7 @@ export async function loadUpcomingCalendarEntries({
 
   const venueEntries = publicOnly
     ? []
-    : venueEvents.map((event) => ({
+    : venueEvents.filter(withinHorizon).map((event) => ({
         kind: 'venue' as const,
         startsAt: event.startsAt,
         endsAt: event.endsAt,

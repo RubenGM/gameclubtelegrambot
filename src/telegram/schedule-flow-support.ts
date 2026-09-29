@@ -2133,7 +2133,7 @@ async function persistEditedScheduleEvent(
     },
   });
   await context.runtime.session.cancel();
-  await runAfterScheduleSaveSideEffects(context, updated, 'updated');
+  await runAfterScheduleSaveSideEffects(context, updated, 'updated', event);
   await replyAfterScheduleSave(
     context,
     `${texts.updated.replace('.', '')}: <b>${escapeHtml(updated.title)}</b>\n${formatScheduleEventDetails({ event: updated, tableName: await loadTableName(context, updated.tableId), equipmentNames: await loadEquipmentNames(context, updated.equipmentIds), language })}`,
@@ -3178,6 +3178,7 @@ export async function runAfterScheduleSaveSideEffects(
   context: TelegramScheduleContext,
   event: ScheduleEventRecord,
   action: 'created' | 'updated' | 'deleted',
+  previousEvent?: ScheduleEventRecord,
 ): Promise<void> {
   await ignoreSchedulePostSaveFailure(async () => {
     await synchronizeGoogleCalendarScheduleEvent({
@@ -3206,6 +3207,7 @@ export async function runAfterScheduleSaveSideEffects(
       change: {
         action,
         event,
+        ...(previousEvent ? { previousEvent } : {}),
       },
       ...calendarBroadcastDependencies,
     });
@@ -3213,6 +3215,7 @@ export async function runAfterScheduleSaveSideEffects(
       change: {
         action,
         event,
+        ...(previousEvent ? { previousEvent } : {}),
       },
       ...calendarBroadcastDependencies,
     });

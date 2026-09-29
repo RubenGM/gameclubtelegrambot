@@ -14,6 +14,8 @@ import type { AppMetadataSessionStorage } from './conversation-session-store.js'
 import { normalizeDisplayName } from '../membership/display-name.js';
 import { publishCalendarSnapshotToNewsGroups, publishPublicCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
 import { createTelegramI18n } from './i18n.js';
+import { loadUpcomingCalendarEntries } from './calendar-summary.js';
+import { runAfterScheduleSaveSideEffects } from './schedule-flow-support.js';
 import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleMessage,
@@ -2165,6 +2167,82 @@ test('handleTelegramScheduleText publishes the updated calendar to enabled news 
     groupMessages[0]?.message ?? '',
     /<a href="https:\/\/t\.me\/cawa_management_bot\?start=schedule_create"><b>Fes la teva reserva<\/b><\/a>$/,
   );
+});
+
+test('news calendars include the 30-day boundary and keep distant activities available to direct reads', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const create = (title: string, startsAt: string) => scheduleRepository.createEvent({
+    title, startsAt, description: null, durationMinutes: 180, organizerTelegramUserId: 42,
+    createdByTelegramUserId: 42, tableId: null, attendanceMode: 'open', isPublic: true,
+    initialOccupiedSeats: 0, capacity: 5,
+  });
+  const near = await create('Próxima', '2026-04-06T10:00:00.000Z');
+  await create('Límite incluido', '2026-05-05T09:00:00.000Z');
+  await create('Fuera del límite', '2026-05-05T09:00:00.001Z');
+  const far = await create('Curso de Davinci', '2026-09-05T10:00:00.000Z');
+  const venueEventRepository = createVenueEventRepository();
+  for (const [name, startsAt, endsAt] of [
+    ['Cierre próximo', '2026-04-07T10:00:00.000Z', '2026-04-07T14:00:00.000Z'],
+    ['Cierre lejano', '2026-09-07T10:00:00.000Z', '2026-09-07T14:00:00.000Z'],
+  ]) {
+    await venueEventRepository.createVenueEvent({ name: name!, startsAt: startsAt!, endsAt: endsAt!, description: null, occupancyScope: 'full', impactLevel: 'high' });
+  }
+  const newsGroupRepository = createNewsGroupRepository([{
+    chatId: -200, isEnabled: true, metadata: null, createdAt: near.createdAt,
+    updatedAt: near.updatedAt, enabledAt: near.createdAt, disabledAt: null,
+  }], new Map([['events', new Set([-200])], ['public-events', new Set([-200])]]));
+  const { context, groupMessages, replies } = createContext({ scheduleRepository, venueEventRepository, newsGroupRepository, actorTelegramUserId: 42 });
+
+  await runAfterScheduleSaveSideEffects(context, near, 'created');
+  assert.equal(groupMessages.length, 2);
+  for (const { message } of groupMessages) {
+    assert.match(message, /Próxima/);
+    assert.match(message, /Límite incluido/);
+    assert.doesNotMatch(message, /Fuera del límite|Curso de Davinci|Cierre lejano/);
+  }
+  assert.match(groupMessages[0]!.message, /Cierre próximo/);
+  assert.doesNotMatch(groupMessages[1]!.message, /Cierre próximo/);
+
+  groupMessages.length = 0;
+  for (const action of ['created', 'updated', 'deleted'] as const) {
+    await runAfterScheduleSaveSideEffects(context, far, action);
+  }
+  assert.equal(groupMessages.length, 0);
+  const entries = await loadUpcomingCalendarEntries({ database: undefined, scheduleRepository, venueEventRepository });
+  assert.ok(entries.some((entry) => entry.title === 'Curso de Davinci'));
+  assert.ok(entries.some((entry) => entry.title === 'Cierre lejano'));
+  context.messageText = scheduleLabels.list;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.match(replies.map((reply) => reply.message).join('\n'), /Curso de Davinci/);
+
+  // When time advances, the formerly distant activity joins the next published snapshot.
+  await publishCalendarSnapshotToNewsGroups({
+    change: { action: 'updated', event: far }, database: undefined,
+    newsGroupRepository, scheduleRepository, venueEventRepository,
+    now: new Date('2026-08-10T09:00:00.000Z'),
+    resolveActorDisplayName: async () => 'Ada',
+    sendGroupMessage: async (_chatId, message) => { groupMessages.push({ chatId: -200, message }); },
+  });
+  assert.match(groupMessages[0]!.message, /Curso de Davinci/);
+});
+
+test('moving a visible activity beyond 30 days refreshes the feed to remove it', async () => {
+  const scheduleRepository = createScheduleRepository();
+  const event = await scheduleRepository.createEvent({
+    title: 'Curso', startsAt: '2026-04-06T10:00:00.000Z', description: null,
+    durationMinutes: 180, organizerTelegramUserId: 42, createdByTelegramUserId: 42,
+    tableId: null, attendanceMode: 'closed', isPublic: false, initialOccupiedSeats: 0, capacity: 5,
+  });
+  const newsGroupRepository = createNewsGroupRepository([{
+    chatId: -200, isEnabled: true, metadata: null, createdAt: event.createdAt,
+    updatedAt: event.updatedAt, enabledAt: event.createdAt, disabledAt: null,
+  }]);
+  const { context, groupMessages } = createContext({ scheduleRepository, newsGroupRepository, actorTelegramUserId: 42 });
+  const moved = await scheduleRepository.updateEvent({ ...event, eventId: event.id, startsAt: '2026-09-05T10:00:00.000Z' });
+  await runAfterScheduleSaveSideEffects(context, moved, 'updated', event);
+  assert.equal(groupMessages.length, 1);
+  assert.doesNotMatch(groupMessages[0]!.message, /schedule_event_/);
+  assert.match(groupMessages[0]!.message, /no hi ha activitats/);
 });
 
 test('publishCalendarSnapshotToNewsGroups keeps only the latest calendar snapshot message per destination', async () => {
