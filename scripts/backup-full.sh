@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_ROOT="${GAMECLUB_APP_ROOT:-/opt/gameclubtelegrambot}"
@@ -28,6 +29,7 @@ Options:
 
 What it does:
   - Copies runtime config files and the Debian service env file into a staging folder.
+  - Includes feedback, uploaded web assets and Google Calendar credential files when present.
   - Creates a PostgreSQL dump using the configured runtime database.
   - Adds the installed systemd unit and polkit rule when present.
   - Packs everything into a single timestamped .zip archive.
@@ -156,6 +158,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
     printf 'Es copiaria %q a polkit/%s\n' "$POLKIT_RULE_PATH" "$(basename "$POLKIT_RULE_PATH")"
   fi
 
+  python3 "$ROOT_DIR/scripts/backup-persistent-files.py" backup --config "$DRY_RUN_TMP_DIR/config/runtime.json" --app-root "$APP_ROOT" --archive "$DRY_RUN_TMP_DIR" --dry-run
+
   GAMECLUB_APP_ROOT="$APP_ROOT" GAMECLUB_ENV_PATH="$DRY_RUN_TMP_DIR/config/runtime.env" \
     "$ROOT_DIR/scripts/backup-postgres.sh" --config "$DRY_RUN_TMP_DIR/config/runtime.json" --output-dir '/tmp/gameclub-backup/database' --dry-run
 
@@ -190,6 +194,8 @@ if [ -f "$POLKIT_RULE_PATH" ]; then
   copy_file_for_backup "$POLKIT_RULE_PATH" "$STAGING_DIR/polkit/$(basename "$POLKIT_RULE_PATH")"
 fi
 
+python3 "$ROOT_DIR/scripts/backup-persistent-files.py" backup --config "$STAGING_DIR/config/runtime.json" --app-root "$APP_ROOT" --archive "$STAGING_DIR"
+
 GAMECLUB_APP_ROOT="$APP_ROOT" GAMECLUB_ENV_PATH="$STAGING_DIR/config/runtime.env" \
   "$ROOT_DIR/scripts/backup-postgres.sh" --config "$STAGING_DIR/config/runtime.json" --output-dir "$STAGING_DIR/database"
 
@@ -202,7 +208,7 @@ fi
 mv "${DUMP_FILES[0]}" "$STAGING_DIR/database/postgres.sql.gz"
 
 cat > "$STAGING_DIR/metadata/manifest.txt" <<EOF
-backup_format_version=1
+backup_format_version=2
 created_at=$TIMESTAMP
 hostname=$(hostname)
 app_root=$APP_ROOT
@@ -224,6 +230,7 @@ The archive contains:
   - config/runtime.env
   - config/default.env
   - database/postgres.sql.gz
+  - metadata/persistent-files.json and optional data/ and integrations/ payloads
   - optional systemd/ and polkit/ files when they existed on the source machine
 EOF
 
@@ -231,6 +238,8 @@ EOF
   cd "$TMP_DIR"
   python3 -m zipfile -c "$ARCHIVE_PATH" "$(basename "$STAGING_DIR")" >/dev/null
 )
+
+chmod 0640 "$ARCHIVE_PATH"
 
 log "Backup complet creat a: $ARCHIVE_PATH"
 printf '%s\n' "$ARCHIVE_PATH"

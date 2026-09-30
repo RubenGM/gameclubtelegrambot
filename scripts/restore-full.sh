@@ -12,6 +12,8 @@ SYSTEMD_UNIT_PATH="/etc/systemd/system/$SERVICE_NAME"
 INPUT_FILE=""
 START_SERVICE=1
 DRY_RUN=0
+APP_ROOT_EXPLICIT=0
+SERVICE_NAME_EXPLICIT=0
 
 usage() {
   cat <<'EOF'
@@ -28,6 +30,7 @@ Options:
 What it does:
   - Extracts the backup archive to a temporary directory.
   - Restores runtime config, runtime secrets, and the Debian service env file.
+  - Restores included feedback, web assets and Google Calendar credential files.
   - Restores PostgreSQL from the included dump.
   - Reinstalls the saved systemd unit and polkit rule when present.
   - Validates runtime config, runs migrations, and starts the service again.
@@ -74,10 +77,12 @@ while [ "$#" -gt 0 ]; do
     --app-root)
       shift
       APP_ROOT="$1"
+      APP_ROOT_EXPLICIT=1
       ;;
     --service-name)
       shift
       SERVICE_NAME="$1"
+      SERVICE_NAME_EXPLICIT=1
       SYSTEMD_UNIT_PATH="/etc/systemd/system/$SERVICE_NAME"
       ;;
     --no-start)
@@ -163,11 +168,11 @@ if [ -f "$MANIFEST_PATH" ]; then
   APP_ROOT_FROM_MANIFEST="$(manifest_value app_root || true)"
   SERVICE_NAME_FROM_MANIFEST="$(manifest_value service_name || true)"
 
-  if [ -n "$APP_ROOT_FROM_MANIFEST" ] && [ -z "${GAMECLUB_APP_ROOT:-}" ]; then
+  if [ -n "$APP_ROOT_FROM_MANIFEST" ] && [ -z "${GAMECLUB_APP_ROOT:-}" ] && [ "$APP_ROOT_EXPLICIT" -eq 0 ]; then
     APP_ROOT="$APP_ROOT_FROM_MANIFEST"
   fi
 
-  if [ -n "$SERVICE_NAME_FROM_MANIFEST" ] && [ -z "${GAMECLUB_SERVICE_NAME:-}" ]; then
+  if [ -n "$SERVICE_NAME_FROM_MANIFEST" ] && [ -z "${GAMECLUB_SERVICE_NAME:-}" ] && [ "$SERVICE_NAME_EXPLICIT" -eq 0 ]; then
     SERVICE_NAME="$SERVICE_NAME_FROM_MANIFEST"
     SYSTEMD_UNIT_PATH="/etc/systemd/system/$SERVICE_NAME"
   fi
@@ -187,6 +192,13 @@ for required_file in "${REQUIRED_FILES[@]}"; do
   fi
 done
 
+if [ "$(manifest_value backup_format_version || true)" = '2' ] && [ ! -f "$BACKUP_ROOT/metadata/persistent-files.json" ]; then
+  printf 'Falta el manifest de fitxers persistents del backup v2\n' >&2
+  exit 1
+fi
+
+python3 "$ROOT_DIR/scripts/backup-persistent-files.py" validate --config "$BACKUP_ROOT/config/runtime.json" --app-root "$APP_ROOT" --archive "$BACKUP_ROOT"
+
 TARGET_GROUP='root'
 if getent group gameclubbot >/dev/null 2>&1; then
   TARGET_GROUP='gameclubbot'
@@ -204,6 +216,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
   if [ -d "$BACKUP_ROOT/polkit" ]; then
     printf 'Es restauraria el contingut de %q a %q\n' "$BACKUP_ROOT/polkit" '/etc/polkit-1/rules.d'
   fi
+
+  python3 "$ROOT_DIR/scripts/backup-persistent-files.py" restore --config "$BACKUP_ROOT/config/runtime.json" --app-root "$APP_ROOT" --archive "$BACKUP_ROOT" --dry-run
 
   printf '+ systemctl stop %q\n' "$SERVICE_NAME"
   GAMECLUB_APP_ROOT="$APP_ROOT" GAMECLUB_ENV_PATH="$BACKUP_ROOT/config/runtime.env" \
@@ -242,6 +256,10 @@ fi
 
 GAMECLUB_APP_ROOT="$APP_ROOT" GAMECLUB_ENV_PATH="$ENV_PATH" \
   "$ROOT_DIR/scripts/restore-postgres.sh" --config "$CONFIG_PATH" --input "$BACKUP_ROOT/database/postgres.sql.gz"
+
+TARGET_USER="$(systemctl show "$SERVICE_NAME" --property=User --value)"
+TARGET_USER="${TARGET_USER:-root}"
+run_root_cmd python3 "$ROOT_DIR/scripts/backup-persistent-files.py" restore --config "$BACKUP_ROOT/config/runtime.json" --app-root "$APP_ROOT" --archive "$BACKUP_ROOT" --owner "$TARGET_USER"
 
 run_root_cmd env GAMECLUB_CONFIG_PATH="$CONFIG_PATH" GAMECLUB_ENV_PATH="$ENV_PATH" /usr/bin/node "$APP_ROOT/dist/scripts/check-runtime-config.js"
 run_root_cmd env GAMECLUB_CONFIG_PATH="$CONFIG_PATH" GAMECLUB_ENV_PATH="$ENV_PATH" /usr/bin/node "$APP_ROOT/dist/scripts/migrate.js"

@@ -22,9 +22,9 @@ Mínim imprescindible:
 - `/etc/default/gameclubtelegrambot`
 - un dump PostgreSQL de la base de dades configurada al runtime
 
-El backup complet actual empaqueta exactament aquests fitxers de configuració,
-el dump i, quan existeixen, la unitat `systemd` i la regla `polkit`. No és una
-còpia completa de tots els fitxers persistents de l'aplicació.
+El backup complet empaqueta aquests fitxers de configuració, el dump i, quan
+existeixen, la unitat `systemd`, la regla `polkit`, el feedback, els assets web
+i el fitxer de credencials de Google Calendar.
 
 Molt recomanable guardar també:
 
@@ -34,12 +34,21 @@ Molt recomanable guardar també:
 - `data/feedback.jsonl`, si cal conservar l'historial de feedback web i Telegram
 - `data/http-assets/`, si la web pública utilitza imatges pujades des del panell
 
-`data/feedback.jsonl` i `data/http-assets/` no s'inclouen actualment a
-`backup-full.sh`. Cal copiar-los per separat abans d'una migració o recuperació
-si són dades que s'han de conservar. Els directoris `data/http-cache/` i
+`backup-full.sh` inclou el feedback a la ruta `httpServer.feedbackFile` del
+runtime (per defecte `data/feedback.jsonl`), `data/http-assets/` i les credencials
+a `googleCalendar.serviceAccountFile` (per defecte
+`/var/lib/gameclubtelegrambot/google-calendar-service-account.json`). Les rutes
+relatives es resolen respecte de `--app-root`; les absolutes es conserven.
+Només s'inclouen les fonts existents; errors de lectura o tipus inesperats
+aturen el backup, i no es segueixen enllaços simbòlics. Els directoris `data/http-cache/`, `data/codex-benchmarks/` i
 `data/llm-model-tests/` són reconstruïbles i no formen part del backup operatiu.
 Els adjunts canònics de Storage continuen a Telegram i tampoc es dupliquen al
-zip.
+zip. Les sessions MTProto, settings de Calendar, referències Notion/Drive i
+metadades del web es persisteixen a PostgreSQL; tokens i credencials inline es
+conserven amb la configuració i `.env`. Els workspaces d'imatges IA, impressió i
+descàrregues són temporals, no un arxiu persistent. Les credencials personals
+de Codex/OpenCode de l'operador queden fora del paquet del bot i requereixen
+reautenticació o recuperació independent en una altra màquina.
 
 ## Freqüència recomanada
 
@@ -103,9 +112,9 @@ La consola d'administració `./scripts/admin-console.sh` inclou la vista
 En instal·lacions Debian fetes amb `./scripts/install-debian-stack.sh`,
 s'instal·la també `gameclubtelegrambot-backup.timer`. Aquest timer executa cada
 nit `gameclubtelegrambot-backup.service` i guarda el zip operatiu a
-`/var/backups/gameclubtelegrambot`. Els adjunts no es descarreguen ni es
-dupliquen: el backup cobreix configuració i base de dades, però no
-`data/feedback.jsonl` ni `data/http-assets/`.
+`/var/backups/gameclubtelegrambot`. El timer utilitza el mateix backup complet,
+incloent-hi feedback, assets web i credencials Calendar presents. Els adjunts
+canònics de Telegram no es descarreguen ni es dupliquen.
 
 Accions disponibles a la v1:
 
@@ -169,12 +178,21 @@ El resultat és un fitxer `gameclub-backup-YYYYMMDD-HHMMSS.zip` que conté:
 - `database/postgres.sql.gz`
 - `systemd/gameclubtelegrambot.service` si existia a la màquina
 - `polkit/50-gameclubtelegrambot.rules` si existia a la màquina
+- `metadata/persistent-files.json`: inventari de payloads inclosos
+- `data/feedback.jsonl` si existia el feedback configurat
+- `data/http-assets/` si existia el directori
+- `integrations/google-calendar.json` si existia el fitxer de credencials
 
 Aquest és ara el camí recomanat per a backups operatius perquè empaqueta en un únic arxiu tant la configuració com la base de dades.
 
-El nom «backup complet» identifica el paquet restaurable de configuració i base
-de dades; no vol dir que inclogui tots els fitxers sota `data/`. Conserva per
-separat el feedback i els assets web quan siguin necessaris.
+El desplegament Debian exclou `/data/` del `rsync --delete`: executar
+`startup.sh` conserva el feedback i els assets existents o restaurats.
+
+El format v2 afegeix els fitxers persistents seleccionats; no inclou tot `data/`.
+El ZIP té permisos `0640` perquè conté secrets: només el propietari i el
+grup del directori de backups poden llegir-lo (al timer, `gameclubbot-operators`). El backup es fa amb el servei
+actiu: no garanteix una fotografia transaccional conjunta de fitxers i BD.
+Per a una migració sense escriptures concurrents, atura abans el bot.
 
 ### Restore complet des del zip
 
@@ -223,18 +241,20 @@ Si no es fa servir `backup-full.sh`, executar:
 ./scripts/backup-postgres.sh --config /etc/gameclubtelegrambot/runtime.json --output-dir /var/backups/gameclubtelegrambot
 ```
 
-### 3. Dades persistents fora del zip
+### 3. Fitxers persistents inclosos
 
-Si cal conservar feedback i assets web, copia'ls separadament des de
-l'aplicació desplegada:
+Comprova que `metadata/persistent-files.json` registra les fonts que existeixen.
+El restore valida els payloads abans d'aturar el servei, restaura el feedback i
+les credencials a les rutes del runtime guardat, i els assets sota `--app-root`.
+El directori d'assets inclòs substitueix el directori de destinació, evitant
+fitxers antics que no pertanyen al backup. Els fitxers queden a `0600`, els
+directoris nous a `0750`, amb propietari/grup de l'usuari systemd del servei.
+Les rutes explícites `--app-root` i `--service-name` prevalen sobre el manifest.
 
-```bash
-sudo install -d -m 0750 /var/backups/gameclubtelegrambot/files
-sudo cp -a /opt/gameclubtelegrambot/data/feedback.jsonl /var/backups/gameclubtelegrambot/files/ 2>/dev/null || true
-sudo cp -a /opt/gameclubtelegrambot/data/http-assets /var/backups/gameclubtelegrambot/files/ 2>/dev/null || true
-```
-
-Aquest pas és manual i no queda representat al manifest del zip.
+Els backups antics v1 segueixen sent restaurables: no modifiquen fitxers de
+feedback, assets o credencials. Tampoc es toquen fonts absents del manifest v2.
+Si recuperes un v1, encara has de recuperar aquests fitxers des d'una còpia
+separada, si en disposes.
 
 ### 4. Verificació mínima
 
@@ -281,15 +301,10 @@ sudo cp /var/backups/gameclubtelegrambot/runtime.env /etc/gameclubtelegrambot/.e
 sudo cp /var/backups/gameclubtelegrambot/default.env /etc/default/gameclubtelegrambot
 ```
 
-Si vas conservar dades fora del zip, restaura-les també i torna a assignar-les
-a l'usuari del servei:
-
-```bash
-sudo install -d -o gameclubbot -g gameclubbot /opt/gameclubtelegrambot/data
-sudo cp -a /var/backups/gameclubtelegrambot/files/feedback.jsonl /opt/gameclubtelegrambot/data/ 2>/dev/null || true
-sudo cp -a /var/backups/gameclubtelegrambot/files/http-assets /opt/gameclubtelegrambot/data/ 2>/dev/null || true
-sudo chown -R gameclubbot:gameclubbot /opt/gameclubtelegrambot/data/feedback.jsonl /opt/gameclubtelegrambot/data/http-assets 2>/dev/null || true
-```
+Amb un ZIP v2, `restore-full.sh` recupera també els fitxers persistents inclosos.
+Amb un ZIP v1 o dumps separats, recupera manualment el feedback, els assets i
+les credencials Calendar des de les còpies independents, respectant les rutes
+del runtime i el propietari del servei.
 
 ### 3. Validar la configuració
 
@@ -391,8 +406,8 @@ Abans de considerar la recuperació tancada:
 
 - `runtime.json` restaurat i validat
 - base de dades restaurada
-- `data/feedback.jsonl` i `data/http-assets/` restaurats per separat, si es
-  conservaven
+- feedback, assets web i credencials Calendar recuperats si es conservaven
+  (automàticament amb ZIP v2, manualment amb v1)
 - migracions aplicades si feien falta
 - servei `gameclubtelegrambot.service` en estat `active`
 - logs recents sense errors crítics d'arrencada

@@ -581,7 +581,8 @@ Estado: `técnico operativo`.
 
 Implementado:
 
-- Scripts `backup-cli.sh`, `backup-full.sh` y `restore-full.sh`.
+- Scripts `backup-cli.sh`, `backup-full.sh` y `restore-full.sh`: ZIP v2 con configuración, PostgreSQL, feedback en su ruta configurada, assets web y archivo de credenciales Google Calendar cuando existen; restore con permisos del usuario del servicio y compatibilidad v1.
+- El despliegue Debian conserva `data/` al sincronizar código para no borrar feedback ni assets existentes o restaurados.
 - TUI `npm run backup:console`.
 - Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
 - Panel web admin protegido por contraseña de elevación, sesión firmada, token CSRF en acciones POST y límite de intentos de login por la dirección remota que observa Node.
@@ -601,7 +602,7 @@ Implementado:
 Riesgos o pendientes:
 
 - La restauración sigue siendo una operación sensible que requiere disciplina operativa; no hay simulación obligatoria antes de restaurar.
-- El zip operativo incluye configuración y PostgreSQL, pero no `data/feedback.jsonl` ni `data/http-assets/`; ambos deben copiarse por separado para una recuperación completa del estado persistente en disco.
+- Los ZIP antiguos v1 no incluyen feedback, assets ni credenciales Calendar externas. El backup con servicio activo no garantiza consistencia transaccional entre disco y PostgreSQL; adjuntos Telegram, cachés, temporales y credenciales personales Codex/OpenCode quedan fuera del ZIP.
 - Detrás de Nginx, el rate limit de login puede observar la dirección del proxy y agrupar varios clientes; no debe describirse como límite fiable por IP pública sin una estrategia explícita de proxy de confianza.
 
 ## Analytics UX

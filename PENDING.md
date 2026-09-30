@@ -24,7 +24,7 @@ Una limitación de alcance no implica que una feature esté rota o incompleta.
 
 | ID | Prioridad | Estado | Pendiente y criterio de cierre |
 | --- | --- | --- | --- |
-| P-001 | Alta | pendiente | **Backup completo del estado en disco.** Incluir `data/feedback.jsonl` y `data/http-assets/` en backup y restore; comprobar recuperación de feedback y assets. Revisar además los archivos persistentes de las integraciones actuales para no limitar el análisis a esas dos rutas. |
+| P-001 | Alta | hecho | **Backup completo del estado en disco.** Incluir `data/feedback.jsonl` y `data/http-assets/` en backup y restore; comprobar recuperación de feedback y assets. Revisar además los archivos persistentes de las integraciones actuales para no limitar el análisis a esas dos rutas. |
 | P-002 | Alta | pendiente | **Escrituras LLM declaradas sin ejecución.** Conectar `schedule.create`, `group_purchase.create` y `storage.entry.edit` a los flujos normales con prellenado y permisos, o dejar de ofrecerlas como ejecutables hasta entonces. Actualmente la confirmación termina en `unsupportedPrefill`. |
 | P-003 | Alta | pendiente | **Validación real de generación de imágenes.** Registrar una petición que ejecute el wrapper Codex, cree `generated.png` y entregue la foto en Telegram. Los dobles de test no cierran esta validación. |
 | P-004 | Media | pendiente | **Fuentes perdidas en Storage.** Añadir revisión Telegram de entradas `missing_source` y definir cómo reparar/reemplazar su fuente. Web/TUI permiten editar el estado, pero eso por sí solo no recupera el archivo. |
@@ -120,6 +120,7 @@ La suite de integración con PostgreSQL no se ejecutó en esta revisión.
 
 | ID | Fecha | Resultado y validación |
 | --- | --- | --- |
+| P-001 | 2026-09-30 | ZIP v2 en `backup-full.sh`/`restore-full.sh` con feedback configurado, assets web y credenciales Google Calendar; inventario de payloads, restore compatible con v1 y permisos del servicio. El despliegue conserva `data/`. Revisión de persistencia de integraciones documentada en el runbook. Recuperación probada en directorio temporal con comparación de contenido, rutas personalizadas, exclusión de cachés, fuentes ausentes, payload incompleto y symlinks; flujo shell ZIP/dry-run probado. Validación: 265 tests seleccionados, typecheck, lint y docs. |
 | P-038 | 2026-09-30 | Selector en `src/scripts/testing/`, comandos npm, CI y guía de agentes actualizados. 22 categorías; grafo probado con cambios entre dominios, ciclos, imports dinámicos, eliminaciones, recursos sin imports y fallback transversal. Suite unitaria de 1.236 casos, typecheck, lint, docs y diff pasando. Previsualización verificada: sólo docs selecciona 0 archivos; cambio en impresión selecciona 52/175 incluyendo consumidores; categoría explícita de impresión selecciona 7. |
 
 Al cerrar una tarea, registrar ID, fecha, resultado, referencia al cambio y

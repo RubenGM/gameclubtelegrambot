@@ -255,12 +255,13 @@ deploy_application() {
   run_root_cmd install -d -m 0755 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$APP_ROOT"
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    printf '+ rsync -a --delete --exclude .git --exclude node_modules --exclude docs/superpowers %q/ %q/\n' "$ROOT_DIR" "$APP_ROOT"
+    printf '+ rsync -a --delete --exclude .git --exclude node_modules --exclude docs/superpowers --exclude /data/ %q/ %q/\n' "$ROOT_DIR" "$APP_ROOT"
   else
     run_root_cmd rsync -a --delete \
       --exclude .git \
       --exclude node_modules \
       --exclude docs/superpowers \
+      --exclude /data/ \
       "$ROOT_DIR/" "$APP_ROOT/"
   fi
 
