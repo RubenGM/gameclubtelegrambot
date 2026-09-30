@@ -2195,7 +2195,7 @@ test('handleTelegramCatalogAdminMessage detects a catalog title from a cover ima
   assert.equal(resolverCalls.length, 1);
   assert.match(resolverCalls[0]?.imagePath ?? '', /cover-\d+\.jpg$/);
   assert.match(resolverCalls[0]?.question ?? '', /nom complet visible/i);
-  assert.equal(resolverCalls[0]?.model, 'gpt-5.4');
+  assert.equal(resolverCalls[0]?.model, 'gpt-6-luna');
   assert.deepEqual(importCalls, ['Root']);
   assert.ok(replies.some((reply) => /Nom detectat: Root/.test(reply.message)));
   assert.equal(getCurrentSession()?.stepKey, 'cover-confirm');
@@ -3817,7 +3817,7 @@ test('handleTelegramCatalogAdminCallback autocorrects a board game from BGG and 
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
 
   assert.deepEqual(importCalls, ['Maracaibo [API #276025]']);
-  assert.deepEqual(translationCalls, ['gpt-5.6-luna/medium:Updated BGG description']);
+  assert.deepEqual(translationCalls, ['gpt-6-luna/medium:Updated BGG description']);
   const updated = await repository.findItemById(236);
   assert.equal(updated?.description, 'Descripción traducida al castellano.');
   assert.equal(updated?.publisher, "Game's Up");
@@ -4340,7 +4340,7 @@ test('handleTelegramCatalogAdminCallback translates only the current item descri
   context.callbackData = `${catalogAdminCallbackPrefixes.translateDescription}262`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
 
-  assert.deepEqual(translationCalls, ['gpt-5.6-luna/medium:This is a long English description about the game.']);
+  assert.deepEqual(translationCalls, ['gpt-6-luna/medium:This is a long English description about the game.']);
   const updated = await repository.findItemById(262);
   assert.equal(updated?.description, 'Esta es una descripción larga en castellano sobre el juego.');
   assert.equal(updated?.publisher, 'GMT Games');

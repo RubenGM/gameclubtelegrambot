@@ -12,7 +12,7 @@ export interface CodexImageQueryArgs {
   dryRun: boolean;
 }
 
-export const defaultCodexVisionModel = 'gpt-5.4-mini';
+export const defaultCodexVisionModel = 'gpt-6-luna';
 
 const usage = `Usage:
   npm run codex:image -- --image <path> --question <text> [--model <model>]

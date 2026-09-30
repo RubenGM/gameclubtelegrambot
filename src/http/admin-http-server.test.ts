@@ -431,7 +431,7 @@ test('admin http server exposes public feedback and protects admin pages', async
   const translatedDescriptions: string[] = [];
   const catalogDescriptionTranslator = async (input: { description: string; model: string; reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; targetLanguage: 'es' }) => {
     translatedDescriptions.push(input.description);
-    assert.equal(input.model, 'gpt-5.6-luna');
+    assert.equal(input.model, 'gpt-6-luna');
     assert.equal(input.reasoningEffort, 'medium');
     assert.equal(input.targetLanguage, 'es');
     return 'Descripción de BGG traducida automáticamente.';

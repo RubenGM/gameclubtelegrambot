@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-08-26.
+Última revisión: 2026-09-30.
 
 Este documento refleja lo que existe en el código actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -57,7 +57,7 @@ Implementado:
 - Canario de salud de Telegram API: detecta fallos transitorios y mantiene estado degradado temporal para diagnóstico interno sin añadir avisos a las respuestas visibles del bot.
 - El middleware global de Telegram responde los errores inesperados con el detalle exacto saneado para operador/usuario, en vez de ocultarlos tras un mensaje genérico.
 - Scripts de operación, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
-- Herramientas `npm run codex:image` y `npm run codex:benchmark`, junto con `scripts/codex-cawa.sh`, para consultar imágenes y medir modelos Codex con el usuario operador; la lectura de portadas usa `gpt-5.4` y todas las traducciones del catálogo comparten `gpt-5.6-luna` con razonamiento `medium` y prompt de fidelidad estricta por defecto. Estas ayudas no sustituyen las fuentes de metadatos BGG/Open Library/Wikipedia.
+- Herramientas `npm run codex:image` y `npm run codex:benchmark`, junto con `scripts/codex-cawa.sh`, para consultar imágenes y medir modelos Codex con el usuario operador; la lectura de portadas usa `gpt-6-luna` y todas las traducciones del catálogo comparten `gpt-6-luna` con razonamiento `medium` y prompt de fidelidad estricta por defecto. Estas ayudas no sustituyen las fuentes de metadatos BGG/Open Library/Wikipedia.
 - Panel HTTP integrado en el servicio del bot (`src/http/admin-http-server.ts`): portada pública en `/`, feedback público en `/feedback`, alta de socio en `/alta`, información del club en `/club`, actividades futuras en `/actividades`, catálogo público enriquecido en `/catalogo`, admin protegido en `/admin` y edición de marca/contenido/tema, enlaces destacados y assets de portada en `/admin/web`.
 - Detección local de frustración o insultos en mensajes privados de socios aprobados y no bloqueados: usa sólo diccionarios y frases fijas en catalán, español e inglés, ofrece enviar feedback de forma voluntaria y lo guarda en el mismo registro visible desde `/admin/feedback`; no usa LLM ni interviene en flujos activos.
 - El comando privado admin `/status` adjunta la copia canónica `docs/feature-status.md`; el despliegue sincroniza esa copia al directorio operativo mediante `./startup.sh`.
@@ -172,10 +172,10 @@ Implementado:
 
 - Configuración runtime `llmCommands` con variables `GAMECLUB_LLM_COMMANDS_*`, apagada por defecto mediante `GAMECLUB_LLM_COMMANDS_ENABLED=false`.
 - Documentación operativa mantenida en `docs/llm-natural-language.md`; cualquier cambio en interacción LLM/chat natural debe actualizar esa guía en el mismo cambio.
-- Servicio de invocación LLM operativo exclusivamente con Codex: perfil normal `gpt-5.6-luna`/`low` y perfil reforzado `gpt-5.6-sol`/`low`, timeout y errores clasificados; Codex se invoca mediante `GAMECLUB_CODEX_BIN`, `codex exec --ephemeral --sandbox read-only` y schemas de salida.
+- Servicio de invocación LLM operativo exclusivamente con Codex: perfil normal `gpt-6-luna`/`low` y perfil reforzado `gpt-6-luna`/`low`, timeout y errores clasificados; Codex se invoca mediante `GAMECLUB_CODEX_BIN`, `codex exec --ephemeral --sandbox read-only` y schemas de salida.
 - Contrato JSON versionado, parser estricto, schemas JSON para Codex, allowlist de intents/actions, umbrales locales de confianza (`0.75` lectura, `0.90` escritura) y rechazo de acciones administrativas con el copy obligatorio.
 - Prompt generado desde un catálogo tipado de capacidades permitidas por rol/contexto, sin dar autoridad a la LLM para ejecutar lógica de negocio.
-- La primera pasada puede pedir `nextStep.useStrongerModel`; el bot valida localmente esa señal y sólo escala la siguiente llamada de lectura semántica para `bot.search`, `catalog.detail`, `catalog.recommend` y `storage.search`. Los perfiles activos son `GPT-5.6-Luna`/`low` y `GPT-5.6-Sol`/`low`; los admins pueden ajustarlos desde `Admin` -> `Modelos IA` entre los modelos Codex permitidos, persistiendo la selección en `app_metadata`.
+- La primera pasada puede pedir `nextStep.useStrongerModel`; el bot valida localmente esa señal y sólo escala la siguiente llamada de lectura semántica para `bot.search`, `catalog.detail`, `catalog.recommend` y `storage.search`. Los perfiles activos son `GPT-6-Luna`/`low` en ambos perfiles; los admins pueden ajustarlos desde `Admin` -> `Modelos IA` entre los modelos Codex permitidos, persistiendo la selección en `app_metadata`.
 - El selector admin de `Modelos IA` muestra una tabla comparativa con el último test guardado por combinación, permite lanzar un test pequeño desde Telegram y guarda el resultado en `data/llm-model-tests/<modelo>_<reasoning>.json`, sobrescribiendo el resultado anterior de esa misma combinación; duración, éxitos/fracasos, tokens y coste se muestran, dejando tokens/coste como `n/d` si Codex no los expone de forma fiable.
 - Comando privado `/ask` para socios aprobados.
 - Botón privado `Preguntar al bot` visible sólo cuando la feature está habilitada.
@@ -654,3 +654,9 @@ Pendiente:
 | Generación de imágenes | `src/telegram/image-generation-flow.test.ts` |
 | Panel HTTP y web pública | `src/http/admin-http-server.test.ts`, `src/http/http-pages.test.ts`, `src/http/http-theme.test.ts`, `src/http/web-settings-store.test.ts` |
 | Operación | `src/tui/*.test.ts`, `src/operations/*.test.ts`, `src/tray/*.test.ts` |
+
+### Perfil IA unificado (2026-09-30)
+
+- `gpt-6-luna` es el modelo por defecto del asistente, `/adminai`, portadas y consulta CLI de imágenes. Los dos perfiles persistidos del asistente usan `low`; las traducciones Codex del catálogo conservan `medium`.
+- Generación de imágenes fija también el coordinador Codex en `gpt-6-luna`/`low`, configurable con `GAMECLUB_IMAGE_GENERATION_MODEL`; la herramienta de generación de imagen conserva su propio modelo. La validación completa de entrega de imágenes por Telegram sigue pendiente.
+- La comparación de 70 tareas está en `data/codex-benchmarks/comparison-2026-09-30/report.md`. `gpt-5.4`, antes configurado para portadas, fue rechazado por la cuenta Codex actual. Se mantiene la configuración manual de modelos desde `Admin` -> `Modelos IA`, incluyendo GPT-6-Luna con `low` y `medium`.

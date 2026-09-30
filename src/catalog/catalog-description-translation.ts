@@ -9,7 +9,7 @@ export type CatalogDescriptionTranslatorInput = {
 
 export type CatalogTranslationReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
-export const defaultCatalogTranslationModel = 'gpt-5.6-luna';
+export const defaultCatalogTranslationModel = 'gpt-6-luna';
 export const defaultCatalogTranslationReasoningEffort: CatalogTranslationReasoningEffort = 'medium';
 
 export type CatalogDescriptionTranslator = (input: CatalogDescriptionTranslatorInput) => Promise<string>;

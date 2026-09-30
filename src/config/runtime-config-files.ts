@@ -417,7 +417,7 @@ export const runtimeConfigFieldSpecs: RuntimeConfigFieldSpec[] = [
     envKey: 'GAMECLUB_LLM_COMMANDS_MODEL',
     optional: true,
     description: 'Model passed to the configured LLM provider for command interpretation.',
-    example: 'gpt-5.4-mini',
+    example: 'gpt-6-luna',
   },
   {
     section: 'LLM Commands',

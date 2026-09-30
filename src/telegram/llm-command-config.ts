@@ -24,7 +24,7 @@ export const defaultLlmCommandConfig: ResolvedLlmCommandConfig = {
   groupInteractionsEnabled: false,
   provider: 'codex',
   codexBin: './scripts/codex-cawa.sh',
-  model: 'gpt-5.6-luna',
+  model: 'gpt-6-luna',
   reasoningEffort: 'low',
   timeoutMs: 60000,
   maxHistory: 8,

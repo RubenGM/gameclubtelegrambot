@@ -11,6 +11,7 @@ export interface ImageGenerationService {
 }
 
 const codexBin = process.env.GAMECLUB_CODEX_BIN ?? './scripts/codex-cawa.sh';
+const imageGenerationModel = process.env.GAMECLUB_IMAGE_GENERATION_MODEL?.trim() || 'gpt-6-luna';
 const timeoutMs = 180_000;
 
 export function createCodexImageGenerationService(): ImageGenerationService {
@@ -58,7 +59,7 @@ export function createCodexImageGenerationService(): ImageGenerationService {
 }
 
 async function runCodex(input: { workspace: string; outputPath: string; prompt: string; images?: string[] }): Promise<void> {
-  const args = ['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-C', input.workspace, '-o', input.outputPath];
+  const args = ['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'workspace-write', '--model', imageGenerationModel, '-c', 'model_reasoning_effort="low"', '-C', input.workspace, '-o', input.outputPath];
   for (const image of input.images ?? []) args.push('--image', image);
   args.push('-');
   await new Promise<void>((resolve, reject) => {

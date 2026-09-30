@@ -27,7 +27,7 @@ test('handleTelegramAdminAiCommand creates a mandatory confirmation with a safe 
   assert.equal(context.generated.length, 1);
   assert.equal(context.generated[0]?.schemaPath, 'src/telegram/admin-ai-plan.schema.json');
   assert.deepEqual(context.generated[0]?.options, {
-    model: 'gpt-5.6-sol',
+    model: 'gpt-6-luna',
     reasoningEffort: 'low',
   });
   assert.match(context.generated[0]?.prompt ?? '', /gestiona los usuarios/);

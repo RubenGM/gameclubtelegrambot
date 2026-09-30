@@ -79,7 +79,7 @@ privadas como opciones ligadas al grupo actual. No convierte a Codex en un
 ejecutor general:
 
 1. Envía un mensaje editable mientras interpreta la petición con el perfil de
-   más pensamiento configurado, actualmente `gpt-5.6-sol` con `low`.
+   más pensamiento configurado, actualmente `gpt-6-luna` con `low`.
 2. Exige una salida estructurada validada por
    `src/telegram/admin-ai-plan.schema.json`.
 3. Muestra siempre una explicación en lenguaje natural, la lista numerada de
@@ -114,7 +114,7 @@ El proveedor recomendado y operativo es Codex:
 ```bash
 GAMECLUB_LLM_COMMANDS_PROVIDER=codex
 GAMECLUB_CODEX_BIN=./scripts/codex-cawa.sh
-GAMECLUB_LLM_COMMANDS_MODEL=gpt-5.6-luna
+GAMECLUB_LLM_COMMANDS_MODEL=gpt-6-luna
 GAMECLUB_LLM_COMMANDS_REASONING_EFFORT=low
 ```
 
@@ -129,11 +129,12 @@ Las funciones auxiliares del catálogo (lectura de títulos visibles en portadas
 fallback de traducción de descripciones) usan también Codex mediante
 `GAMECLUB_CATALOG_CODEX_BIN`, o `GAMECLUB_CODEX_BIN` cuando no se configura el
 primero. La invocación usa siempre `codex exec --ephemeral --sandbox read-only`;
-para portadas adjunta la imagen con `--image`. Todas las traducciones del
-catálogo comparten el perfil `gpt-5.6-luna` con razonamiento `medium` y el prompt
+para portadas usa `gpt-6-luna` con `low` y adjunta la imagen con `--image`. Todas las traducciones del
+catálogo comparten el perfil `gpt-6-luna` con razonamiento `medium` y el prompt
 de fidelidad estricta; se puede sobrescribir con
 `GAMECLUB_BGG_DESCRIPTION_TRANSLATION_MODEL` y
-`GAMECLUB_BGG_DESCRIPTION_TRANSLATION_REASONING_EFFORT`.
+`GAMECLUB_BGG_DESCRIPTION_TRANSLATION_REASONING_EFFORT`. La lectura de portadas
+se puede sobrescribir con `GAMECLUB_COVER_TITLE_MODEL`.
 
 ## Configuración
 
@@ -145,7 +146,7 @@ GAMECLUB_LLM_COMMANDS_PRIVATE_FALLBACK_ENABLED=true
 GAMECLUB_LLM_COMMANDS_GROUP_INTERACTIONS_ENABLED=false
 GAMECLUB_LLM_COMMANDS_PROVIDER=codex
 GAMECLUB_CODEX_BIN=./scripts/codex-cawa.sh
-GAMECLUB_LLM_COMMANDS_MODEL=gpt-5.6-luna
+GAMECLUB_LLM_COMMANDS_MODEL=gpt-6-luna
 GAMECLUB_LLM_COMMANDS_REASONING_EFFORT=low
 GAMECLUB_LLM_COMMANDS_TIMEOUT_MS=60000
 GAMECLUB_LLM_COMMANDS_MAX_HISTORY=8
@@ -189,14 +190,16 @@ separados por líneas en blanco. No debe mostrar la petición completa del usuar
 Si la LLM falla o caduca, el mismo mensaje debe editarse con el error final
 siempre que Telegram lo permita.
 
-La primera pasada usa Codex con el perfil normal, `gpt-5.6-luna` con `low`.
+La primera pasada usa Codex con el perfil normal, `gpt-6-luna` con `low`.
 Cuando esa pasada detecta que la siguiente fase necesitará interpretación
 semántica sobre datos reales, puede pedir escalado con `nextStep`. El bot valida
 esa petición localmente y, sólo para intents de lectura permitidos, ejecuta la
-siguiente llamada `generateJson` con el perfil reforzado Sol/`low`.
+siguiente llamada `generateJson` con el perfil de lectura semántica Luna/`low`.
 
-Los perfiles operativos fijados son Luna/`low` para interpretar la petición y
-Sol/`low` para las lecturas semánticas escaladas. Los admins pueden cambiar
+Los dos perfiles operativos usan `gpt-6-luna` con `low`, tanto para interpretar
+la petición como para las lecturas semánticas escaladas. El perfil de más
+pensamiento sigue siendo seleccionable de forma independiente, aunque
+actualmente comparta modelo y razonamiento con el normal. Los admins pueden cambiar
 estos dos perfiles desde Telegram, en el submenú
 `Admin` -> `Modelos IA`:
 
@@ -206,11 +209,12 @@ estos dos perfiles desde Telegram, en el submenú
 
 La selección se guarda en `app_metadata` con clave `llm.model_settings`, tiene
 efecto inmediato y no requiere reiniciar el servicio. Si no hay selección
-guardada o no se puede cargar, el fallback sigue siendo `gpt-5.6-luna` con
-`low` para normal y `gpt-5.6-sol` con `low` para más pensamiento.
+guardada o no se puede cargar, el fallback sigue siendo `gpt-6-luna` con
+`low` para normal y `gpt-6-luna` con `low` para más pensamiento.
 
 Modelos seleccionables:
 
+- `GPT-6-Luna`: `low`, `medium`.
 - `GPT-5.6-Luna`: `low`.
 - `GPT-5.6-Sol`: `low`.
 

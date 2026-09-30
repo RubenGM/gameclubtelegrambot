@@ -35,7 +35,11 @@ Cada petición usa un directorio temporal aislado. El servicio invoca siempre
 `GAMECLUB_CODEX_BIN` (con `./scripts/codex-cawa.sh` como valor por defecto), le
 indica explícitamente la ruta exacta de salida y envía el PNG resultante como
 foto mediante `sendMediaGroup`. No se debe invocar `codex` directamente desde el
-servicio.
+servicio. Tanto la optimización del prompt como la invocación de `$imagegen`
+fijan explícitamente `gpt-6-luna` con razonamiento `low`; se puede sobrescribir
+el modelo con `GAMECLUB_IMAGE_GENERATION_MODEL` en el entorno del servicio.
+El modelo Codex coordina la tarea: el modelo generativo de imagen lo elige
+la herramienta `$imagegen` y no se sustituye por un modelo de texto.
 
 La optimización y la generación tienen un timeout interno de 180 segundos por
 invocación. Tras un resultado o una cancelación se borra el directorio. Si la

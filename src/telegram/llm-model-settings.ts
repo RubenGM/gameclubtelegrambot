@@ -45,6 +45,7 @@ export const llmModelSettingsMetadataKey = 'llm.model_settings';
 export const llmModelTestResultsDirectory = 'data/llm-model-tests';
 
 export const llmModelDefinitions: LlmModelDefinition[] = [
+  { id: 'gpt-6-luna', label: 'GPT-6-Luna', reasoningEfforts: ['low', 'medium'] },
   { id: 'gpt-5.6-luna', label: 'GPT-5.6-Luna', reasoningEfforts: ['low'] },
   { id: 'gpt-5.6-sol', label: 'GPT-5.6-Sol', reasoningEfforts: ['low'] },
   { id: 'gpt-5.3-codex-spark', label: 'GPT-5.3-Codex-Spark', reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'] },
@@ -54,8 +55,8 @@ export const llmModelDefinitions: LlmModelDefinition[] = [
 ];
 
 export const defaultLlmModelSettings: LlmModelSettings = {
-  normal: { model: 'gpt-5.6-luna', reasoningEffort: 'low' },
-  stronger: { model: 'gpt-5.6-sol', reasoningEffort: 'low' },
+  normal: { model: 'gpt-6-luna', reasoningEffort: 'low' },
+  stronger: { model: 'gpt-6-luna', reasoningEffort: 'low' },
   updatedAt: null,
 };
 

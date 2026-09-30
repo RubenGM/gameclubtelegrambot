@@ -9,14 +9,14 @@ import {
 } from './catalog-description-translation.js';
 
 test('catalog translation profile defaults to Luna medium and accepts safe overrides', () => {
-  assert.deepEqual(resolveCatalogTranslationProfile({}), { model: 'gpt-5.6-luna', reasoningEffort: 'medium' });
+  assert.deepEqual(resolveCatalogTranslationProfile({}), { model: 'gpt-6-luna', reasoningEffort: 'medium' });
   assert.deepEqual(resolveCatalogTranslationProfile({
     GAMECLUB_BGG_DESCRIPTION_TRANSLATION_MODEL: 'gpt-5.6-sol',
     GAMECLUB_BGG_DESCRIPTION_TRANSLATION_REASONING_EFFORT: 'high',
   }), { model: 'gpt-5.6-sol', reasoningEffort: 'high' });
   assert.deepEqual(resolveCatalogTranslationProfile({
     GAMECLUB_BGG_DESCRIPTION_TRANSLATION_REASONING_EFFORT: 'invalid',
-  }), { model: 'gpt-5.6-luna', reasoningEffort: 'medium' });
+  }), { model: 'gpt-6-luna', reasoningEffort: 'medium' });
 });
 
 test('catalog Codex translation prompt treats the source as data and forbids omissions or additions', () => {

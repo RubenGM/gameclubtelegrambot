@@ -269,7 +269,7 @@ export const catalogAdminCallbackPrefixes = {
   pendingDeleteConfirm: 'catalog_admin:pending_delete_confirm:',
 } as const;
 
-const catalogCoverTitleModel = process.env.GAMECLUB_COVER_TITLE_MODEL?.trim() || 'gpt-5.4';
+const catalogCoverTitleModel = process.env.GAMECLUB_COVER_TITLE_MODEL?.trim() || 'gpt-6-luna';
 const catalogTranslationProfile = resolveCatalogTranslationProfile();
 const catalogCodexBin = process.env.GAMECLUB_CATALOG_CODEX_BIN?.trim() ?? process.env.GAMECLUB_CODEX_BIN?.trim() ?? './scripts/codex-cawa.sh';
 

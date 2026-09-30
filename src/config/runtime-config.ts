@@ -174,7 +174,7 @@ export const runtimeConfigSchema = z.object({
       provider: z.enum(['codex', 'opencode']).default('codex'),
       opencodeBin: z.string().trim().min(1).optional(),
       codexBin: z.string().trim().min(1).optional(),
-      model: z.string().trim().min(1).default('gpt-5.4-mini'),
+      model: z.string().trim().min(1).default('gpt-6-luna'),
       reasoningEffort: z.string().trim().min(1).default('low'),
       timeoutMs: integerFromEnvSchema.min(1000).max(120000).default(60000),
       maxHistory: integerFromEnvSchema.min(0).max(50).default(8),
