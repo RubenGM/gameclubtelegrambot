@@ -9,6 +9,7 @@ capacidad, su documentación debe actualizarse en el mismo cambio.
 | Necesidad | Documento |
 | --- | --- |
 | Qué hace actualmente el bot y qué queda pendiente | [`feature-status.md`](feature-status.md) |
+| Backlog vivo, prioridades y seguimiento del trabajo pendiente | [`PENDING.md`](../PENDING.md) |
 | Cómo está organizado el servicio | [`architecture.md`](architecture.md) |
 | Cómo desarrollar, probar y desplegar cambios | [`development-and-validation.md`](development-and-validation.md) |
 | Configuración, secretos y variables de entorno | [`runtime-configuration.md`](runtime-configuration.md) |

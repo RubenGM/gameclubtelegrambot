@@ -35,7 +35,9 @@ npm run dev
 | `npm run build` | Compilación de producción y versión de build |
 | `npm run test:unit` | Tests unitarios con el runner de Node |
 | `npm run test:integration` | Tests que requieren el entorno de integración |
-| `npm test` | Unitarios e integración |
+| `npm test` / `npm run test:affected` | Pruebas afectadas por los cambios de Git, incluidas las de integración seleccionadas |
+| `npm run test:categories` | Categorías disponibles y número de archivos de prueba |
+| `npm run test:all` | Suite completa, solicitada explícitamente |
 | `npm run db:check` | Coherencia de migraciones generadas |
 | `npm run db:check:state` | Estado interno de Drizzle |
 | `npm run docs:check` | Índice, enlaces locales, scripts y referencias de tests documentadas |
@@ -43,6 +45,58 @@ npm run dev
 
 Los tests están junto al código como `*.test.ts`; los de integración usan
 `*.integration.test.ts`.
+
+## Selección de pruebas por impacto
+
+El comando habitual es `npm test`. Compara el árbol de trabajo con `HEAD`,
+incluyendo cambios staged, unstaged, eliminaciones y archivos nuevos no ignorados.
+Selecciona las pruebas de las categorías modificadas y las de consumidores
+transitivos mediante imports, reexportaciones e imports dinámicos literales.
+Los archivos de prueba modificados se incluyen directamente. No se mueven los
+tests: siguen junto al código; la separación por categorías es lógica.
+
+```bash
+npm test
+npm test -- --dry-run
+npm test -- --since main
+npm test -- --unit
+npm run test:categories
+npm test -- --category storage
+npm test -- --category agenda,google-calendar
+npm test -- --file src/printing/page-selection.ts --dry-run
+npm run test:all
+```
+
+`--since` compara contra la referencia Git indicada y es necesario para revisar
+cambios ya confirmados: con un árbol limpio, la comparación con `HEAD` no tiene
+pruebas afectadas. Una referencia inválida hace fallar el comando.
+`--file` sustituye la detección Git por una ruta concreta (se puede repetir).
+`--category` selecciona exclusivamente las categorías solicitadas, por lo que
+para comprobar el impacto automático completo se utiliza `npm test`.
+`--unit` y `--integration` filtran por tipo; sin filtro se incluyen ambos.
+Los tests PostgreSQL conservan su configuración y comportamiento de omisión
+cuando no hay entorno de integración; una omisión no demuestra su validación.
+
+Categorías: `access`, `agenda`, `ai`, `catalog`, `equipment`, `feedback`,
+`google-calendar`, `images`, `lfg`, `loans`, `news`, `notices`, `operations`,
+`printing`, `purchases`, `role`, `runtime`, `storage`, `tables`, `testing`,
+`venue-events` y `web`. La clasificación y el grafo viven en
+[`selection.ts`](../src/scripts/testing/selection.ts).
+
+Cambios en dependencias, tsconfig, schema/migraciones, CI o el selector requieren
+la suite completa del tipo seleccionado. Un archivo sin regla de impacto también
+amplía la selección a todas las pruebas. Los cambios exclusivamente Markdown/docs
+no lanzan tests de código: se validan con `npm run docs:check` y `git diff --check`.
+
+El grafo no detecta lecturas arbitrarias de archivos, imports calculados ni
+dependencias externas. Las reglas complementarias cubren schemas JSON de los
+dominios, scripts operativos y wrappers IA/Bot API local; al introducir otra
+dependencia de ese tipo se debe actualizar el selector. Los módulos compartidos
+pueden seleccionar varias categorías, aunque sólo se cambie un archivo.
+
+CI aplica el selector a unitarios e integración contra el SHA base del PR o el
+commit anterior del push. Si no existe una base válida, ejecuta la suite completa.
+Typecheck, build y los checks generales mantienen su ejecución normal.
 
 ## Cambios de base de datos
 
@@ -70,7 +124,7 @@ Antes de editar, lee la guía obligatoria correspondiente:
 
 Después de un cambio:
 
-1. Ejecuta los tests específicos del módulo modificado.
+1. Ejecuta `npm test` para los tests afectados; añade los checks específicos obligatorios del módulo. No ejecutes la suite completa por defecto.
 2. Ejecuta `npm run typecheck`.
 3. Si cambia el schema, ejecuta `npm run db:check`.
 4. Actualiza `docs/feature-status.md` y cualquier guía especializada afectada.

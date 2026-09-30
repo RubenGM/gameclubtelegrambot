@@ -76,6 +76,17 @@ actualiza también `docs/feature-status.md`.
 
 ## Local validation workflow
 
+Use `npm test` after code changes to run tests affected by the current Git diff
+(staged, unstaged and untracked files), including domain tests and transitive
+import consumers. Do not run the full suite by default. Inspect the selection
+with `npm test -- --dry-run`; use `--since <ref>` for changes already committed.
+Use `npm run test:categories` and `npm test -- --category <name>` for explicit
+domain checks. `npm run test:all` is reserved for an explicit full validation or
+when the selector identifies a global/unknown impact. Preserve the mandatory
+checks specified below for individual features, typecheck and deployment.
+Keep category/resource rules in `src/scripts/testing/selection.ts` up to date
+when introducing dependencies that are not represented by TypeScript imports.
+
 After every code change in this bot, run `./startup.sh` before handing the work
 back so the live Telegram bot is rebuilt/restarted and can be tested for real.
 Do this even if targeted tests passed, unless the user explicitly asks not to.

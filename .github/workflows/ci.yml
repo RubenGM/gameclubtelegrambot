@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -35,8 +37,15 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Unit tests
-        run: npm run test:unit
+      - name: Affected unit tests
+        env:
+          TEST_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$TEST_BASE_REF" ] && git cat-file -e "$TEST_BASE_REF^{commit}" 2>/dev/null; then
+            npm test -- --unit --since "$TEST_BASE_REF"
+          else
+            npm test -- --unit --all
+          fi
 
   integration-postgres:
     runs-on: ubuntu-latest
@@ -60,6 +69,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -93,7 +104,13 @@ jobs:
           GAMECLUB_CONFIG_PATH: .tmp/ci-runtime/runtime.json
         run: npm run db:migrate
 
-      - name: Integration tests
+      - name: Affected integration tests
         env:
           GAMECLUB_CONFIG_PATH: .tmp/ci-runtime/runtime.json
-        run: npm run test:integration
+          TEST_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$TEST_BASE_REF" ] && git cat-file -e "$TEST_BASE_REF^{commit}" 2>/dev/null; then
+            npm test -- --integration --since "$TEST_BASE_REF"
+          else
+            npm test -- --integration --all
+          fi

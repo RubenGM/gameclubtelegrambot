@@ -13,10 +13,12 @@ config/runtime.json
 # tokens are encrypted in PostgreSQL and must never be exported to this tree.
 backups/
 data/llm-model-tests/
+data/codex-benchmarks/
 *.backup
 gameclub-backup-*.zip
 .superpowers/
 .worktrees/
+.tmp/ci-runtime/
 
 # Local Telegram Bot API setup artifacts and secrets.
 # Production uses /var/lib/gameclubtelegrambot/telegram-bot-api and

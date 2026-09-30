@@ -152,10 +152,17 @@ en [`docs/runtime-configuration.md`](docs/runtime-configuration.md).
 npm run lint
 npm run typecheck
 npm run build
-npm run test:unit
-npm run test:integration
 npm test
+npm test -- --dry-run
+npm run test:categories
+npm test -- --category storage
 ```
+
+`npm test` ejecuta las pruebas afectadas por los cambios actuales, incluyendo
+consumidores transitivos. Para cambios ya confirmados, usa `--since <ref>`.
+La suite completa está disponible con `npm run test:all`; `test:unit` y
+`test:integration` conservan las suites completas de su tipo. Las reglas y
+ejemplos están en [Desarrollo y validación](docs/development-and-validation.md#selección-de-pruebas-por-impacto).
 
 Base de datos:
 
@@ -245,6 +252,7 @@ El índice completo está en [`docs/README.md`](docs/README.md).
 Referencias principales:
 
 - [`Estado real de features`](docs/feature-status.md)
+- [`Trabajo pendiente`](PENDING.md)
 - [`Arquitectura`](docs/architecture.md)
 - [`Desarrollo y validación`](docs/development-and-validation.md)
 - [`Configuración runtime`](docs/runtime-configuration.md)

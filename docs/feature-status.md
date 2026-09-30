@@ -57,6 +57,7 @@ Implementado:
 - Canario de salud de Telegram API: detecta fallos transitorios y mantiene estado degradado temporal para diagnóstico interno sin añadir avisos a las respuestas visibles del bot.
 - El middleware global de Telegram responde los errores inesperados con el detalle exacto saneado para operador/usuario, en vez de ocultarlos tras un mensaje genérico.
 - Scripts de operación, systemd, tray Debian y backups documentados en `README.md`, `docs/debian-service-operations.md`, `docs/debian-tray-operations.md` y `docs/backup-restore-recovery.md`.
+- Validación por impacto: `npm test` selecciona pruebas por categorías y consumidores transitivos desde el diff Git; admite previsualización, referencia base y filtros por tipo/categoría. CI aplica el mismo selector; cambios transversales o sin regla amplían la selección. `npm run test:all` conserva la suite completa. Reglas y limitaciones en `docs/development-and-validation.md` y `src/scripts/testing/selection.ts`.
 - Herramientas `npm run codex:image` y `npm run codex:benchmark`, junto con `scripts/codex-cawa.sh`, para consultar imágenes y medir modelos Codex con el usuario operador; la lectura de portadas usa `gpt-6-luna` y todas las traducciones del catálogo comparten `gpt-6-luna` con razonamiento `medium` y prompt de fidelidad estricta por defecto. Estas ayudas no sustituyen las fuentes de metadatos BGG/Open Library/Wikipedia.
 - Panel HTTP integrado en el servicio del bot (`src/http/admin-http-server.ts`): portada pública en `/`, feedback público en `/feedback`, alta de socio en `/alta`, información del club en `/club`, actividades futuras en `/actividades`, catálogo público enriquecido en `/catalogo`, admin protegido en `/admin` y edición de marca/contenido/tema, enlaces destacados y assets de portada en `/admin/web`.
 - Detección local de frustración o insultos en mensajes privados de socios aprobados y no bloqueados: usa sólo diccionarios y frases fijas en catalán, español e inglés, ofrece enviar feedback de forma voluntaria y lo guarda en el mismo registro visible desde `/admin/feedback`; no usa LLM ni interviene en flujos activos.
@@ -653,7 +654,7 @@ Pendiente:
 | Impresión | `src/telegram/print-flow.test.ts`, `src/telegram/printer-admin-flow.test.ts`, `src/printing/page-selection.test.ts`, `src/printing/print-service.test.ts`, `src/printing/print-settings.test.ts`, `src/printing/print-permissions.test.ts`, `src/printing/print-job-history.test.ts`, `src/telegram/telegram-local-file-download.test.ts` |
 | Generación de imágenes | `src/telegram/image-generation-flow.test.ts` |
 | Panel HTTP y web pública | `src/http/admin-http-server.test.ts`, `src/http/http-pages.test.ts`, `src/http/http-theme.test.ts`, `src/http/web-settings-store.test.ts` |
-| Operación | `src/tui/*.test.ts`, `src/operations/*.test.ts`, `src/tray/*.test.ts` |
+| Operación | `src/tui/*.test.ts`, `src/operations/*.test.ts`, `src/tray/*.test.ts`, `src/scripts/testing/selection.test.ts` |
 
 ### Perfil IA unificado (2026-09-30)
 
