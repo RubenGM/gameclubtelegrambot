@@ -672,3 +672,16 @@ function sampleMember(overrides: Partial<RoleGameMemberRecord> = {}): RoleGameMe
     ...overrides,
   };
 }
+
+
+test('recurrence skips priority reservations and continues scheduling other occurrences', async () => {
+  const roleGameRepository = createMemoryRoleGameRepository();
+  const firstOccurrence = new Date(2026, 6, 9, 18, 0).toISOString();
+  const scheduleRepository = createMemoryScheduleRepository({ events: [sampleScheduleEvent({ id: 99, startsAt: firstOccurrence, durationMinutes: 180, isPriority: true, priorityExplanation: 'Club reservado' })] });
+  const game = sampleGame({ schedulingMode: 'recurring', recurrenceRule: { intervalWeeks: 1, weekday: 4, time: '18:00' }, recurrenceWindowCount: 2 });
+  const result = await ensureRecurringRoleGameSessions({ roleGameRepository, scheduleRepository, game, actorTelegramUserId: 42, now: new Date(2026, 6, 9, 17, 0) });
+  assert.deepEqual(result, { created: 1, skipped: 1 });
+  const events = await scheduleRepository.listEvents({ includeCancelled: true });
+  assert.equal(events.length, 2);
+  assert.equal(events[1]?.startsAt, new Date(2026, 6, 16, 18, 0).toISOString());
+});

@@ -7,6 +7,9 @@ import { synchronizeGoogleCalendarScheduleEvent } from '../google-calendar/googl
 import type { GoogleCalendarServiceAccountConfig } from '../google-calendar/google-calendar-client.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import {
+  SchedulePriorityConflictError,
+  assertSchedulePriorityAvailability,
+  setScheduleEventPriority,
   cancelScheduleEvent,
   assignScheduleInitialOccupiedSeat,
   createScheduleEvent,
@@ -75,6 +78,7 @@ import {
   formatEventTime,
   formatHtmlField,
   formatParticipantCount,
+  formatSchedulePriorityConflict,
   formatScheduleEventDetails,
   hasScheduleDetailsMessage,
   formatScheduleListMessage,
@@ -142,6 +146,7 @@ const editFlowKey = 'schedule-edit';
 const cancelFlowKey = 'schedule-cancel';
 const joinReminderFlowKey = 'schedule-join-reminder';
 const promotionFlowKey = 'schedule-promotion';
+const priorityFlowKey = 'schedule-priority';
 const scheduleStartPayloadPrefix = 'schedule_event_';
 const scheduleDetailsStartPayloadPrefix = 'schedule_details_';
 const scheduleReservedSeatStartPayloadPrefix = 'schedule_reserve_';
@@ -152,6 +157,7 @@ export const scheduleCallbackPrefixes = {
   joinSpectator: 'schedule:join_spec:',
   leave: 'schedule:leave:',
   day: 'schedule:day:',
+  priority: 'schedule:priority:',
   selectEdit: 'schedule:select_edit:',
   selectCancel: 'schedule:select_cancel:',
   assignReservedSeat: 'schedule:reserve_user:',
@@ -270,7 +276,14 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
     if (!context.runtime.actor.isApproved && !(await canContinuePublicJoinReminderSession(context))) {
       return false;
     }
-    return handleActiveScheduleSession(context, text);
+    try {
+      return await handleActiveScheduleSession(context, text);
+    } catch (error) {
+      if (!(error instanceof SchedulePriorityConflictError)) throw error;
+      await context.runtime.session.cancel();
+      await context.reply(formatSchedulePriorityConflict(error, normalizeBotLanguage(context.runtime.bot.language, 'ca')), { ...buildScheduleMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca')), parseMode: 'HTML' });
+      return true;
+    }
   }
 
   if (!context.runtime.actor.isApproved) {
@@ -921,6 +934,32 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     return true;
   }
 
+  if (callbackData.startsWith(scheduleCallbackPrefixes.priority)) {
+    if (!context.runtime.actor.isApproved || !context.runtime.actor.isAdmin) {
+      await context.reply(texts.priorityAdminOnly);
+      return true;
+    }
+    const match = /^schedule:priority:(\d+):(on|off|edit)$/.exec(callbackData);
+    if (!match) return false;
+    const event = await loadEventOrThrow(context, Number(match[1]));
+    if (event.lifecycleStatus !== 'scheduled') { await context.reply(texts.noEvents); return true; }
+    const mode = match[2];
+    if (mode !== 'off') {
+      try {
+        await assertSchedulePriorityAvailability({ repository: resolveScheduleRepository(context), eventId: event.id, startsAt: event.startsAt, durationMinutes: event.durationMinutes, isPriority: true });
+      } catch (error) {
+        if (!(error instanceof SchedulePriorityConflictError)) throw error;
+        await context.reply(formatSchedulePriorityConflict(error, language), { parseMode: 'HTML' });
+        return true;
+      }
+    }
+    await context.runtime.session.start({ flowKey: priorityFlowKey, stepKey: mode === 'off' ? 'confirm' : 'explanation', data: { eventId: event.id, isPriority: mode !== 'off' } });
+    await context.reply(mode === 'off' ? texts.priorityRemove + '?' : texts.priorityAskExplanation, {
+      replyKeyboard: [[mode === 'off' ? texts.priorityConfirm : texts.skipOptional], [scheduleLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true,
+    });
+    return true;
+  }
+
   if (callbackData.startsWith(scheduleCallbackPrefixes.selectEdit)) {
     if (!context.runtime.actor.isApproved) {
       return false;
@@ -983,7 +1022,8 @@ function isScheduleSession(flowKey: string | undefined): boolean {
     || flowKey === editFlowKey
     || flowKey === cancelFlowKey
     || flowKey === joinReminderFlowKey
-    || flowKey === promotionFlowKey;
+    || flowKey === promotionFlowKey
+    || flowKey === priorityFlowKey;
 }
 
 async function handleActiveScheduleSession(context: TelegramScheduleContext, text: string): Promise<boolean> {
@@ -992,6 +1032,9 @@ async function handleActiveScheduleSession(context: TelegramScheduleContext, tex
     return false;
   }
 
+  if (session.flowKey === priorityFlowKey) {
+    return handlePrioritySession(context, text, session.stepKey, session.data);
+  }
   if (session.flowKey === createFlowKey || session.flowKey === simpleCreateFlowKey) {
     return handleCreateSession(context, text, session.stepKey, session.data, session.flowKey === simpleCreateFlowKey);
   }
@@ -1009,6 +1052,37 @@ async function handleActiveScheduleSession(context: TelegramScheduleContext, tex
   }
 
   return false;
+}
+
+async function handlePrioritySession(context: TelegramScheduleContext, text: string, step: string, data: Record<string, unknown>): Promise<boolean> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  if (!context.runtime.actor.isApproved || !context.runtime.actor.isAdmin) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.priorityAdminOnly);
+    return true;
+  }
+  if (text === scheduleLabels.cancelFlow) {
+    await context.runtime.session.cancel();
+    await context.reply(createTelegramI18n(language).common.flowCancelled, buildScheduleMenuOptions(language));
+    return true;
+  }
+  if (step === 'explanation') {
+    if (text.length > 1000) { await context.reply(texts.priorityTooLong); return true; }
+    const explanation = text === texts.skipOptional ? null : text;
+    await context.runtime.session.advance({ stepKey: 'confirm', data: { ...data, explanation } });
+    await context.reply([texts.priorityConfirmPrompt, explanation ? escapeHtml(explanation) : ''].filter(Boolean).join('\n\n'), {
+      replyKeyboard: [[texts.priorityConfirm], [scheduleLabels.cancelFlow]], resizeKeyboard: true, persistentKeyboard: true, parseMode: 'HTML',
+    });
+    return true;
+  }
+  if (text !== texts.priorityConfirm) { await context.reply(texts.confirmPrompt); return true; }
+  const event = await setScheduleEventPriority({ repository: resolveScheduleRepository(context), eventId: Number(data.eventId), actorIsAdmin: context.runtime.actor.isAdmin, isPriority: data.isPriority === true, explanation: asNullableString(data.explanation) });
+  await context.runtime.session.cancel();
+  await appendAuditEvent({ repository: resolveAuditRepository(context), actorTelegramUserId: context.runtime.actor.telegramUserId, actionKey: 'schedule.priority_updated', targetType: 'schedule-event', targetId: event.id, summary: `Prioritat actualitzada: ${event.title}`, details: { isPriority: event.isPriority, priorityExplanation: event.priorityExplanation } });
+  await runAfterScheduleSaveSideEffects(context, event, 'updated');
+  await context.reply(`${texts.prioritySaved}\n\n${await formatScheduleEventView(context, event)}`, { ...(await resolveScheduleDetailActionOptions(context, event)), parseMode: 'HTML' });
+  return true;
 }
 
 async function handlePromotionSession(

@@ -18,6 +18,8 @@ export interface ScheduleEventRecord {
   catalogItemId?: number | null;
   attendanceMode: ScheduleAttendanceMode;
   isPublic: boolean;
+  isPriority?: boolean;
+  priorityExplanation?: string | null;
   initialOccupiedSeats: number;
   capacity: number;
   lifecycleStatus: ScheduleEventLifecycleStatus;
@@ -86,6 +88,8 @@ export interface ScheduleRepository {
   }): Promise<ScheduleEventParticipationRecord[]>;
   updateEvent(input: {
     eventId: number;
+    isPriority?: boolean;
+    priorityExplanation?: string | null;
     title: string;
     description: string | null;
     detailsMessageChatId?: number | null;
@@ -161,6 +165,7 @@ export async function createScheduleEvent({
   initialOccupiedSeats: number;
   capacity: number;
 }): Promise<ScheduleEventRecord> {
+  await assertSchedulePriorityAvailability({ repository, startsAt, durationMinutes });
   return repository.createEvent({
     title: normalizeTitle(title),
     description: normalizeDescription(description),
@@ -273,6 +278,7 @@ export async function updateScheduleEvent({
     throw new Error('No es pot editar una activitat cancel.lada');
   }
 
+  await assertSchedulePriorityAvailability({ repository, eventId, startsAt, durationMinutes, isPriority: event.isPriority });
   return repository.updateEvent({
     eventId,
     title: normalizeTitle(title),
@@ -983,4 +989,56 @@ function eventsUseSameReservedResource(
   }
   const rightEquipmentIds = new Set(right.equipmentIds ?? []);
   return (left.equipmentIds ?? []).some((equipmentId) => rightEquipmentIds.has(equipmentId));
+}
+
+
+export class SchedulePriorityConflictError extends Error {
+  constructor(public readonly event: ScheduleEventRecord, public readonly markingPriority = false, public readonly conflicts: ScheduleEventRecord[] = [event]) {
+    super(markingPriority
+      ? `No se puede reservar el club: coincide con la actividad «${event.title}».`
+      : `Reserva cancelada: durante esas horas el club está reservado para «${event.title}».${event.priorityExplanation ? ` ${event.priorityExplanation}` : ''}`);
+    this.name = 'SchedulePriorityConflictError';
+  }
+}
+
+export function assertNoSchedulePriorityConflict(
+  events: ScheduleEventRecord[],
+  input: { eventId?: number | undefined; startsAt: string; durationMinutes: number; isPriority?: boolean | undefined },
+): void {
+  const conflicts = events.filter((event) => event.id !== input.eventId
+    && event.lifecycleStatus === 'scheduled'
+    && (input.isPriority || event.isPriority)
+    && eventsOverlap(event, input));
+  const conflict = conflicts[0];
+  if (conflict) throw new SchedulePriorityConflictError(conflict, input.isPriority === true, conflicts);
+}
+
+export async function assertSchedulePriorityAvailability({
+  repository, ...input
+}: {
+  repository: ScheduleRepository;
+  eventId?: number | undefined;
+  startsAt: string;
+  durationMinutes: number;
+  isPriority?: boolean | undefined;
+}): Promise<void> {
+  assertNoSchedulePriorityConflict(await repository.listEvents({ includeCancelled: false }), input);
+}
+
+export async function setScheduleEventPriority({
+  repository, eventId, actorIsAdmin, isPriority, explanation,
+}: {
+  repository: ScheduleRepository;
+  eventId: number;
+  actorIsAdmin: boolean;
+  isPriority: boolean;
+  explanation?: string | null;
+}): Promise<ScheduleEventRecord> {
+  if (!actorIsAdmin) throw new Error('Sólo un admin puede cambiar la prioridad de una actividad.');
+  const event = await repository.findEventById(eventId);
+  if (!event || event.lifecycleStatus !== 'scheduled') throw new Error('La actividad no está disponible.');
+  await assertSchedulePriorityAvailability({ repository, eventId, startsAt: event.startsAt, durationMinutes: event.durationMinutes, isPriority });
+  const priorityExplanation = isPriority ? (explanation?.trim() || null) : null;
+  if (priorityExplanation && priorityExplanation.length > 1000) throw new Error('La explicación no puede superar los 1000 caracteres.');
+  return repository.updateEvent({ ...event, eventId, isPriority, priorityExplanation });
 }

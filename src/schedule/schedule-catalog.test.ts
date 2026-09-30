@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  SchedulePriorityConflictError,
+  setScheduleEventPriority,
   cancelScheduleEvent,
   assignScheduleInitialOccupiedSeat,
   createScheduleEvent,
@@ -77,6 +79,8 @@ function createRepository(initialEvents: ScheduleEventFixture[] = []): ScheduleR
 
       const next: ScheduleEventRecord = {
         ...existing,
+        isPriority: input.isPriority ?? existing.isPriority ?? false,
+        priorityExplanation: input.priorityExplanation === undefined ? existing.priorityExplanation ?? null : input.priorityExplanation,
         title: input.title,
         description: input.description,
         detailsMessageChatId: input.detailsMessageChatId ?? null,
@@ -1067,3 +1071,28 @@ test('setScheduleEventParticipantCompanions sets companionCount and occupies tab
   );
 });
 
+
+
+test('priority reserves the whole club, respects boundaries and releases it when removed or cancelled', async () => {
+  const repository = createRepository();
+  const create = (startsAt: string, durationMinutes = 60) => createScheduleEvent({ repository, title: 'Actividad', startsAt, durationMinutes, organizerTelegramUserId: 42, createdByTelegramUserId: 42, tableId: 2, attendanceMode: 'closed', initialOccupiedSeats: 0, capacity: 4 });
+  const event = await create('2026-04-05T16:00:00.000Z', 120);
+  await assert.rejects(setScheduleEventPriority({ repository, eventId: event.id, actorIsAdmin: false, isPriority: true }), /admin/);
+  const priority = await setScheduleEventPriority({ repository, eventId: event.id, actorIsAdmin: true, isPriority: true, explanation: 'Asamblea del club' });
+  assert.equal(priority.priorityExplanation, 'Asamblea del club');
+  for (const startsAt of ['2026-04-05T15:30:00.000Z', '2026-04-05T16:30:00.000Z', '2026-04-05T17:30:00.000Z']) {
+    await assert.rejects(create(startsAt), (error: unknown) => error instanceof SchedulePriorityConflictError && error.event.priorityExplanation === 'Asamblea del club');
+  }
+  await create('2026-04-05T15:00:00.000Z');
+  const later = await create('2026-04-05T18:00:00.000Z');
+  await assert.rejects(updateScheduleEvent({ repository, eventId: later.id, ...later, startsAt: '2026-04-05T17:00:00.000Z' }), SchedulePriorityConflictError);
+  const edited = await updateScheduleEvent({ repository, eventId: event.id, ...priority, title: 'Asamblea' });
+  assert.equal(edited.isPriority, true);
+  await setScheduleEventPriority({ repository, eventId: event.id, actorIsAdmin: true, isPriority: false });
+  const overlap = await create('2026-04-05T16:30:00.000Z');
+  await assert.rejects(setScheduleEventPriority({ repository, eventId: event.id, actorIsAdmin: true, isPriority: true }), (error: unknown) => error instanceof SchedulePriorityConflictError && error.markingPriority && error.conflicts.some((e) => e.id === overlap.id));
+  await cancelScheduleEvent({ repository, eventId: overlap.id, actorTelegramUserId: 42 });
+  await setScheduleEventPriority({ repository, eventId: event.id, actorIsAdmin: true, isPriority: true });
+  await cancelScheduleEvent({ repository, eventId: event.id, actorTelegramUserId: 42 });
+  await create('2026-04-05T16:30:00.000Z');
+});

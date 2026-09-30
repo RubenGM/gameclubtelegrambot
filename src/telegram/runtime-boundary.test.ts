@@ -712,6 +712,7 @@ test('createTelegramBoundary registers member-facing table callbacks', async () 
 
   assert.ok(events.includes('register:/tables'));
   assert.ok(events.includes('register:callback:table_read:inspect:'));
+  assert.ok(events.includes('register:callback:schedule:priority:'));
   assert.ok(events.includes('register:/venue_events'));
   assert.ok(events.includes('register:callback:venue_event_admin:inspect:'));
   assert.ok(events.includes('register:/update_bgg'));

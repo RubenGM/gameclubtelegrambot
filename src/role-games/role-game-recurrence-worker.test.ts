@@ -45,6 +45,7 @@ test('role-game recurrence worker reads the enabled flag and future-week horizon
     listMembers: async () => [],
   } as unknown as RoleGameRepository;
   const scheduleRepository = {
+    listEvents: async () => events,
     createEvent: async (input: Parameters<ScheduleRepository['createEvent']>[0]) => {
       const now = new Date().toISOString();
       const event: ScheduleEventRecord = {

@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { scheduleEventEquipment, scheduleEventParticipants, scheduleEvents } from '../infrastructure/database/schema.js';
+import { assertNoSchedulePriorityConflict } from './schedule-catalog.js';
 import type {
   ScheduleEventParticipationRecord,
   ScheduleEventRecord,
@@ -17,6 +18,9 @@ export function createDatabaseScheduleRepository({
   return {
     async createEvent(input) {
       return database.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(73190421)`);
+        const events = await tx.select().from(scheduleEvents).where(eq(scheduleEvents.lifecycleStatus, 'scheduled'));
+        assertNoSchedulePriorityConflict(events.map((row) => mapScheduleEventRow(row)), input);
         const created = await tx
           .insert(scheduleEvents)
           .values({
@@ -114,9 +118,18 @@ export function createDatabaseScheduleRepository({
     },
     async updateEvent(input) {
       return database.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(73190421)`);
+        const events = await tx.select().from(scheduleEvents).where(eq(scheduleEvents.lifecycleStatus, 'scheduled'));
+        const current = events.find((row) => row.id === input.eventId);
+        if (!current) throw new Error(`Schedule event ${input.eventId} is not scheduled`);
+        assertNoSchedulePriorityConflict(events.map((row) => mapScheduleEventRow(row)), {
+          ...input, isPriority: input.isPriority ?? current.isPriority,
+        });
         const updated = await tx
           .update(scheduleEvents)
           .set({
+            isPriority: input.isPriority,
+            priorityExplanation: input.priorityExplanation,
             title: input.title,
             description: input.description,
             detailsMessageChatId: input.detailsMessageChatId ?? null,
@@ -344,6 +357,8 @@ function mapScheduleEventRow(row: typeof scheduleEvents.$inferSelect, equipmentI
     catalogItemId: row.catalogItemId,
     attendanceMode: row.attendanceMode as ScheduleEventRecord['attendanceMode'],
     isPublic: row.isPublic,
+    isPriority: row.isPriority ?? false,
+    priorityExplanation: row.priorityExplanation ?? null,
     initialOccupiedSeats: row.initialOccupiedSeats,
     capacity: row.capacity,
     lifecycleStatus: row.lifecycleStatus as ScheduleEventRecord['lifecycleStatus'],

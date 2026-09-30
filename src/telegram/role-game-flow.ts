@@ -1,3 +1,4 @@
+import { formatSchedulePriorityConflict } from './schedule-presentation.js';
 import {
   canManageRoleGameOperationally,
   canManageRoleGame,
@@ -45,7 +46,7 @@ import {
   limitRoleGameOccurrencesToFutureWeeks,
   planRecurringRoleGameSessions,
 } from '../role-games/role-game-scheduler.js';
-import type { ScheduleEventRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
+import { assertSchedulePriorityAvailability, SchedulePriorityConflictError, type ScheduleEventRecord, type ScheduleRepository } from '../schedule/schedule-catalog.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
 import type { ClubTableRepository } from '../tables/table-catalog.js';
 import { listSchedulableTables, requireSchedulableTableSelection } from '../schedule/schedule-table-selection.js';
@@ -937,6 +938,9 @@ async function handleRoleGameCreateStep(
         return true;
       }
       const repository = resolveRepository(context);
+      for (const startsAt of draft.publishToAgendaOnCreate ? draft.agendaPreviewStartsAt ?? [] : []) {
+        await assertSchedulePriorityAvailability({ repository: resolveScheduleRepository(context), startsAt, durationMinutes: draft.defaultDurationMinutes ?? 180 });
+      }
       const game = await createRoleGame({
         repository,
         type: requireDraftValue(draft.type),
@@ -1004,7 +1008,12 @@ async function handleRoleGameCreateStep(
       });
       return true;
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof SchedulePriorityConflictError) {
+      await context.runtime.session.cancel();
+      await context.reply(formatSchedulePriorityConflict(error, language), { ...buildRoleGameHomeKeyboard(language), parseMode: 'HTML' });
+      return true;
+    }
     await context.reply(texts.invalidCreateValue, buildRoleGameCreateStepKeyboard({ language }));
     return true;
   }
@@ -1061,7 +1070,7 @@ async function handleRoleGameManualSessionStep(
       ) {
         return replyWithRoleGamePreferredSessionProposal(context, { language, game });
       }
-      return finalizeRoleGameManualSession(context, { game, draft, language });
+      return await finalizeRoleGameManualSession(context, { game, draft, language });
     }
     if (step === 'date') {
       const date = parseDate(text);
@@ -1145,9 +1154,14 @@ async function handleRoleGameManualSessionStep(
         });
         return true;
       }
-      return finalizeRoleGameManualSession(context, { game, draft, language });
+      return await finalizeRoleGameManualSession(context, { game, draft, language });
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof SchedulePriorityConflictError) {
+      await context.runtime.session.cancel();
+      await context.reply(formatSchedulePriorityConflict(error, language), { ...buildRoleGameHomeKeyboard(language), parseMode: 'HTML' });
+      return true;
+    }
     await context.reply(texts.invalidCreateValue, buildRoleGameCreateStepKeyboard({ language }));
     return true;
   }
@@ -1229,6 +1243,7 @@ async function finalizeRoleGameManualSession(
   if (game.defaultTableId !== null && context.tableRepository) {
     await requireSchedulableTableSelection({ repository: context.tableRepository, tableId: game.defaultTableId });
   }
+  await assertSchedulePriorityAvailability({ repository: resolveScheduleRepository(context), startsAt: requireDraftValue(draft.agendaPreviewStartsAt)[0]!, durationMinutes: game.defaultDurationMinutes });
   if (draft.overwrittenScheduleEventId) {
     const existing = await resolveScheduleRepository(context).findEventById(draft.overwrittenScheduleEventId);
     if (existing && existing.lifecycleStatus !== 'cancelled' && existing.startsAt > new Date().toISOString()) {
@@ -1337,6 +1352,11 @@ async function handleRoleGameRecurrenceConfigStep(
       if (!await refreshRoleGameRecurrenceAgendaPreviewIfChanged(context, draft, game, language)) {
         return true;
       }
+      if (await resolveRoleGameAutoSchedulingStore(context).isEnabled()) {
+        for (const startsAt of draft.agendaPreviewStartsAt ?? []) {
+          await assertSchedulePriorityAvailability({ repository: resolveScheduleRepository(context), startsAt, durationMinutes: game.defaultDurationMinutes });
+        }
+      }
       const updated = draft.schedulingMode === 'manual'
         ? await repository.updateGame({
           gameId,
@@ -1384,7 +1404,12 @@ async function handleRoleGameRecurrenceConfigStep(
       });
       return true;
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof SchedulePriorityConflictError) {
+      await context.runtime.session.cancel();
+      await context.reply(formatSchedulePriorityConflict(error, language), { ...buildRoleGameHomeKeyboard(language), parseMode: 'HTML' });
+      return true;
+    }
     await context.reply(texts.invalidCreateValue, buildRoleGameCreateStepKeyboard({ language }));
     return true;
   }

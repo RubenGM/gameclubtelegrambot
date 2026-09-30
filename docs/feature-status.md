@@ -220,7 +220,7 @@ Implementado:
 
 Riesgos o pendientes:
 
-- No hay reserva exclusiva de mesa; la agenda permite solapes y avisa conflictos en vez de bloquearlos.
+- No hay reserva exclusiva de mesa; la agenda permite solapes ordinarios y avisa conflictos; las actividades prioritarias bloquean todo el club.
 
 ## Equipamiento
 
@@ -241,6 +241,11 @@ Riesgos o pendientes:
 - No se crean elementos iniciales en la migración; los admins dan de alta únicamente el equipamiento real del club.
 
 ## Agenda de actividades
+
+- **Actividades prioritarias**: sólo un admin puede marcar/quitar prioridad o editar su explicación desde el detalle. El bot pide explicación opcional (hasta 1000 caracteres) y confirmación. Si hay actividades coincidentes, muestra sus detalles y exige gestionarlas antes de activar la prioridad; no cancela actividades existentes automáticamente.
+- Una actividad prioritaria reserva todo el club en su intervalo `[inicio, fin)`, independientemente de mesa/equipamiento. Crear o mover una actividad coincidente se rechaza y termina el intento con aviso de club reservado, actividad y explicación. La protección cubre Agenda normal/simple, formulario web, sesiones de Rol y worker recurrente; el worker omite franjas bloqueadas y sigue con las demás. Cancelar la actividad o quitar su prioridad libera la franja. Los detalles de Telegram y de actividades públicas web muestran prioridad y explicación con HTML escapado. El guardado PostgreSQL serializa las comprobaciones para evitar carreras entre reservas y activación de prioridad.
+- El prefijo `schedule:priority:` está registrado en el dispatcher de callbacks real; cobertura de registro en `runtime-boundary.test.ts`.
+- Validación de prioridad: `schedule-catalog.test.ts`, `schedule-flow.test.ts` y `schedule-catalog-store.test.ts` (permisos, conflictos previos, límites de horario, persistencia y bloqueo).
 
 Estado: `operativo`.
 

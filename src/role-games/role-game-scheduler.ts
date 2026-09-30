@@ -1,4 +1,5 @@
 import {
+  SchedulePriorityConflictError,
   createScheduleEvent,
   type ScheduleEventRecord,
   type ScheduleRepository,
@@ -268,21 +269,27 @@ export async function ensureRecurringRoleGameSessions({
     maxFutureWeeks,
   });
   let created = 0;
+  let skipped = plan.skipped;
   for (const startsAt of plan.startsAtToCreate) {
-    const session = await createRoleGameScheduleSession({
-      roleGameRepository,
-      scheduleRepository,
-      game,
-      startsAt,
-      actorTelegramUserId,
-      source: 'recurring',
-    });
-    if (session.wasCreated) {
-      created += 1;
+    try {
+      const session = await createRoleGameScheduleSession({
+        roleGameRepository,
+        scheduleRepository,
+        game,
+        startsAt,
+        actorTelegramUserId,
+        source: 'recurring',
+      });
+      if (session.wasCreated) {
+        created += 1;
+      }
+    } catch (error) {
+      if (!(error instanceof SchedulePriorityConflictError)) throw error;
+      skipped += 1;
     }
   }
 
-  return { created, skipped: plan.skipped };
+  return { created, skipped };
 }
 
 export async function planRecurringRoleGameSessions({

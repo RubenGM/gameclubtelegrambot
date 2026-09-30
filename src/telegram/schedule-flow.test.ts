@@ -126,6 +126,8 @@ function createScheduleRepository(initialEvents: ScheduleEventFixture[] = []): S
       }
       const next: ScheduleEventRecord = {
         ...existing,
+        isPriority: input.isPriority ?? existing.isPriority ?? false,
+        priorityExplanation: input.priorityExplanation === undefined ? existing.priorityExplanation ?? null : input.priorityExplanation,
         title: input.title,
         description: input.description,
         detailsMessageChatId: input.detailsMessageChatId ?? null,
@@ -3540,6 +3542,7 @@ test('handleTelegramScheduleCallback allows admins to cancel foreign activities 
       [{ text: "👀 Apuntar-me d'espectador", callbackData: 'schedule:join_spec:8' }],
       [{ text: 'Editar activitat', callbackData: 'schedule:select_edit:8' }, { text: 'Eliminar activitat', callbackData: 'schedule:select_cancel:8' }],
       [{ text: 'Promocionar activitat', callbackData: 'schedule:promote:8' }],
+      [{ text: 'Marcar com a prioritària', callbackData: 'schedule:priority:8:on' }],
     ],
   });
 
@@ -4145,4 +4148,73 @@ test('switching from player to spectator resets companion count and frees seats'
   await handleTelegramScheduleCallback(context);
   assert.match(replies.at(-1)?.message ?? '', /<b>Places ocupades:<\/b> 0\/3/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Espectadors:<\/b>\s*\n- <a href="tg:\/\/user\?id=77">Biel<\/a>/);
+});
+
+
+async function priorityFixture(repository: ScheduleRepository, startsAt = '2026-04-05T16:00:00.000Z') {
+  return repository.createEvent({ title: 'Asamblea del club', description: null, startsAt, durationMinutes: 120, organizerTelegramUserId: 99, createdByTelegramUserId: 99, tableId: null, attendanceMode: 'closed', isPublic: false, initialOccupiedSeats: 0, capacity: 10 });
+}
+
+test('admin priority flow stores optional explanation, shows details and blocks creation with session cancellation', async () => {
+  const repository = createScheduleRepository();
+  const event = await priorityFixture(repository);
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository: repository, isAdmin: true, language: 'es' });
+  context.callbackData = `schedule:priority:${event.id}:on`;
+  await handleTelegramScheduleCallback(context);
+  assert.equal(getCurrentSession()?.stepKey, 'explanation');
+  context.messageText = 'El club celebra <asamblea> & votación';
+  await handleTelegramScheduleText(context);
+  context.messageText = 'Confirmar prioridad';
+  await handleTelegramScheduleText(context);
+  assert.equal(getCurrentSession(), null);
+  assert.equal((await repository.findEventById(event.id))?.isPriority, true);
+  assert.match(replies.at(-1)?.message ?? '', /&lt;asamblea&gt; &amp; votación/);
+  context.messageText = 'Crear (simple)';
+  await handleTelegramScheduleText(context);
+  for (const text of ['Otra actividad', '05/04/2026', '18:30', 'Cerrada', '4']) {
+    context.messageText = text;
+    await handleTelegramScheduleText(context);
+  }
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /club está reservado/);
+  assert.match(replies.at(-1)?.message ?? '', /&lt;asamblea&gt; &amp; votación/);
+  assert.equal((await repository.listEvents({ includeCancelled: true })).length, 1);
+});
+
+test('priority activation reports existing overlaps and denies non-admin callbacks', async () => {
+  const repository = createScheduleRepository();
+  const event = await priorityFixture(repository);
+  const conflict = await priorityFixture(repository, '2026-04-05T17:00:00.000Z');
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository: repository, isAdmin: true, language: 'es' });
+  context.callbackData = `schedule:priority:${event.id}:on`;
+  await handleTelegramScheduleCallback(context);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /primero debes gestionar/);
+  assert.match(replies.at(-1)?.message ?? '', new RegExp(`schedule_event_${conflict.id}`));
+  assert.equal((await repository.findEventById(event.id))?.isPriority, undefined);
+  const member = createContext({ scheduleRepository: repository, language: 'es' });
+  member.context.callbackData = `schedule:priority:${event.id}:on`;
+  await handleTelegramScheduleCallback(member.context);
+  assert.match(member.replies.at(-1)?.message ?? '', /Sólo un admin/);
+});
+
+test('priority confirmation rechecks conflicts and cancelling the prompt leaves the activity unchanged', async () => {
+  const repository = createScheduleRepository();
+  const event = await priorityFixture(repository);
+  const { context, replies, getCurrentSession } = createContext({ scheduleRepository: repository, isAdmin: true, language: 'es' });
+  context.callbackData = `schedule:priority:${event.id}:on`;
+  await handleTelegramScheduleCallback(context);
+  context.messageText = '/cancel';
+  await handleTelegramScheduleText(context);
+  assert.equal(getCurrentSession(), null);
+  assert.equal((await repository.findEventById(event.id))?.isPriority, undefined);
+  await handleTelegramScheduleCallback(context);
+  context.messageText = 'Omitir';
+  await handleTelegramScheduleText(context);
+  await priorityFixture(repository, '2026-04-05T17:00:00.000Z');
+  context.messageText = 'Confirmar prioridad';
+  await handleTelegramScheduleText(context);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /primero debes gestionar/);
+  assert.equal((await repository.findEventById(event.id))?.isPriority, undefined);
 });

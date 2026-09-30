@@ -1,3 +1,4 @@
+import { SchedulePriorityConflictError } from '../schedule/schedule-catalog.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -251,6 +252,8 @@ test('admin http server exposes public feedback and protects admin pages', async
             id: 7,
             title: 'Partida abierta',
             description: 'Mesa de iniciacion',
+            is_priority: true,
+            priority_explanation: '<Asamblea> & socios',
             starts_at: '2026-05-23T17:00:00.000Z',
             duration_minutes: 180,
             capacity: 6,
@@ -604,6 +607,8 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(detailHtml, /href="\/actividades"/);
     assert.match(detailHtml, /https:\/\/t\.me\/cawa_management_bot\?start=schedule_event_7/);
     assert.match(detailHtml, /class="activity-detail-actions"/);
+    assert.match(detailHtml, /Club reservado/);
+    assert.match(detailHtml, /&lt;Asamblea&gt; &amp; socios/);
     assert.match(detailHtml, /Apuntarse en Telegram/);
 
     const missingActivityPage = await fetch(`${baseUrl}/actividades/9999`);
@@ -1039,6 +1044,22 @@ test('admin http server exposes public feedback and protects admin pages', async
     const replayScheduleResponse = await fetch(`${baseUrl}/actividad/nueva/${issuedScheduleToken.token}`);
     assert.equal(replayScheduleResponse.status, 410);
     assert.match(await replayScheduleResponse.text(), /Enlace caducado/);
+
+    const blockedToken = await scheduleWebCreateTokenStore.issue({ telegramUserId: 77, sessionKey: 'telegram.session:77:77' });
+    const originalScheduleCreate = scheduleWebCreator.create;
+    scheduleWebCreator.create = async (input) => {
+      const event = await originalScheduleCreate(input);
+      throw new SchedulePriorityConflictError({ ...event, title: 'Asamblea', isPriority: true, priorityExplanation: '<Votación> & socios' });
+    };
+    const blockedResponse = await fetch(`${baseUrl}/actividad/nueva/${blockedToken.token}`, {
+      method: 'POST', body: new URLSearchParams({ title: 'Otra actividad', date: '2030-08-10', time: '18:30', durationMinutes: '180', attendanceMode: 'closed', capacity: '6', initialOccupiedSeats: '0' }),
+    });
+    assert.equal(blockedResponse.status, 409);
+    const blockedHtml = await blockedResponse.text();
+    assert.match(blockedHtml, /club está reservado/);
+    assert.match(blockedHtml, /&lt;Votación&gt; &amp; socios/);
+    assert.equal(await scheduleWebCreateTokenStore.inspect(blockedToken.token), null);
+    scheduleWebCreator.create = originalScheduleCreate;
 
     const backupsPage = await fetch(`${baseUrl}/admin/backups`, { headers: { cookie } });
     assert.equal(backupsPage.status, 200);

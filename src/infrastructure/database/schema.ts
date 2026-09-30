@@ -332,6 +332,8 @@ export const scheduleEvents = pgTable(
     catalogItemId: bigint('catalog_item_id', { mode: 'number' }).references(() => catalogItems.id),
     attendanceMode: varchar('attendance_mode', { length: 16 }).notNull().default('open'),
     isPublic: boolean('is_public').notNull().default(false),
+    isPriority: boolean('is_priority').notNull().default(false),
+    priorityExplanation: text('priority_explanation'),
     initialOccupiedSeats: integer('initial_occupied_seats').notNull().default(0),
     capacity: integer('capacity').notNull(),
     lifecycleStatus: varchar('lifecycle_status', { length: 16 }).notNull().default('scheduled'),

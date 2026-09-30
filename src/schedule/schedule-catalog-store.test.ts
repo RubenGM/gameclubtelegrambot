@@ -65,6 +65,8 @@ test('createDatabaseScheduleRepository lists only scheduled events by default', 
 
 test('createDatabaseScheduleRepository persists attendance mode, visibility, and initial occupied seats', async () => {
   const database = {
+    execute: async () => undefined,
+    select: () => ({ from: () => ({ where: async () => [] }) }),
       insert: (table: { [key: string]: unknown }) => {
         if ((table as unknown) !== scheduleEventsTable) {
           throw new Error('unexpected table');
@@ -131,6 +133,8 @@ test('createDatabaseScheduleRepository persists attendance mode, visibility, and
 test('createDatabaseScheduleRepository stores equipment assignments in the same transaction', async () => {
   const assignments: Array<{ scheduleEventId: number; equipmentId: number }> = [];
   const database = {
+    execute: async () => undefined,
+    select: () => ({ from: () => ({ where: async () => [] }) }),
     insert: (table: { [key: string]: unknown }) => {
       if ((table as unknown) === scheduleEventsTable) {
         return {
@@ -362,3 +366,27 @@ test('createDatabaseScheduleRepository persists participant role and guest count
   assert.equal(participant.spectatorCount, 2);
 });
 
+
+
+test('database rechecks priority inside a locked transaction before creating or rescheduling', async () => {
+  const priority = {
+    id: 7, title: 'Asamblea', description: null, detailsMessageChatId: null, detailsMessageId: null,
+    startsAt: new Date('2026-04-05T16:00:00.000Z'), durationMinutes: 120,
+    organizerTelegramUserId: 42, createdByTelegramUserId: 42, tableId: null, catalogItemId: null,
+    attendanceMode: 'closed', isPublic: false, isPriority: true, priorityExplanation: 'Votación anual',
+    initialOccupiedSeats: 0, capacity: 20, lifecycleStatus: 'scheduled', createdAt: new Date(), updatedAt: new Date(),
+    cancelledAt: null, cancelledByTelegramUserId: null, cancellationReason: null,
+  };
+  const calls: string[] = [];
+  const tx = {
+    execute: async () => { calls.push('lock'); },
+    select: () => ({ from: () => ({ where: async () => { calls.push('read'); return [priority, { ...priority, id: 8, isPriority: false, startsAt: new Date('2026-04-05T18:00:00.000Z') }]; } }) }),
+    insert: () => { throw new Error('must not insert'); },
+    update: () => { throw new Error('must not update'); },
+  };
+  const repository = createDatabaseScheduleRepository({ database: { transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback(tx) } as never });
+  const input = { title: 'Otra mesa', description: null, startsAt: '2026-04-05T17:00:00.000Z', durationMinutes: 60, organizerTelegramUserId: 42, createdByTelegramUserId: 42, tableId: 99, attendanceMode: 'closed' as const, isPublic: false, initialOccupiedSeats: 0, capacity: 4 };
+  await assert.rejects(repository.createEvent(input), /club está reservado.*Votación anual/);
+  await assert.rejects(repository.updateEvent({ ...input, eventId: 8 }), /club está reservado.*Votación anual/);
+  assert.deepEqual(calls, ['lock', 'read', 'lock', 'read']);
+});

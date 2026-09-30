@@ -1,4 +1,4 @@
-import type { ScheduleEventRecord } from '../schedule/schedule-catalog.js';
+import { SchedulePriorityConflictError, type ScheduleEventRecord } from '../schedule/schedule-catalog.js';
 import type { TelegramActor } from './actor-store.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
@@ -139,6 +139,7 @@ export function formatScheduleEventDetails({
   const attendanceLabel = event.attendanceMode === 'open' ? texts.openDetailTag : texts.closedDetailTag;
   return [
     `<b>${escapeHtml(event.title)}</b>`,
+    ...(event.isPriority ? [`<b>${escapeHtml(texts.priorityLabel)}</b>`, ...(event.priorityExplanation ? [formatHtmlField(texts.priorityExplanationLabel, escapeHtml(event.priorityExplanation))] : [])] : []),
     ...(creatorLabel ? [formatHtmlField(texts.detailsCreatedBy, creatorLabel)] : []),
     ...(event.catalogItemId ? [formatHtmlField(resolveLinkedGameLabel(language), `<a href="${escapeHtml(buildTelegramStartUrl(`catalog_read_item_${event.catalogItemId}`))}">${escapeHtml(event.title)}</a>`)] : []),
     formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
@@ -280,6 +281,10 @@ export function buildScheduleDetailActionOptions({
     ]);
   }
 
+  if (actor.isAdmin && event.lifecycleStatus === 'scheduled') {
+    rows.push([{ text: event.isPriority ? texts.priorityRemove : texts.priorityMark, callbackData: `schedule:priority:${event.id}:${event.isPriority ? 'off' : 'on'}` }]);
+    if (event.isPriority) rows.push([{ text: texts.priorityEditExplanation, callbackData: `schedule:priority:${event.id}:edit` }]);
+  }
   return rows.length > 0 ? { inlineKeyboard: rows } : {};
 }
 
@@ -372,4 +377,17 @@ function formatHourLabel(isoTimestamp: string): string {
   }
 
   return `${time}h`;
+}
+
+
+export function formatSchedulePriorityConflict(error: SchedulePriorityConflictError, language: BotLanguage): string {
+  const texts = createTelegramI18n(language).schedule;
+  return [
+    error.markingPriority ? texts.priorityExistingConflict : texts.priorityBlocked,
+    ...error.conflicts.map((event) => [
+      `<b>${escapeHtml(event.title)}</b> · ${formatTimestamp(event.startsAt)} · ${formatDurationMinutes(event.durationMinutes)}`,
+      ...(event.isPriority && event.priorityExplanation ? [escapeHtml(event.priorityExplanation)] : []),
+      `<a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${event.id}`))}">${escapeHtml(texts.detailsButton)}</a>`,
+    ].join('\n')),
+  ].join('\n\n');
 }

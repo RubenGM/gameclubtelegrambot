@@ -1,3 +1,4 @@
+import { SchedulePriorityConflictError } from '../schedule/schedule-catalog.js';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { mkdir, appendFile, readFile, unlink, writeFile } from 'node:fs/promises';
@@ -1830,6 +1831,11 @@ async function handleScheduleWebCreateRequest(options: {
     }
     sendHtml(options.response, 201, scheduleWebCreateSuccessPage(webSettings, created.title));
   } catch (error) {
+    if (error instanceof SchedulePriorityConflictError) {
+      if (consumed.sessionKey) await options.services.database.pool.query('delete from app_metadata where key = $1', [consumed.sessionKey]);
+      sendHtml(options.response, 409, scheduleWebCreateFailedPage(webSettings, error.message));
+      return;
+    }
     try {
       await options.scheduleWebCreateTokenStore.restore(options.token, consumed);
     } catch (restoreError) {
@@ -2913,6 +2919,8 @@ interface PublicScheduleEventRow {
   id: number;
   title: string;
   description: string | null;
+  is_priority?: boolean;
+  priority_explanation?: string | null;
   starts_at: Date | string;
   duration_minutes: number;
   capacity: number;
@@ -3708,6 +3716,8 @@ async function fetchPublicScheduleEvents(
         events.id,
         events.title,
         events.description,
+        events.is_priority,
+        events.priority_explanation,
         events.starts_at,
         events.duration_minutes,
         events.capacity,
@@ -3742,6 +3752,8 @@ async function fetchPublicScheduleEvents(
         events.id,
         events.title,
         events.description,
+        events.is_priority,
+        events.priority_explanation,
         events.starts_at,
         events.duration_minutes,
         events.capacity,
@@ -3778,6 +3790,8 @@ async function fetchPublicScheduleEventDetail(
         events.id,
         events.title,
         events.description,
+        events.is_priority,
+        events.priority_explanation,
         events.starts_at,
         events.duration_minutes,
         events.capacity,
@@ -3812,6 +3826,8 @@ async function fetchPublicScheduleEventDetail(
         events.id,
         events.title,
         events.description,
+        events.is_priority,
+        events.priority_explanation,
         events.starts_at,
         events.duration_minutes,
         events.capacity,
@@ -4759,13 +4775,13 @@ function scheduleWebCreateSuccessPage(settings: WebSettings, title: string): str
   });
 }
 
-function scheduleWebCreateFailedPage(settings: WebSettings): string {
+function scheduleWebCreateFailedPage(settings: WebSettings, reason?: string): string {
   return renderHttpPage({
     title: 'No se ha podido crear',
     themeName: settings.theme,
     headerBrandName: settings.brand.name,
     headerLogoAsset: settings.home.logoAsset,
-    body: '<p>No se ha podido guardar la actividad y el enlace se ha invalidado por seguridad.</p><p>Vuelve a Agenda en Telegram para generar uno nuevo.</p>',
+    body: reason ? `<p role="alert">${escapeHtml(reason)}</p><p>Vuelve a Agenda en Telegram para crear otra reserva.</p>` : '<p>No se ha podido guardar la actividad y el enlace se ha invalidado por seguridad.</p><p>Vuelve a Agenda en Telegram para generar uno nuevo.</p>',
   });
 }
 
@@ -4887,6 +4903,7 @@ function renderActivityCard(event: PublicScheduleEventRow): string {
     ['Horario', timeLabel],
     hasPublicActivityDuration(event.duration_minutes) ? ['Duracion', formatHumanDuration(event.duration_minutes)] : null,
     ['Asistencia', attendanceLabel],
+    ...(event.is_priority ? [['Prioridad', 'Club reservado']] : []),
     event.catalog_item_name ? ['Juego enlazado', formatActivityCatalogItem(event)] : null,
     event.organizer_name ? ['Organiza', event.organizer_name] : null,
     event.table_name ? ['Mesa', formatActivityTable(event)] : null,
@@ -4912,6 +4929,7 @@ function activityDetailPage(settings: WebSettings, event: PublicScheduleEventRow
     ['Horario', timeLabel],
     hasPublicActivityDuration(event.duration_minutes) ? ['Duracion', formatHumanDuration(event.duration_minutes)] : null,
     ['Asistencia', attendanceLabel],
+    ...(event.is_priority ? [['Prioridad', 'Club reservado']] : []),
     event.catalog_item_name ? ['Juego enlazado', formatActivityCatalogItem(event)] : null,
     event.organizer_name ? ['Organiza', event.organizer_name] : null,
     event.table_name ? ['Mesa', formatActivityTable(event)] : null,
@@ -4933,7 +4951,7 @@ function activityDetailPage(settings: WebSettings, event: PublicScheduleEventRow
     ? `<section class="activity-detail-section"><h2>Asistentes confirmados (${attendeeNames.length})</h2><div class="activity-attendees"><ul>${attendeeNames.map((name) => `<li>${escapeHtml(name)}</li>`).join('')}</ul></div></section>`
     : '<section class="activity-detail-section"><h2>Asistentes confirmados</h2><p class="muted">Aún no hay asistentes confirmados inscritos.</p></section>';
 
-  const body = `<p class="row"><a href="/actividades">← Volver a actividades</a></p><article class="activity-detail-card"><div class="activity-detail-header"><p class="activity-time">${escapeHtml(dayLabel)} · ${escapeHtml(timeLabel)}</p><h2>${escapeHtml(event.title)}</h2>${catalogLink}</div><dl class="activity-facts">${facts.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>${descriptionSection}${attendeesSection}${telegramAction}</article>`;
+  const body = `<p class="row"><a href="/actividades">← Volver a actividades</a></p><article class="activity-detail-card"><div class="activity-detail-header"><p class="activity-time">${escapeHtml(dayLabel)} · ${escapeHtml(timeLabel)}</p><h2>${escapeHtml(event.title)}</h2>${catalogLink}</div><dl class="activity-facts">${facts.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>${event.is_priority && event.priority_explanation ? `<section class="activity-detail-section"><h2>Explicación de la reserva del club</h2><p class="activity-detail-description">${escapeHtml(event.priority_explanation)}</p></section>` : ''}${descriptionSection}${attendeesSection}${telegramAction}</article>`;
 
   return page({
     title: `${event.title} · Actividades`,
