@@ -1,5 +1,7 @@
 export const catalogAdminTexts = {
   ca: {
+    duplicateCreatePrompt: 'Aquest joc podria existir al catàleg. Vols afegir-ne una altra còpia?',
+    confirmDuplicateCreate: 'Afegir una altra còpia',
     openMenu: 'Catàleg',
     create: 'Crear ítem',
     list: 'Llistar ítems',
@@ -357,6 +359,8 @@ export const catalogAdminTexts = {
     loanedUntil: 'fins {date}',
   },
   es: {
+    duplicateCreatePrompt: 'Este juego podría existir en el catálogo. ¿Quieres añadir otra copia?',
+    confirmDuplicateCreate: 'Añadir otra copia',
     openMenu: 'Catálogo',
     create: 'Crear ítem',
     list: 'Listar ítems',
@@ -714,6 +718,8 @@ export const catalogAdminTexts = {
     loanedUntil: 'hasta {date}',
   },
   en: {
+    duplicateCreatePrompt: 'This game may already be in the catalog. Do you want to add another copy?',
+    confirmDuplicateCreate: 'Add another copy',
     openMenu: 'Catalog',
     create: 'Create item',
     list: 'List items',

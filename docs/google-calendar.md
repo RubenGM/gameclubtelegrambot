@@ -60,7 +60,10 @@ cambios y cancelaciones. Además, una reconciliación cada cinco minutos repite
 las actividades futuras y las cancelaciones recientes para recuperar fallos
 temporales y rutas automáticas como sesiones recurrentes de Rol. La ventana
 actual empieza 24 horas antes de cada reconciliación para incluir cancelaciones
-recientes.
+recientes. Las cancelaciones que Google ya ha borrado (HTTP 404 o 410) se
+consideran completadas. Si una actividad falla, la reconciliación continúa con
+las demás y registra al final los IDs y errores de las actividades fallidas
+para reintentarlas en el siguiente ciclo.
 
 Un fallo inmediato de Google no revierte la operación ya confirmada en Agenda:
 queda registrado y la reconciliación posterior vuelve a intentarlo. Al detener
@@ -99,7 +102,10 @@ también manualmente; actualmente no existe un test enfocado de
 
 Esta validación local cubre contratos, persistencia, sincronización simulada,
 despliegue y arranque. No prueba credenciales ni operaciones reales de Google.
-La verificación externa sigue pendiente hasta compartir un calendario real con
-el `client_email`, seleccionarlo, activar la sincronización y confirmar en
-Google una creación, una edición, una cancelación, la visibilidad y el enlace
-desde un grupo o topic.
+El 7 de octubre de 2026 se verificó la reconciliación con el calendario real:
+antes de la corrección faltaban 9 actividades por el bloqueo al repetir un
+borrado (HTTP 410). Después de desplegar, las 16 actividades vigentes de la
+ventana coincidían en título, descripción, inicio y fin, y las 8 canceladas
+estaban ausentes o marcadas como canceladas en Google. No se cambiaron permisos
+ni visibilidad para esta comprobación. La prueba manual completa de edición,
+visibilidad y enlace desde grupo/topic sigue siendo una validación separada.

@@ -175,7 +175,8 @@ export function createGoogleCalendarClient({
           method: 'DELETE',
         });
       } catch (error) {
-        if (error instanceof GoogleCalendarApiError && error.status === 404) return;
+        // Google returns 410 when a previous reconciliation already deleted it.
+        if (error instanceof GoogleCalendarApiError && (error.status === 404 || error.status === 410)) return;
         throw error;
       }
     },

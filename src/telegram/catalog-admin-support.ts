@@ -1866,6 +1866,21 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
     await replyAdminOnly(context);
     return true;
   }
+  if (session.flowKey === createFlowKey && session.stepKey === 'cover-confirm') {
+    return handleCatalogAdminMediaSession({
+      session: context.runtime.session, reply: context.reply,
+      language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+      text, stepKey: session.stepKey, data: session.data,
+      repository: resolveCatalogRepository(context), auditRepository: resolveAuditRepository(context),
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+      menuLanguage: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
+      isAdmin: context.runtime.actor.isAdmin,
+      confirmMediaCreateLabel: catalogAdminLabels.confirmMediaCreate,
+      confirmMediaEditLabel: catalogAdminLabels.confirmMediaEdit,
+      storeAttachment: (attachment) => storeCatalogAttachmentMedia(context, attachment),
+      startEditableProgress: (message, options) => startTelegramEditableProgress(context, message, options),
+    });
+  }
   if (session.flowKey === createFlowKey) {
     return handleCreateSession(context, text, session.stepKey, session.data);
   }
@@ -3026,6 +3041,24 @@ async function handleCreateSession(
   data: Record<string, unknown>,
 ): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  if (stepKey === 'duplicate-confirm') {
+    const texts = createTelegramI18n(language).catalogAdmin;
+    if (text === texts.cancel) {
+      await context.runtime.session.cancel();
+      await context.reply(texts.bulkCreateCompleted, buildCatalogAdminMenuOptions(language, context.runtime.actor.isAdmin));
+      return true;
+    }
+    if (text !== texts.confirmDuplicateCreate) {
+      await context.reply(texts.duplicateCreatePrompt, duplicateCreateOptions(language));
+      return true;
+    }
+    data = { ...data, confirmedDuplicateIds: data.pendingDuplicateIds };
+    if (typeof data.duplicateSourceTitle === 'string') {
+      await createWikipediaImportedBoardGame(context, data, data as unknown as WikipediaBoardGameCatalogDraft, data.duplicateSourceTitle);
+      return true;
+    }
+    return saveCreateDraftAndReturn(context, data, language);
+  }
   return handleCatalogAdminCreateSession({
     session: context.runtime.session,
     reply: context.reply,
@@ -3634,6 +3667,50 @@ async function updateCreateDraftAndReturn(
   return true;
 }
 
+function duplicateCreateOptions(language: 'ca' | 'es' | 'en'): TelegramReplyOptions {
+  const texts = createTelegramI18n(language).catalogAdmin;
+  return { replyKeyboard: [[texts.confirmDuplicateCreate], [texts.cancel]], resizeKeyboard: true, persistentKeyboard: true };
+}
+
+async function requestDuplicateCreateConfirmation(
+  context: TelegramCatalogAdminContext,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const itemType = getDraftItemTypeFromData(data);
+  const names = [data.displayName, data.originalName, data.duplicateSourceTitle]
+    .filter((name): name is string => typeof name === 'string' && !!name.trim())
+    .map(normalizeCatalogMatchText);
+  const bggId = readBoardGameGeekId(asNullableObject(data.externalRefs))
+    ?? readBoardGameGeekId(asNullableObject(data.metadata));
+  const items = await resolveCatalogRepository(context).listItems({ includeDeactivated: false });
+  const matches = items.filter((item) => {
+    if (item.itemType !== itemType && !(itemType === 'board-game' && item.itemType === 'expansion')) return false;
+    if (bggId && readBoardGameGeekIdFromItem(item) === bggId) return true;
+    return [item.displayName, item.originalName ?? ''].some((title) => names.some((name) => {
+      const normalized = normalizeCatalogMatchText(title);
+      if (normalized === name) return true;
+      // Warn about close titles, including subtitles/editions; never merge automatically.
+      const left = new Set(normalized.split(' ').filter(Boolean));
+      const right = new Set(name.split(' ').filter(Boolean));
+      const common = [...left].filter((word) => right.has(word)).length;
+      return Math.min(left.size, right.size) >= 3 && common / Math.min(left.size, right.size) >= 0.9;
+    }));
+  });
+  const confirmed = Array.isArray(data.confirmedDuplicateIds) ? data.confirmedDuplicateIds : [];
+  if (!matches.length || matches.every((item) => confirmed.includes(item.id))) return false;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
+  await context.runtime.session.advance({
+    stepKey: 'duplicate-confirm',
+    data: { ...data, pendingDuplicateIds: matches.map((item) => item.id), confirmedDuplicateIds: [] },
+  });
+  await context.reply([
+    texts.duplicateCreatePrompt,
+    ...matches.map((item) => `- <a href="${buildTelegramStartUrl(`catalog_read_item_${item.id}`)}">${escapeHtml(item.displayName)} (#${item.id})</a>`),
+  ].join('\n'), { ...duplicateCreateOptions(language), parseMode: 'HTML' });
+  return true;
+}
+
 async function saveCreateDraftAndReturn(
   context: TelegramCatalogAdminContext,
   data: Record<string, unknown>,
@@ -3647,6 +3724,9 @@ async function saveCreateDraftAndReturn(
     return true;
   }
 
+  if (await requestDuplicateCreateConfirmation(context, data)) {
+    return true;
+  }
   const item = await createCatalogItem({
     repository: resolveCatalogRepository(context),
     familyId: (data.familyId as number | null | undefined) ?? null,
@@ -4567,7 +4647,7 @@ async function startCoverSaveConfirmationIfNeeded(
     return false;
   }
   await context.runtime.session.start({
-    flowKey: mediaFlowKey,
+    flowKey: canAdministerCatalog(context) ? mediaFlowKey : createFlowKey,
     stepKey: 'cover-confirm',
     data: {
       itemId: item.id,
@@ -4578,7 +4658,9 @@ async function startCoverSaveConfirmationIfNeeded(
       sortOrder: 0,
     },
   });
-  await context.reply(createTelegramI18n(language).catalogAdmin.coverSavePrompt, buildCoverSaveOptions(language));
+  const texts = createTelegramI18n(language).catalogAdmin;
+  await context.reply(`${texts.created}: ${item.displayName} (#${item.id}).`);
+  await context.reply(texts.coverSavePrompt, buildCoverSaveOptions(language));
   return true;
 }
 
@@ -4817,6 +4899,9 @@ async function createWikipediaImportedBoardGame(
     itemType: 'board-game' as const,
     displayName: draft.displayName || sourceTitle,
   } as WikipediaBoardGameCatalogDraft;
+  if (await requestDuplicateCreateConfirmation(context, { ...importedData, duplicateSourceTitle: sourceTitle })) {
+    return;
+  }
   const item = await createCatalogItem({
     repository: resolveCatalogRepository(context),
     familyId: importedData.familyId,
@@ -4848,6 +4933,11 @@ async function createWikipediaImportedBoardGame(
     await tryCreateImportedImageMedia(context, item, importedData);
   }
   if (await startCoverSaveConfirmationIfNeeded(context, item, importedData as unknown as Record<string, unknown>, language)) {
+    return;
+  }
+  if (!canAdministerCatalog(context)) {
+    await context.runtime.session.cancel();
+    await context.reply(`${texts.created}: ${item.displayName} (#${item.id}).`, buildCatalogAdminMenuOptions(language, false));
     return;
   }
   await context.runtime.session.start({

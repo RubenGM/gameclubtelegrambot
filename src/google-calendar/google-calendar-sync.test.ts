@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { generateKeyPairSync } from 'node:crypto';
 
 import { createAppMetadataGoogleCalendarSettingsStore } from './google-calendar-settings.js';
-import { synchronizeFutureGoogleCalendarScheduleEvents, synchronizeGoogleCalendarScheduleEvent } from './google-calendar-sync.js';
-import type { GoogleCalendarClient } from './google-calendar-client.js';
+import { synchronizeFutureGoogleCalendarScheduleEvents, synchronizeGoogleCalendarScheduleEvent, synchronizeScheduleEventsToCalendar } from './google-calendar-sync.js';
+import { createGoogleCalendarClient, GoogleCalendarApiError, type GoogleCalendarClient } from './google-calendar-client.js';
 import type { ScheduleEventRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { AppMetadataSessionStorage } from '../telegram/conversation-session-store.js';
 
@@ -61,4 +62,72 @@ test('Google Calendar reconciliation includes future cancellations for retries',
   const result = await synchronizeFutureGoogleCalendarScheduleEvents({ repository, storage: metadata, config: undefined, client, startsAtFrom: '2026-07-01T00:00:00.000Z' });
   assert.deepEqual(result, { synchronized: 2, skipped: false });
   assert.deepEqual(calls, ['upsert:9', 'delete:10']);
+});
+
+const { privateKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+});
+
+function apiClient(responses: Response[], calls: string[]): GoogleCalendarClient {
+  return createGoogleCalendarClient({
+    config: { serviceAccountJson: JSON.stringify({
+      type: 'service_account', client_email: 'test@example.com', private_key: privateKey,
+    }) },
+    fetchFn: (async (url, init) => {
+      calls.push(`${init?.method}:${String(url).split('/').at(-1)}`);
+      const response = responses.shift();
+      assert.ok(response, 'unexpected API request');
+      return response;
+    }) as typeof fetch,
+  });
+}
+
+for (const status of [404, 410]) {
+  test(`already deleted cancellation (HTTP ${status}) allows subsequent activity updates`, async () => {
+    const calls: string[] = [];
+    const client = apiClient([
+      Response.json({ access_token: 'test-token', expires_in: 3600 }),
+      Response.json({ error: { message: 'Resource has been deleted' } }, { status }),
+      Response.json({}),
+    ], calls);
+    await synchronizeScheduleEventsToCalendar({
+      events: [event({ lifecycleStatus: 'cancelled' }), event({ id: 10 })],
+      calendarId: 'club@example.com', config: undefined, client,
+    });
+    assert.deepEqual(calls, ['POST:token', 'DELETE:gameclubschedule9', 'PUT:gameclubschedule10']);
+  });
+}
+
+test('cancellation permission errors are still reported', async () => {
+  const client = apiClient([
+    Response.json({ access_token: 'test-token', expires_in: 3600 }),
+    Response.json({ error: { message: 'Forbidden' } }, { status: 403 }),
+  ], []);
+  await assert.rejects(client.deleteScheduleEvent({ calendarId: 'club@example.com', scheduleEventId: 9 }),
+    (error: unknown) => error instanceof GoogleCalendarApiError && error.status === 403);
+});
+
+test('reconciliation continues after failures and reports all failed activity IDs', async () => {
+  const calls: number[] = [];
+  const client: GoogleCalendarClient = {
+    async listAccessibleCalendars() { return []; }, async getCalendar() { throw new Error('unused'); }, async setVisibility() {},
+    async deleteScheduleEvent({ scheduleEventId }) { calls.push(scheduleEventId); throw new Error('Forbidden'); },
+    async upsertScheduleEvent({ event: input }) {
+      calls.push(input.id);
+      if (input.id === 11) throw new Error('fetch failed');
+    },
+  };
+  await assert.rejects(synchronizeScheduleEventsToCalendar({
+    events: [event({ lifecycleStatus: 'cancelled' }), event({ id: 10 }), event({ id: 11 }), event({ id: 12 })],
+    calendarId: 'club@example.com', config: undefined, client,
+  }), (error: unknown) => {
+    assert.ok(error instanceof AggregateError);
+    assert.equal(error.errors.length, 2);
+    assert.match(error.message, /Activity 9: Forbidden/);
+    assert.match(error.message, /Activity 11: fetch failed/);
+    return true;
+  });
+  assert.deepEqual(calls, [9, 10, 11, 12]);
 });

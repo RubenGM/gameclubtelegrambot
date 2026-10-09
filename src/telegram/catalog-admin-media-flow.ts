@@ -46,6 +46,7 @@ export async function handleCatalogAdminMediaSession({
   auditRepository,
   actorTelegramUserId,
   menuLanguage,
+  isAdmin = true,
   confirmMediaCreateLabel,
   confirmMediaEditLabel,
   messageMedia,
@@ -63,6 +64,7 @@ export async function handleCatalogAdminMediaSession({
   auditRepository: AuditRepository;
   actorTelegramUserId: number;
   menuLanguage: 'ca' | 'es' | 'en';
+  isAdmin?: boolean;
   confirmMediaCreateLabel: string;
   confirmMediaEditLabel: string;
   messageMedia?: CatalogMediaAttachmentInput | null;
@@ -75,7 +77,7 @@ export async function handleCatalogAdminMediaSession({
   if (!isEditing && stepKey === 'cover-confirm') {
     if (text === texts.coverSkipMedia) {
       await session.cancel();
-      await reply(texts.coverSkipped, buildCatalogAdminMenuOptions(menuLanguage));
+      await reply(texts.coverSkipped, buildCatalogAdminMenuOptions(menuLanguage, isAdmin));
       return true;
     }
     if (text !== texts.coverSaveAsMedia) {
@@ -85,7 +87,7 @@ export async function handleCatalogAdminMediaSession({
     const attachment = asCatalogMediaAttachment(data.attachment);
     if (!attachment || !storeAttachment) {
       await session.cancel();
-      await reply(texts.invalidMediaAttachment, buildCatalogAdminMenuOptions(menuLanguage));
+      await reply(texts.invalidMediaAttachment, buildCatalogAdminMenuOptions(menuLanguage, isAdmin));
       return true;
     }
     const progress = startEditableProgress
@@ -97,7 +99,7 @@ export async function handleCatalogAdminMediaSession({
     if (stored instanceof Error) {
       await progress?.complete(stored.message);
       await session.cancel();
-      await reply(stored.message, buildCatalogAdminMenuOptions(menuLanguage));
+      await reply(stored.message, buildCatalogAdminMenuOptions(menuLanguage, isAdmin));
       return true;
     }
     await progress?.update(formatCatalogMediaProgress(language, 'registering'));
@@ -121,7 +123,7 @@ export async function handleCatalogAdminMediaSession({
     });
     await session.cancel();
     await progress?.complete(formatCatalogMediaProgress(language, 'done'));
-    await reply(`${texts.mediaAdded} #${media.itemId}.`, buildCatalogAdminMenuOptions(menuLanguage));
+    await reply(`${texts.mediaAdded} #${media.itemId}.`, buildCatalogAdminMenuOptions(menuLanguage, isAdmin));
     return true;
   }
   if (!isEditing && (stepKey === 'input' || stepKey === 'source')) {

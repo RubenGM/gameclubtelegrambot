@@ -5475,3 +5475,171 @@ test('catalog admin can assign an item owner from the paginated user selector', 
   assert.match(replies.at(-1)?.message ?? '', /<b>Propietario:<\/b> <a href="https:\/\/t\.me\/ana_owner">Ana Owner \(@ana_owner\)<\/a>/);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'catalog.item.owner_updated');
 });
+
+test('handleTelegramCatalogAdminMessage lets a non-admin finish creation from a cover without an admin-only session', async () => {
+  const repository = createRepository();
+  const auditRepository = createAuditRepository();
+  const importCalls: string[] = [];
+  const wikipediaBoardGameImportService: WikipediaBoardGameImportService = {
+    async importByTitle(title) {
+      importCalls.push(title);
+      return {
+        ok: true,
+        draft: {
+          familyId: null,
+          groupId: null,
+          itemType: 'board-game',
+          displayName: title,
+          originalName: title,
+          description: `${title} description`,
+          language: null,
+          publisher: null,
+          publicationYear: null,
+          playerCountMin: null,
+          playerCountMax: null,
+          recommendedAge: null,
+          playTimeMinutes: null,
+          externalRefs: {},
+          metadata: { source: 'boardgamegeek' },
+        },
+      };
+    },
+  };
+  const resolverCalls: Array<{ imagePath: string; question: string; model: string }> = [];
+  const { context, replies, getCurrentSession } = createContext({
+    repository,
+    isAdmin: false,
+    auditRepository,
+    wikipediaBoardGameImportService,
+    coverTitleResolver: async (input) => {
+      resolverCalls.push(input);
+      return '> build · gpt-5.4-mini\n\nNombre: "Root"';
+    },
+  });
+
+  context.messageText = catalogAdminLabels.create;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = catalogAdminLabels.typeBoardGame;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = undefined;
+  context.messageMedia = {
+    attachmentKind: 'photo',
+    fileId: 'telegram-photo-file-id',
+    messageId: 44,
+    originalFileName: null,
+    mimeType: null,
+  };
+
+  assert.equal(await handleTelegramCatalogAdminMessage(context), true);
+
+  assert.equal(resolverCalls.length, 1);
+  assert.match(resolverCalls[0]?.imagePath ?? '', /cover-\d+\.jpg$/);
+  assert.match(resolverCalls[0]?.question ?? '', /nom complet visible/i);
+  assert.equal(resolverCalls[0]?.model, 'gpt-6-luna');
+  assert.deepEqual(importCalls, ['Root']);
+  assert.ok(replies.some((reply) => /Nom detectat: Root/.test(reply.message)));
+  assert.equal(getCurrentSession()?.stepKey, 'cover-confirm');
+  assert.match(replies.at(-1)?.message ?? '', /guardar aquesta portada/);
+  assert.equal((await repository.findItemById(1))?.displayName, 'Root');
+  assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-create');
+  context.messageText = createTelegramI18n('ca').catalogAdmin.coverSkipMedia;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /administrador/i);
+  assert.equal((await repository.listItems({ includeDeactivated: false })).length, 1);
+});
+
+
+test('non-admin imported game finishes successfully and retries require explicit duplicate confirmation', async () => {
+  const repository = createRepository();
+  const draft = createCatalogItemFixture({ displayName: 'Al servicio de Su Majestad', originalName: "The World of Smog: On Her Majesty's Service", externalRefs: { boardGameGeekId: '573' } });
+  const { context, replies, getCurrentSession } = createContext({
+    repository, isAdmin: false, language: 'es',
+    wikipediaBoardGameImportService: { async importByTitle() { return { ok: true, draft: { ...draft, itemType: 'board-game' } }; } },
+  });
+  for (const attempt of [1, 2]) {
+    for (const text of ['Crear ítem', 'Juego de mesa', 'Al servicio de su majestad']) {
+      context.messageText = text;
+      assert.equal(await handleTelegramCatalogAdminText(context), true);
+    }
+    assert.equal((await repository.listItems({ includeDeactivated: false })).length, 1);
+    if (attempt === 1) {
+      assert.equal(getCurrentSession(), null);
+      assert.match(replies.at(-1)?.message ?? '', /creado.*#1/i);
+    }
+  }
+  assert.equal(getCurrentSession()?.stepKey, 'duplicate-confirm');
+  assert.match(replies.at(-1)?.message ?? '', /catalog_read_item_1/);
+  context.messageText = 'Guardar ítem';
+  await handleTelegramCatalogAdminText(context);
+  assert.equal((await repository.listItems({ includeDeactivated: false })).length, 1);
+  context.messageText = 'Añadir otra copia';
+  await handleTelegramCatalogAdminText(context);
+  assert.equal((await repository.listItems({ includeDeactivated: false })).length, 2);
+  assert.equal(getCurrentSession(), null);
+});
+
+for (const [name, existing, displayName, externalRefs] of [
+  ['normalized accents and punctuation', { displayName: 'Ál servicio de Su Majestad!' }, 'al servicio de su majestad', null],
+  ['original title', { displayName: 'Nombre traducido', originalName: 'The World of Smog' }, 'The World of Smog', null],
+  ['BGG identity despite different names', { displayName: 'Nombre traducido', metadata: { bggId: 573 } }, 'Different title', { boardGameGeekId: '573' }],
+  ['subtitle', { displayName: 'Al servicio de Su Majestad (The World of Smog)' }, 'Al servicio de Su Majestad', null],
+] as const) {
+  test(`manual creation detects duplicates by ${name} and cancellation writes nothing`, async () => {
+    const repository = createRepository({ items: [createCatalogItemFixture(existing)] });
+    const { context, getCurrentSession } = createContext({ repository, isAdmin: false, language: 'es' });
+    await context.runtime.session.start({ flowKey: 'catalog-admin-create', stepKey: 'select-field', data: { itemType: 'board-game', displayName, externalRefs } });
+    context.messageText = 'Guardar ítem';
+    await handleTelegramCatalogAdminText(context);
+    assert.equal(getCurrentSession()?.stepKey, 'duplicate-confirm');
+    context.messageText = '/cancel';
+    await handleTelegramCatalogAdminText(context);
+    assert.equal(getCurrentSession(), null);
+    assert.equal((await repository.listItems({ includeDeactivated: false })).length, 1);
+  });
+}
+
+test('duplicate confirmation is renewed if another matching item appears before saving', async () => {
+  const repository = createRepository({ items: [createCatalogItemFixture({ displayName: 'Root' })] });
+  const { context, getCurrentSession } = createContext({ repository, isAdmin: false, language: 'es' });
+  await context.runtime.session.start({ flowKey: 'catalog-admin-create', stepKey: 'select-field', data: { itemType: 'board-game', displayName: 'Root' } });
+  context.messageText = 'Guardar ítem';
+  await handleTelegramCatalogAdminText(context);
+  await repository.createItem(createCatalogItemFixture({ displayName: 'Root' }));
+  context.messageText = 'Añadir otra copia';
+  await handleTelegramCatalogAdminText(context);
+  assert.equal(getCurrentSession()?.stepKey, 'duplicate-confirm');
+  assert.equal((await repository.listItems({ includeDeactivated: false })).length, 2);
+  await handleTelegramCatalogAdminText(context);
+  assert.equal((await repository.listItems({ includeDeactivated: false })).length, 3);
+});
+
+test('non-admin saves the supplied cover after manual creation and cannot edit existing items', async () => {
+  const repository = createRepository();
+  const storageRepository = createStorageRepository();
+  const { context, replies, getCurrentSession } = createContext({
+    repository, isAdmin: false, language: 'es', storageRepository,
+    storageDefaultChatStore: createMemoryMetadataStorage({ 'storage.default_chat': JSON.stringify({ chatId: -100123 }) }),
+    createForumTopic: async ({ chatId, name }) => ({ chatId, name, messageThreadId: 456 }),
+    copyMessage: async () => ({ messageId: 888 }),
+  });
+  await context.runtime.session.start({
+    flowKey: 'catalog-admin-create', stepKey: 'select-field',
+    data: { itemType: 'board-game', displayName: 'Root', coverAttachment: { attachmentKind: 'photo', fromChatId: 1, telegramFileId: 'photo-file-id', messageId: 55 } },
+  });
+  context.messageText = 'Guardar ítem';
+  await handleTelegramCatalogAdminText(context);
+  assert.equal(getCurrentSession()?.flowKey, 'catalog-admin-create');
+  assert.equal(getCurrentSession()?.stepKey, 'cover-confirm');
+  assert.ok(replies.some((reply) => /creado.*#1/i.test(reply.message)));
+  context.messageText = createTelegramI18n('es').catalogAdmin.coverSaveAsMedia;
+  await handleTelegramCatalogAdminText(context);
+  assert.equal(getCurrentSession(), null);
+  assert.equal((await repository.listMedia({ itemId: 1 }))[0]?.url, 'storage:entry:1');
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /solo administradores/i);
+  const keyboard = replies.at(-1)?.options?.replyKeyboard?.flat().map(buttonText) ?? [];
+  assert.ok(!keyboard.includes(createTelegramI18n('es').catalogAdmin.bulkPhoto));
+  context.callbackData = `${catalogAdminCallbackPrefixes.edit}1`;
+  await handleTelegramCatalogAdminCallback(context);
+  assert.match(replies.at(-1)?.message ?? '', /administrador/i);
+});

@@ -57,11 +57,19 @@ export async function synchronizeScheduleEventsToCalendar({
   client?: GoogleCalendarClient;
 }): Promise<void> {
   const client = providedClient ?? createGoogleCalendarClient({ config });
+  const failures: Error[] = [];
   for (const event of events) {
-    if (event.lifecycleStatus === 'cancelled') {
-      await client.deleteScheduleEvent({ calendarId, scheduleEventId: event.id });
-    } else {
-      await client.upsertScheduleEvent({ calendarId, event });
+    try {
+      if (event.lifecycleStatus === 'cancelled') {
+        await client.deleteScheduleEvent({ calendarId, scheduleEventId: event.id });
+      } else {
+        await client.upsertScheduleEvent({ calendarId, event });
+      }
+    } catch (error) {
+      failures.push(new Error(`Activity ${event.id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }));
     }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(failures, `Google Calendar synchronization failed for ${failures.length} activities: ${failures.map((error) => error.message).join('; ')}`);
   }
 }
