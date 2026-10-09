@@ -16,6 +16,8 @@ test('Stop is bound to owner, topic and unpredictable generation identity; stale
   assert.equal(stopTelegramLlmGenerationByToken(owner, old.token), false);
   assert.equal(next.signal.aborted, false);
   assert.equal(stopTelegramLlmGeneration({ ...owner, draftId: next.draftId }), true);
+  assert.equal(stopTelegramLlmGeneration({ ...owner, draftId: next.draftId }), false);
+  assert.equal(stopTelegramLlmGenerationByToken(owner, next.token), false);
   next.finish();
   assert.equal(stopTelegramLlmGenerationByToken(owner, next.token), false);
 });

@@ -45,8 +45,11 @@ Telegram y el polling. La web pública respondió 200 y el admin redirigió a lo
 (303).
 
 La cancelación por evento Stop nativo y la concurrencia con dos usuarios tienen
-cobertura automatizada; la comprobación presencial en clientes Telegram sigue
-pendiente de registrar. La prueba con el UID real del servicio (`gameclubbot`, 997) ejecutó Codex
+cobertura automatizada. El 9 de octubre el usuario respondió «Validado» a la
+prueba de pulsar Stop después de aparecer contenido en el borrador de `/ask`:
+la pulsación efectiva queda confirmada desde el cliente real. El usuario no
+dispone de una segunda cuenta; esa prueba presencial de concurrencia no se ha
+realizado y se distingue de las pruebas técnicas. La prueba con el UID real del servicio (`gameclubbot`, 997) ejecutó Codex
 bajo el operador (`cawa`, 1000) mediante sudo y supervisor instalado. Se
 recibieron 32 deltas y se comprobó que toda la cadena de procesos desapareció
 tras abortar. Una fixture resistente a TERM también quedó eliminada en 341 ms;
@@ -82,4 +85,31 @@ archivos estáticos `src/**/*.schema.json` a `0644`; otros JSON y destinos de
 symlinks conservan sus permisos. La prueba real como `gameclubbot` completó la
 interpretación en 6603 ms y la síntesis con 10 deltas en 2928 ms usando
 `gpt-6-luna`/`low`. El usuario confirmó que `/ask` ya responde y que el botón
-Stop aparece durante el borrador; su pulsación efectiva sigue por registrar.
+Stop aparece durante el borrador; su pulsación efectiva quedó confirmada en la
+validación posterior descrita arriba. El seguimiento registra ahora inicio,
+origen de cancelación y liberación por borrador, sin texto ni tokens, y las
+paradas repetidas no vuelven a abortar.
+
+## Cierre técnico del 9 de octubre
+
+La comprobación adicional de concurrencia ejecutó los módulos instalados del
+scheduler, el registro de trabajos y el decoder de Stop como `gameclubbot`,
+con las variables efectivas del wrapper Codex y el supervisor bajo `cawa`.
+Usó dos sesiones lógicas: A generaba mediante Codex real; B completó una
+consulta de sólo lectura `getMe` contra la API pública de Telegram antes de
+terminar A. Una segunda acción de A permaneció en cola hasta el cierre.
+
+El ensayo final produjo 24 deltas. La secuencia fue `A:start`, `B:start`,
+`B:end`, `stop:start`, `stop:end`, `A:end`, `A-next:start`, `A-next:end`;
+Stop liberó el registro en 258 ms y la siguiente acción empezó en 259 ms.
+La señal de ese ensayo entró como evento nativo construido para la prueba;
+la pulsación desde un cliente real es la validación del usuario registrada
+arriba. No se enviaron mensajes a otros usuarios. Esta evidencia verifica
+la concurrencia técnica con proveedor y Telegram reales, pero no equivale
+a una prueba presencial simultánea con dos cuentas de Telegram.
+
+Esta revisión pasó 1.114 tests seleccionados por impacto, typecheck, lint,
+documentación e inventario. `./startup.sh` completó build y despliegue;
+se comprobaron servicio activo, Node efectivo 24.21.0, grammY 1.46.0,
+runner 2.0.3, portada pública 200 y admin sin sesión 303. El registro
+operativo P-040 queda completado con ese alcance y la limitación indicada.

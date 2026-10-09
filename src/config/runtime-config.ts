@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isIP } from 'node:net';
 
 export const botLanguageValues = ['ca', 'es', 'en'] as const;
 
@@ -146,6 +147,7 @@ export const runtimeConfigSchema = z.object({
       port: z.number().int().min(1).max(65535).default(8787),
       feedbackFile: z.string().trim().min(1).default('data/feedback.jsonl'),
       sessionSecret: z.string().trim().min(16).optional(),
+      trustedProxyAddresses: z.array(z.string().trim().refine((value) => isIP(value) !== 0 && !value.includes('%'), 'Expected a proxy IP address')).optional(),
     })
     .optional(),
   bootstrap: z.object({

@@ -1,4 +1,5 @@
 import { SchedulePriorityConflictError } from '../schedule/schedule-catalog.js';
+import { loginClientAddress } from './login-client-address.js';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { mkdir, appendFile, readFile, unlink, writeFile } from 'node:fs/promises';
@@ -642,7 +643,7 @@ async function routeRequest(options: {
 
   if (request.method === 'POST' && url.pathname === '/admin/login') {
     const form = await readForm(request);
-    const loginKey = loginAttemptKey(request);
+    const loginKey = loginClientAddress(request, options.config.httpServer?.trustedProxyAddresses ?? []);
     if (isLoginRateLimited(options.loginAttempts, loginKey)) {
       sendHtml(response, 429, loginPage('Massa intents. Torna-ho a provar mes tard.'));
       return;
@@ -2766,10 +2767,6 @@ function getAuthenticatedSession(request: IncomingMessage, sessions: Map<string,
 function isValidCsrf(form: URLSearchParams, session: Session): boolean {
   const value = form.get('csrfToken') ?? '';
   return value.length > 0 && safeEqual(value, session.csrfToken);
-}
-
-function loginAttemptKey(request: IncomingMessage): string {
-  return request.socket.remoteAddress ?? 'unknown';
 }
 
 function isLoginRateLimited(attempts: Map<string, LoginAttempt>, key: string): boolean {

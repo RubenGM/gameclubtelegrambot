@@ -228,6 +228,15 @@ el proceso sudo deje la generación viva.
 Los trabajos de grupos también se abortan al cerrar el servicio, pero nunca
 publican borradores ni progreso en el grupo.
 
+El journal registra `llm-command.generation.started`, `.abort` y `.released`
+con chat, usuario, topic e ID de borrador. La cancelación distingue Stop nativo,
+callback, sustitución y apagado; el cierre indica si hubo borrador, duración y
+tiempo desde la señal de cancelación hasta la liberación del registro. No se
+registran prompts, respuestas ni tokens de callback. Una parada repetida o
+caducada no vuelve a cancelar el trabajo. Liberar el registro evita Stop tardío;
+ese evento por sí solo no demuestra la entrega del mensaje final ni la ausencia
+de procesos huérfanos, que requieren su propia comprobación.
+
 La primera pasada usa Codex con el perfil normal, `gpt-6-luna` con `low`.
 Cuando esa pasada detecta que la siguiente fase necesitará interpretación
 semántica sobre datos reales, puede pedir escalado con `nextStep`. El bot valida

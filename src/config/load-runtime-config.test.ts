@@ -65,6 +65,17 @@ test('loadRuntimeConfig returns typed configuration from the configured JSON fil
   assert.equal(config.telegram.localBotApi?.enabled ?? false, false);
 });
 
+test('loadRuntimeConfig accepts explicit proxy IPs and rejects hostnames, wildcards and scoped addresses', async () => {
+  const load = (trustedProxyAddresses: string[]) => loadRuntimeConfig({
+    env: { GAMECLUB_CONFIG_PATH: '/etc/gameclub/config.json' },
+    readConfigFile: async () => JSON.stringify({ ...JSON.parse(validConfigJson), httpServer: { trustedProxyAddresses } }),
+  });
+  assert.deepEqual((await load(['127.0.0.1', '::1'])).httpServer?.trustedProxyAddresses, ['127.0.0.1', '::1']);
+  for (const invalid of ['localhost', '*', '127.0.0.0/8', 'fe80::1%eth0']) {
+    await assert.rejects(load([invalid]));
+  }
+});
+
 test('loadRuntimeConfig accepts optional local Bot API settings for large file downloads', async () => {
   const config = await loadRuntimeConfig({
     env: {

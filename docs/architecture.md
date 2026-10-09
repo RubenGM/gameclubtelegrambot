@@ -63,6 +63,12 @@ nativos y el callback privado de cancelación pasan antes de esa cola. Al cerrar
 se rechazan los pendientes, se bloquean nuevas generaciones, se abortan las
 activas y se espera su finalización antes de cerrar PostgreSQL.
 
+La generación LLM mantiene un registro por propietario y topic. Sus eventos
+`llm-command.generation.started`, `.abort` y `.released` permiten correlacionar
+concurrencia y cancelación sin registrar prompts, respuestas o tokens; el origen
+de parada distingue cliente nativo, callback, sustitución y apagado. Stop repetido
+no cancela dos veces y liberar el registro hace inocuo un Stop tardío.
+
 `rich-message-transport.ts` adapta mensajes enriquecidos, ediciones y borradores
 con fallback a texto/progreso editable si el endpoint no soporta el método.
 Los borradores sólo se usan en privado y el resultado completo se conserva
@@ -122,6 +128,19 @@ siendo la fuente de verdad para Google Calendar.
 
 El backend escucha únicamente en `127.0.0.1:8787`. Nginx publica las rutas
 permitidas mediante HTTPS; el puerto 8787 no debe exponerse en el router.
+
+El login limita a cinco intentos fallidos por cliente en quince minutos.
+`httpServer.trustedProxyAddresses` declara las IP exactas de los proxies
+fiables; si falta o está vacío, se ignoran las cabeceras de dirección.
+En este despliegue se configura `["127.0.0.1"]`: Nginx debe sustituir siempre
+`X-Real-IP` con `proxy_set_header X-Real-IP $remote_addr;`. Sólo se acepta
+una IP válida de esa cabecera cuando el peer inmediato es fiable; una
+cabecera ausente, múltiple o inválida conserva el límite por IP de conexión.
+`X-Forwarded-For` no interviene en la clave. Las formas IPv6 equivalentes y
+las IPv4 mapeadas a IPv6 comparten clave para evitar eludir el límite.
+Declarar loopback fiable presupone que los procesos locales son de confianza;
+un acceso directo local puede aportar `X-Real-IP`, igual que Nginx. No se debe
+añadir una IP cliente a esta lista ni exponer el backend al exterior.
 
 Las rutas públicas incluyen `/`, `/feedback`, `/alta`, `/club`,
 `/actividades` y `/catalogo`. La ruta no anunciada

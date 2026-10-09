@@ -59,6 +59,9 @@ Para síntesis LLM privada, `llm-answer-preview.ts` agrupa deltas reales de Code
 y usa borradores enriquecidos o de texto con un `draft_id` único por trabajo.
 El progreso editable es el fallback cuando no hay soporte para borradores.
 Stop se gestiona antes de la cola de sesiones para cancelar inmediatamente.
+Las paradas repetidas no generan otra cancelación. El journal distingue el
+origen nativo del callback y registra la liberación de cada trabajo sin contenido
+de usuario; la guía LLM detalla los eventos y sus límites como evidencia.
 
 Los borradores son efímeros: al terminar, envía el resultado completo mediante
 `sendRichMessage` o su fallback duradero y retira el progreso auxiliar. No

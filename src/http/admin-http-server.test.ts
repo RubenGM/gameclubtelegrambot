@@ -29,7 +29,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     telegram: { token: 'telegram-token' },
     database: { host: 'localhost', port: 5432, name: 'gameclub', user: 'user', password: 'pw', ssl: false },
     adminElevation: { passwordHash },
-    httpServer: { enabled: true, host: '127.0.0.1', port, feedbackFile: 'feedback.jsonl' },
+    httpServer: { enabled: true, host: '127.0.0.1', port, feedbackFile: 'feedback.jsonl', trustedProxyAddresses: ['127.0.0.1'] },
     bootstrap: { firstAdmin: { telegramUserId: 1, displayName: 'Admin' } },
     notifications: { defaults: { groupAnnouncementsEnabled: true, eventRemindersEnabled: true, eventReminderLeadHours: 24 } },
     featureFlags: {},
@@ -816,6 +816,20 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.equal(loginResponse.status, 303);
     const cookie = loginResponse.headers.get('set-cookie');
     assert.ok(cookie);
+
+    const attemptLogin = (clientIp: string, password = 'wrong-password', spoofedForwardedFor = '192.0.2.99') => fetch(`${baseUrl}/admin/login`, {
+      method: 'POST', redirect: 'manual',
+      headers: { 'x-real-ip': clientIp, 'x-forwarded-for': spoofedForwardedFor },
+      body: new URLSearchParams({ password }),
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      assert.equal((await attemptLogin('203.0.113.10')).status, 401);
+    }
+    assert.equal((await attemptLogin('203.0.113.10', 'secret-admin', '192.0.2.100')).status, 429);
+    assert.equal((await attemptLogin('::ffff:203.0.113.10', 'secret-admin')).status, 429);
+    assert.equal((await attemptLogin('203.0.113.11', 'secret-admin')).status, 303);
+    assert.equal((await attemptLogin('203.0.113.11')).status, 401);
+    assert.equal((await attemptLogin('203.0.113.11', 'secret-admin')).status, 303);
 
     const adminPage = await fetch(`${baseUrl}/admin`, { headers: { cookie } });
     assert.equal(adminPage.status, 200);
