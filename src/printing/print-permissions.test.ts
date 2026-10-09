@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { drizzle } from 'drizzle-orm/pg-proxy';
 
 import { auditLog, printJobs, userPermissionAssignments, userPermissionAuditLog, users } from '../infrastructure/database/schema.js';
 import { createDatabasePrintPermissionRepository, printPermissionKey } from './print-permissions.js';
@@ -62,32 +63,36 @@ test('createDatabasePrintPermissionRepository revokes existing global print perm
   assert.equal(state.auditRows[0]?.actionKey, 'printing.permission.revoked');
 });
 
-test('createDatabasePrintPermissionRepository lists approved permission users', async () => {
-  const repository = createDatabasePrintPermissionRepository({
-    database: {
-      select: () => ({
-        from: (table: unknown) => {
-          assert.equal(table, permissionAssignmentsTable);
-          return {
-            innerJoin: (joinedTable: unknown) => {
-              assert.equal(joinedTable, usersTable);
-              return {
-                where: () => ({
-                  orderBy: async () => [
-                    { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false },
-                  ],
-                }),
-              };
-            },
-          };
-        },
-      }),
-    } as never,
+test('print access lists include default members and select only denials for restoration', async () => {
+  const queries: Array<{ query: string; params: unknown[] }> = [];
+  const database = drizzle(async (query, params) => {
+    queries.push({ query, params });
+    return { rows: [] };
   });
+  const repository = createDatabasePrintPermissionRepository({ database: database as never });
+  await repository.listAllowedUsers();
+  await repository.listGrantableUsers();
+  assert.match(queries[0]!.query, /from "users"/);
+  assert.match(queries[0]!.query, /not exists/);
+  assert.match(queries[1]!.query, /exists/);
+  assert.doesNotMatch(queries[1]!.query, /not exists/);
+  for (const { query, params } of queries) {
+    assert.match(query, /"user_permission_assignments"\."subject_telegram_user_id" = "users"\."telegram_user_id"/);
+    assert.deepEqual(params, ['approved', false, 'printing.use', 'global', 'deny']);
+  }
+});
 
-  assert.deepEqual(await repository.listAllowedUsers(), [
-    { telegramUserId: 77, username: 'ada', displayName: 'Ada Lovelace', status: 'approved', isAdmin: false },
-  ]);
+test('print statistics aggregate copies and logical pages and exclude simulated jobs', async () => {
+  let queryText = '';
+  const database = drizzle(async (query) => {
+    queryText = query;
+    return { rows: [] };
+  });
+  await createDatabasePrintPermissionRepository({ database: database as never }).listUserPrintStats([77]);
+  assert.match(queryText, /sum\("selected_page_count" \* "copies"\)/);
+  assert.match(queryText, /sum\("copies"\)/);
+  assert.match(queryText, /"cups_job_id" is distinct from 'test-mode'/);
+  assert.match(queryText, /"status" =/);
 });
 
 test('createDatabasePrintPermissionRepository lists submitted print usage stats', async () => {
@@ -99,7 +104,7 @@ test('createDatabasePrintPermissionRepository lists submitted print usage stats'
           return {
             where: () => ({
               groupBy: async () => [
-                { telegramUserId: 77, submittedJobs: 3, estimatedPhysicalPages: 42 },
+                { telegramUserId: 77, submittedJobs: 3, estimatedPhysicalPages: 42, totalPrintedPages: 84, totalCopies: 7 },
               ],
             }),
           };
@@ -109,7 +114,7 @@ test('createDatabasePrintPermissionRepository lists submitted print usage stats'
   });
 
   assert.deepEqual(await repository.listUserPrintStats([77]), [
-    { telegramUserId: 77, submittedJobs: 3, estimatedPhysicalPages: 42 },
+    { telegramUserId: 77, submittedJobs: 3, estimatedPhysicalPages: 42, totalPrintedPages: 84, totalCopies: 7 },
   ]);
   assert.deepEqual(await repository.listUserPrintStats([]), []);
 });

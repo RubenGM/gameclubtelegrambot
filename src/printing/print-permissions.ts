@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, exists, notExists, sql } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { auditLog, printJobs, userPermissionAssignments, userPermissionAuditLog, users } from '../infrastructure/database/schema.js';
@@ -17,6 +17,8 @@ export interface PrintPermissionUsageStats {
   telegramUserId: number;
   submittedJobs: number;
   estimatedPhysicalPages: number;
+  totalPrintedPages: number;
+  totalCopies: number;
 }
 
 export interface PrintPermissionRepository {
@@ -39,6 +41,27 @@ export function createDatabasePrintPermissionRepository({
 }: {
   database: DatabaseConnection['db'];
 }): PrintPermissionRepository {
+  async function listPermissionUsers(denied: boolean): Promise<PrintPermissionUserRecord[]> {
+    const denial = database.select({ id: userPermissionAssignments.id })
+      .from(userPermissionAssignments)
+      .where(and(
+        eq(userPermissionAssignments.subjectTelegramUserId, users.telegramUserId),
+        eq(userPermissionAssignments.permissionKey, printPermissionKey),
+        eq(userPermissionAssignments.scopeType, 'global'),
+        eq(userPermissionAssignments.effect, 'deny'),
+      ));
+    return database.select({
+      telegramUserId: users.telegramUserId,
+      username: users.username,
+      displayName: users.displayName,
+      status: users.status,
+      isAdmin: users.isAdmin,
+    }).from(users).where(and(
+      eq(users.status, 'approved'), eq(users.isAdmin, false),
+      denied ? exists(denial) : notExists(denial),
+    )).orderBy(asc(users.displayName), asc(users.telegramUserId));
+  }
+
   return {
     async findUserByTelegramUserId(telegramUserId) {
       const rows = await database
@@ -54,39 +77,10 @@ export function createDatabasePrintPermissionRepository({
       return rows[0] ?? null;
     },
     async listGrantableUsers() {
-      return database
-        .select({
-          telegramUserId: users.telegramUserId,
-          username: users.username,
-          displayName: users.displayName,
-          status: users.status,
-          isAdmin: users.isAdmin,
-        })
-        .from(users)
-        .where(and(eq(users.status, 'approved'), eq(users.isAdmin, false)))
-        .orderBy(asc(users.displayName), asc(users.telegramUserId));
+      return listPermissionUsers(true);
     },
     async listAllowedUsers() {
-      return database
-        .select({
-          telegramUserId: users.telegramUserId,
-          username: users.username,
-          displayName: users.displayName,
-          status: users.status,
-          isAdmin: users.isAdmin,
-        })
-        .from(userPermissionAssignments)
-        .innerJoin(users, eq(userPermissionAssignments.subjectTelegramUserId, users.telegramUserId))
-        .where(
-          and(
-            eq(users.status, 'approved'),
-            eq(users.isAdmin, false),
-            eq(userPermissionAssignments.permissionKey, printPermissionKey),
-            eq(userPermissionAssignments.scopeType, 'global'),
-            eq(userPermissionAssignments.effect, 'allow'),
-          ),
-        )
-        .orderBy(asc(users.displayName), asc(users.telegramUserId));
+      return listPermissionUsers(false);
     },
     async listUserPrintStats(telegramUserIds) {
       if (telegramUserIds.length === 0) {
@@ -97,18 +91,23 @@ export function createDatabasePrintPermissionRepository({
         .select({
           telegramUserId: printJobs.requestedByTelegramUserId,
           submittedJobs: sql<number>`count(*)::int`,
+          totalPrintedPages: sql<number>`coalesce(sum(${printJobs.selectedPageCount} * ${printJobs.copies}), 0)::int`,
+          totalCopies: sql<number>`coalesce(sum(${printJobs.copies}), 0)::int`,
           estimatedPhysicalPages: sql<number>`coalesce(sum(${printJobs.estimatedPhysicalPages}), 0)::int`,
         })
         .from(printJobs)
         .where(and(
           inArray(printJobs.requestedByTelegramUserId, telegramUserIds),
           eq(printJobs.status, 'submitted'),
+          sql`${printJobs.cupsJobId} is distinct from 'test-mode'`,
         ))
         .groupBy(printJobs.requestedByTelegramUserId);
 
       return rows.map((row) => ({
         telegramUserId: row.telegramUserId,
         submittedJobs: Number(row.submittedJobs),
+        totalPrintedPages: Number(row.totalPrintedPages),
+        totalCopies: Number(row.totalCopies),
         estimatedPhysicalPages: Number(row.estimatedPhysicalPages),
       }));
     },

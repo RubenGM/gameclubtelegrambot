@@ -310,7 +310,14 @@ async function renderHistory(context: PrinterAdminContext): Promise<string> {
   return [
     texts.adminHistoryHeader,
     '',
-    ...jobs.map((job) => `#${job.id} ${job.originalFileName} · ${job.selectedPagesLabel} x${job.copies} · ${job.estimatedPhysicalPages} · ${job.status}`),
+    ...jobs.map((job) => formatText(texts.adminHistoryJob, {
+      id: String(job.id), user: `${job.requestedByDisplayName} (${job.requestedByTelegramUserId})`,
+      file: job.originalFileName, date: job.createdAt, selection: job.selectedPagesLabel,
+      copies: String(job.copies), pages: String(job.selectedPageCount * job.copies),
+      sheets: String(job.estimatedPhysicalPages), pagesPerSheet: String(job.pagesPerSheet),
+      sides: job.sides === 'one-sided' ? texts.oneSided : texts.twoSided,
+      status: job.status, cups: job.cupsJobId ?? '—',
+    })),
   ].join('\n');
 }
 
@@ -360,7 +367,7 @@ function formatPermissionUserLabel(user: Pick<PrintPermissionUserRecord, 'telegr
 
 function formatPermissionUserLine(
   user: PrintPermissionUserRecord,
-  stats: { submittedJobs: number; estimatedPhysicalPages: number } | undefined,
+  stats: { submittedJobs: number; estimatedPhysicalPages: number; totalPrintedPages: number; totalCopies: number } | undefined,
   stepKey: PrinterPermissionStep,
   texts: ReturnType<typeof createTelegramI18n>['printing'],
 ): string {
@@ -370,7 +377,9 @@ function formatPermissionUserLine(
     : `<a href="${escapeHtml(buildTelegramStartUrl(`${stepKey === 'grant-user' ? printerGrantStartPayloadPrefix : printerRevokeStartPayloadPrefix}${user.telegramUserId}`))}">${label}</a>`;
   return `- ${linkedLabel} · ${formatText(texts.adminUsageStats, {
     jobs: String(stats?.submittedJobs ?? 0),
-    pages: String(stats?.estimatedPhysicalPages ?? 0),
+    pages: String(stats?.totalPrintedPages ?? 0),
+    copies: String(stats?.totalCopies ?? 0),
+    sheets: String(stats?.estimatedPhysicalPages ?? 0),
   })}`;
 }
 

@@ -50,7 +50,8 @@ test('printer admin flow shows recent history', async () => {
 
   assert.equal(await handleTelegramPrinterAdminText({ ...context, messageText: 'Historial impresión' }), true);
   assert.match(replies.at(-1)?.message ?? '', /fichas\.pdf/);
-  assert.match(replies.at(-1)?.message ?? '', /28/);
+  assert.match(replies.at(-1)?.message ?? '', /Ruben \(7\)/);
+  assert.match(replies.at(-1)?.message ?? '', /Copias: 7 · Total páginas: 28 · Hojas estimadas: 28/);
 });
 
 test('printer admin flow grants and revokes print permission for approved users', async () => {
@@ -62,7 +63,7 @@ test('printer admin flow grants and revokes print permission for approved users'
 
   assert.equal(await handleTelegramPrinterAdminText({ ...context, messageText: 'Conceder impresión' }), true);
   assert.equal(getCurrentSession()?.stepKey, 'grant-user');
-  assert.match(replies.at(-1)?.message ?? '', /Elige el usuario que podrá imprimir/);
+  assert.match(replies.at(-1)?.message ?? '', /Elige el usuario de la lista negra/);
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawatest_bot\?start=printer_grant_77">Ada Lovelace \(@ada\) · 77<\/a>/);
   assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard, [
@@ -179,6 +180,8 @@ function createContext({
         return printUsers.map((user) => ({
           telegramUserId: user.telegramUserId,
           submittedJobs: user.telegramUserId === 77 ? 3 : 0,
+          totalPrintedPages: user.telegramUserId === 77 ? 42 : 0,
+          totalCopies: user.telegramUserId === 77 ? 7 : 0,
           estimatedPhysicalPages: user.telegramUserId === 77 ? 42 : 0,
         }));
       },

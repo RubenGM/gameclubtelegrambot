@@ -15,7 +15,7 @@ test('handleTelegramPrintText blocks new sessions when printing is disabled', as
   assert.match(replies.at(-1)?.message ?? '', /desactivada/i);
 });
 
-test('handleTelegramPrintText denies approved users without explicit print permission', async () => {
+test('handleTelegramPrintText denies approved users whose print access is revoked', async () => {
   const { context, replies, getCurrentSession } = createContext({ printingMode: 'enabled', canPrint: false });
 
   assert.equal(await handleTelegramPrintText({ ...context, messageText: '/print' }), true);
@@ -254,6 +254,7 @@ test('handleTelegramPrintText submits after extra confirmations for many copies'
   }]);
   const jobs = await history.listRecent({ limit: 1 });
   assert.equal(jobs[0]?.status, 'submitted');
+  assert.equal(jobs[0]?.requestedByTelegramUserId, context.runtime.actor.telegramUserId);
   assert.equal(jobs[0]?.copies, 12);
   assert.equal(jobs[0]?.pagesPerSheet, 2);
   assert.equal(jobs[0]?.estimatedPhysicalPages, 12);
@@ -809,3 +810,20 @@ function createContext({
 
   return { context, replies, downloads, imageConversions, submissions, cleanups, getCurrentSession: () => currentSession };
 }
+
+
+test('revoking permission during a prepared print session prevents submission', async () => {
+  const { context, submissions, getCurrentSession, replies } = createContext({ printingMode: 'enabled', canPrint: true, pageCount: 1 });
+  await handleTelegramPrintText({ ...context, messageText: '/print' });
+  await handleTelegramPrintMessage({ ...context, messageMedia: {
+    attachmentKind: 'document', fileId: 'file', originalFileName: 'file.pdf', mimeType: 'application/pdf', messageId: 55,
+  } });
+  await handleTelegramPrintText({ ...context, messageText: '1' });
+  await handleTelegramPrintText({ ...context, messageText: 'Vertical' });
+  assert.equal(getCurrentSession()?.stepKey, 'confirm');
+  const revoked = { ...context, runtime: { ...context.runtime, authorization: { ...context.runtime.authorization, can: () => false } } };
+  await handleTelegramPrintText({ ...revoked, messageText: 'Imprimir ahora' });
+  assert.deepEqual(submissions, []);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /permiso/i);
+});

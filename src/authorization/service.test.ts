@@ -183,3 +183,19 @@ test('createAuthorizationService exposes reusable can and authorize helpers', as
   });
   assert.equal(can({ subject: createSubject(), permissionKey: 'schedule.manage' }), false);
 });
+
+
+test('printing defaults to allow for approved members only and preserves explicit denials', () => {
+  assert.deepEqual(authorize({ subject: createSubject(), permissionKey: 'printing.use' }), {
+    allowed: true, permissionKey: 'printing.use', reason: 'default-allow',
+  });
+  for (const status of ['pending', 'revoked', 'blocked'] as const) {
+    assert.equal(can({ subject: createSubject({ status }), permissionKey: 'printing.use' }), false);
+  }
+  const denied = createSubject({ permissions: [{
+    permissionKey: 'printing.use', scopeType: 'global', resourceType: null, resourceId: null, effect: 'deny',
+  }] });
+  assert.equal(can({ subject: denied, permissionKey: 'printing.use' }), false);
+  assert.equal(can({ subject: { ...denied, isAdmin: true }, permissionKey: 'printing.use' }), true);
+  assert.equal(can({ subject: createSubject(), permissionKey: 'storage.manage' }), false);
+});

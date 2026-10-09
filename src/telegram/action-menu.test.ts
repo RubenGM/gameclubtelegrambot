@@ -7,6 +7,7 @@ import {
   resolveTelegramAdminMenuSelection,
   resolveTelegramMenuSelection,
 } from './action-menu.js';
+import { createAuthorizationService } from '../authorization/service.js';
 import type { AuthorizationService } from '../authorization/service.js';
 import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext } from './chat-context.js';
@@ -29,7 +30,9 @@ function createContext({
       permissionKey,
       reason: permissionKey === 'test.allow' || actor.permissions.some((permission) => permission.permissionKey === permissionKey && permission.effect === 'allow') ? 'global-allow' : 'no-match',
     }),
-    can: (permissionKey) => permissionKey === 'test.allow' || actor.isAdmin || actor.permissions.some((permission) => permission.permissionKey === permissionKey && permission.effect === 'allow'),
+    can: (permissionKey) => permissionKey === 'printing.use'
+      ? createAuthorizationService({ subject: { actorId: actor.telegramUserId, ...actor } }).can(permissionKey)
+      : permissionKey === 'test.allow' || actor.isAdmin || actor.permissions.some((permission) => permission.permissionKey === permissionKey && permission.effect === 'allow'),
   };
 
   return {
@@ -294,7 +297,14 @@ test('resolveTelegramActionMenu shows printing only when the feature is enabled 
   const enabledMenu = resolveTelegramActionMenu({
     context: createContext({ ...base, printingEnabled: true }),
   });
-  assert.equal(enabledMenu?.actions.some((action) => action.id === 'print'), false);
+  assert.equal(enabledMenu?.actions.some((action) => action.id === 'print'), true);
+
+  const deniedMenu = resolveTelegramActionMenu({
+    context: createContext({ ...base, printingEnabled: true, actor: { ...base.actor, permissions: [{
+      permissionKey: 'printing.use', scopeType: 'global', resourceType: null, resourceId: null, effect: 'deny',
+    }] } }),
+  });
+  assert.equal(deniedMenu?.actions.some((action) => action.id === 'print'), false);
 
   const allowedActor = {
     ...base.actor,

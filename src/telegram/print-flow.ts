@@ -106,6 +106,10 @@ export async function handleTelegramPrintMessage(context: PrintFlowContext): Pro
     return false;
   }
 
+  if (!await ensurePrintSessionAccess(context)) {
+    return true;
+  }
+
   const media = context.messageMedia;
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).printing;
@@ -263,6 +267,10 @@ async function continuePrintSession(context: PrintFlowContext, text: string): Pr
   const sessionData = session.data as Partial<PrintSessionData>;
   if (isPrintCancelText(text, language)) {
     await cancelPrintSession(context, sessionData);
+    return true;
+  }
+
+  if (!await ensurePrintSessionAccess(context)) {
     return true;
   }
 
@@ -438,7 +446,8 @@ async function submitPrintJob(context: PrintFlowContext, data: PrintSessionData)
   const pagesPerSheet = data.pagesPerSheet ?? 1;
   const job = await history.createJob({
     requestedByTelegramUserId: context.runtime.actor.telegramUserId,
-    requestedByDisplayName: context.from?.username ?? String(context.runtime.actor.telegramUserId),
+    requestedByDisplayName: [context.from?.first_name, context.from?.last_name].filter(Boolean).join(' ')
+      || context.from?.username || String(context.runtime.actor.telegramUserId),
     origin: data.origin,
     storageEntryId: data.storageEntryId ?? null,
     storageMessageId: data.storageMessageId ?? null,
@@ -505,6 +514,16 @@ async function restorePostPrintNavigation(context: PrintFlowContext, data: Print
   }
 
   await context.restorePrintHome?.(context);
+}
+
+async function ensurePrintSessionAccess(context: PrintFlowContext): Promise<boolean> {
+  if (context.runtime.chat.kind === 'private' && context.runtime.actor.isApproved
+      && !context.runtime.actor.isBlocked && canActorUsePrinting(context)) {
+    return true;
+  }
+  await cancelPrintSession(context, context.runtime.session.current?.data ?? {});
+  await context.reply(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).printing.noPermission);
+  return false;
 }
 
 async function cancelPrintSession(context: PrintFlowContext, data: Partial<PrintSessionData>): Promise<void> {

@@ -25,6 +25,7 @@ export type AuthorizationReason =
   | 'resource-allow'
   | 'global-deny'
   | 'global-allow'
+  | 'default-allow'
   | 'no-match';
 
 export interface AuthorizationDecision {
@@ -123,6 +124,10 @@ export function authorize({
       permissionKey,
       reason: 'global-allow',
     };
+  }
+
+  if (permissionKey === 'printing.use' && subject.status === 'approved') {
+    return { allowed: true, permissionKey, reason: 'default-allow' };
   }
 
   return {
