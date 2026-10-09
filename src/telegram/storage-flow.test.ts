@@ -32,6 +32,91 @@ import {
 import { configureTelegramDeepLinks } from './deep-links.js';
 import { createTelegramI18n, supportedBotLanguages, type BotLanguage } from './i18n.js';
 import { toGrammyReplyOptions } from './runtime-boundary-registration.js';
+import type { TelegramRichMessageInput } from './rich-message-transport.js';
+import { renderStorageRichEntryTable } from './storage-rich-presentation.js';
+
+for (const language of supportedBotLanguages) {
+  test(`rich Storage root/category tables preserve visibility, pagination and persistent navigation in ${language}`, async () => {
+    const repository = createRepository([
+      createCategory({ displayName: 'Manuales <Club> & Amigos' }),
+      createCategory({ id: 8, displayName: 'Secreto', lifecycleStatus: 'archived', storageThreadId: 11 }),
+      createCategory({ id: 9, displayName: 'catalog_media', categoryPurpose: 'catalog_media', storageThreadId: 12 }),
+    ]);
+    for (let index = 1; index <= 21; index += 1) {
+      await repository.createEntry({ categoryId: 7, createdByTelegramUserId: 99, sourceKind: 'dm_copy', description: `Archivo ${String(index).padStart(2, '0')} <Club>`, tags: ['manual'], messages: [{ storageChatId: -100123, storageMessageId: index, storageThreadId: 10, attachmentKind: 'document', originalFileName: `manual-${index}.pdf`, mimeType: 'application/pdf', fileSizeBytes: 2048, sortOrder: 0 }] });
+    }
+    const { context, replies, getCurrentSession } = createContext(repository, { canReadCategoryIds: [7], canUploadCategoryIds: [], language });
+    const sent: TelegramRichMessageInput[] = [];
+    context.runtime.bot.sendRichMessage = async (message) => { sent.push(message); };
+    await handleTelegramStorageCommand(context);
+    assert.match(sent[0]?.richMessage.html ?? '', /<table compact>.*Manuales &lt;Club&gt; &amp; Amigos.*<td align="center">21<\/td>/s);
+    assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /Secreto|catalog_media|<Club>/);
+    assert.equal(sent[0]?.options?.persistentKeyboard, true);
+    const i18n = createTelegramI18n(language);
+    assert.deepEqual(sent[0]?.options?.replyKeyboard?.at(-1), [i18n.actionMenu.start, i18n.actionMenu.help]);
+    context.messageText = '/start storage_category_7';
+    assert.equal(await handleTelegramStorageStartText(context), true);
+    const html = sent.at(-1)?.richMessage.html ?? '';
+    assert.match(html, /<table compact>.*Archivo 01 &lt;Club&gt;.*2.0 KB/s);
+    assert.match(html, /<td colspan="3">.*manual-1.pdf.*storage_tag_manual/s);
+    assert.doesNotMatch(html, /Archivo 21|Secreto|catalog_media/);
+    assert.match(html, /<footer>.*1\/2.*<\/footer>/);
+    assert.equal(sent.at(-1)?.options?.persistentKeyboard, true);
+    assert.deepEqual(sent.at(-1)?.options?.replyKeyboard?.at(-1), [i18n.actionMenu.start, i18n.actionMenu.help]);
+    assert.equal(getCurrentSession()?.data.page, 1);
+    assert.equal(replies.length, 0);
+    context.messageText = '/start storage_tag_manual';
+    assert.equal(await handleTelegramStorageStartText(context), true);
+    assert.match(sent.at(-1)?.richMessage.html ?? '', /<table compact>.*Archivo 01/s);
+    context.messageText = i18n.storage.paginationNext;
+    assert.equal(await handleTelegramStorageText(context), true);
+    assert.match(sent.at(-1)?.richMessage.html ?? '', /Archivo 21/);
+    assert.doesNotMatch(sent.at(-1)?.richMessage.html ?? '', /Archivo 01/);
+    assert.match(sent.at(-1)?.richMessage.html ?? '', /<footer>.*2\/2.*<\/footer>/);
+    context.messageText = '/start storage_tags';
+    assert.equal(await handleTelegramStorageStartText(context), true);
+    assert.match(sent.at(-1)?.richMessage.html ?? '', /<table compact>.*storage_tag_manual.*<td align="center">21<\/td>/s);
+    context.messageText = i18n.storage.searchFiles;
+    assert.equal(await handleTelegramStorageText(context), true);
+    context.messageText = i18n.storage.searchByTextOrTag;
+    assert.equal(await handleTelegramStorageText(context), true);
+    context.messageText = 'Archivo';
+    assert.equal(await handleTelegramStorageText(context), true);
+    assert.match(sent.at(-1)?.richMessage.html ?? '', /<table compact>.*Archivo 01/s);
+    assert.doesNotMatch(sent.at(-1)?.richMessage.html ?? '', /Archivo 21/);
+    assert.equal(sent.at(-1)?.options?.persistentKeyboard, true);
+  });
+}
+
+test('rich Storage entry fields and attachments keep full descriptions, actions, copies and uploader privacy', async () => {
+  const repository = createRepository();
+  await repository.createEntry({ categoryId: 7, createdByTelegramUserId: 99, sourceKind: 'dm_copy', description: 'Mapa <Club>\nSegunda línea & detalles', tags: ['mapa'], messages: [{ storageChatId: -100123, storageMessageId: 501, storageThreadId: 10, attachmentKind: 'document', originalFileName: 'mapa<&>.pdf', mimeType: 'application/pdf', fileSizeBytes: 4096, sortOrder: 0 }] });
+  const { context, copiedMessages } = createContext(repository, { isAdmin: true, language: 'es' });
+  const sent: TelegramRichMessageInput[] = [];
+  context.runtime.bot.sendRichMessage = async (message) => { sent.push(message); };
+  context.messageText = '/start storage_entry_1';
+  assert.equal(await handleTelegramStorageStartText(context), true);
+  assert.match(sent[0]?.richMessage.html ?? '', /Segunda línea &amp; detalles/);
+  assert.match(sent[0]?.richMessage.html ?? '', /<th>Nombre<\/th>.*mapa&lt;&amp;&gt;.pdf.*4.0 KB.*application\/pdf/s);
+  assert.match(sent[0]?.richMessage.html ?? '', /storage_root/);
+  assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /Ada Lovelace|adalovelace|telegramFileId/);
+  assert.ok(sent[0]?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === `${storageCallbackPrefixes.editEntry}1`));
+  assert.equal(copiedMessages.length, 1);
+  assert.match(sent[0]?.fallbackText ?? '', /Segunda línea &amp; detalles/);
+});
+
+test('rich Storage tables group only present attachment types and distinguish unknown and partial sizes', async () => {
+  const repository = createRepository();
+  const add = (description: string, messages: Array<{ attachmentKind: 'photo' | 'document'; fileSizeBytes: number | null }>) => repository.createEntry({ categoryId: 7, createdByTelegramUserId: 99, sourceKind: 'dm_copy', description, tags: [], messages: messages.map((message, index) => ({ ...message, storageChatId: -100123, storageMessageId: index + 1, storageThreadId: 10, sortOrder: index })) });
+  const partial = await add('Mixed', [{ attachmentKind: 'document', fileSizeBytes: 1024 }, { attachmentKind: 'photo', fileSizeBytes: null }]);
+  const unknown = await add('Image', [{ attachmentKind: 'photo', fileSizeBytes: null }]);
+  const html = renderStorageRichEntryTable({ details: [partial, unknown], language: 'es', entryLink: (detail) => detail.entry.description!, tagLinks: () => '' });
+  assert.match(html, /<h3>Imágenes<\/h3>/);
+  assert.match(html, /<h3>Contenido mixto<\/h3>/);
+  assert.match(html, /≥ 1.0 KB/);
+  assert.match(html, /Image<\/td><td>—<\/td>/);
+  assert.doesNotMatch(html, /<h3>Documentos|<h3>Audio|<h3>Vídeos/);
+});
 
 function dangerButton(text: string) {
   return { text, semanticRole: 'danger' as const };
