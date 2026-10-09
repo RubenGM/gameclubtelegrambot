@@ -181,3 +181,21 @@ function createPrintPermissionDatabaseDouble(state: PrintPermissionState) {
       } as never),
   } as never;
 }
+
+
+test('printer leaderboard ranks all historical users by pages and excludes test and failed jobs', async () => {
+  let queryText = '';
+  let queryParams: unknown[] = [];
+  const database = drizzle(async (query, params) => {
+    queryText = query;
+    queryParams = params;
+    return { rows: [[77, 'Ada', null, '3', '84', '7', '42']] };
+  });
+  const top = await createDatabasePrintPermissionRepository({ database: database as never }).listTopPrintUsers();
+  assert.deepEqual(top, [{ telegramUserId: 77, displayName: 'Ada', username: null, submittedJobs: 3, totalPrintedPages: 84, totalCopies: 7, estimatedPhysicalPages: 42 }]);
+  assert.match(queryText, /left join "users"/);
+  assert.match(queryText, /"cups_job_id" is distinct from 'test-mode'/);
+  assert.match(queryText, /order by .*sum\(.*selected_page_count.*copies.*desc, count\(\*\)::int desc/);
+  assert.doesNotMatch(queryText, /is_admin|user_permission_assignments/);
+  assert.deepEqual(queryParams, ['submitted', 10]);
+});

@@ -109,15 +109,55 @@ export async function handleTelegramPrinterAdminText(context: PrinterAdminContex
 
   if (text === '/printer_admin' || text === menuLabels.printerAdmin || text === texts.adminRefreshButton) {
     const status = await resolvePrintService(context).getPrinterStatus(settings.cupsQueue);
-    await context.reply(formatText(texts.adminStatus, {
+    const statusText = formatText(texts.adminStatus, {
       status: renderMode(settings.mode, texts),
       queue: status.queue,
       duplex: status.duplexSupported ? 'sí' : 'no',
-    }), adminKeyboard(texts));
+    });
+    await replyWithPrinterStatistics(context, statusText, texts);
     return true;
   }
 
   return false;
+}
+
+async function replyWithPrinterStatistics(
+  context: PrinterAdminContext,
+  statusText: string,
+  texts: ReturnType<typeof createTelegramI18n>['printing'],
+): Promise<void> {
+  const top = await resolvePrintPermissions(context).listTopPrintUsers();
+  const headers = [texts.adminTopUser, texts.adminTopJobs, texts.adminTopCopies, texts.adminTopPages, texts.adminTopSheets];
+  const rich = [`<h2>${escapeHtml(texts.adminTopTitle)}</h2>`, `<p>${escapeHtml(statusText).replaceAll('\n', '<br>')}</p>`];
+  const fallback = [escapeHtml(statusText), '', `<b>${escapeHtml(texts.adminTopTitle)}</b>`];
+  if (top.length) {
+    rich.push(`<table compact><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr>`);
+    for (const [index, user] of top.entries()) {
+      const name = escapeHtml(user.displayName);
+      const rank = ['🥇', '🥈', '🥉'][index] ?? `${index + 1}.`;
+      const link = `<a href="tg://user?id=${user.telegramUserId}">${name}</a>`;
+      rich.push(`<tr><td>${rank} ${link}</td><td>${user.submittedJobs}</td><td>${user.totalCopies}</td><td><b>${user.totalPrintedPages}</b></td><td>${user.estimatedPhysicalPages}</td></tr>`);
+      fallback.push(`${rank} ${link} · ${formatText(texts.adminUsageStats, {
+        jobs: String(user.submittedJobs), copies: String(user.totalCopies),
+        pages: String(user.totalPrintedPages), sheets: String(user.estimatedPhysicalPages),
+      })}`);
+    }
+    rich.push('</table>');
+  } else {
+    rich.push(`<p>${escapeHtml(texts.adminTopEmpty)}</p>`);
+    fallback.push(escapeHtml(texts.adminTopEmpty));
+  }
+  rich.push(`<footer>${escapeHtml(texts.adminTopNote)}</footer>`);
+  fallback.push('', escapeHtml(texts.adminTopNote));
+  const options = { ...adminKeyboard(texts), parseMode: 'HTML' as const };
+  if (context.runtime.bot.sendRichMessage) {
+    await context.runtime.bot.sendRichMessage({
+      chatId: context.runtime.chat.chatId, richMessage: { html: rich.join('') },
+      fallbackText: fallback.join('\n'), options,
+    });
+  } else {
+    await context.reply(fallback.join('\n'), options);
+  }
 }
 
 async function startPrinterPermissionSelection(

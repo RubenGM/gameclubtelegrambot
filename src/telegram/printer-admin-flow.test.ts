@@ -6,6 +6,7 @@ import { handleTelegramPrinterAdminStartText, handleTelegramPrinterAdminText } f
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import { configureTelegramDeepLinks } from './deep-links.js';
+import type { TelegramRichMessageInput } from './rich-message-transport.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
 test('printer admin flow switches between enabled, disabled and test modes', async () => {
@@ -167,6 +168,9 @@ function createContext({
     },
     printJobHistory: history,
     printPermissionRepository: {
+      async listTopPrintUsers() {
+        return printUsers.map((user) => ({ ...user, submittedJobs: 3, totalPrintedPages: 84, totalCopies: 7, estimatedPhysicalPages: 42 }));
+      },
       async findUserByTelegramUserId(telegramUserId: number) {
         return printUsers.find((user) => user.telegramUserId === telegramUserId) ?? null;
       },
@@ -249,3 +253,44 @@ function createContext({
 
   return { context, replies, settings, permissions, getCurrentSession: () => currentSession };
 }
+
+
+for (const language of ['ca', 'es', 'en'] as const) {
+  test(`printer admin entry and refresh show a rich leaderboard with keyboard (${language})`, async () => {
+    const { context } = createContext({ printUsers: [{ telegramUserId: 77, displayName: 'Ada <&>', username: 'ada', status: 'approved', isAdmin: false }] });
+    const richMessages: TelegramRichMessageInput[] = [];
+    const richContext = { ...context, runtime: { ...context.runtime, bot: { ...context.runtime.bot, language,
+      sendRichMessage: async (message: TelegramRichMessageInput) => { richMessages.push(message); },
+    } } };
+    await handleTelegramPrinterAdminText({ ...richContext, messageText: '/printer_admin' });
+    const message = richMessages.at(-1)!;
+    assert.match(message.richMessage.html ?? '', /<table compact>/);
+    assert.match(message.richMessage.html ?? '', /🥇 <a href="tg:\/\/user\?id=77">Ada &lt;&amp;&gt;<\/a>/);
+    assert.match(message.richMessage.html ?? '', /<td>3<\/td><td>7<\/td><td><b>84<\/b><\/td><td>42<\/td>/);
+    assert.doesNotMatch(message.richMessage.html ?? '', /Ada <&>/);
+    assert.match(message.fallbackText, /84/);
+    assert.equal(message.options?.parseMode, 'HTML');
+    assert.ok(message.options?.replyKeyboard?.length);
+    const refresh = language === 'ca' ? 'Refrescar estat' : language === 'es' ? 'Refrescar estado' : 'Refresh status';
+    await handleTelegramPrinterAdminText({ ...richContext, messageText: refresh });
+    assert.equal(richMessages.length, 2);
+  });
+}
+
+test('printer admin fallback includes all leaderboard statistics and empty state', async () => {
+  const { context, replies } = createContext({ printUsers: [{ telegramUserId: 77, displayName: 'Ada', username: null, status: 'approved', isAdmin: false }] });
+  await handleTelegramPrinterAdminText({ ...context, messageText: 'Impresora' });
+  assert.match(replies.at(-1)!.message, /Top 10/);
+  assert.match(replies.at(-1)!.message, /Impresiones: 3 · Páginas: 84 · Copias: 7 · Hojas estimadas: 42/);
+  assert.doesNotMatch(replies.at(-1)!.message, /<table/);
+  const empty = createContext();
+  await handleTelegramPrinterAdminText({ ...empty.context, messageText: '/printer_admin' });
+  assert.match(empty.replies.at(-1)!.message, /Todavía no hay impresiones reales/);
+});
+
+test('non-admin users cannot open the printer leaderboard', async () => {
+  const { context, replies } = createContext();
+  const member = { ...context, runtime: { ...context.runtime, actor: { ...context.runtime.actor, isAdmin: false } } };
+  assert.equal(await handleTelegramPrinterAdminText({ ...member, messageText: '/printer_admin' }), false);
+  assert.deepEqual(replies, []);
+});

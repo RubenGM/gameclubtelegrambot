@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, exists, notExists, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, exists, notExists, sql } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { auditLog, printJobs, userPermissionAssignments, userPermissionAuditLog, users } from '../infrastructure/database/schema.js';
@@ -21,7 +21,13 @@ export interface PrintPermissionUsageStats {
   totalCopies: number;
 }
 
+export interface PrintUsageLeaderboardEntry extends PrintPermissionUsageStats {
+  displayName: string;
+  username: string | null;
+}
+
 export interface PrintPermissionRepository {
+  listTopPrintUsers(): Promise<PrintUsageLeaderboardEntry[]>;
   findUserByTelegramUserId(telegramUserId: number): Promise<PrintPermissionUserRecord | null>;
   listGrantableUsers(): Promise<PrintPermissionUserRecord[]>;
   listAllowedUsers(): Promise<PrintPermissionUserRecord[]>;
@@ -105,6 +111,31 @@ export function createDatabasePrintPermissionRepository({
 
       return rows.map((row) => ({
         telegramUserId: row.telegramUserId,
+        submittedJobs: Number(row.submittedJobs),
+        totalPrintedPages: Number(row.totalPrintedPages),
+        totalCopies: Number(row.totalCopies),
+        estimatedPhysicalPages: Number(row.estimatedPhysicalPages),
+      }));
+    },
+    async listTopPrintUsers() {
+      const totalPrintedPages = sql<number>`coalesce(sum(${printJobs.selectedPageCount} * ${printJobs.copies}), 0)::int`;
+      const submittedJobs = sql<number>`count(*)::int`;
+      const rows = await database.select({
+        telegramUserId: printJobs.requestedByTelegramUserId,
+        displayName: sql<string>`coalesce(${users.displayName}, max(${printJobs.requestedByDisplayName}))`,
+        username: users.username,
+        submittedJobs,
+        totalPrintedPages,
+        totalCopies: sql<number>`coalesce(sum(${printJobs.copies}), 0)::int`,
+        estimatedPhysicalPages: sql<number>`coalesce(sum(${printJobs.estimatedPhysicalPages}), 0)::int`,
+      }).from(printJobs)
+        .leftJoin(users, eq(users.telegramUserId, printJobs.requestedByTelegramUserId))
+        .where(and(eq(printJobs.status, 'submitted'), sql`${printJobs.cupsJobId} is distinct from 'test-mode'`))
+        .groupBy(printJobs.requestedByTelegramUserId, users.displayName, users.username)
+        .orderBy(desc(totalPrintedPages), desc(submittedJobs), asc(printJobs.requestedByTelegramUserId))
+        .limit(10);
+      return rows.map((row) => ({
+        ...row,
         submittedJobs: Number(row.submittedJobs),
         totalPrintedPages: Number(row.totalPrintedPages),
         totalCopies: Number(row.totalCopies),

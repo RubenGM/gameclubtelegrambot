@@ -565,6 +565,7 @@ Implementado:
 - Doble cara sólo automática: cuando la cola CUPS confirma soporte, el usuario puede elegir doble cara y el trabajo se envía con `sides=two-sided-long-edge`; si CUPS no confirma el soporte, o no se puede leer el estado, el flujo oculta esa opción y usa `one-sided`.
 - Historial persistente en `print_jobs` con ID y nombre del usuario, origen, archivo, páginas, páginas por hoja, copias, total estimado de hojas físicas, modo, cola, estado, ID CUPS y error seguro.
 - El historial admin muestra quién imprimió qué, fecha, páginas seleccionadas, copias, total de páginas, hojas estimadas, páginas por hoja, una/doble cara, estado e ID CUPS. Los totales representan trabajos enviados a CUPS; no confirman salida física. El modo prueba se conserva en el historial con ID `test-mode`, pero no se suma al consumo.
+- Al entrar en `Admin` → `Impresora` o pulsar `Refrescar estado`, se muestra el top 10 histórico por páginas totales: usuario enlazado, trabajos, copias, páginas (con copias) y hojas estimadas. Usa tabla rich con ranking y alternativa HTML compatible; conserva el teclado admin. Incluye admins y usuarios con acceso revocado que tengan trabajos enviados, excluye modo prueba y fallos.
 - Menú admin `Impresora` con estado de cola, activación/desactivación, concesión/revocación de permisos de impresión, refresco e historial reciente.
 - Las pruebas automatizadas usan runners falsos y no envían trabajos reales a la impresora física `HP-LaserJet-P2015-Series`.
 
