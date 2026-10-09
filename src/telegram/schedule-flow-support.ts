@@ -6,6 +6,8 @@ import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
 import { synchronizeGoogleCalendarScheduleEvent } from '../google-calendar/google-calendar-sync.js';
 import type { GoogleCalendarServiceAccountConfig } from '../google-calendar/google-calendar-client.js';
 import { buildTelegramStartUrl } from './deep-links.js';
+import { buildTelegramRichDetailMessage } from './rich-detail-message.js';
+import type { TelegramRichMessageTransport } from './rich-message-transport.js';
 import {
   SchedulePriorityConflictError,
   assertSchedulePriorityAvailability,
@@ -109,6 +111,7 @@ import {
 } from './schedule-parsing.js';
 import { formatScheduleDraftSummary } from './schedule-draft-summary.js';
 import { formatScheduleListWithVenueImpact } from './schedule-list-impact.js';
+import { buildCalendarRichMessage, type CalendarRichEntry } from './calendar-rich-message.js';
 import { notifyScheduleConflicts, publishCalendarSnapshotToNewsGroups, publishPublicCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
 import { formatTelegramUserLink } from './telegram-user-links.js';
 import {
@@ -223,6 +226,7 @@ function parsePublicVisibilitySelection(
 }
 
 export interface TelegramScheduleContext {
+  messageThreadId?: number;
   messageText?: string | undefined;
   messageId?: number | undefined;
   messageMedia?: {
@@ -242,7 +246,7 @@ export interface TelegramScheduleContext {
       };
     };
     googleCalendar?: GoogleCalendarServiceAccountConfig;
-    bot: {
+    bot: Partial<TelegramRichMessageTransport> & {
       publicName: string;
       clubName: string;
       language?: string;
@@ -423,10 +427,7 @@ export async function handleTelegramScheduleStartText(context: TelegramScheduleC
   if (!canReadScheduleEvent(context.runtime.actor, event)) {
     return false;
   }
-  await context.reply(await formatScheduleEventView(context, event), {
-    ...(await resolveScheduleDetailActionOptions(context, event)),
-    parseMode: 'HTML',
-  });
+  await replyWithScheduleEventView(context, event);
   return true;
 }
 
@@ -474,10 +475,7 @@ export async function handleTelegramScheduleCallback(context: TelegramScheduleCo
     if (!canReadScheduleEvent(context.runtime.actor, event)) {
       return false;
     }
-    await context.reply(await formatScheduleEventView(context, event), {
-      ...(await resolveScheduleDetailActionOptions(context, event)),
-      parseMode: 'HTML',
-    });
+    await replyWithScheduleEventView(context, event);
     return true;
   }
 
@@ -2674,6 +2672,22 @@ function formatParticipantLabel(
   return formatTelegramUserLink(user);
 }
 
+async function replyWithScheduleEventView(context: TelegramScheduleContext, event: ScheduleEventRecord): Promise<void> {
+  const text = await formatScheduleEventView(context, event);
+  const options: TelegramReplyOptions = { ...(await resolveScheduleDetailActionOptions(context, event)), parseMode: 'HTML' };
+  if (context.runtime.bot.sendRichMessage) {
+    await context.runtime.bot.sendRichMessage({
+      chatId: context.runtime.chat.chatId,
+      richMessage: buildTelegramRichDetailMessage(event.title, text),
+      fallbackText: text,
+      options,
+      ...(context.messageThreadId !== undefined ? { messageThreadId: context.messageThreadId } : {}),
+    });
+  } else {
+    await context.reply(text, options);
+  }
+}
+
 async function formatScheduleEventView(
   context: TelegramScheduleContext,
   event: ScheduleEventRecord,
@@ -3159,24 +3173,50 @@ async function replyWithInspectableEventList(
     return true;
   }
 
+  const venueEventsById = new Map<number, VenueEventRecord[]>();
+  const entries: CalendarRichEntry[] = await Promise.all(filteredEvents.map(async (event) => {
+    const [attendance, tableName, equipmentNames, venueEvents] = await Promise.all([
+      getScheduleEventAttendance({ repository: resolveScheduleRepository(context), eventId: event.id }),
+      loadTableName(context, event.tableId),
+      loadEquipmentNames(context, event.equipmentIds),
+      listRelevantVenueEventsForScheduleEvent(context, event),
+    ]);
+    venueEventsById.set(event.id, venueEvents);
+    return {
+      kind: 'schedule' as const, id: event.id, title: event.title, description: event.description,
+      startsAt: event.startsAt, endsAt: getScheduleEventEndsAt(event), tableName, equipmentNames,
+      attendanceMode: event.attendanceMode, isPublic: event.isPublic, capacity: event.capacity,
+      availableSeats: attendance.snapshot.availableSeats,
+      hasDetails: event.detailsMessageChatId !== null && event.detailsMessageId !== null,
+      ...(venueEvents.length ? { venueImpactText: `Impacte local: ${venueEvents.map((venueEvent) =>
+        `${venueEvent.name} (ocupació ${venueEvent.occupancyScope}, impacte ${venueEvent.impactLevel})`).join(', ')}` } : {}),
+    };
+  }));
+  const entriesById = new Map(entries.map((entry) => [entry.kind === 'schedule' ? entry.id : 0, entry]));
   const listMessage = await formatScheduleListWithVenueImpact({
     events: filteredEvents,
     language,
     loadAttendance: async (eventId) => {
-      const attendance = await getScheduleEventAttendance({
-        repository: resolveScheduleRepository(context),
-        eventId,
-      });
-      return attendance.snapshot;
+      const entry = entriesById.get(eventId)!;
+      if (entry.kind !== 'schedule') throw new Error('Expected schedule activity');
+      return { occupiedSeats: entry.capacity - entry.availableSeats, capacity: entry.capacity, availableSeats: entry.availableSeats };
     },
-    loadTableName: async (event) => loadTableName(context, event.tableId),
-    loadEquipmentNames: async (event) => loadEquipmentNames(context, event.equipmentIds),
-    loadRelevantVenueEvents: async (event) => listRelevantVenueEventsForScheduleEvent(context, event),
+    loadTableName: async (event) => {
+      const entry = entriesById.get(event.id)!;
+      return entry.kind === 'schedule' ? entry.tableName : null;
+    },
+    loadEquipmentNames: async (event) => entriesById.get(event.id)?.equipmentNames ?? [],
+    loadRelevantVenueEvents: async (event) => venueEventsById.get(event.id) ?? [],
   });
-  if (options.includeMenuKeyboard) {
-    await context.reply(listMessage, { parseMode: 'HTML', ...buildScheduleMenuOptions(language) });
+  const replyOptions = { parseMode: 'HTML' as const, ...(options.includeMenuKeyboard ? buildScheduleMenuOptions(language) : {}) };
+  if (context.runtime.chat.kind === 'private' && context.runtime.bot.sendRichMessage) {
+    await context.runtime.bot.sendRichMessage({ chatId: context.runtime.chat.chatId,
+      ...(context.messageThreadId !== undefined ? { messageThreadId: context.messageThreadId } : {}),
+      richMessage: buildCalendarRichMessage({ entries, language, title: createTelegramI18n(language).actionMenu.schedule,
+        emptyText: texts.noScheduledEvents, footerHtml: '', actionsHtml: '', now: new Date() }),
+      fallbackText: listMessage, options: replyOptions });
   } else {
-    await context.reply(listMessage, { parseMode: 'HTML' });
+    await context.reply(listMessage, replyOptions);
   }
   return true;
 }
@@ -3227,6 +3267,8 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
   const sendGroupMessage = context.runtime.bot.sendGroupMessage;
   const deleteMessage = context.runtime.bot.deleteMessage;
   const editMessageText = context.runtime.bot.editMessageText;
+  const sendRichMessage = context.runtime.bot.sendRichMessage;
+  const editRichMessage = context.runtime.bot.editRichMessage;
 
   return {
     ...(sendGroupMessage
@@ -3237,6 +3279,8 @@ function buildCalendarBroadcastDependencies(context: TelegramScheduleContext): O
       : {}),
     ...(deleteMessage ? { deleteMessage: deleteMessage.bind(context.runtime.bot) } : {}),
     ...(editMessageText ? { editMessageText: editMessageText.bind(context.runtime.bot) } : {}),
+    ...(sendRichMessage ? { sendRichMessage: sendRichMessage.bind(context.runtime.bot) } : {}),
+    ...(editRichMessage ? { editRichMessage: editRichMessage.bind(context.runtime.bot) } : {}),
     newsGroupRepository: resolveNewsGroupRepository(context),
     database: context.runtime.services.database.db,
     snapshotStorage: createDatabaseAppMetadataSessionStorage({ database: context.runtime.services.database.db as never }),

@@ -9,10 +9,11 @@ import type { ClubEquipmentRecord, ClubEquipmentRepository } from '../equipment/
 import type { ScheduleEventRecord, ScheduleParticipantRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
+import type { TelegramRichMessageInput } from './rich-message-transport.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import { normalizeDisplayName } from '../membership/display-name.js';
-import { publishCalendarSnapshotToNewsGroups, publishPublicCalendarSnapshotToNewsGroups } from './schedule-notifications.js';
+import { publishCalendarSnapshotToNewsGroups, publishPublicCalendarSnapshotToNewsGroups, refreshCalendarSnapshotsToNewsGroups } from './schedule-notifications.js';
 import { createTelegramI18n } from './i18n.js';
 import { loadUpcomingCalendarEntries } from './calendar-summary.js';
 import { runAfterScheduleSaveSideEffects } from './schedule-flow-support.js';
@@ -1129,6 +1130,36 @@ test('promotion offers a forum General destination separately from known subscri
   assert.equal(await handleTelegramScheduleCallback(context), true);
   assert.equal(groupMessages[0]?.chatId, -1001);
   assert.equal(groupMessages[0]?.options?.messageThreadId, undefined);
+});
+
+test('schedule details use a rich heading and table with original links, permission-filtered controls and plain fallback', async () => {
+  const event = {
+    id: 4, title: 'Partida <Catan> & Amics', description: 'Descripció <segura>', startsAt: '2026-04-05T16:00:00.000Z',
+    organizerTelegramUserId: 42, createdByTelegramUserId: 42, tableId: null, durationMinutes: 180,
+    attendanceMode: 'open' as const, isPublic: false, initialOccupiedSeats: 0, capacity: 4,
+    lifecycleStatus: 'scheduled' as const, createdAt: '2026-04-04T10:00:00.000Z', updatedAt: '2026-04-04T10:00:00.000Z',
+    cancelledAt: null, cancelledByTelegramUserId: null, cancellationReason: null,
+  };
+  const { context, replies } = createContext({ scheduleRepository: createScheduleRepository([event]), actorTelegramUserId: 123 });
+  const richMessages: TelegramRichMessageInput[] = [];
+  context.runtime.bot.sendRichMessage = async (input) => { richMessages.push(input); return { messageId: 42 }; };
+  context.messageText = '/start schedule_event_4';
+  assert.equal(await handleTelegramScheduleStartText(context), true);
+  assert.equal(replies.length, 0);
+  assert.match(richMessages[0]?.richMessage.html ?? '', /<h2>Partida &lt;Catan&gt; &amp; Amics<\/h2>/);
+  assert.match(richMessages[0]?.richMessage.html ?? '', /<table>.*3 h.*<\/table>/s);
+  assert.match(richMessages[0]?.richMessage.html ?? '', /Descripció &lt;segura&gt;/);
+  assert.match(richMessages[0]?.fallbackText ?? '', /<b>Partida &lt;Catan&gt; &amp; Amics<\/b>/);
+  assert.equal(richMessages[0]?.options?.parseMode, 'HTML');
+
+  context.callbackData = `${scheduleCallbackPrefixes.inspect}4`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.equal(richMessages.length, 2);
+  assert.deepEqual(richMessages[1]?.options, richMessages[0]?.options);
+  context.runtime.actor.isApproved = false;
+  context.runtime.actor.status = 'pending';
+  assert.equal(await handleTelegramScheduleStartText(context), false);
+  assert.equal(richMessages.length, 2);
 });
 
 test('handleTelegramScheduleStartText lets non-approved users open and join public schedule events', async () => {
@@ -4217,4 +4248,214 @@ test('priority confirmation rechecks conflicts and cancelling the prompt leaves 
   assert.equal(getCurrentSession(), null);
   assert.match(replies.at(-1)?.message ?? '', /primero debes gestionar/);
   assert.equal((await repository.findEventById(event.id))?.isPriority, undefined);
+});
+
+async function richCalendarFixture() {
+  const scheduleRepository = createScheduleRepository();
+  const event = await scheduleRepository.createEvent({
+    title: 'Pública & club', description: 'Descripción visible', startsAt: '2026-04-06T10:00:00.000Z',
+    durationMinutes: 90, organizerTelegramUserId: 42, createdByTelegramUserId: 42,
+    tableId: null, attendanceMode: 'open', isPublic: true, initialOccupiedSeats: 0, capacity: 6,
+  });
+  const privateEvent = await scheduleRepository.createEvent({
+    ...event, title: 'Privada secreta', isPublic: false,
+  });
+  const newsGroupRepository = createNewsGroupRepository();
+  const categories: string[] = [];
+  newsGroupRepository.listSubscribedGroupsByCategory = async (category) => {
+    categories.push(category);
+    return [{ chatId: -200, messageThreadId: category === 'public-events' ? 88 : 77,
+      isEnabled: true, metadata: null, createdAt: event.createdAt, updatedAt: event.updatedAt,
+      enabledAt: event.createdAt, disabledAt: null }];
+  };
+  return { event, privateEvent, categories, scheduleRepository, newsGroupRepository,
+    venueEventRepository: createVenueEventRepository(), tableRepository: createTableRepository(),
+    snapshotStorage: createMemoryAppMetadataStorage(), database: undefined, botLanguage: 'es',
+    now: new Date('2026-04-05T09:00:00.000Z') };
+}
+
+test('calendar changes send a new rich topic snapshot and retire every previous fallback chunk', async () => {
+  const fixture = await richCalendarFixture();
+  await fixture.snapshotStorage.set('telegram.schedule.calendar_snapshot:events:-200:77', JSON.stringify({
+    chatId: -200, messageThreadId: 77, messageId: 902, messageIds: [901, 902],
+  }));
+  const sent: TelegramRichMessageInput[] = [];
+  const deleted: number[] = [];
+  await publishCalendarSnapshotToNewsGroups({ ...fixture,
+    change: { action: 'updated', event: fixture.event }, resolveActorDisplayName: async () => 'Ada',
+    sendRichMessage: async (input) => { sent.push(input); return { messageId: 905, messageIds: [904, 905] }; },
+    editRichMessage: async () => { assert.fail('normal changes must send a new notification'); },
+    deleteMessage: async ({ messageId }) => { deleted.push(messageId); },
+  });
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0]?.options, { parseMode: 'HTML', messageThreadId: 77 });
+  assert.match(sent[0]?.richMessage.html ?? '', /<table compact>/);
+  assert.match(sent[0]?.fallbackText ?? '', /Privada secreta/);
+  assert.match(sent[0]?.fallbackText ?? '', /schedule_create/);
+  assert.match(sent[0]?.fallbackText ?? '', /Ada/);
+  assert.deepEqual(deleted, [901, 902]);
+  assert.deepEqual(JSON.parse((await fixture.snapshotStorage.get('telegram.schedule.calendar_snapshot:events:-200:77'))!),
+    { chatId: -200, messageThreadId: 77, messageId: 905, messageIds: [904, 905] });
+});
+
+test('format refresh edits subscribed calendar topics without an invented activity change or private disclosure', async () => {
+  const fixture = await richCalendarFixture();
+  for (const [category, thread, id] of [['events', 77, 901], ['public-events', 88, 902]] as const) {
+    await fixture.snapshotStorage.set(`telegram.schedule.calendar_snapshot:${category}:-200:${thread}`,
+      JSON.stringify({ chatId: -200, messageThreadId: thread, messageId: id }));
+  }
+  const edits: Array<TelegramRichMessageInput & { messageId: number }> = [];
+  await refreshCalendarSnapshotsToNewsGroups({ ...fixture,
+    sendRichMessage: async () => { assert.fail('stored single-message snapshots should be edited'); },
+    editRichMessage: async (input) => { edits.push(input); },
+  });
+  assert.deepEqual(fixture.categories, ['events', 'public-events']);
+  assert.deepEqual(edits.map(({ messageId, options }) => [messageId, options?.messageThreadId]), [[901, 77], [902, 88]]);
+  assert.match(edits[0]?.richMessage.html ?? '', /Privada secreta/);
+  assert.doesNotMatch(edits[1]?.richMessage.html ?? '', /Privada secreta|schedule_create/);
+  assert.doesNotMatch(edits[1]?.fallbackText ?? '', /Privada secreta|schedule_create/);
+  assert.doesNotMatch(edits.map((edit) => edit.fallbackText).join(''), /ha creado|ha actualizado|ha eliminado/);
+});
+
+test('public calendar ignores private-only changes and safely removes a newly hidden activity', async () => {
+  const fixture = await richCalendarFixture();
+  const sent: TelegramRichMessageInput[] = [];
+  const sendRichMessage = async (input: TelegramRichMessageInput) => { sent.push(input); return { messageId: 903 }; };
+  await publishPublicCalendarSnapshotToNewsGroups({ ...fixture, sendRichMessage,
+    change: { action: 'updated', event: fixture.privateEvent },
+    resolveActorDisplayName: async () => { assert.fail('private actor must not be resolved'); },
+  });
+  assert.equal(sent.length, 0);
+  const hidden = await fixture.scheduleRepository.updateEvent({ ...fixture.event, eventId: fixture.event.id, isPublic: false });
+  await publishPublicCalendarSnapshotToNewsGroups({ ...fixture, sendRichMessage,
+    change: { action: 'updated', event: hidden, previousEvent: fixture.event },
+    resolveActorDisplayName: async () => { assert.fail('hidden activity footer must not expose the actor'); },
+  });
+  assert.equal(sent.length, 1);
+  assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /Pública|Privada|Ada/);
+  assert.doesNotMatch(sent[0]?.fallbackText ?? '', /Pública|Privada|Ada/);
+  assert.match(sent[0]?.fallbackText ?? '', /no hay actividades públicas/);
+});
+
+test('format refresh replaces missing messages but never edits or deletes a reference from another topic', async () => {
+  const fixture = await richCalendarFixture();
+  await fixture.snapshotStorage.set('telegram.schedule.calendar_snapshot:events:-200:77', JSON.stringify({ chatId: -200, messageThreadId: 77, messageId: 901 }));
+  await fixture.snapshotStorage.set('telegram.schedule.calendar_snapshot:public-events:-200:88', JSON.stringify({ chatId: -200, messageThreadId: 999, messageId: 902 }));
+  const edits: number[] = [];
+  const deletes: number[] = [];
+  const sent: TelegramRichMessageInput[] = [];
+  await refreshCalendarSnapshotsToNewsGroups({ ...fixture,
+    editRichMessage: async ({ messageId }) => { edits.push(messageId); throw new Error('Bad Request: message to edit not found'); },
+    sendRichMessage: async (input) => { sent.push(input); return { messageId: 903 + sent.length }; },
+    deleteMessage: async ({ messageId }) => { deletes.push(messageId); },
+  });
+  assert.deepEqual(edits, [901]);
+  assert.equal(sent.length, 2);
+  assert.deepEqual(deletes, [901]);
+});
+
+test('format refresh avoids truncated plain fallback edits and retires all chunks when consolidating old snapshots', async () => {
+  const fixture = await richCalendarFixture();
+  await fixture.scheduleRepository.updateEvent({ ...fixture.event, eventId: fixture.event.id, title: 'T'.repeat(5000) });
+  await fixture.snapshotStorage.set('telegram.schedule.calendar_snapshot:events:-200:77', JSON.stringify({ chatId: -200, messageThreadId: 77, messageId: 901 }));
+  await fixture.snapshotStorage.set('telegram.schedule.calendar_snapshot:public-events:-200:88', JSON.stringify({ chatId: -200, messageThreadId: 88, messageId: 903, messageIds: [902, 903] }));
+  const sent: TelegramRichMessageInput[] = [];
+  const deleted: number[] = [];
+  await refreshCalendarSnapshotsToNewsGroups({ ...fixture,
+    editRichMessage: async () => { assert.fail('large complete fallback must be sent, not truncated by an edit'); },
+    sendRichMessage: async (input) => { sent.push(input); return { messageId: 904 + sent.length }; },
+    deleteMessage: async ({ messageId }) => { deleted.push(messageId); },
+  });
+  assert.equal(sent.length, 2);
+  assert.ok(sent.every((input) => input.fallbackText.includes('T'.repeat(5000))));
+  assert.deepEqual(deleted, [901, 902, 903]);
+});
+
+test('unchanged refresh migrates legacy keys without duplicate notification; authentication errors remain visible and do not send', async () => {
+  const fixture = await richCalendarFixture();
+  await fixture.snapshotStorage.set('telegram.schedule.calendar_snapshot:-200:77', JSON.stringify({ chatId: -200, messageThreadId: 77, messageId: 901 }));
+  await fixture.snapshotStorage.set('telegram.schedule.calendar_snapshot:public-events:-200:88', JSON.stringify({ chatId: -200, messageThreadId: 88, messageId: 902 }));
+  const warnings: unknown[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => { warnings.push(args); };
+  try {
+    await refreshCalendarSnapshotsToNewsGroups({ ...fixture,
+      editRichMessage: async ({ messageId }) => { throw new Error(messageId === 901 ? 'Bad Request: message is not modified' : '401 Unauthorized'); },
+      sendRichMessage: async () => { assert.fail('unchanged or unauthorized edits must not duplicate messages'); },
+    });
+  } finally { console.warn = originalWarn; }
+  assert.equal(JSON.parse((await fixture.snapshotStorage.get('telegram.schedule.calendar_snapshot:events:-200:77'))!).messageId, 901);
+  assert.match(JSON.stringify(warnings), /401 Unauthorized/);
+});
+
+test('Agenda post-save side effects propagate runtime rich hooks to both calendar subscription categories', async () => {
+  const fixture = await richCalendarFixture();
+  const { context } = createContext({ scheduleRepository: fixture.scheduleRepository,
+    venueEventRepository: fixture.venueEventRepository, tableRepository: fixture.tableRepository,
+    newsGroupRepository: fixture.newsGroupRepository, language: 'es' });
+  const sent: TelegramRichMessageInput[] = [];
+  context.runtime.bot.sendRichMessage = async function (input) {
+    assert.equal(this, context.runtime.bot);
+    sent.push(input);
+  };
+  context.runtime.bot.sendGroupMessage = async () => { assert.fail('rich-capable runtime should publish rich snapshots'); };
+  await runAfterScheduleSaveSideEffects(context, fixture.event, 'created');
+  assert.deepEqual(sent.map((input) => input.options?.messageThreadId), [77, 88]);
+  assert.match(sent[0]?.richMessage.html ?? '', /Privada secreta/);
+  assert.doesNotMatch(sent[1]?.richMessage.html ?? '', /Privada secreta/);
+});
+
+test('Actividades and Ver actividades use the compact rich layout with equipment, impact, existing controls and no future horizon', async () => {
+  for (const language of ['ca', 'es', 'en'] as const) {
+    const fixture = await richCalendarFixture();
+    await fixture.scheduleRepository.updateEvent({ ...fixture.event, eventId: fixture.event.id, equipmentIds: [2, 3] });
+    await fixture.scheduleRepository.updateEvent({ ...fixture.privateEvent, eventId: fixture.privateEvent.id,
+      title: 'Actividad lejana privada', startsAt: '2027-04-05T16:00:00.000Z' });
+    const venueEventRepository = createVenueEventRepository();
+    await venueEventRepository.createVenueEvent({ name: 'Curso <especial>', description: null,
+      startsAt: fixture.event.startsAt, endsAt: '2026-04-06T11:30:00.000Z', occupancyScope: 'partial', impactLevel: 'high' });
+    const equipmentRepository = createEquipmentRepository([2, 3].map((id) => ({ id,
+      displayName: id === 2 ? 'TV móvil' : 'Proyector <4K>', description: null, lifecycleStatus: 'active' as const,
+      createdAt: fixture.event.createdAt, updatedAt: fixture.event.updatedAt, deactivatedAt: null })));
+    const { context, replies } = createContext({ language, scheduleRepository: fixture.scheduleRepository,
+      venueEventRepository, equipmentRepository });
+    context.messageThreadId = 12;
+    const richMessages: TelegramRichMessageInput[] = [];
+    context.runtime.bot.sendRichMessage = async (input) => { richMessages.push(input); };
+    const texts = createTelegramI18n(language);
+    for (const command of [texts.actionMenu.schedule, texts.schedule.list]) {
+      context.messageText = command;
+      assert.equal(await handleTelegramScheduleText(context), true);
+    }
+    assert.equal(richMessages.length, 2);
+    for (const message of richMessages) {
+      const html = message.richMessage.html ?? '';
+      assert.equal([...html.matchAll(/<tr>/g)].length, 4);
+      assert.equal([...html.matchAll(/<td\b/g)].length, 8);
+      assert.match(html, /Actividad lejana privada/);
+      assert.match(html, /TV móvil, Proyector &lt;4K&gt;/);
+      assert.match(html, /Impacte local: Curso &lt;especial&gt; \(ocupació partial, impacte high\)/);
+      assert.doesNotMatch(html, /Próximos 30 días|Pròxims 30 dies|Next 30 days/);
+      assert.match(message.fallbackText, /Actividad lejana privada/);
+      assert.match(message.fallbackText, /TV móvil, Proyector &lt;4K&gt;/);
+      assert.equal(message.messageThreadId, 12);
+    }
+    assert.ok(richMessages[0]?.options?.replyKeyboard);
+    assert.deepEqual(richMessages[1]?.options, { parseMode: 'HTML' });
+    delete context.runtime.bot.sendRichMessage;
+    context.messageText = texts.actionMenu.schedule;
+    assert.equal(await handleTelegramScheduleText(context), true);
+    assert.equal(replies.at(-1)?.message, richMessages[0]?.fallbackText);
+    assert.deepEqual(replies.at(-1)?.options, richMessages[0]?.options);
+  }
+});
+
+test('direct activity lists keep their existing group routing exclusion when a rich runtime is available', async () => {
+  const fixture = await richCalendarFixture();
+  const { context, replies } = createContext({ scheduleRepository: fixture.scheduleRepository });
+  context.runtime.chat.kind = 'group';
+  context.runtime.bot.sendRichMessage = async () => { assert.fail('private list formatting must not change group replies'); };
+  context.messageText = scheduleLabels.list;
+  assert.equal(await handleTelegramScheduleText(context), false);
+  assert.equal(replies.length, 0);
 });

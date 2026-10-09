@@ -96,7 +96,7 @@ test('full shell backup archives persistent payload and restore dry-run honors e
     const bin = join(f.root, 'bin');
     mkdirSync(scripts, { recursive: true });
     mkdirSync(bin);
-    for (const name of ['backup-full.sh', 'restore-full.sh', 'backup-persistent-files.py']) {
+    for (const name of ['backup-full.sh', 'restore-full.sh', 'backup-persistent-files.py', 'resolve-node-bin.sh']) {
       copyFileSync(resolve('scripts', name), join(scripts, name));
     }
     writeFileSync(join(bin, 'node'), '#!/bin/sh\nexit 0\n');
@@ -109,7 +109,7 @@ test('full shell backup archives persistent payload and restore dry-run honors e
     const envFile = join(f.root, 'runtime.env');
     writeFileSync(envFile, '');
     writeFileSync(join(f.app, 'data/feedback.jsonl'), 'feedback from full backup');
-    const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, GAMECLUB_SYSTEMD_UNIT_PATH: join(f.root, 'absent-unit'), GAMECLUB_POLKIT_RULE_PATH: join(f.root, 'absent-rule') };
+    const env = { ...process.env, GAMECLUB_NODE_BIN: join(bin, 'node'), PATH: `${bin}:${process.env.PATH}`, GAMECLUB_SYSTEMD_UNIT_PATH: join(f.root, 'absent-unit'), GAMECLUB_POLKIT_RULE_PATH: join(f.root, 'absent-rule') };
     const output = execFileSync('bash', [join(scripts, 'backup-full.sh'), '--config', f.config, '--env', envFile, '--service-env', envFile, '--app-root', f.app, '--output-dir', join(f.root, 'zips')], { env, encoding: 'utf8' });
     const zip = output.trim().split('\n').at(-1)!;
     assert.equal(statSync(zip).mode & 0o777, 0o640);

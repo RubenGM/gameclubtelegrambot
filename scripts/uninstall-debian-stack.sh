@@ -167,10 +167,13 @@ remove_opencode_sudoers_rule() {
 remove_codex_sudoers_rule() {
   if [ "$DRY_RUN" -eq 1 ] || [ -e "$SUDOERS_CODEX_PATH" ]; then
     run_root_cmd rm -f "$SUDOERS_CODEX_PATH"
-    return 0
+  else
+    log "Codex sudoers rule is already absent: $SUDOERS_CODEX_PATH"
   fi
-
-  log "Codex sudoers rule is already absent: $SUDOERS_CODEX_PATH"
+  run_root_cmd rm -f /usr/local/libexec/gameclubtelegrambot/codex-operator-supervisor.sh /usr/local/libexec/gameclubtelegrambot/codex-operator-bin
+  if [ "$DRY_RUN" -eq 1 ] || [ -d /usr/local/libexec/gameclubtelegrambot ]; then
+    run_root_cmd rmdir --ignore-fail-on-non-empty /usr/local/libexec/gameclubtelegrambot
+  fi
 }
 
 operator_home_dir() {

@@ -46,12 +46,13 @@
     "catalog:wikipedia:boardgame": "./scripts/wikipedia-boardgame-catalog-import.sh"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=24.0.0"
   },
   "dependencies": {
+    "@grammyjs/runner": "^2.0.3",
     "blessed": "^0.1.81",
     "drizzle-orm": "^0.45.2",
-    "grammy": "^1.38.3",
+    "grammy": "^1.46.0",
     "pg": "^8.16.3",
     "pino": "^9.7.0",
     "zod": "^4.1.11"

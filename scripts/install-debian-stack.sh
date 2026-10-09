@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+NODE_BIN="$(bash "$ROOT_DIR/scripts/resolve-node-bin.sh")"
+export GAMECLUB_NODE_BIN="$NODE_BIN"
+export PATH="$(dirname "$NODE_BIN"):$PATH"
 APP_ROOT="${GAMECLUB_APP_ROOT:-/opt/gameclubtelegrambot}"
 CONFIG_SOURCE="${GAMECLUB_CONFIG_SOURCE:-$ROOT_DIR/config/runtime.json}"
 ENV_SOURCE="${GAMECLUB_ENV_SOURCE:-$(dirname "$CONFIG_SOURCE")/.env}"
@@ -12,6 +15,8 @@ ENV_TARGET="/etc/default/gameclubtelegrambot"
 LOCAL_BOT_API_ENV_TARGET="/etc/default/gameclubtelegrambot-local-bot-api"
 SUDOERS_OPENCODE_TARGET="/etc/sudoers.d/gameclubtelegrambot-opencode"
 SUDOERS_CODEX_TARGET="/etc/sudoers.d/gameclubtelegrambot-codex"
+CODEX_SUPERVISOR_DIR="/usr/local/libexec/gameclubtelegrambot"
+CODEX_SUPERVISOR_TARGET="$CODEX_SUPERVISOR_DIR/codex-operator-supervisor.sh"
 SERVICE_NAME="gameclubtelegrambot.service"
 LOCAL_BOT_API_SERVICE_NAME="gameclubtelegrambot-local-bot-api.service"
 BACKUP_SERVICE_NAME="gameclubtelegrambot-backup.service"
@@ -217,8 +222,8 @@ prepare_build_artifacts() {
 
   if [ "$ROOT_DIR" = "$APP_ROOT" ]; then
     log 'Detectat entorn desplegat: executant npm ci i npm run build com a usuari del servei.'
-    run_as_user "$SERVICE_USER" npm --prefix "$ROOT_DIR" ci
-    run_as_user "$SERVICE_USER" npm --prefix "$ROOT_DIR" run build
+    run_as_user "$SERVICE_USER" env PATH="$PATH" npm --prefix "$ROOT_DIR" ci
+    run_as_user "$SERVICE_USER" env PATH="$PATH" npm --prefix "$ROOT_DIR" run build
   else
     run_cmd npm ci
     run_cmd npm run build
@@ -266,8 +271,15 @@ deploy_application() {
   fi
 
   run_root_cmd chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_ROOT"
+  normalize_codex_schema_permissions
 
-  run_as_user "$SERVICE_USER" npm --prefix "$APP_ROOT" ci --omit=dev
+  run_as_user "$SERVICE_USER" env PATH="$PATH" npm --prefix "$APP_ROOT" ci --omit=dev
+}
+
+normalize_codex_schema_permissions() {
+  # Static output contracts must be readable by Codex, which runs as the operator.
+  # Credential/config JSON and symlinks are deliberately excluded.
+  run_root_cmd find "$APP_ROOT/src" -type f -name '*.schema.json' -exec chmod 0644 '{}' +
 }
 
 install_runtime_config() {
@@ -344,15 +356,28 @@ EOF
 }
 
 install_codex_sudoers() {
-  local sudoers_tmp
+  local sudoers_tmp codex_bin_tmp
+
+  if [[ ! "$CODEX_REAL_BIN" =~ ^/[a-zA-Z0-9_./+-]+$ ]]; then
+    log 'La ruta del binario Codex debe ser absoluta y no contener espacios ni caracteres de sudoers.'
+    exit 1
+  fi
+  # The app tree belongs to gameclubbot: privileged helpers must live outside it.
+  run_root_cmd install -d -m 0755 -o root -g root "$CODEX_SUPERVISOR_DIR"
+  run_root_cmd install -m 0755 -o root -g root "$ROOT_DIR/scripts/codex-operator-supervisor.sh" "$CODEX_SUPERVISOR_TARGET"
+  codex_bin_tmp="$(mktemp)"
+  printf '%s\n' "$CODEX_REAL_BIN" > "$codex_bin_tmp"
+  run_root_cmd install -m 0644 -o root -g root "$codex_bin_tmp" "$CODEX_SUPERVISOR_DIR/codex-operator-bin"
+  rm -f "$codex_bin_tmp"
 
   sudoers_tmp="$(mktemp)"
   trap 'rm -f "$sudoers_tmp"' RETURN
 
   cat > "$sudoers_tmp" <<EOF
 # Managed by gameclubtelegrambot install-debian-stack.sh.
-# Allows the bot service user to run only the Codex binary as the operator user.
-$SERVICE_USER ALL=($OPERATOR_USER) NOPASSWD: $CODEX_REAL_BIN
+# Allows only the supervised canonical Codex binary as the operator user.
+# --local-bin is intentionally excluded; the helper also checks root-owned configuration.
+$SERVICE_USER ALL=($OPERATOR_USER) NOPASSWD: $CODEX_SUPERVISOR_TARGET $CODEX_REAL_BIN, $CODEX_SUPERVISOR_TARGET $CODEX_REAL_BIN *
 EOF
 
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -368,12 +393,12 @@ EOF
 
 validate_installed_runtime() {
   log 'Validant la configuracio runtime instal.lada'
-  run_as_user_in_dir "$SERVICE_USER" "$APP_ROOT" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/check-runtime-config.js"
+  run_as_user_in_dir "$SERVICE_USER" "$APP_ROOT" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production "$NODE_BIN" "$APP_ROOT/dist/scripts/check-runtime-config.js"
 }
 
 apply_runtime_migrations() {
   log 'Aplicant migracions de base de dades abans d arrencar el servei'
-  run_as_user_in_dir "$SERVICE_USER" "$APP_ROOT" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/migrate.js"
+  run_as_user_in_dir "$SERVICE_USER" "$APP_ROOT" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production "$NODE_BIN" "$APP_ROOT/dist/scripts/migrate.js"
 }
 
 load_local_bot_api_runtime_config() {
@@ -390,7 +415,7 @@ load_local_bot_api_runtime_config() {
   fi
 
   config_tmp="$(mktemp)"
-  if ! run_as_user_in_dir "$SERVICE_USER" "$APP_ROOT" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production /usr/bin/node "$APP_ROOT/dist/scripts/print-telegram-local-bot-api-runtime-config.js" > "$config_tmp"; then
+  if ! run_as_user_in_dir "$SERVICE_USER" "$APP_ROOT" env GAMECLUB_CONFIG_PATH="$CONFIG_TARGET" GAMECLUB_ENV_PATH="$RUNTIME_ENV_TARGET" NODE_ENV=production "$NODE_BIN" "$APP_ROOT/dist/scripts/print-telegram-local-bot-api-runtime-config.js" > "$config_tmp"; then
     rm -f "$config_tmp"
     printf 'No s ha pogut preparar la configuració del Bot API local de Telegram\n' >&2
     exit 1
@@ -488,8 +513,8 @@ install_service_assets() {
     -e "s|^Group=.*|Group=$SERVICE_GROUP|" \
     -e "s|^WorkingDirectory=.*|WorkingDirectory=$APP_ROOT|" \
     -e "s|^ExecStartPre=/usr/bin/test -f .*dist/main.js|ExecStartPre=/usr/bin/test -f $APP_ROOT/dist/main.js|" \
-    -e "s|^ExecStartPre=/usr/bin/node .*dist/scripts/check-runtime-config.js|ExecStartPre=/usr/bin/node $APP_ROOT/dist/scripts/check-runtime-config.js|" \
-    -e "s|^ExecStart=.*|ExecStart=/usr/bin/node $APP_ROOT/dist/main.js|" \
+    -e "s|^ExecStartPre=/usr/bin/node .*dist/scripts/check-runtime-config.js|ExecStartPre=$NODE_BIN $APP_ROOT/dist/scripts/check-runtime-config.js|" \
+    -e "s|^ExecStart=.*|ExecStart=$NODE_BIN $APP_ROOT/dist/main.js|" \
     "$ROOT_DIR/deploy/systemd/gameclubtelegrambot.service" > "$service_tmp"
 
   if [ "$GAMECLUB_TELEGRAM_LOCAL_BOT_API_ENABLED" = 'true' ]; then

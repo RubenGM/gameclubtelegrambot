@@ -1,6 +1,7 @@
 import { APP_VERSION } from '../app-version.js';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { stopTelegramLlmGeneration } from './llm-command-jobs.js';
 import { appendAuditEvent } from '../audit/audit-log.js';
 import { createDatabaseAuditLogRepository } from '../audit/audit-log-store.js';
 import { createDatabaseScheduleRepository } from '../schedule/schedule-catalog-store.js';
@@ -256,6 +257,7 @@ export function registerHandlers({
   adminElevationPasswordHash: string;
   feedbackFile?: string;
 }): void {
+  bot.onMessageGenerationStopped?.((event) => { stopTelegramLlmGeneration(event); });
   registerTelegramCommands({
     bot,
     commands: createDefaultCommands({

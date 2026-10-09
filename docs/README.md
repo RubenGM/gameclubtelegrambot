@@ -19,6 +19,9 @@ capacidad, su documentación debe actualizarse en el mismo cambio.
 
 ## Producto e integraciones
 
+- [`telegram-api-modernization.md`](telegram-api-modernization.md): alcance,
+  pruebas reales y seguimiento de rich messages, streaming y cancelación (#32).
+
 - [`llm-natural-language.md`](llm-natural-language.md): `/ask`, fallback
   privado, menciones de grupo, permisos, modelos y ejecución mediante Codex.
 - [`google-calendar.md`](google-calendar.md): sincronización unidireccional
@@ -55,6 +58,10 @@ capacidad, su documentación debe actualizarse en el mismo cambio.
   systemd, logs y recuperación operativa.
 
 ## Especificaciones y documentos históricos
+
+- [`revision-tecnica-2026-10-09.md`](revision-tecnica-2026-10-09.md): revisión
+  fechada de arquitectura, dependencias y oportunidades de Telegram; las
+  recomendaciones no representan capacidades implementadas.
 
 `docs/superpowers/specs/` contiene diseños y planes fechados. Sirven para
 entender decisiones, pero describen el alcance previsto en el momento de su

@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+NODE_BIN="$(bash "$ROOT_DIR/scripts/resolve-node-bin.sh")"
+export GAMECLUB_NODE_BIN="$NODE_BIN"
+export PATH="$(dirname "$NODE_BIN"):$PATH"
 DRY_RUN=0
 INSTALL_AUTOSTART=0
 APP_ROOT="${GAMECLUB_APP_ROOT:-/opt/gameclubtelegrambot}"
@@ -162,11 +165,11 @@ install_autostart_entry() {
   run_cmd install -d "$target_dir"
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    printf '+ sed %q %q > %q\n' "s|^Exec=.*|Exec=/usr/bin/node ${APP_ROOT}/dist/scripts/debian-tray.js|" "$source_file" "$target_file"
+    printf '+ sed %q %q > %q\n' "s|^Exec=.*|Exec=${NODE_BIN} ${APP_ROOT}/dist/scripts/debian-tray.js|" "$source_file" "$target_file"
     return 0
   fi
 
-  sed "s|^Exec=.*|Exec=/usr/bin/node ${APP_ROOT}/dist/scripts/debian-tray.js|" "$source_file" > "$target_file"
+  sed "s|^Exec=.*|Exec=${NODE_BIN} ${APP_ROOT}/dist/scripts/debian-tray.js|" "$source_file" > "$target_file"
   chmod 0644 "$target_file"
   log "Autostart instal·lat a $target_file"
 }

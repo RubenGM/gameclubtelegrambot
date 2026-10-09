@@ -10,6 +10,7 @@ import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
 import type { LlmCommandMetrics } from './llm-command-metrics.js';
 import type { LlmCommandService } from './llm-command-service.js';
 import type { GoogleCalendarServiceAccountConfig } from '../google-calendar/google-calendar-client.js';
+import type { TelegramRichMessageTransport } from './rich-message-transport.js';
 
 export class TelegramInteractionError extends Error {
   cancelSession: boolean;
@@ -37,7 +38,7 @@ export type TelegramHelpSection =
   | 'notices';
 
 export interface TelegramCommandRuntime {
-  bot: {
+  bot: Partial<TelegramRichMessageTransport> & {
     publicName: string;
     clubName: string;
     language?: BotLanguage;

@@ -11,7 +11,7 @@ import type { StorageCategoryRecord, StorageEntryDetailRecord } from '../storage
 import { isUserVisibleStorageCategoryPurpose } from '../storage/storage-internal-purpose.js';
 import type { TelegramLlmCommandContext } from './llm-command-flow.js';
 import type { LlmCommandIntent } from './llm-command-actions.js';
-import type { LlmCommandGenerateJsonOptions } from './llm-command-service.js';
+import { LlmCommandServiceError, type LlmCommandGenerateJsonOptions } from './llm-command-service.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { escapeHtml } from './schedule-presentation.js';
 
@@ -221,7 +221,8 @@ async function recommendCatalogItems(
       progress,
     );
     return renderCatalogRecommendationFromLlm(parsed, candidateSet);
-  } catch {
+  } catch (error) {
+    if (modelOptions?.signal?.aborted) throw new LlmCommandServiceError('cancelled', 'LLM generation cancelled');
     return renderCatalogRecommendationFallback(candidateSet);
   }
 }
@@ -806,6 +807,13 @@ async function answerReadWithLlm(
 
   await input.progress?.update('He recuperado datos del bot. Estoy redactando la respuesta...');
   try {
+    if (service.generateText && input.modelOptions?.onTextDelta) {
+      const answer = await service.generateText(buildReadAnswerPrompt(context, input), {
+        ...input.modelOptions,
+        onTextDelta: input.modelOptions.onTextDelta,
+      });
+      return appendGeneratedLinks(escapeHtml(answer), input.links ?? []);
+    }
     const parsed = await runReadAnswerWithProgress(
       () => service.generateJson(
         buildReadAnswerPrompt(context, input),
@@ -820,6 +828,7 @@ async function answerReadWithLlm(
     }
     return appendGeneratedLinks(escapeHtml(answer), input.links ?? []);
   } catch {
+    if (input.modelOptions?.signal?.aborted) throw new LlmCommandServiceError('cancelled', 'LLM generation cancelled');
     return input.fallback;
   }
 }
@@ -1345,6 +1354,7 @@ async function refineStorageSearchWithLlm(
     const selected = input.details.filter((detail) => selectedIds.has(detail.entry.id));
     return selected;
   } catch {
+    if (input.modelOptions?.signal?.aborted) throw new LlmCommandServiceError('cancelled', 'LLM generation cancelled');
     return input.details;
   }
 }

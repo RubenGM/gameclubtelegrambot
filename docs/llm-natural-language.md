@@ -177,7 +177,8 @@ El flujo Telegram vive en `src/telegram/llm-command-flow.ts`.
    `src/telegram/llm-command-decision.schema.json`.
 6. Enruta la decisión con `src/telegram/llm-command-router.ts`.
 7. Ejecuta una lectura, pide aclaración, pide confirmación o rechaza la petición.
-8. Completa el mismo mensaje editable con el resultado final cuando sea posible.
+8. Completa el progreso con el resultado final. Si hubo borradores nativos,
+   envía el resultado como mensaje duradero y retira el progreso auxiliar.
 
 Este patrón de progreso se aplica a entradas privadas. Una mención válida en
 grupo/topic es la excepción deliberada: no envía progreso, confirmación ni
@@ -189,6 +190,43 @@ El mensaje de progreso debe ser breve: barra aproximada, fase y detalle
 separados por líneas en blanco. No debe mostrar la petición completa del usuario.
 Si la LLM falla o caduca, el mismo mensaje debe editarse con el error final
 siempre que Telegram lo permita.
+
+### Streaming y cancelación
+
+La interpretación de órdenes mantiene JSON validado por schema y no se publica
+progresivamente. La síntesis de respuestas generales y de lecturas autorizadas
+usa `Codex app-server` por stdio, a través de `GAMECLUB_CODEX_BIN`, con deltas
+reales de `item/agentMessage/delta`. Una prueba real de la CLI comprobó este protocolo: `exec --json` entrega
+eventos de items completos y no sirve como fuente de deltas.
+
+Sólo se muestra el campo `answer` del canal final de respuesta; el decoder
+incremental no publica JSON, razonamiento, comentarios ni decisiones internas.
+Los replies privados a fichas rich recuperan título, campos y enlaces desde
+`rich_message.blocks`, sujetos al mismo límite de contexto de 1200 caracteres.
+Los datos de lectura se filtran localmente por permisos antes de enviar el prompt,
+y el resultado final vuelve a validarse. Los enlaces a recursos siguen siendo
+construidos por el bot.
+
+En privado, los deltas se agrupan con un intervalo de 500 ms y actualizan un
+único `draft_id`. Se intenta `sendRichMessageDraft`, después `sendMessageDraft`
+y, si esos métodos no están disponibles, el progreso editable existente. El
+resultado completo se envía de forma duradera: el borrador nativo es una vista
+previa temporal y no sustituye ese envío.
+
+El Stop nativo (`stopped_message_generation`) y el botón inline alternativo
+verifican propietario, chat/topic e identificador del trabajo antes de abortar.
+Se procesan antes de la cola de sesiones, cancelan el proceso y sus descendientes
+y evitan entregas o nuevas confirmaciones posteriores. Se comprueba la señal
+antes de ejecutar pasos con efectos; una operación ya completada no se revierte.
+El wrapper ejecuta un supervisor bajo el usuario operador. El despliegue instala
+`/usr/local/libexec/gameclubtelegrambot/codex-operator-supervisor.sh` y su
+configuración con propietario root; la regla sudoers permite únicamente ese
+helper con el binario Codex canónico. El supervisor crea un grupo de procesos
+propio y escala TERM a KILL con el mismo UID de Codex, evitando que matar sólo
+el proceso sudo deje la generación viva.
+
+Los trabajos de grupos también se abortan al cerrar el servicio, pero nunca
+publican borradores ni progreso en el grupo.
 
 La primera pasada usa Codex con el perfil normal, `gpt-6-luna` con `low`.
 Cuando esa pasada detecta que la siguiente fase necesitará interpretación

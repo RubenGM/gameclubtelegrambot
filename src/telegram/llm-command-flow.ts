@@ -4,7 +4,10 @@ import { routeLlmCommandDecision, type LlmCommandRouteOutcome } from './llm-comm
 import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
 import type { LlmCommandMetricAction, LlmCommandMetricResult, LlmCommandMetrics } from './llm-command-metrics.js';
 import type { LlmCommandDecision } from './llm-command-schema.js';
-import { LlmCommandServiceError, type LlmCommandGenerateJsonOptions } from './llm-command-service.js';
+import { LlmCommandServiceError, type LlmCommandGenerateJsonOptions, type LlmCommandGenerateTextOptions } from './llm-command-service.js';
+import { startTelegramLlmGeneration, stopTelegramLlmGenerationByToken, type TelegramLlmGenerationJob } from './llm-command-jobs.js';
+import { createLlmAnswerPreview } from './llm-answer-preview.js';
+import { escapeHtml } from './schedule-presentation.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
 import { catalogLoanCallbackPrefixes, handleTelegramCatalogLoanCallback } from './catalog-loan-flow.js';
 import { groupPurchaseCallbackPrefixes, handleTelegramGroupPurchaseCallback } from './group-purchase-flow.js';
@@ -29,6 +32,7 @@ export const llmCommandFlowKey = 'llm-command';
 export const llmCommandCallbackPrefixes = {
   confirmWrite: 'llm_cmd:confirm',
   cancelWrite: 'llm_cmd:cancel',
+  stopGeneration: 'llm_cmd:stop:',
 } as const;
 
 export type TelegramLlmCommandContext = TelegramCommandHandlerContext & {
@@ -37,6 +41,7 @@ export type TelegramLlmCommandContext = TelegramCommandHandlerContext & {
     llmCommandService?: {
       interpret(prompt: string, options?: LlmCommandGenerateJsonOptions): Promise<import('./llm-command-schema.js').LlmCommandDecision>;
       generateJson?(prompt: string, schemaPath?: string, options?: LlmCommandGenerateJsonOptions): Promise<unknown>;
+      generateText?(prompt: string, options: LlmCommandGenerateTextOptions): Promise<string>;
     };
     llmCommandMetrics?: LlmCommandMetrics;
   };
@@ -141,6 +146,11 @@ export async function handleTelegramLlmCallback(context: TelegramLlmCommandConte
     return false;
   }
 
+  if (callbackData.startsWith(llmCommandCallbackPrefixes.stopGeneration)) {
+    stopTelegramLlmGenerationByToken({ chatId: context.runtime.chat.chatId, userId: context.runtime.actor.telegramUserId, ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}) }, callbackData.slice(llmCommandCallbackPrefixes.stopGeneration.length));
+    return true;
+  }
+
   if (callbackData === llmCommandCallbackPrefixes.cancelWrite) {
     if (context.runtime.session.current?.flowKey === llmCommandFlowKey) {
       await context.runtime.session.cancel();
@@ -201,110 +211,144 @@ async function handleTelegramLlmCommandText(
     return;
   }
 
-  const language = resolveLlmCommandLanguage(context);
-  const texts = createTelegramI18n(language).llmCommand;
-  const startedAt = Date.now();
-  const progressOptions = context.messageThreadId ? { messageThreadId: context.messageThreadId } : undefined;
-  const progress = silentGroupMention
-    ? undefined
-    : await startTelegramEditableProgress(
-      context,
-      buildLlmProgressMessage({
-        percent: 10,
-        phase: texts.progressReceivedPhase,
-        detail: texts.progressReceivedDetail,
-        userText: input.text,
-      }),
-      { editFailedEvent: 'llm-command.progress-edit.failed' },
-      progressOptions,
-    );
-  const prompt = buildLlmCommandPrompt({
-    userText: input.text,
-    language,
-    isApproved: context.runtime.actor.isApproved,
-    isAdmin: context.runtime.actor.isAdmin,
-    chatKind: context.runtime.chat.kind,
-    hasTopic: Boolean(context.messageThreadId),
-    ...(context.replyToBotMessageContext ? { replyContext: context.replyToBotMessageContext } : {}),
-    history: readLlmCommandSessionHistory(context, config.maxHistory),
-    maxPromptChars: config.maxPromptChars,
+  const job = startTelegramLlmGeneration({
+    chatId: context.runtime.chat.chatId,
+    userId: context.runtime.actor.telegramUserId,
+    ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}),
   });
-
-  const modelSettings = await loadLlmModelSettings(context);
-  let decision: Awaited<ReturnType<typeof service.interpret>>;
+  let progress: TelegramEditableProgress | undefined;
   try {
-    const interpret = () => service.interpret(prompt, selectionToGenerateJsonOptions(modelSettings.normal));
-    decision = progress
-      ? await runWithProgressHeartbeat(
-        interpret,
-        progress,
-        [
-          buildLlmProgressMessage({ percent: 25, phase: texts.progressAnalyzingPhase, detail: texts.progressAnalyzingDetail, userText: input.text }),
-          buildLlmProgressMessage({ percent: 40, phase: texts.progressWaitingPhase, detail: texts.progressWaitingDetail, userText: input.text }),
-          buildLlmProgressMessage({ percent: 55, phase: texts.progressValidatingPhase, detail: texts.progressValidatingDetail, userText: input.text }),
-          buildLlmProgressMessage({ percent: 60, phase: texts.progressAlmostPhase, detail: texts.progressAlmostDetail, userText: input.text }),
-        ],
+    assertLlmJobActive(job);
+    const language = resolveLlmCommandLanguage(context);
+    const texts = createTelegramI18n(language).llmCommand;
+    const startedAt = Date.now();
+    const progressOptions: TelegramReplyOptions | undefined = !silentGroupMention ? {
+      ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}),
+      inlineKeyboard: [[{ text: 'Stop', callbackData: `${llmCommandCallbackPrefixes.stopGeneration}${job.token}` }]],
+    } : undefined;
+    progress = silentGroupMention
+      ? undefined
+      : await startTelegramEditableProgress(
+        context,
+        buildLlmProgressMessage({
+          percent: 10,
+          phase: texts.progressReceivedPhase,
+          detail: texts.progressReceivedDetail,
+          userText: input.text,
+        }),
+        { editFailedEvent: 'llm-command.progress-edit.failed' },
         progressOptions,
-      )
-      : await interpret();
-  } catch (error) {
+      );
+    if (progress && progressOptions) {
+      const base = progress;
+      progress = { ...base, update: (message, options) => base.update(message, { ...progressOptions, ...options }) };
+    }
+    const prompt = buildLlmCommandPrompt({
+      userText: input.text,
+      language,
+      isApproved: context.runtime.actor.isApproved,
+      isAdmin: context.runtime.actor.isAdmin,
+      chatKind: context.runtime.chat.kind,
+      hasTopic: Boolean(context.messageThreadId),
+      ...(context.replyToBotMessageContext ? { replyContext: context.replyToBotMessageContext } : {}),
+      history: readLlmCommandSessionHistory(context, config.maxHistory),
+      maxPromptChars: config.maxPromptChars,
+    });
+
+    const modelSettings = await loadLlmModelSettings(context);
+    let decision: Awaited<ReturnType<typeof service.interpret>>;
+    try {
+      const interpret = () => service.interpret(prompt, { ...selectionToGenerateJsonOptions(modelSettings.normal), ...(job ? { signal: job.signal } : {}) });
+      decision = progress
+        ? await runWithProgressHeartbeat(
+          interpret,
+          progress,
+          [
+            buildLlmProgressMessage({ percent: 25, phase: texts.progressAnalyzingPhase, detail: texts.progressAnalyzingDetail, userText: input.text }),
+            buildLlmProgressMessage({ percent: 40, phase: texts.progressWaitingPhase, detail: texts.progressWaitingDetail, userText: input.text }),
+            buildLlmProgressMessage({ percent: 55, phase: texts.progressValidatingPhase, detail: texts.progressValidatingDetail, userText: input.text }),
+            buildLlmProgressMessage({ percent: 60, phase: texts.progressAlmostPhase, detail: texts.progressAlmostDetail, userText: input.text }),
+          ],
+          progressOptions,
+        )
+        : await interpret();
+    } catch (error) {
+      if (job?.signal.aborted) throw new LlmCommandServiceError('cancelled', 'LLM generation cancelled');
+      await recordLlmCommandMetric(context, {
+        source: input.source,
+        language,
+        startedAt,
+        action: 'failure',
+        result: metricResultForError(error),
+        reason: metricReasonForError(error),
+      });
+      if (progress) {
+        await progress.complete(resolveLlmInterpretFailureMessage(error, texts));
+      }
+      return;
+    }
+    if (job?.signal.aborted) throw new LlmCommandServiceError('cancelled', 'LLM generation cancelled');
+    const outcome = routeLlmCommandDecision(decision, {
+      isApproved: context.runtime.actor.isApproved,
+      isAdmin: context.runtime.actor.isAdmin,
+      chatKind: context.runtime.chat.kind,
+      readConfidenceThreshold: config.readConfidenceThreshold,
+      writeConfidenceThreshold: config.writeConfidenceThreshold,
+    });
+
+    const persistAfterDelivery = outcome.type === 'execute_read' || outcome.type === 'answer_directly';
+    if (!persistAfterDelivery) await persistLlmCommandTurn(context, {
+      source: input.source,
+      userText: input.text,
+      intent: decision.intent,
+      replyText: resolveOutcomeReply(outcome, texts),
+    });
     await recordLlmCommandMetric(context, {
       source: input.source,
       language,
       startedAt,
-      action: 'failure',
-      result: metricResultForError(error),
-      reason: metricReasonForError(error),
+      intent: decision.intent,
+      confidence: decision.confidence,
+      action: metricActionForOutcome(outcome),
+      result: metricResultForOutcome(outcome),
+      reason: metricReasonForOutcome(outcome),
     });
-    if (progress) {
-      await progress.complete(resolveLlmInterpretFailureMessage(error, texts));
+    try {
+      if (silentGroupMention) {
+        await replyWithPrivateGroupMentionOutcome(
+          context,
+          outcome,
+          input.text,
+          resolveNextStepModelOptions(decision, outcome, modelSettings),
+          job,
+        );
+        return;
+      }
+      const finalMessage = await replyWithOutcome(context, outcome, progress, input.text, readDecisionProgressMessages(decision), resolveNextStepModelOptions(decision, outcome, modelSettings) ?? selectionToGenerateJsonOptions(modelSettings.normal), job);
+      assertLlmJobActive(job);
+      if (persistAfterDelivery) await persistLlmCommandTurn(context, { source: input.source, userText: input.text, intent: decision.intent, replyText: finalMessage ?? resolveOutcomeReply(outcome, texts) });
+    } catch (error) {
+      if (silentGroupMention) {
+        console.warn(JSON.stringify({
+          event: 'telegram.llm_command.group_mention.delivery_failed',
+          error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+        }));
+        return;
+      }
+      throw error;
     }
-    return;
-  }
-  const outcome = routeLlmCommandDecision(decision, {
-    isApproved: context.runtime.actor.isApproved,
-    isAdmin: context.runtime.actor.isAdmin,
-    chatKind: context.runtime.chat.kind,
-    readConfidenceThreshold: config.readConfidenceThreshold,
-    writeConfidenceThreshold: config.writeConfidenceThreshold,
-  });
-
-  await persistLlmCommandTurn(context, {
-    source: input.source,
-    userText: input.text,
-    intent: decision.intent,
-    replyText: resolveOutcomeReply(outcome, texts),
-  });
-  await recordLlmCommandMetric(context, {
-    source: input.source,
-    language,
-    startedAt,
-    intent: decision.intent,
-    confidence: decision.confidence,
-    action: metricActionForOutcome(outcome),
-    result: metricResultForOutcome(outcome),
-    reason: metricReasonForOutcome(outcome),
-  });
-  try {
-    if (silentGroupMention) {
-      await replyWithPrivateGroupMentionOutcome(
-        context,
-        outcome,
-        input.text,
-        resolveNextStepModelOptions(decision, outcome, modelSettings),
-      );
+  } catch (error) {
+    if (job?.signal.aborted || (error instanceof LlmCommandServiceError && error.code === 'cancelled')) {
+      if (progress) await completeLlmResult(context, progress, job, resolveLlmCommandTexts(context).cancelled);
       return;
     }
-    await replyWithOutcome(context, outcome, progress, input.text, readDecisionProgressMessages(decision), resolveNextStepModelOptions(decision, outcome, modelSettings));
-  } catch (error) {
-    if (silentGroupMention) {
-      console.warn(JSON.stringify({
-        event: 'telegram.llm_command.group_mention.delivery_failed',
-        error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
-      }));
+    if (progress) {
+      await progress.complete(resolveLlmInterpretFailureMessage(error, resolveLlmCommandTexts(context)));
       return;
     }
     throw error;
+  } finally {
+    job?.finish();
   }
 }
 
@@ -313,14 +357,16 @@ async function replyWithPrivateGroupMentionOutcome(
   outcome: LlmCommandRouteOutcome,
   userText: string,
   nextStepModelOptions?: LlmCommandGenerateJsonOptions,
+  job?: TelegramLlmGenerationJob,
 ): Promise<void> {
   const texts = resolveLlmCommandTexts(context);
   if (outcome.type === 'execute_read') {
     const message = await executeTelegramLlmReadAction(context, {
       ...outcome,
       userText,
-      ...(nextStepModelOptions ? { modelOptions: nextStepModelOptions } : {}),
+      modelOptions: { ...nextStepModelOptions, ...(job ? { signal: job.signal } : {}) },
     });
+    assertLlmJobActive(job);
     await context.runtime.bot.sendPrivateMessage(
       context.runtime.actor.telegramUserId,
       message,
@@ -332,6 +378,7 @@ async function replyWithPrivateGroupMentionOutcome(
   const message = outcome.type === 'feedback_offer'
     ? feedbackTexts[resolveLlmCommandLanguage(context)].privateHandoff
     : resolveOutcomeReply(outcome, texts);
+  assertLlmJobActive(job);
   await context.runtime.bot.sendPrivateMessage(context.runtime.actor.telegramUserId, message);
 }
 
@@ -342,7 +389,9 @@ async function replyWithOutcome(
   userText?: string,
   progressMessages: string[] = [],
   nextStepModelOptions?: LlmCommandGenerateJsonOptions,
-): Promise<void> {
+  job?: TelegramLlmGenerationJob,
+): Promise<string | void> {
+  assertLlmJobActive(job);
   const options = buildLlmReplyOptions(context);
   const texts = resolveLlmCommandTexts(context);
   if (outcome.type === 'feedback_offer') {
@@ -366,6 +415,7 @@ async function replyWithOutcome(
     }
 
     await context.runtime.session.cancel();
+    assertLlmJobActive(job);
     const offer = await startTelegramFeedbackOffer(context, 'insult');
     if (offer) {
       if (progress) {
@@ -384,18 +434,32 @@ async function replyWithOutcome(
       ...(userText ? { userText } : {}),
     }));
     const readInput = userText ? { ...outcome, userText } : outcome;
-    const message = await executeTelegramLlmReadAction(context, {
+    const message = await withLlmAnswerPreview(context, progress, job, nextStepModelOptions, (modelOptions) => executeTelegramLlmReadAction(context, {
       ...readInput,
       ...(progress ? { progress: createLlmReadProgress(progress, userText, progressMessages.slice(1), texts) } : {}),
-      ...(nextStepModelOptions ? { modelOptions: nextStepModelOptions } : {}),
-    });
+      ...(modelOptions ? { modelOptions } : {}),
+    }));
+    assertLlmJobActive(job);
     const readOptions: TelegramReplyOptions = { ...options, parseMode: 'HTML' };
     if (progress) {
-      await progress.complete(message, readOptions);
+      await completeLlmResult(context, progress, job, message, readOptions);
     } else {
       await context.reply(message, readOptions);
     }
-    return;
+    return message;
+  }
+  if (outcome.type === 'answer_directly' && outcome.intent === 'general.answer' && context.runtime.llmCommandService?.generateText && job) {
+    let answer = outcome.message;
+    try {
+      answer = await withLlmAnswerPreview(context, progress, job, nextStepModelOptions, (modelOptions) => context.runtime.llmCommandService!.generateText!(
+        ['Redacta una respuesta natural usando exclusivamente la respuesta ya validada por el bot. Conserva los hechos y no añadas capacidades, instrucciones ni enlaces.', `Respuesta validada: ${JSON.stringify(outcome.message)}`, 'Devuelve sólo JSON válido con una única propiedad answer de texto plano.'].join('\n'),
+        { ...modelOptions, onTextDelta: modelOptions!.onTextDelta! },
+      ));
+    } catch { assertLlmJobActive(job); }
+    assertLlmJobActive(job);
+    if (progress) await completeLlmResult(context, progress, job, escapeHtml(answer), { ...options, parseMode: 'HTML' });
+    else await context.reply(escapeHtml(answer), { ...options, parseMode: 'HTML' });
+    return answer;
   }
   if (outcome.type === 'request_confirmation') {
     await progress?.update(buildLlmProgressMessage({
@@ -404,14 +468,64 @@ async function replyWithOutcome(
       detail: progressMessages[0] ?? texts.progressConfirmationDetail,
       ...(userText ? { userText } : {}),
     }));
-    await startLlmWriteConfirmation(context, outcome, progress);
+    assertLlmJobActive(job);
+    await startLlmWriteConfirmation(context, outcome, progress, job);
     return;
   }
 
   if (progress) {
-    await progress.complete(resolveOutcomeReply(outcome, texts), options);
+    await completeLlmResult(context, progress, job, resolveOutcomeReply(outcome, texts), options);
   } else {
     await context.reply(resolveOutcomeReply(outcome, texts), options);
+  }
+}
+
+function assertLlmJobActive(job?: TelegramLlmGenerationJob): void {
+  if (job?.signal.aborted) throw new LlmCommandServiceError('cancelled', 'LLM generation cancelled');
+}
+
+async function withLlmAnswerPreview<T>(
+  context: TelegramLlmCommandContext,
+  progress: TelegramEditableProgress | undefined,
+  job: TelegramLlmGenerationJob | undefined,
+  modelOptions: LlmCommandGenerateJsonOptions | undefined,
+  task: (options: LlmCommandGenerateJsonOptions | undefined) => Promise<T>,
+): Promise<T> {
+  assertLlmJobActive(job);
+  if (!job) return task(modelOptions);
+  const draft = context.runtime.bot.sendMessageDraft;
+  const richDraft = context.runtime.bot.sendRichMessageDraft;
+  const preview = createLlmAnswerPreview({
+    job,
+    ...(richDraft || draft ? { sendDraft: (text: string) => {
+      const metadata = { chatId: job.chatId, draftId: job.draftId, ...(job.messageThreadId ? { messageThreadId: job.messageThreadId } : {}), canStop: true, keepOnStop: false };
+      // The rich adapter handles unsupported-rich -> plain-draft fallback internally.
+      return richDraft ? richDraft({ ...metadata, richMessage: { html: escapeHtml(text) }, fallbackText: text }) : draft!({ ...metadata, text });
+    } } : {}),
+    updateProgress: (text) => progress?.update(text) ?? Promise.resolve(false),
+  });
+  let completed = false;
+  try {
+    const result = await task({ ...modelOptions, signal: job.signal, ...(context.runtime.llmCommandService?.generateText ? { onTextDelta: preview.onTextDelta } : {}) });
+    completed = true;
+    return result;
+  } finally {
+    await preview.finish(completed);
+  }
+}
+
+async function completeLlmResult(context: TelegramLlmCommandContext, progress: TelegramEditableProgress, job: TelegramLlmGenerationJob | undefined, text: string, options?: TelegramReplyOptions): Promise<void> {
+  // The answer is terminal now. A stale Stop must not replace a delivered final with cancellation.
+  job?.finish();
+  const rich = context.runtime.bot.sendRichMessage;
+  if (!job?.draftSent && !rich) return progress.complete(text, options);
+  // A durable sendMessage clears Telegram's ephemeral draft; editing the receipt does not.
+  if (rich) {
+    await rich({ chatId: context.runtime.chat.chatId, richMessage: { html: options?.parseMode === 'HTML' ? text : escapeHtml(text) }, fallbackText: text, ...(options ? { options } : {}), ...(context.messageThreadId ? { messageThreadId: context.messageThreadId } : {}) });
+  } else await context.reply(text, options);
+  if (progress.messageId && context.runtime.bot.deleteMessage) {
+    try { await context.runtime.bot.deleteMessage({ chatId: context.runtime.chat.chatId, messageId: progress.messageId }); }
+    catch { console.warn(JSON.stringify({ event: 'llm-command.progress-cleanup.failed' })); }
   }
 }
 
@@ -573,7 +687,9 @@ async function startLlmWriteConfirmation(
   context: TelegramLlmCommandContext,
   outcome: Extract<LlmCommandRouteOutcome, { type: 'request_confirmation' }>,
   progress?: TelegramEditableProgress,
+  job?: TelegramLlmGenerationJob,
 ): Promise<void> {
+  assertLlmJobActive(job);
   await context.runtime.session.start({
     flowKey: llmCommandFlowKey,
     stepKey: 'confirm-write',
@@ -581,9 +697,13 @@ async function startLlmWriteConfirmation(
       intent: outcome.intent,
       params: outcome.params,
       message: outcome.message,
+      ...(job ? { generationToken: job.token } : {}),
       llmExpiresAt: new Date(Date.now() + (getLlmCommandConfig(context)?.sessionTtlMinutes ?? 15) * 60_000).toISOString(),
     },
   });
+  if (job?.signal.aborted && context.runtime.session.current?.data.generationToken === job.token) await context.runtime.session.cancel();
+  assertLlmJobActive(job);
+  job?.finish();
   const texts = resolveLlmCommandTexts(context);
   const message = `${outcome.message}\n\n${texts.writeConfirmationPrompt}`;
   const options: TelegramReplyOptions = {

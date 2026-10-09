@@ -82,3 +82,15 @@ test('optionsForMessageChunk keeps keyboards only on the final chunk', () => {
   });
   assert.equal(optionsForMessageChunk(options, 1, 2), options);
 });
+
+test('reply context preserves rich detail title, fields and bot detail links without a legacy text field', () => {
+  const reply = { reply_to_message: { message_id: 77, from: { username: 'gameclubbot' }, rich_message: { blocks: [
+    { type: 'heading', size: 2, text: 'Catan & Amics' },
+    { type: 'table', cells: [[{ text: 'Jugadors:' }, { text: '3-4' }]] },
+    { type: 'paragraph', text: { type: 'url', text: 'Veure detalls', url: 'https://t.me/gameclubbot?start=catalog_read_item_1' } },
+  ] } } };
+  assert.deepEqual(resolveReplyToBotMessageContext(reply, 'gameclubbot'), {
+    messageId: 77,
+    text: 'Catan & Amics\nJugadors: 3-4\nVeure detalls (https://t.me/gameclubbot?start=catalog_read_item_1)',
+  });
+});

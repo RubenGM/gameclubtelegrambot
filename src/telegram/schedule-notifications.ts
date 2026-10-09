@@ -11,6 +11,9 @@ import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { buildGoogleCalendarEmbedUrl } from '../google-calendar/google-calendar-client.js';
 import { createAppMetadataGoogleCalendarSettingsStore } from '../google-calendar/google-calendar-settings.js';
+import type { TelegramRichMessageTransport } from './rich-message-transport.js';
+import { buildCalendarRichMessage } from './calendar-rich-message.js';
+import { splitTelegramOutgoingMessage } from './outgoing-message-sanitizer.js';
 
 export interface ScheduleCalendarChange {
   action: 'created' | 'updated' | 'deleted';
@@ -72,6 +75,8 @@ export async function notifyScheduleConflicts({
 export interface PublishCalendarSnapshotInput {
   change: ScheduleCalendarChange;
   sendGroupMessage?: (chatId: number, message: string, options?: { parseMode?: 'HTML'; messageThreadId?: number }) => Promise<TelegramSentMessage | void>;
+  sendRichMessage?: TelegramRichMessageTransport['sendRichMessage'];
+  editRichMessage?: TelegramRichMessageTransport['editRichMessage'];
   deleteMessage?: (input: { chatId: number; messageId: number }) => Promise<void>;
   editMessageText?: (input: { chatId: number; messageId: number; text: string; options?: { parseMode?: 'HTML' } }) => Promise<void>;
   snapshotStorage?: AppMetadataSessionStorage;
@@ -83,6 +88,14 @@ export interface PublishCalendarSnapshotInput {
   tableRepository?: ClubTableRepository;
   resolveActorDisplayName: () => Promise<string>;
   now?: Date;
+}
+
+export type RefreshCalendarSnapshotsInput = Omit<PublishCalendarSnapshotInput, 'change' | 'resolveActorDisplayName'>;
+
+/** Refresh subscribed snapshots from current data without inventing an activity change. */
+export async function refreshCalendarSnapshotsToNewsGroups(input: RefreshCalendarSnapshotsInput): Promise<void> {
+  await publishCalendarSnapshotForCategory({ ...input, categoryKey: eventsNewsGroupCategory, refreshExisting: true });
+  await publishCalendarSnapshotForCategory({ ...input, categoryKey: publicEventsNewsGroupCategory, publicOnly: true, refreshExisting: true });
 }
 
 export async function publishCalendarSnapshotToNewsGroups(input: PublishCalendarSnapshotInput): Promise<void> {
@@ -103,6 +116,8 @@ export async function publishPublicCalendarSnapshotToNewsGroups(input: PublishCa
 async function publishCalendarSnapshotForCategory({
   change,
   sendGroupMessage,
+  sendRichMessage,
+  editRichMessage,
   deleteMessage,
   editMessageText,
   snapshotStorage,
@@ -116,18 +131,23 @@ async function publishCalendarSnapshotForCategory({
   categoryKey,
   publicOnly = false,
   now = new Date(),
-}: PublishCalendarSnapshotInput & {
+  refreshExisting = false,
+}: RefreshCalendarSnapshotsInput & {
+  change?: ScheduleCalendarChange;
+  resolveActorDisplayName?: () => Promise<string>;
   categoryKey: string;
   publicOnly?: boolean;
+  refreshExisting?: boolean;
 }): Promise<void> {
-  if (!sendGroupMessage) {
+  if (!sendGroupMessage && !sendRichMessage) {
     return;
   }
+  if (publicOnly && change && !change.event.isPublic && !change.previousEvent?.isPublic) return;
 
   const startsAtTo = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
   const withinHorizon = (event: ScheduleEventRecord) => new Date(event.startsAt).getTime() <= new Date(startsAtTo).getTime();
   // Moving an already visible activity out of the window must still refresh the feed.
-  if (!withinHorizon(change.event) && !(change.previousEvent && withinHorizon(change.previousEvent))) {
+  if (change && !withinHorizon(change.event) && !(change.previousEvent && withinHorizon(change.previousEvent))) {
     return;
   }
 
@@ -152,11 +172,9 @@ async function publishCalendarSnapshotForCategory({
     : publicOnly
       ? texts.publicCalendarBroadcastEmpty
       : texts.calendarBroadcastEmpty;
-  const footer = await formatCalendarBroadcastFooter({
-    change,
-    language,
-    resolveActorDisplayName,
-  });
+  const footer = change && resolveActorDisplayName && (!publicOnly || change.event.isPublic)
+    ? await formatCalendarBroadcastFooter({ change, language, resolveActorDisplayName })
+    : '';
   const createAction = publicOnly
     ? ''
     : `\n\n<a href="${escapeHtml(buildTelegramStartUrl('schedule_create'))}"><b>${escapeHtml(texts.calendarBroadcastCreateAction)}</b></a>`;
@@ -164,15 +182,49 @@ async function publishCalendarSnapshotForCategory({
     ? ''
     : await buildGoogleCalendarBroadcastAction({ snapshotStorage, label: texts.calendarBroadcastGoogleCalendarAction });
   const replacedText = texts.calendarBroadcastReplaced;
+  const text = `${message}${footer ? `\n\n${footer}` : ''}${createAction}${googleCalendarAction}`;
+  const richMessage = buildCalendarRichMessage({
+    entries,
+    language,
+    title: publicOnly ? texts.publicCalendarBroadcastTitle : texts.calendarBroadcastTitle,
+    emptyText: publicOnly ? texts.publicCalendarBroadcastEmpty : texts.calendarBroadcastEmpty,
+    footerHtml: footer,
+    actionsHtml: [createAction, googleCalendarAction].filter(Boolean).map((action) => `<p>${action.trim()}</p>`).join(''),
+    now,
+    startsAtTo,
+  });
 
   await Promise.all(
     groups.map(async (group) => {
-      const text = `${message}\n\n${footer}${createAction}${googleCalendarAction}`;
       try {
-        const sent = await sendGroupMessage(group.chatId, text, {
+        const options = {
           parseMode: 'HTML',
           ...(group.messageThreadId ? { messageThreadId: group.messageThreadId } : {}),
-        });
+        } as const;
+        // Normal activity changes keep a new notification and retire the previous snapshot.
+        // Explicit format refreshes may edit the stored snapshot instead.
+        if (refreshExisting && editRichMessage && snapshotStorage && splitTelegramOutgoingMessage(text, 'HTML').length === 1) {
+          const previous = await loadPreviousCalendarSnapshot(snapshotStorage, categoryKey, group.chatId, group.messageThreadId);
+          if (previous && (previous.messageIds?.length ?? 1) === 1) {
+            let edited = true;
+            try {
+              await editRichMessage({ chatId: group.chatId, messageId: previous.messageId, richMessage, fallbackText: text, options });
+            } catch (error) {
+              if (!/message is not modified/i.test(error instanceof Error ? error.message : String(error))) {
+                console.warn(JSON.stringify({ event: 'schedule.calendar-broadcast.current-edit.failed', chatId: group.chatId, messageThreadId: group.messageThreadId, messageId: previous.messageId, error: error instanceof Error ? error.message : String(error) }));
+                if (!/message to edit not found|message (?:can'?t|cannot) be edited/i.test(error instanceof Error ? error.message : String(error))) throw error;
+                edited = false;
+              }
+            }
+            if (edited) {
+              await rememberAndDeletePreviousCalendarSnapshot({ chatId: group.chatId, messageThreadId: group.messageThreadId, sent: { messageId: previous.messageId }, replacedText, categoryKey, snapshotStorage });
+              return;
+            }
+          }
+        }
+        const sent = sendRichMessage
+          ? await sendRichMessage({ chatId: group.chatId, richMessage, fallbackText: text, options })
+          : await sendGroupMessage!(group.chatId, text, options);
         await rememberAndDeletePreviousCalendarSnapshot({
           chatId: group.chatId,
           messageThreadId: group.messageThreadId,
@@ -241,54 +293,61 @@ async function rememberAndDeletePreviousCalendarSnapshot({
   }
 
   const key = buildCalendarSnapshotMessageKey(categoryKey, chatId, messageThreadId);
-  const legacyKey = categoryKey === eventsNewsGroupCategory ? buildLegacyCalendarSnapshotMessageKey(chatId, messageThreadId) : null;
-  const previous = parseCalendarSnapshotMessage(await snapshotStorage.get(key))
-    ?? (legacyKey ? parseCalendarSnapshotMessage(await snapshotStorage.get(legacyKey)) : null);
+  const previous = await loadPreviousCalendarSnapshot(snapshotStorage, categoryKey, chatId, messageThreadId);
 
   await snapshotStorage.set(key, JSON.stringify({
     chatId,
     messageThreadId: messageThreadId ?? null,
     messageId: sent.messageId,
+    ...(sent.messageIds && sent.messageIds.length > 1 ? { messageIds: sent.messageIds } : {}),
   }));
 
   if (!deleteMessage || !previous || previous.messageId === sent.messageId) {
     return;
   }
 
-  try {
-    await deleteMessage({ chatId: previous.chatId, messageId: previous.messageId });
-  } catch (error) {
-    const deleteError = error instanceof Error ? error.message : String(error);
-    console.warn(JSON.stringify({
-      event: 'schedule.calendar-broadcast.previous-delete.failed',
-      chatId: previous.chatId,
-      messageThreadId: previous.messageThreadId,
-      messageId: previous.messageId,
-      error: deleteError,
-    }));
-
-    if (!editMessageText) {
-      return;
-    }
-
+  for (const previousMessageId of previous.messageIds ?? [previous.messageId]) {
     try {
-      await editMessageText({
-        chatId: previous.chatId,
-        messageId: previous.messageId,
-        text: replacedText,
-        options: { parseMode: 'HTML' },
-      });
-    } catch (editError) {
+      await deleteMessage({ chatId: previous.chatId, messageId: previousMessageId });
+    } catch (error) {
+      const deleteError = error instanceof Error ? error.message : String(error);
       console.warn(JSON.stringify({
-        event: 'schedule.calendar-broadcast.previous-replace.failed',
+        event: 'schedule.calendar-broadcast.previous-delete.failed',
         chatId: previous.chatId,
         messageThreadId: previous.messageThreadId,
-        messageId: previous.messageId,
-        error: editError instanceof Error ? editError.message : String(editError),
-        deleteError,
+        messageId: previousMessageId,
+        error: deleteError,
       }));
+
+      if (!editMessageText) {
+        continue;
+      }
+
+      try {
+        await editMessageText({
+          chatId: previous.chatId,
+          messageId: previousMessageId,
+          text: replacedText,
+          options: { parseMode: 'HTML' },
+        });
+      } catch (editError) {
+        console.warn(JSON.stringify({
+          event: 'schedule.calendar-broadcast.previous-replace.failed',
+          chatId: previous.chatId,
+          messageThreadId: previous.messageThreadId,
+          messageId: previousMessageId,
+          error: editError instanceof Error ? editError.message : String(editError),
+          deleteError,
+        }));
+      }
     }
   }
+}
+
+async function loadPreviousCalendarSnapshot(storage: AppMetadataSessionStorage, categoryKey: string, chatId: number, messageThreadId: number | null) {
+  const previous = parseCalendarSnapshotMessage(await storage.get(buildCalendarSnapshotMessageKey(categoryKey, chatId, messageThreadId)))
+    ?? (categoryKey === eventsNewsGroupCategory ? parseCalendarSnapshotMessage(await storage.get(buildLegacyCalendarSnapshotMessageKey(chatId, messageThreadId))) : null);
+  return previous?.chatId === chatId && (previous.messageThreadId ?? 0) === (messageThreadId ?? 0) ? previous : null;
 }
 
 function buildCalendarSnapshotMessageKey(categoryKey: string, chatId: number, messageThreadId: number | null): string {
@@ -299,7 +358,7 @@ function buildLegacyCalendarSnapshotMessageKey(chatId: number, messageThreadId: 
   return `telegram.schedule.calendar_snapshot:${chatId}:${messageThreadId ?? 0}`;
 }
 
-function parseCalendarSnapshotMessage(raw: string | null): { chatId: number; messageThreadId: number | null; messageId: number } | null {
+function parseCalendarSnapshotMessage(raw: string | null): { chatId: number; messageThreadId: number | null; messageId: number; messageIds?: number[] } | null {
   if (!raw) {
     return null;
   }
@@ -316,6 +375,7 @@ function parseCalendarSnapshotMessage(raw: string | null): { chatId: number; mes
       chatId,
       messageId,
       messageThreadId: typeof messageThreadId === 'number' ? messageThreadId : null,
+      ...(Array.isArray(parsed.messageIds) ? { messageIds: [...new Set([...parsed.messageIds.filter((id): id is number => typeof id === 'number' && Number.isInteger(id) && id > 0), messageId])] } : {}),
     };
   } catch {
     return null;

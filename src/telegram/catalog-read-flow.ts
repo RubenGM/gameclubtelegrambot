@@ -31,6 +31,7 @@ import type { TelegramInlineButton, TelegramReplyButton, TelegramReplyOptions } 
 import { buildTelegramStartUrl } from './deep-links.js';
 import { sendCatalogItemCoverIfPresent } from './catalog-cover-media.js';
 import { formatTelegramUserLink } from './telegram-user-links.js';
+import { buildTelegramRichDetailMessage } from './rich-detail-message.js';
 
 const catalogReadFlowKey = 'catalog-read';
 const catalogReadPageSize = 5;
@@ -391,8 +392,7 @@ async function replyWithCatalogReadItemDetail(
 ): Promise<void> {
   await sendCatalogItemCoverIfPresent(context, { itemId: input.item.id, media: input.media });
   const ownerLine = await formatCatalogReadOwnerLine(context, input.item, input.language, { includeEmpty: Boolean(input.full) });
-  await context.reply(
-    input.full
+  const text = input.full
       ? formatMemberCatalogItemDetails({
           breadcrumbLine: buildCatalogReadItemBreadcrumb(input.item, input.language),
           item: input.item,
@@ -411,12 +411,22 @@ async function replyWithCatalogReadItemDetail(
           ownerLine,
           detailsUrl: buildTelegramStartUrl(`${catalogReadFullItemStartPayloadPrefix}${input.item.id}`),
           language: input.language,
-        }),
-    {
-      ...buildCatalogReadItemReplyOptions(context, input.item, input.loan, input.language),
-      parseMode: 'HTML',
-    },
-  );
+        });
+  const options: TelegramReplyOptions = {
+    ...buildCatalogReadItemReplyOptions(context, input.item, input.loan, input.language),
+    parseMode: 'HTML',
+  };
+  if (context.runtime.bot.sendRichMessage) {
+    await context.runtime.bot.sendRichMessage({
+      chatId: context.runtime.chat.chatId,
+      richMessage: buildTelegramRichDetailMessage(input.item.displayName, text),
+      fallbackText: text,
+      options,
+      ...(context.messageThreadId !== undefined ? { messageThreadId: context.messageThreadId } : {}),
+    });
+  } else {
+    await context.reply(text, options);
+  }
 }
 
 async function formatCatalogReadOwnerLine(

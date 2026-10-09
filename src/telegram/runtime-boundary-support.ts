@@ -2,6 +2,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import { Bot, InputFile, type Context } from 'grammy';
+import type { Update } from 'grammy/types';
+import { run, type RunnerHandle } from '@grammyjs/runner';
+import { createTelegramUpdateScheduler, isTelegramGenerationControl, resolveTelegramUpdateScope, telegramGenerationStopCallbackPrefix } from './update-scheduler.js';
+import { enableTelegramLlmGenerations, shutdownTelegramLlmGenerations, stopTelegramLlmGenerationByToken } from './llm-command-jobs.js';
 
 import type { AuthorizationService } from '../authorization/service.js';
 import type { CatalogDescriptionTranslator } from '../catalog/catalog-description-translation.js';
@@ -39,6 +43,8 @@ import { createTelegramApiHealthMonitor, type TelegramApiHealthMonitor } from '.
 import { withTelegramApiRetry } from './telegram-api-retry.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
 import { downloadTelegramFileViaLocalBotApi } from './telegram-local-file-download.js';
+import { createTelegramRichMessageTransport, resolveMessageGenerationStopped, type TelegramMessageGenerationStopped, type TelegramRichMessageTransport } from './rich-message-transport.js';
+import { extractRichMessageReplyText } from './rich-message-reply-context.js';
 import {
   splitTelegramOutgoingMessage,
   telegramCaptionTextLimit,
@@ -54,10 +60,11 @@ export interface TelegramBoundaryStatus {
   bot: 'connected';
 }
 
-export interface TelegramBoundary {
+export interface TelegramBoundary extends Partial<Pick<TelegramRichMessageTransport, 'sendRichMessage' | 'editRichMessage'>> {
   status: TelegramBoundaryStatus;
   sendPrivateMessage(telegramUserId: number, message: string, options?: TelegramReplyOptions): Promise<void>;
   sendGroupMessage?(chatId: number, message: string, options?: TelegramReplyOptions): Promise<TelegramSentMessage | void>;
+  editMessageText?(input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }): Promise<void>;
   copyMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   forwardMessage?(input: { fromChatId: number; messageId: number; toChatId: number; messageThreadId?: number }): Promise<{ messageId: number }>;
   deleteMessage?(input: { chatId: number; messageId: number }): Promise<void>;
@@ -213,10 +220,12 @@ export interface TelegramReplyOptions {
 
 export interface TelegramSentMessage {
   messageId: number;
+  /** All durable messages when a complete fallback required multiple chunks. */
+  messageIds?: number[];
 }
 
 export interface TelegramRuntime {
-  bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName' | 'language'> & {
+  bot: Pick<RuntimeConfig['bot'], 'clubName' | 'publicName' | 'language'> & Partial<TelegramRichMessageTransport> & {
     username?: string | undefined;
     getMe?(): Promise<{ id: number; username?: string }>;
     getChat?(chatId: number): Promise<{ id: number; type: string; title?: string; isForum?: boolean }>;
@@ -253,13 +262,14 @@ export type TelegramMiddleware = (
   next: () => Promise<void>,
 ) => Promise<void>;
 
-export interface TelegramBotLike {
+export interface TelegramBotLike extends Partial<TelegramRichMessageTransport> {
   username?: string | undefined;
   use(middleware: TelegramMiddleware): void;
   onCommand(command: string, handler: TelegramCommandHandler): void;
   onCallback(callbackPrefix: string, handler: TelegramCommandHandler): void;
   onText(handler: TelegramCommandHandler): void;
   onMessage?(handler: TelegramCommandHandler): void;
+  onMessageGenerationStopped?(handler: (event: TelegramMessageGenerationStopped) => void | Promise<void>): void;
   getMe?(): Promise<{ id: number; username?: string }>;
   getChat?(chatId: number): Promise<{ id: number; type: string; title?: string; isForum?: boolean }>;
   getChatMember?(chatId: number, userId: number): Promise<{ status: string; canManageTopics?: boolean; canDeleteMessages?: boolean }>;
@@ -308,6 +318,7 @@ export interface CreateTelegramBotOptions {
   token: string;
   logger: TelegramLogger;
   publicName: string;
+  language?: RuntimeConfig['bot']['language'];
   buttonAppearance?: TelegramButtonAppearanceConfig;
   localBotApi?: RuntimeConfig['telegram']['localBotApi'];
   onFatalRuntimeError?: TelegramFatalRuntimeErrorHandler;
@@ -364,6 +375,7 @@ export async function createTelegramBoundary({
       token: config.telegram.token,
       logger,
       publicName: config.bot.publicName,
+      language: config.bot.language,
       buttonAppearance: config.telegram.buttonAppearance,
       localBotApi: config.telegram.localBotApi,
       onFatalRuntimeError: reportFatalRuntimeError,
@@ -410,6 +422,9 @@ export async function createTelegramBoundary({
       },
       sendPrivateMessage: bot.sendPrivateMessage.bind(bot),
       ...(bot.sendGroupMessage ? { sendGroupMessage: bot.sendGroupMessage.bind(bot) } : {}),
+      ...(bot.sendRichMessage ? { sendRichMessage: bot.sendRichMessage.bind(bot) } : {}),
+      ...(bot.editRichMessage ? { editRichMessage: bot.editRichMessage.bind(bot) } : {}),
+      ...(bot.editMessageText ? { editMessageText: bot.editMessageText.bind(bot) } : {}),
       ...(bot.copyMessage ? { copyMessage: bot.copyMessage.bind(bot) } : {}),
       ...(bot.forwardMessage ? { forwardMessage: bot.forwardMessage.bind(bot) } : {}),
       ...(bot.deleteMessage ? { deleteMessage: bot.deleteMessage.bind(bot) } : {}),
@@ -430,12 +445,14 @@ export async function createTelegramBoundary({
 function createGrammyTelegramBot({
   token,
   logger,
+  language = 'ca',
   buttonAppearance,
   localBotApi,
   onFatalRuntimeError,
 }: CreateTelegramBotOptions): TelegramBotLike {
   const bot = new Bot<Context & TelegramContextLike>(token);
   let pollingPromise: Promise<void> | undefined;
+  let runner: RunnerHandle | undefined;
   let isStopping = false;
   let botUsername: string | undefined;
   const apiHealth = createTelegramApiHealthMonitor();
@@ -450,7 +467,92 @@ function createGrammyTelegramBot({
     },
   });
 
+  const rejectionNotices = new Set<Promise<void>>();
+  const noticeTimes = new Map<number, number>();
+  const notifyRejectedUpdate = (update: Update, reason: 'capacity' | 'shutdown') => {
+    logger.warn?.({ event: 'telegram.update.rejected', updateId: update.update_id, scope: resolveTelegramUpdateScope(update), reason }, 'Telegram update was not processed');
+    const userId = update.message?.from?.id ?? update.callback_query?.from.id;
+    if (!userId || rejectionNotices.size >= 16) return;
+    const now = Date.now();
+    for (const [id, time] of noticeTimes) if (now - time > 3000) noticeTimes.delete(id);
+    if (noticeTimes.has(userId) || noticeTimes.size >= 256) return;
+    noticeTimes.set(userId, now);
+    const text = language === 'es' ? 'El bot está ocupado o reiniciándose. Vuelve a enviar tu petición en unos momentos.'
+      : language === 'en' ? 'The bot is busy or restarting. Please send your request again in a moment.'
+        : 'El bot està ocupat o reiniciant-se. Torna a enviar la teva petició d’aquí a uns moments.';
+    const notice = (update.callback_query
+      ? bot.api.answerCallbackQuery(update.callback_query.id, { text })
+      : bot.api.sendMessage(userId, text))
+      .then(() => undefined)
+      .catch((error: unknown) => logger.warn?.({ event: 'telegram.update.rejection-notice.failed', updateId: update.update_id, error: sanitizeTelegramErrorMessage(error) }, 'Telegram busy notice could not be delivered'))
+      .finally(() => rejectionNotices.delete(notice));
+    rejectionNotices.add(notice);
+  };
+  const scheduler = createTelegramUpdateScheduler<Update>({
+    scope: resolveTelegramUpdateScope,
+    isControl: isTelegramGenerationControl,
+    consume: (update) => bot.handleUpdate(update),
+    onRejected: notifyRejectedUpdate,
+    onError: (error, update) => {
+      logger.error({ event: 'telegram.update.failed', updateId: update.update_id, error: sanitizeTelegramErrorMessage(error) }, 'Telegram update handler failed');
+    },
+  });
+
+  let generationStoppedHandler: ((event: TelegramMessageGenerationStopped) => void | Promise<void>) | undefined;
+  // Stop must bypass session loading and any per-conversation lock.
+  bot.use(async (context, next) => {
+    const stopped = resolveMessageGenerationStopped(context.update);
+    if (stopped) {
+      await generationStoppedHandler?.(stopped);
+      return;
+    }
+    if (isTelegramGenerationControl(context.update) && context.callbackQuery?.data && context.chat) {
+      const messageThreadId = resolveMessageThreadId(context.callbackQuery.message);
+      stopTelegramLlmGenerationByToken({
+        chatId: context.chat.id,
+        userId: context.callbackQuery.from.id,
+        ...(messageThreadId !== undefined ? { messageThreadId } : {}),
+      }, context.callbackQuery.data.slice(telegramGenerationStopCallbackPrefix.length));
+      await context.answerCallbackQuery();
+      return;
+    }
+    await next();
+  });
+  const richTransport = createTelegramRichMessageTransport({
+    api: bot.api.raw,
+    call: (operation, action) => withTelegramApiRetry(retryOptions(operation), action),
+    replyOptions: (options) => toGrammyReplyOptions(options, buttonAppearance),
+    sanitizeDraft: (text, parseMode) => sanitizeOutgoingEdit(text, parseMode ? { parseMode } : undefined, logger, 'sendMessageDraft'),
+    async sendFallback({ chatId, text, options }) {
+      const chunks = sanitizeOutgoingMessage(text, options, logger, 'sendRichMessage.fallback');
+      let result: unknown;
+      const messageIds: number[] = [];
+      for (const [index, chunk] of chunks.entries()) {
+        result = await withTelegramApiRetry(retryOptions('sendRichMessage.fallback'), () =>
+          bot.api.sendMessage(chatId, chunk, toGrammyReplyOptions(optionsForMessageChunk(options, index, chunks.length), buttonAppearance)),
+        );
+        const sentId = resolveTelegramMessageId(result);
+        if (sentId) messageIds.push(sentId);
+      }
+      const messageId = resolveTelegramMessageId(result);
+      return messageId ? { messageId, ...(messageIds.length > 1 ? { messageIds } : {}) } : undefined;
+    },
+    async editFallback({ chatId, messageId, text, options }) {
+      await withTelegramApiRetry(retryOptions('editRichMessage.fallback'), () => bot.api.raw.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: sanitizeOutgoingEdit(text, options, logger, 'editRichMessage.fallback'),
+        ...toGrammyReplyOptions(options, buttonAppearance),
+      }));
+    },
+    onUnsupported: (operation, chatId) => logger.info({ operation, chatId, event: 'telegram.feature.unsupported' }, 'Telegram feature unavailable; using standard messages'),
+  });
+
   return {
+    ...richTransport,
+    onMessageGenerationStopped(handler) {
+      generationStoppedHandler = handler;
+    },
     get username() {
       return botUsername;
     },
@@ -599,13 +701,16 @@ function createGrammyTelegramBot({
     async sendGroupMessage(chatId, message, options) {
       const chunks = sanitizeOutgoingMessage(message, options, logger, 'sendGroupMessage');
       let result: unknown;
+      const messageIds: number[] = [];
       for (const [index, chunk] of chunks.entries()) {
         result = await withTelegramApiRetry(retryOptions('sendGroupMessage'), () =>
           bot.api.sendMessage(chatId, chunk, toGrammyReplyOptions(optionsForMessageChunk(options, index, chunks.length), buttonAppearance)),
         );
+        const sentId = resolveTelegramMessageId(result);
+        if (sentId) messageIds.push(sentId);
       }
       const messageId = resolveTelegramMessageId(result);
-      return messageId ? { messageId } : undefined;
+      return messageId ? { messageId, ...(messageIds.length > 1 ? { messageIds } : {}) } : undefined;
     },
     async copyMessage({ fromChatId, messageId, toChatId, messageThreadId }) {
       const result = await withTelegramApiRetry(retryOptions('copyMessage'), () =>
@@ -747,16 +852,16 @@ function createGrammyTelegramBot({
     },
     async startPolling() {
       await bot.init();
-
       isStopping = false;
-      pollingPromise = bot.start({
-        allowed_updates: ['message', 'callback_query'],
-        drop_pending_updates: false,
-        onStart: ({ username }) => {
-          botUsername = username;
-          logger.info({ username }, 'Telegram bot authenticated successfully');
-        },
-      }).catch((error) => {
+      enableTelegramLlmGenerations();
+      botUsername = bot.botInfo.username;
+      logger.info({ username: botUsername }, 'Telegram bot authenticated successfully');
+      runner = run({
+        api: bot.api,
+        handleUpdate: scheduler.handle,
+        errorHandler: (error: unknown) => logger.error({ error: sanitizeTelegramErrorMessage(error) }, 'Telegram update intake failed'),
+      }, { runner: { fetch: { allowed_updates: ['message', 'callback_query', 'stopped_message_generation'] }, silent: true } });
+      pollingPromise = runner.task()?.catch((error) => {
         if (isStopping) {
           return;
         }
@@ -767,8 +872,10 @@ function createGrammyTelegramBot({
     },
     async stopPolling() {
       isStopping = true;
+      const drain = scheduler.stop();
+      shutdownTelegramLlmGenerations();
       try {
-        bot.stop();
+        await runner?.stop();
       } catch (error) {
         apiHealth.recordFailure('stopPolling', error);
         logger.error(
@@ -779,6 +886,8 @@ function createGrammyTelegramBot({
 
       try {
         await pollingPromise;
+        await drain;
+        await Promise.all(rejectionNotices);
       } catch (error) {
         apiHealth.recordFailure('stopPolling', error);
         logger.error(
@@ -886,7 +995,7 @@ export function resolveReplyToBotMessageContext(
     return null;
   }
 
-  const text = firstNonEmptyString(replyRecord.text, replyRecord.caption);
+  const text = firstNonEmptyString(replyRecord.text, replyRecord.caption, extractRichMessageReplyText(replyRecord.rich_message));
   const messageId = resolveTelegramMessageId(replyToMessage);
   return {
     ...(messageId !== undefined ? { messageId } : {}),

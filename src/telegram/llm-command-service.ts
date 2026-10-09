@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { parseLlmCommandDecisionJson, type LlmCommandDecision } from './llm-command-schema.js';
+import { runCodexAnswerStream } from './codex-answer-stream.js';
+import { terminateLlmProcess } from './llm-process-termination.js';
 
 export interface LlmCommandServiceConfig {
   provider?: 'codex' | 'opencode';
@@ -18,21 +20,28 @@ export interface LlmCommandServiceConfig {
 export interface LlmCommandGenerateJsonOptions {
   model?: string | undefined;
   reasoningEffort?: string | undefined;
+  signal?: AbortSignal | undefined;
+  onTextDelta?: ((delta: string) => void) | undefined;
+}
+
+export interface LlmCommandGenerateTextOptions extends LlmCommandGenerateJsonOptions {
+  onTextDelta(delta: string): void;
 }
 
 export interface LlmCommandService {
   interpret(prompt: string, options?: LlmCommandGenerateJsonOptions): Promise<LlmCommandDecision>;
   generateJson(prompt: string, schemaPath?: string, options?: LlmCommandGenerateJsonOptions): Promise<unknown>;
+  generateText?(prompt: string, options: LlmCommandGenerateTextOptions): Promise<string>;
 }
 
 export type LlmCommandSpawn = (
   command: string,
   args: string[],
-  options: { stdio: ['pipe', 'pipe', 'pipe'] },
+  options: { stdio: ['pipe', 'pipe', 'pipe']; detached?: boolean },
 ) => ChildProcessWithoutNullStreams;
 
 export class LlmCommandServiceError extends Error {
-  code: 'not_configured' | 'timeout' | 'process_failed' | 'invalid_json';
+  code: 'not_configured' | 'timeout' | 'process_failed' | 'invalid_json' | 'cancelled';
 
   constructor(code: LlmCommandServiceError['code'], message: string) {
     super(message);
@@ -62,6 +71,14 @@ export function createLlmCommandService({
       ...(schemaPath ? { schemaPath } : {}),
       ...(options ? { options } : {}),
     }),
+    ...((config.provider ?? 'opencode') === 'codex' ? {
+      generateText: (prompt: string, options: LlmCommandGenerateTextOptions) => runCodexAnswerStream({
+        prompt,
+        config: applyLlmCommandJsonOptions(config, options),
+        spawnImpl,
+        options,
+      }),
+    } : {}),
   };
 }
 
@@ -83,6 +100,7 @@ async function runOpencodeJsonPrompt({
       config: effectiveConfig,
       spawnImpl,
       schemaPath: 'src/telegram/llm-command-decision.schema.json',
+      signal: options?.signal,
     });
     try {
       return parseLlmCommandDecisionJson(stdout.trim());
@@ -105,6 +123,7 @@ async function runOpencodeJsonPrompt({
     prompt,
     timeoutMs: effectiveConfig.timeoutMs,
     spawnImpl,
+    signal: options?.signal,
   });
 
   try {
@@ -137,6 +156,7 @@ async function runOpencodeRawJsonPrompt({
       config: effectiveConfig,
       spawnImpl,
       schemaPath,
+      signal: options?.signal,
     });
     try {
       return JSON.parse(stdout.trim());
@@ -159,6 +179,7 @@ async function runOpencodeRawJsonPrompt({
     prompt,
     timeoutMs: effectiveConfig.timeoutMs,
     spawnImpl,
+    signal: options?.signal,
   });
 
   try {
@@ -187,11 +208,13 @@ async function runCodexJsonPrompt({
   config,
   schemaPath,
   spawnImpl,
+  signal,
 }: {
   prompt: string;
   config: LlmCommandServiceConfig;
   schemaPath: string;
   spawnImpl: LlmCommandSpawn;
+  signal?: AbortSignal | undefined;
 }): Promise<string> {
   const codexBin = config.codexBin?.trim();
   if (!codexBin) {
@@ -224,6 +247,7 @@ async function runCodexJsonPrompt({
       prompt,
       timeoutMs: config.timeoutMs,
       spawnImpl,
+      signal,
     });
     try {
       return await readFile(outputPath, 'utf8');
@@ -246,40 +270,62 @@ function runPromptProcess({
   prompt,
   timeoutMs,
   spawnImpl,
+  signal,
 }: {
   command: string;
   args: string[];
   prompt: string;
   timeoutMs: number;
   spawnImpl: LlmCommandSpawn;
+  signal?: AbortSignal | undefined;
 }): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawnImpl(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    if (signal?.aborted) {
+      reject(new LlmCommandServiceError('cancelled', 'LLM generation cancelled'));
+      return;
+    }
+    const child = spawnImpl(command, args, { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     let stdout = '';
     let stderr = '';
     let settled = false;
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+      void terminateLlmProcess(child).then(() => reject(new LlmCommandServiceError('cancelled', 'LLM generation cancelled')));
+    };
+    signal?.addEventListener('abort', abort, { once: true });
     const timeout = setTimeout(() => {
       if (settled) {
         return;
       }
       settled = true;
-      child.kill('SIGTERM');
-      reject(new LlmCommandServiceError('timeout', `OpenCode timed out after ${timeoutMs} ms`));
+      signal?.removeEventListener('abort', abort);
+      void terminateLlmProcess(child).then(() => reject(new LlmCommandServiceError('timeout', `LLM timed out after ${timeoutMs} ms`)));
     }, Math.max(1, timeoutMs));
 
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
+      if (settled) return;
       stdout += chunk;
+      if (Buffer.byteLength(stdout) > 4 * 1024 * 1024) {
+        settled = true;
+        clearTimeout(timeout);
+        signal?.removeEventListener('abort', abort);
+        void terminateLlmProcess(child).then(() => reject(new LlmCommandServiceError('process_failed', 'LLM output exceeded its limit')));
+      }
     });
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
-      stderr += chunk;
+      if (!settled) stderr = (stderr + chunk).slice(-4096);
     });
     child.on('error', (error) => {
       if (settled) {
         return;
       }
       settled = true;
+      signal?.removeEventListener('abort', abort);
       clearTimeout(timeout);
       reject(new LlmCommandServiceError('process_failed', error.message));
     });
@@ -288,6 +334,7 @@ function runPromptProcess({
         return;
       }
       settled = true;
+      signal?.removeEventListener('abort', abort);
       clearTimeout(timeout);
       if (code === 0) {
         resolve(stdout.trim() || stderr.trim());
@@ -297,6 +344,13 @@ function runPromptProcess({
     });
 
     child.stdin.setDefaultEncoding('utf8');
+    child.stdin.on('error', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+      void terminateLlmProcess(child).then(() => reject(new LlmCommandServiceError('process_failed', 'LLM input transport failed')));
+    });
     child.stdin.end(prompt);
   });
 }

@@ -8,6 +8,7 @@ import type { ConversationSessionRecord } from './conversation-session.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
+import type { TelegramRichMessageInput } from './rich-message-transport.js';
 import {
   catalogReadCallbackPrefixes,
   handleTelegramCatalogReadCallback,
@@ -19,6 +20,25 @@ import {
 function successButton(text: string) {
   return { text, semanticRole: 'success' as const };
 }
+
+test('catalog item sends a rich heading and table preserving escaped text, detail links and navigation', async () => {
+  const item = { ...buildItem(1, 'Catan <Club> & Amics'), description: 'Primera\nSegunda', playerCountMin: 3, playerCountMax: 4, playTimeMinutes: 90 };
+  const { context, replies } = createContext(createRepository({ items: [item] }));
+  const sent: TelegramRichMessageInput[] = [];
+  context.runtime.bot.sendRichMessage = async (message) => { sent.push(message); return { messageId: 42 }; };
+  context.messageText = '/start catalog_read_item_1';
+  assert.equal(await handleTelegramCatalogReadStartText(context), true);
+  assert.equal(replies.length, 0);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0]?.richMessage.html ?? '', /<h2>Catan &lt;Club&gt; &amp; Amics<\/h2>/);
+  assert.match(sent[0]?.richMessage.html ?? '', /<table>.*Jugadors:.*3-4.*Durada:.*90.*<\/table>/s);
+  assert.match(sent[0]?.richMessage.html ?? '', /catalog_read_item_full_1/);
+  assert.match(sent[0]?.fallbackText ?? '', /<b>Catan &lt;Club&gt; &amp; Amics<\/b>/);
+  assert.deepEqual(sent[0]?.options?.replyKeyboard?.at(-1), ['Inici', 'Ajuda']);
+  context.messageText = '/start catalog_read_item_full_1';
+  assert.equal(await handleTelegramCatalogReadStartText(context), true);
+  assert.match(sent[1]?.richMessage.html ?? '', /<td><i>Primera\nSegunda<\/i><\/td>/);
+});
 
 function createRepository({
   families = [],

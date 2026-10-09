@@ -15,6 +15,7 @@ import { defaultLlmCommandConfig } from './llm-command-config.js';
 import type { LlmCommandMetricInput } from './llm-command-metrics.js';
 import type { LlmCommandDecision } from './llm-command-schema.js';
 import { LlmCommandServiceError } from './llm-command-service.js';
+import { abortAllTelegramLlmGenerations, stopTelegramLlmGeneration } from './llm-command-jobs.js';
 import type { ConversationSessionRecord, ConversationSessionRuntime } from './conversation-session.js';
 
 test('handleTelegramLlmAskCommand starts a session when no prompt is provided', async () => {
@@ -819,3 +820,89 @@ function scheduleEvent() {
     cancellationReason: null,
   };
 }
+
+test('general answer streams provider deltas as drafts before terminal and sends one durable final with final session history', async () => {
+  const context = createContext({ messageText: '/ask', editableProgress: true });
+  await handleTelegramLlmAskCommand(context);
+  const base = helpDecision();
+  context.runtime.llmCommandService!.interpret = async () => ({ ...base, intent: 'general.answer', action: { type: 'answer_directly', name: 'general.answer', params: {} }, reply: { text: 'Respuesta base', sendNow: true } });
+  const drafts: string[] = []; const deleted: number[] = [];
+  let complete!: () => void; let began!: () => void;
+  const started = new Promise<void>((resolve) => { began = resolve; });
+  context.runtime.bot.sendMessageDraft = async (input) => { drafts.push(input.text); assert.equal(input.canStop, true); return true; };
+  context.runtime.bot.deleteMessage = async (input) => { deleted.push(input.messageId); };
+  context.runtime.llmCommandService!.generateText = async (_prompt, options) => {
+    options.onTextDelta('Hola'); began();
+    return new Promise<string>((resolve) => { complete = () => { options.onTextDelta(' mundo'); resolve('Hola mundo'); }; });
+  };
+  context.messageText = '/ask una pregunta general';
+  const pending = handleTelegramLlmAskCommand(context);
+  await started; await new Promise((resolve) => setTimeout(resolve, 550));
+  assert.deepEqual(drafts, ['Hola']);
+  assert.notEqual(context.replies.at(-1), 'Hola mundo');
+  complete(); await pending;
+  assert.deepEqual(drafts, ['Hola', 'Hola mundo']);
+  assert.equal(context.replies.at(-1), 'Hola mundo');
+  assert.equal(deleted.length, 1);
+  assert.equal((context.session.current?.data.history as Array<{ role: string; text: string }>).at(-1)?.text, 'Hola mundo');
+});
+
+test('fallback Stop cancels interpretation without preparing a write session or sending the eventual result', async () => {
+  const context = createContext({ messageText: '/ask crea un aviso', editableProgress: true });
+  let began!: () => void;
+  const started = new Promise<void>((resolve) => { began = resolve; });
+  context.runtime.llmCommandService!.interpret = async (_prompt, options) => {
+    began();
+    return new Promise((_resolve, reject) => { options!.signal!.addEventListener('abort', () => reject(new LlmCommandServiceError('cancelled', 'cancelled')), { once: true }); });
+  };
+  const pending = handleTelegramLlmAskCommand(context); await started;
+  const stop = context.replyOptions[0] as { inlineKeyboard: Array<Array<{ callbackData: string }>> };
+  context.callbackData = stop.inlineKeyboard[0]![0]!.callbackData;
+  assert.equal(await handleTelegramLlmCallback(context), true);
+  await pending;
+  assert.equal(context.session.current, null);
+  assert.match(context.edits.at(-1)?.text ?? '', /cancelad/i);
+  assert.equal(context.metrics.length, 0);
+});
+
+test('Stop received while confirmation progress editing is pending cannot open a confirmation session', async () => {
+  const context = createContext({ messageText: '/ask crea un aviso', decision: noticeCreateDecision(), editableProgress: true });
+  let began!: () => void; let release!: () => void;
+  const started = new Promise<void>((resolve) => { began = resolve; });
+  let firstEdit = true;
+  context.runtime.bot.editMessageText = async (input) => { if (firstEdit) { firstEdit = false; began(); await new Promise<void>((resolve) => { release = resolve; }); } else context.edits.push(input); };
+  const pending = handleTelegramLlmAskCommand(context); await started;
+  const stop = context.replyOptions[0] as { inlineKeyboard: Array<Array<{ callbackData: string }>> };
+  context.callbackData = stop.inlineKeyboard[0]![0]!.callbackData;
+  await handleTelegramLlmCallback(context);
+  context.runtime.bot.editMessageText = async (input) => { context.edits.push(input); };
+  release(); await pending;
+  assert.equal(context.session.current, null);
+  assert.match(context.edits.at(-1)?.text ?? '', /cancelad/i);
+});
+
+test('rich drafts and durable rich final receive escaped user text and stale Stop cannot cancel delivered final', async () => {
+  const base = helpDecision();
+  const context = createContext({ messageText: '/ask pregunta general', editableProgress: true, decision: { ...base, intent: 'general.answer', action: { type: 'answer_directly', name: 'general.answer', params: {} } } });
+  const richDrafts: string[] = []; const richFinals: string[] = [];
+  let draftId = 0;
+  context.runtime.bot.sendRichMessageDraft = async (input) => { richDrafts.push('html' in input.richMessage ? input.richMessage.html : 'wrong'); draftId = input.draftId; return true; };
+  context.runtime.bot.sendMessageDraft = async () => { assert.fail('rich transport owns plaintext fallback'); };
+  context.runtime.bot.sendRichMessage = async (input) => { richFinals.push('html' in input.richMessage ? input.richMessage.html : 'wrong'); assert.equal(stopTelegramLlmGeneration({ chatId: 123, userId: 123, draftId }), false); };
+  context.runtime.llmCommandService!.generateText = async (_prompt, options) => { options.onTextDelta('<texto> & final'); return '<texto> & final'; };
+  await handleTelegramLlmAskCommand(context);
+  assert.deepEqual(richDrafts, ['&lt;texto&gt; &amp; final']);
+  assert.deepEqual(richFinals, ['&lt;texto&gt; &amp; final']);
+  assert.equal(context.replies.length, 1);
+});
+
+test('shutdown cancels silent group interpretation without any public or private message', async () => {
+  const context = createContext({ messageText: '@gameclubbot pregunta', chatKind: 'group', groupInteractionsEnabled: true });
+  let began!: () => void;
+  const started = new Promise<void>((resolve) => { began = resolve; });
+  context.runtime.llmCommandService!.interpret = async (_prompt, options) => { began(); return new Promise((_resolve, reject) => { options!.signal!.addEventListener('abort', () => reject(new LlmCommandServiceError('cancelled', 'cancelled')), { once: true }); }); };
+  const pending = handleTelegramLlmFallbackText(context); await started;
+  abortAllTelegramLlmGenerations(); await pending;
+  assert.equal(context.replies.length, 0);
+  assert.equal(context.privateMessages.length, 0);
+});

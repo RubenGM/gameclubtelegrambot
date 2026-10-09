@@ -53,6 +53,18 @@ crear fragmentos adicionales: `editMessageText` conserva HTML válido y acota el
 contenido con una elipsis. El fallback de `complete(...)` vuelve a pasar por
 `context.reply(...)` y sí puede dividir el resultado completo.
 
+## Borradores de IA
+
+Para síntesis LLM privada, `llm-answer-preview.ts` agrupa deltas reales de Codex
+y usa borradores enriquecidos o de texto con un `draft_id` único por trabajo.
+El progreso editable es el fallback cuando no hay soporte para borradores.
+Stop se gestiona antes de la cola de sesiones para cancelar inmediatamente.
+
+Los borradores son efímeros: al terminar, envía el resultado completo mediante
+`sendRichMessage` o su fallback duradero y retira el progreso auxiliar. No
+consideres una edición de otro mensaje como persistencia del borrador. No
+transmitas JSON de decisiones, razonamiento o texto sin comprobar permisos.
+
 ## Teclados de respuesta
 
 Telegram `editMessageText` no puede adjuntar un reply keyboard normal. No crees

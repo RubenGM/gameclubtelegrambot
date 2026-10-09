@@ -2,7 +2,7 @@
 
 ## Requisitos
 
-- Node.js 20.19 o posterior.
+- Node.js 24 LTS o posterior (usar una rama con soporte).
 - npm.
 - PostgreSQL.
 - Docker y Docker Compose para el entorno local preparado automáticamente.
@@ -172,3 +172,12 @@ Las integraciones nuevas deben leer los binarios configurados:
 El servicio corre como `gameclubbot`, mientras que los wrappers ejecutan las
 herramientas con el usuario operador que posee las credenciales. No se debe
 invocar `codex` u `opencode` directamente desde el proceso del bot.
+
+## Runtime de despliegue
+
+Instala Node.js 24 LTS antes de ejecutar `startup.sh` o el instalador en un host
+nuevo. `scripts/resolve-node-bin.sh` selecciona `GAMECLUB_NODE_BIN`, el runtime
+dedicado `/opt/gameclubtelegrambot-node/bin/node` si existe o el `node` del PATH,
+y rechaza versiones inferiores a 24. El instalador usa ese binario para validar
+configuración, migraciones, systemd y tray, y su directorio para npm. No sustituye
+el Node de paquetes de Debian ni descarga automáticamente un runtime.

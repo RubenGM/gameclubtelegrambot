@@ -1,6 +1,6 @@
 # Trabajo pendiente
 
-Última revisión: 2026-09-30.
+Última revisión: 2026-10-09.
 
 Backlog vivo del proyecto, iniciado tras contrastar código, documentación operativa
 y planes históricos. Aquí se mantiene el trabajo por hacer; el inventario del
@@ -24,6 +24,7 @@ Una limitación de alcance no implica que una feature esté rota o incompleta.
 
 | ID | Prioridad | Estado | Pendiente y criterio de cierre |
 | --- | --- | --- | --- |
+| P-040 | Alta | en curso | **Modernización Telegram #32.** Completar #9, #14, #24 y #25: concurrencia supervisada, grammY actual, fichas rich, streaming real Codex y Stop. Node 24, fallback, supervisor y pruebas integradas incluidos. Calendario rich público con tabla móvil de dos columnas/dos filas aprobado por el usuario; registrar su refresco y evidencia del Stop nativo antes de cerrar. |
 | P-001 | Alta | hecho | **Backup completo del estado en disco.** Incluir `data/feedback.jsonl` y `data/http-assets/` en backup y restore; comprobar recuperación de feedback y assets. Revisar además los archivos persistentes de las integraciones actuales para no limitar el análisis a esas dos rutas. |
 | P-002 | Alta | pendiente | **Escrituras LLM declaradas sin ejecución.** Conectar `schedule.create`, `group_purchase.create` y `storage.entry.edit` a los flujos normales con prellenado y permisos, o dejar de ofrecerlas como ejecutables hasta entonces. Actualmente la confirmación termina en `unsupportedPrefill`. |
 | P-003 | Alta | pendiente | **Validación real de generación de imágenes.** Registrar una petición que ejecute el wrapper Codex, cree `generated.png` y entregue la foto en Telegram. Los dobles de test no cierran esta validación. |

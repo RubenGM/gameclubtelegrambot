@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+NODE_BIN="$(bash "$ROOT_DIR/scripts/resolve-node-bin.sh")"
+export GAMECLUB_NODE_BIN="$NODE_BIN"
+export PATH="$(dirname "$NODE_BIN"):$PATH"
 APP_ROOT="${GAMECLUB_APP_ROOT:-/opt/gameclubtelegrambot}"
 SERVICE_NAME="${GAMECLUB_SERVICE_NAME:-gameclubtelegrambot.service}"
 CONFIG_DIR="/etc/gameclubtelegrambot"
@@ -222,8 +225,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
   printf '+ systemctl stop %q\n' "$SERVICE_NAME"
   GAMECLUB_APP_ROOT="$APP_ROOT" GAMECLUB_ENV_PATH="$BACKUP_ROOT/config/runtime.env" \
     "$ROOT_DIR/scripts/restore-postgres.sh" --config "$BACKUP_ROOT/config/runtime.json" --input "$BACKUP_ROOT/database/postgres.sql.gz" --dry-run
-  printf '+ env GAMECLUB_CONFIG_PATH=%q GAMECLUB_ENV_PATH=%q /usr/bin/node %q\n' "$CONFIG_PATH" "$ENV_PATH" "$APP_ROOT/dist/scripts/check-runtime-config.js"
-  printf '+ env GAMECLUB_CONFIG_PATH=%q GAMECLUB_ENV_PATH=%q /usr/bin/node %q\n' "$CONFIG_PATH" "$ENV_PATH" "$APP_ROOT/dist/scripts/migrate.js"
+  printf '+ env GAMECLUB_CONFIG_PATH=%q GAMECLUB_ENV_PATH=%q %q %q\n' "$CONFIG_PATH" "$ENV_PATH" "$NODE_BIN" "$APP_ROOT/dist/scripts/check-runtime-config.js"
+  printf '+ env GAMECLUB_CONFIG_PATH=%q GAMECLUB_ENV_PATH=%q %q %q\n' "$CONFIG_PATH" "$ENV_PATH" "$NODE_BIN" "$APP_ROOT/dist/scripts/migrate.js"
   if [ "$START_SERVICE" -eq 1 ]; then
     printf '+ systemctl start %q\n' "$SERVICE_NAME"
   fi
@@ -261,8 +264,8 @@ TARGET_USER="$(systemctl show "$SERVICE_NAME" --property=User --value)"
 TARGET_USER="${TARGET_USER:-root}"
 run_root_cmd python3 "$ROOT_DIR/scripts/backup-persistent-files.py" restore --config "$BACKUP_ROOT/config/runtime.json" --app-root "$APP_ROOT" --archive "$BACKUP_ROOT" --owner "$TARGET_USER"
 
-run_root_cmd env GAMECLUB_CONFIG_PATH="$CONFIG_PATH" GAMECLUB_ENV_PATH="$ENV_PATH" /usr/bin/node "$APP_ROOT/dist/scripts/check-runtime-config.js"
-run_root_cmd env GAMECLUB_CONFIG_PATH="$CONFIG_PATH" GAMECLUB_ENV_PATH="$ENV_PATH" /usr/bin/node "$APP_ROOT/dist/scripts/migrate.js"
+run_root_cmd env GAMECLUB_CONFIG_PATH="$CONFIG_PATH" GAMECLUB_ENV_PATH="$ENV_PATH" "$NODE_BIN" "$APP_ROOT/dist/scripts/check-runtime-config.js"
+run_root_cmd env GAMECLUB_CONFIG_PATH="$CONFIG_PATH" GAMECLUB_ENV_PATH="$ENV_PATH" "$NODE_BIN" "$APP_ROOT/dist/scripts/migrate.js"
 
 if [ "$START_SERVICE" -eq 1 ]; then
   run_root_cmd systemctl start "$SERVICE_NAME"

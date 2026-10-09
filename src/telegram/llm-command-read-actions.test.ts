@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import type { CatalogItemRecord } from '../catalog/catalog-model.js';
 import type { StorageCategoryRecord } from '../storage/storage-catalog.js';
+import type { TelegramLlmCommandContext } from './llm-command-flow.js';
+import { LlmCommandServiceError } from './llm-command-service.js';
 import {
   storageCategories,
   storageEntries,
@@ -402,3 +404,27 @@ function storageCategoryRow(input: {
     archivedAt: null,
   };
 }
+
+test('read synthesis streams only locally visible data and escapes generated final text', async () => {
+  const context = createLlmReadContextWithStorageHandout() as unknown as TelegramLlmCommandContext;
+  const deltas: string[] = [];
+  context.runtime.llmCommandService = {
+    interpret: async () => assert.fail('read does not reinterpret'),
+    generateJson: async () => assert.fail('streaming read uses app-server answer contract'),
+    generateText: async (prompt, options) => {
+      assert.doesNotMatch(prompt, /Secreto del villano|Handouts de rol|storage_entry_15/);
+      options.onTextDelta('Sin resultados <reales>');
+      return 'Sin resultados <reales>';
+    },
+  };
+  const response = await executeTelegramLlmReadAction(context, { intent: 'bot.search', params: { query: 'villano', sources: ['storage'] }, userText: 'busca villano', modelOptions: { onTextDelta: (delta) => deltas.push(delta) } });
+  assert.deepEqual(deltas, ['Sin resultados <reales>']);
+  assert.match(response, /Sin resultados &lt;reales&gt;/);
+});
+
+test('read synthesis cancellation propagates instead of returning fallback results', async () => {
+  const context = createLlmReadContextWithStorageHandout() as unknown as TelegramLlmCommandContext;
+  const controller = new AbortController();
+  context.runtime.llmCommandService = { interpret: async () => assert.fail(), generateJson: async () => assert.fail(), generateText: async () => { controller.abort(); throw new LlmCommandServiceError('cancelled', 'cancelled'); } };
+  await assert.rejects(executeTelegramLlmReadAction(context, { intent: 'bot.search', params: { query: 'villano', sources: ['storage'] }, modelOptions: { signal: controller.signal, onTextDelta() {} } }), (error) => error instanceof LlmCommandServiceError && error.code === 'cancelled');
+});

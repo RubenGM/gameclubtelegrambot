@@ -190,6 +190,9 @@ export function createApp({
       telegramSender: {
         sendPrivateMessage: telegram.sendPrivateMessage.bind(telegram),
         ...(telegram.sendGroupMessage ? { sendGroupMessage: telegram.sendGroupMessage.bind(telegram) } : {}),
+        ...(telegram.sendRichMessage ? { sendRichMessage: telegram.sendRichMessage.bind(telegram) } : {}),
+        ...(telegram.editRichMessage ? { editRichMessage: telegram.editRichMessage.bind(telegram) } : {}),
+        ...(telegram.editMessageText ? { editMessageText: telegram.editMessageText.bind(telegram) } : {}),
         ...(telegram.deleteMessage ? { deleteMessage: telegram.deleteMessage.bind(telegram) } : {}),
       },
       logger: {

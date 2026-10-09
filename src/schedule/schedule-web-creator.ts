@@ -16,6 +16,7 @@ import {
 } from '../telegram/schedule-notifications.js';
 import { createScheduleEvent, type ScheduleAttendanceMode, type ScheduleEventRecord } from './schedule-catalog.js';
 import { createDatabaseScheduleRepository } from './schedule-catalog-store.js';
+import type { TelegramRichMessageTransport } from '../telegram/rich-message-transport.js';
 
 export interface ScheduleWebCreateInput {
   title: string;
@@ -35,7 +36,7 @@ export interface ScheduleWebCreator {
   create(input: ScheduleWebCreateInput): Promise<ScheduleEventRecord>;
 }
 
-export interface ScheduleWebTelegramSender {
+export interface ScheduleWebTelegramSender extends Partial<Pick<TelegramRichMessageTransport, 'sendRichMessage' | 'editRichMessage'>> {
   sendPrivateMessage(telegramUserId: number, message: string): Promise<void>;
   sendGroupMessage?(
     chatId: number,
@@ -132,6 +133,8 @@ export function createDatabaseScheduleWebCreator({
             ...(telegramSender.editMessageText
               ? { editMessageText: telegramSender.editMessageText.bind(telegramSender) }
               : {}),
+            ...(telegramSender.sendRichMessage ? { sendRichMessage: telegramSender.sendRichMessage.bind(telegramSender) } : {}),
+            ...(telegramSender.editRichMessage ? { editRichMessage: telegramSender.editRichMessage.bind(telegramSender) } : {}),
             snapshotStorage: metadataStorage,
             newsGroupRepository,
             database: database.db,

@@ -55,6 +55,23 @@ Rol, Storage, impresión, generación de imágenes y auditoría.
 Los flujos `*-flow.ts` contienen las conversaciones de cada dominio y usan
 repositorios inyectados mediante el contexto runtime.
 
+El polling usa `@grammyjs/runner` y un scheduler supervisado: hasta 16
+conversaciones activas y 256 updates pendientes. La exclusión por chat y usuario
+abarca la carga, ejecución y persistencia de la sesión; los topics comparten
+esa exclusión porque la sesión actual no distingue topics. Los eventos Stop
+nativos y el callback privado de cancelación pasan antes de esa cola. Al cerrar,
+se rechazan los pendientes, se bloquean nuevas generaciones, se abortan las
+activas y se espera su finalización antes de cerrar PostgreSQL.
+
+`rich-message-transport.ts` adapta mensajes enriquecidos, ediciones y borradores
+con fallback a texto/progreso editable si el endpoint no soporta el método.
+Los borradores sólo se usan en privado y el resultado completo se conserva
+mediante un mensaje duradero. `calendar-rich-message.ts` genera tablas compactas
+de dos columnas y dos filas por actividad para los snapshots de `events` y
+`public-events`. El publicador conserva filtros/destinos y el envío con reemplazo
+del snapshot anterior; una operación explícita refresca los snapshots vigentes
+sin inventar un cambio de actividad.
+
 Las sesiones conversacionales se persisten en `app_metadata`. Esto permite
 continuar flujos tras reinicios, pero cada handler debe volver a comprobar
 estado y permisos antes de escribir.

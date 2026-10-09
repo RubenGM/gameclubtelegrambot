@@ -73,7 +73,7 @@ componentes, persistencia, workers, seguridad e integraciones.
 
 ## Requisitos
 
-- Node.js 20.19 o posterior.
+- Node.js 24 LTS o posterior (usar una rama con soporte).
 - npm.
 - PostgreSQL.
 - Docker y Docker Compose para la preparación local automatizada.

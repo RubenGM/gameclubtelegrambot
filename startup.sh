@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NODE_BIN="$(bash "$ROOT_DIR/scripts/resolve-node-bin.sh")"
+export GAMECLUB_NODE_BIN="$NODE_BIN"
+export PATH="$(dirname "$NODE_BIN"):$PATH"
 APP_ROOT="${GAMECLUB_APP_ROOT:-/opt/gameclubtelegrambot}"
 DEFAULT_CONFIG_SOURCE="$ROOT_DIR/config/runtime.json"
 if [ -n "${GAMECLUB_CONFIG_PATH:-}" ]; then
@@ -245,7 +248,7 @@ launch_tray_if_requested() {
   fi
 
   log "Obrint la safata Debian per a l usuari operador $OPERATOR_USER."
-  run_as_user "$OPERATOR_USER" "${tray_env[@]}" /usr/bin/node "$APP_ROOT/dist/scripts/debian-tray.js"
+  run_as_user "$OPERATOR_USER" "${tray_env[@]}" "$NODE_BIN" "$APP_ROOT/dist/scripts/debian-tray.js"
 }
 
 restart_or_start_service() {
