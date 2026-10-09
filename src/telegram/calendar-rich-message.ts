@@ -5,6 +5,7 @@ import type { TelegramRichMessage } from './rich-message-transport.js';
 
 const defaultTimeZone = 'Europe/Madrid';
 export type CalendarRichEntry = CalendarEntry & { equipmentNames?: string[]; venueImpactText?: string };
+export type CalendarRichTableEntry = Omit<Extract<CalendarRichEntry, { kind: 'schedule' }>, 'availableSeats'> | Extract<CalendarRichEntry, { kind: 'venue' }>;
 const calendarLabels = {
   ca: { period: 'Pròxims 30 dies', generated: 'Actualitzat', venue: 'Local', seat: 'plaça', seats: 'places' },
   es: { period: 'Próximos 30 días', generated: 'Actualizado', venue: 'Local', seat: 'plaza', seats: 'plazas' },
@@ -34,7 +35,6 @@ export function buildCalendarRichMessage({
   timeZone?: string;
 }): TelegramRichMessage {
   const locale = resolveLocale(language);
-  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
   const labels = calendarLabels[normalizeBotLanguage(language, 'ca')];
   const groups = new Map<string, CalendarRichEntry[]>();
   for (const entry of entries) {
@@ -53,9 +53,8 @@ export function buildCalendarRichMessage({
   }
 
   for (const [day, dayEntries] of groups) {
-    parts.push(`<h3>${escapeHtml(formatDayHeading(day, locale))}</h3><table compact>`);
-    for (const entry of dayEntries) parts.push(formatEntryRows(entry, language, locale, timeZone, texts));
-    parts.push('</table>');
+    parts.push(`<h3>${escapeHtml(formatDayHeading(day, locale))}</h3>`);
+    parts.push(renderCalendarRichTable(dayEntries, language, timeZone));
   }
 
   if (entries.length === 0) parts.push(`<p>${escapeHtml(emptyText)}</p>`);
@@ -65,8 +64,15 @@ export function buildCalendarRichMessage({
   return { html: parts.join('') };
 }
 
+/** Shared two-row activity layout for Agenda lists and the home summary. */
+export function renderCalendarRichTable(entries: CalendarRichTableEntry[], language: string, timeZone = defaultTimeZone): string {
+  if (!entries.length) return '';
+  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
+  return `<table compact>${entries.map((entry) => formatEntryRows(entry, language, resolveLocale(language), timeZone, texts)).join('')}</table>`;
+}
+
 function formatEntryRows(
-  entry: CalendarRichEntry,
+  entry: CalendarRichTableEntry,
   language: string,
   locale: string,
   timeZone: string,

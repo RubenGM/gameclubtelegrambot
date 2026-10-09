@@ -1,19 +1,26 @@
-import { listScheduleEvents, type ScheduleRepository } from '../schedule/schedule-catalog.js';
+import type { ClubTableRepository } from '../tables/table-catalog.js';
+import type { ClubEquipmentRepository } from '../equipment/equipment-catalog.js';
+import { renderCalendarRichTable, type CalendarRichTableEntry } from './calendar-rich-message.js';
+import { getScheduleEventEndsAt, listScheduleEvents, type ScheduleRepository } from '../schedule/schedule-catalog.js';
 import { listVenueEvents, type VenueEventRepository } from '../venue-events/venue-event-catalog.js';
 import { normalizeBotLanguage, type BotLanguage } from './i18n.js';
 import { escapeHtml } from './schedule-presentation.js';
 
-export async function buildTodayAtClubSummary({
+export async function buildTodayAtClubPresentation({
   language,
   now = new Date(),
   scheduleRepository,
   venueEventRepository,
+  tableRepository,
+  equipmentRepository,
 }: {
   language: string;
   now?: Date;
   scheduleRepository: ScheduleRepository;
   venueEventRepository: VenueEventRepository;
-}): Promise<string> {
+  tableRepository?: ClubTableRepository;
+  equipmentRepository?: ClubEquipmentRepository;
+}): Promise<{ message: string; richHtml: string }> {
   const texts = todayAtClubTexts[normalizeBotLanguage(language, 'ca')];
   const startsAtFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
   const startsAtTo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) - 1).toISOString();
@@ -28,7 +35,7 @@ export async function buildTodayAtClubSummary({
 
   if (scheduleEvents.length === 0 && todayVenueEvents.length === 0) {
     lines.push(texts.empty);
-    return lines.join('\n');
+    return { message: lines.join('\n'), richHtml: `<h3>${texts.title}</h3><p>${texts.empty}</p>` };
   }
 
   if (scheduleEvents.length > 0) {
@@ -45,7 +52,21 @@ export async function buildTodayAtClubSummary({
     }
   }
 
-  return lines.join('\n');
+  const entries: CalendarRichTableEntry[] = await Promise.all(scheduleEvents.map(async (event) => {
+    const [table, equipment] = await Promise.all([
+      event.tableId && tableRepository ? tableRepository.findTableById(event.tableId) : null,
+      Promise.all((event.equipmentIds ?? []).map(async (id) => equipmentRepository?.findEquipmentById(id))),
+    ]);
+    return { kind: 'schedule' as const, id: event.id, title: event.title, description: event.description,
+      startsAt: event.startsAt, endsAt: getScheduleEventEndsAt(event), tableName: table?.displayName ?? null,
+      equipmentNames: equipment.flatMap((item) => item ? [item.displayName] : []),
+      attendanceMode: event.attendanceMode, isPublic: event.isPublic, capacity: event.capacity,
+      hasDetails: event.detailsMessageChatId !== null && event.detailsMessageId !== null };
+  }));
+  entries.push(...todayVenueEvents.map((event) => ({ kind: 'venue' as const, title: event.name,
+    startsAt: event.startsAt, endsAt: event.endsAt, description: event.description, allDay: false })));
+  entries.sort((left, right) => left.startsAt.localeCompare(right.startsAt));
+  return { message: lines.join('\n'), richHtml: `<h3>${texts.title}</h3>${renderCalendarRichTable(entries, language)}` };
 }
 
 const todayAtClubTexts: Record<BotLanguage, { title: string; activities: string; venue: string; empty: string }> = {
@@ -72,4 +93,8 @@ const todayAtClubTexts: Record<BotLanguage, { title: string; activities: string;
 function formatShortTime(value: string): string {
   const date = new Date(value);
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+export async function buildTodayAtClubSummary(input: Parameters<typeof buildTodayAtClubPresentation>[0]): Promise<string> {
+  return (await buildTodayAtClubPresentation(input)).message;
 }

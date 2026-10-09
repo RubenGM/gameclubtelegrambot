@@ -1,3 +1,6 @@
+import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
+import { createDatabaseClubEquipmentRepository } from '../equipment/equipment-catalog-store.js';
+import { buildStartPresentation, replyWithStartPresentation } from './start-presentation.js';
 import { APP_VERSION } from '../app-version.js';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -155,7 +158,7 @@ import {
   handleTelegramGoogleCalendarAdminText,
 } from './google-calendar-admin-flow.js';
 import { handleTelegramGoogleCalendarPublicLinkTrigger } from './google-calendar-public-link-flow.js';
-import { buildTodayAtClubSummary } from './today-at-club-summary.js';
+import { buildTodayAtClubPresentation } from './today-at-club-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { renderTelegramMessageTextAsHtml } from './telegram-entity-html.js';
 import {
@@ -2168,7 +2171,7 @@ function createDefaultCommands({
           publicName,
           version: APP_VERSION,
         });
-        await context.reply(startReply.message, startReply.options);
+        await replyWithStartPresentation(context, startReply);
       },
     },
     {
@@ -2451,7 +2454,7 @@ async function buildStartReply({
   context: TelegramCommandHandlerContext;
   publicName: string;
   version: string;
-}): Promise<{ message: string; options: TelegramReplyOptions | undefined }> {
+}): Promise<{ message: string; options: TelegramReplyOptions | undefined; richHtml?: string }> {
   const language = context.runtime.bot.language ?? 'ca';
   if (context.runtime.chat.kind === 'private') {
     const message = formatStartMessage({
@@ -2464,12 +2467,12 @@ async function buildStartReply({
     const summaries = [
       await buildTodayAtClubSummaryForStart(context, language),
       await buildNoticeStartSummary(context, language),
-    ].filter((summary): summary is string => Boolean(summary));
+    ].filter((summary): summary is string | { message: string; richHtml: string } => Boolean(summary));
     const options = await buildReplyOptionsForCurrentActionMenu(context);
 
     return {
-      message: summaries.length > 0 ? `${message}\n\n${summaries.join('\n\n')}` : message,
-      options: summaries.length > 0 ? { ...options, parseMode: 'HTML' } : options,
+      ...buildStartPresentation({ publicName, version, language, isAdmin: context.runtime.actor.isAdmin, isApproved: context.runtime.actor.isApproved, pendingMessage: message, summaries }),
+      options: { ...options, parseMode: 'HTML' },
     };
   }
 
@@ -2498,7 +2501,7 @@ async function handleEmptyLeadingBotMention(
   const existingUser = await membershipRepository.findUserByTelegramUserId(context.runtime.actor.telegramUserId);
   if (!existingUser) {
     const startReply = await buildStartReply({ context, publicName, version: APP_VERSION });
-    await context.reply(startReply.message, startReply.options);
+    await replyWithStartPresentation(context, startReply);
     return true;
   }
 
@@ -2578,16 +2581,18 @@ function escapeRegExp(value: string): string {
 async function buildTodayAtClubSummaryForStart(
   context: TelegramCommandHandlerContext,
   language: 'ca' | 'es' | 'en',
-): Promise<string | undefined> {
+): Promise<{ message: string; richHtml: string } | undefined> {
   if (!context.runtime.actor.isApproved || context.runtime.actor.isBlocked) {
     return undefined;
   }
 
   try {
-    return await buildTodayAtClubSummary({
+    return await buildTodayAtClubPresentation({
       language,
       scheduleRepository: createDatabaseScheduleRepository({ database: context.runtime.services.database.db as never }),
       venueEventRepository: createDatabaseVenueEventRepository({ database: context.runtime.services.database.db as never }),
+      tableRepository: createDatabaseClubTableRepository({ database: context.runtime.services.database.db as never }),
+      equipmentRepository: createDatabaseClubEquipmentRepository({ database: context.runtime.services.database.db as never }),
     });
   } catch {
     return undefined;
@@ -3408,7 +3413,7 @@ async function replyWithStartAndDefaultKeyboard(context: TelegramCommandHandlerC
     publicName: context.runtime.bot.publicName,
     version: APP_VERSION,
   });
-  await context.reply(startReply.message, startReply.options);
+  await replyWithStartPresentation(context, startReply);
   return true;
 }
 
@@ -4175,7 +4180,7 @@ async function handleMembershipUserManagementText(
   if (text === i18n.common.backToStartButton || text === i18n.actionMenu.start) {
     await context.runtime.session.cancel();
     const startReply = await buildStartReply({ context, publicName: commandConfig.publicName, version: APP_VERSION });
-    await context.reply(startReply.message, startReply.options);
+    await replyWithStartPresentation(context, startReply);
     return true;
   }
 

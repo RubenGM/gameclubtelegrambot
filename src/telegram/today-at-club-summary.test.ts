@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { ScheduleEventRecord, ScheduleRepository } from '../schedule/schedule-catalog.js';
 import type { VenueEventRecord, VenueEventRepository } from '../venue-events/venue-event-catalog.js';
-import { buildTodayAtClubSummary } from './today-at-club-summary.js';
+import { buildTodayAtClubSummary, buildTodayAtClubPresentation } from './today-at-club-summary.js';
 
 function formatTime(value: string): string {
   const date = new Date(value);
@@ -129,4 +129,26 @@ function createVenueEvent(input: { id: number; name: string; startsAt: string; e
     cancelledAt: null,
     cancellationReason: null,
   };
+}
+
+for (const language of ['ca', 'es', 'en'] as const) {
+  test(`today uses the Agenda two-row table with links, seats, table and equipment (${language})`, async () => {
+    const event = { ...createScheduleEvent({ id: 7, title: 'Game <Club> & friends', startsAt: '2026-04-27T16:00:00.000Z' }),
+      tableId: 2, equipmentIds: [3], attendanceMode: 'closed' as const };
+    const presentation = await buildTodayAtClubPresentation({ language, now: new Date('2026-04-27T09:30:00.000Z'),
+      scheduleRepository: createScheduleRepository([event, { ...event, id: 8, title: 'Cancelled', lifecycleStatus: 'cancelled' }]),
+      venueEventRepository: createVenueEventRepository([createVenueEvent({ id: 1, name: 'Tournament', startsAt: '2026-04-27T20:00:00.000Z', endsAt: '2026-04-27T21:00:00.000Z' })]),
+      tableRepository: { findTableById: async () => ({ displayName: 'Table <2>' }) } as never,
+      equipmentRepository: { findEquipmentById: async () => ({ displayName: 'Screen & dice' }) } as never,
+    });
+    assert.match(presentation.richHtml, /<h3>[^<]+<\/h3><table compact>/);
+    assert.match(presentation.richHtml, /<td align="left" valign="top"><b>18h–21h<\/b><\/td>/);
+    assert.match(presentation.richHtml, /<a href="[^"]+schedule_event_7"><b>Game &lt;Club&gt; &amp; friends<\/b><\/a>/);
+    assert.match(presentation.richHtml, /<td align="right">4 (?:places|plazas|seats) 🔒<\/td><td>Table &lt;2&gt; ·/);
+    assert.match(presentation.richHtml, /Screen &amp; dice/);
+    assert.match(presentation.richHtml, /<b>Tournament<\/b>/);
+    assert.doesNotMatch(presentation.richHtml, /Cancelled|Actualitzat|Actualizado|Updated/);
+    assert.match(presentation.message, /Game &lt;Club&gt; &amp; friends/);
+    assert.doesNotMatch(presentation.message, /<table/);
+  });
 }

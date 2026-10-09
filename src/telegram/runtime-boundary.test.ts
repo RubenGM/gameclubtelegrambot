@@ -17,6 +17,7 @@ import type { TelegramCommandHandler, TelegramCommandHandlerContext } from './co
 import type { ConversationSessionRecord } from './conversation-session.js';
 import { createTelegramI18n } from './i18n.js';
 import { registerHandlers } from './runtime-boundary-registration.js';
+import type { TelegramRichMessageInput } from './rich-message-transport.js';
 
 const runtimeConfig = {
   schemaVersion: 1,
@@ -1253,8 +1254,9 @@ test('translated quick-action buttons still trigger the same handlers', async ()
 
   assert.equal(replies.length, 3);
   assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Rol'], ['Avisos', 'Canviar nom'], ['Admin'], ['Generació d’imatges'], ['Idioma', 'Ajuda']]);
-  assert.match(replies[0]?.message ?? '', /Game Club Bot online \(v0\.[0-9.]+\)/);
-  assert.match(replies[0]?.message ?? '', /sol·licituds/i);
+  assert.match(replies[0]?.message ?? '', /<b>Game Club Bot<\/b>/);
+  assert.match(replies[0]?.message ?? '', /v0\.[0-9.]+/);
+  assert.match(replies[0]?.message ?? '', /Benvingut al club/i);
   assert.match(replies[1]?.message ?? '', /Què pots fer ara/);
   assert.deepEqual(replyKeyboardLabels(replies[1]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Rol'], ['Avisos', 'Canviar nom'], ['Admin'], ['Generació d’imatges'], ['Idioma', 'Ajuda']]);
   assert.match(replies[2]?.message ?? '', /Sol·licituds pendents/);
@@ -1981,6 +1983,7 @@ test('cancel restores the default action menu after an active flow', async () =>
 
 test('start menu action clears active flow before showing the default keyboard', async () => {
   const replies: Array<{ message: string; options?: TelegramReplyOptions }> = [];
+  const richMessages: TelegramRichMessageInput[] = [];
   let textHandler: TelegramCommandHandler | undefined;
 
   const telegram = await createTelegramBoundary({
@@ -2039,6 +2042,10 @@ test('start menu action clears active flow before showing the default keyboard',
         onText: (handler) => {
           textHandler = handler;
         },
+        sendRichMessage: async (input: TelegramRichMessageInput) => {
+          richMessages.push(input);
+          replies.push({ message: input.fallbackText, ...(input.options ? { options: input.options } : {}) });
+        },
         sendPrivateMessage: async () => {},
         startPolling: async () => {
           const context: TelegramContextLike = {
@@ -2089,7 +2096,11 @@ test('start menu action clears active flow before showing the default keyboard',
 
   assert.equal(telegram.status.bot, 'connected');
   assert.equal(replies.length, 1);
-  assert.match(replies[0]?.message ?? '', /Benvingut a Game Club Bot/);
+  assert.equal(richMessages.length, 1);
+  assert.match(richMessages[0]?.richMessage.html ?? '', /<h2>Game Club Bot<\/h2>/);
+  assert.doesNotMatch(richMessages[0]?.richMessage.html ?? '', /<table|Explora el club/);
+  assert.equal(richMessages[0]?.options?.persistentKeyboard, true);
+  assert.match(replies[0]?.message ?? '', /Benvingut al club/);
   assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [
     ['Activitats', 'Taules'],
     ['Catàleg', 'Emmagatzematge'],
@@ -2726,7 +2737,7 @@ test('createTelegramBoundary records menu telemetry when showing the approved me
   });
 
   assert.equal(telegram.status.bot, 'connected');
-  assert.match(replies[0]?.message ?? '', /Des del menú pots obrir activitats, taules i catàleg/);
+  assert.match(replies[0]?.message ?? '', /Benvingut al club/);
   assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Taules'], ['Catàleg', 'Emmagatzematge'], ['Compres conjuntes', 'LFG (buscar grup)'], ['Rol', 'Avisos'], ['Canviar nom'], ['Idioma', 'Ajuda']]);
   assert.deepEqual(auditEvents, [
     {
@@ -3268,7 +3279,7 @@ test('an empty leading bot mention opens Inicio privately for a known user and g
   } as unknown as TelegramCommandHandlerContext);
 
   assert.equal(privateMessages[0]?.telegramUserId, 77);
-  assert.match(privateMessages[0]?.message ?? '', /Bienvenido a Game Club Bot/);
+  assert.match(privateMessages[0]?.message ?? '', /Bienvenido al club/);
   assert.deepEqual(replyKeyboardLabels(privateMessages[0]?.options?.replyKeyboard), [
     ['Actividades', 'Mesas'],
     ['Catálogo', 'Almacenamiento'],
