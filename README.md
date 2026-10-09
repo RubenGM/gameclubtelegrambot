@@ -260,6 +260,6 @@ Referencias principales:
 - [`Interacción LLM`](docs/llm-natural-language.md)
 - [`Google Calendar`](docs/google-calendar.md)
 - [`Notion para campañas de Rol`](docs/role-game-notion.md)
-- [`Generación de imágenes`](docs/image-generation.md)
+- [`Generación de imágenes (deprecada)`](docs/image-generation.md)
 - [`Operación Debian`](docs/debian-service-operations.md)
 - [`Backup y recuperación`](docs/backup-restore-recovery.md)

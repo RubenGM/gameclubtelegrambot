@@ -1,5 +1,6 @@
 export const imageGenerationTexts = {
   ca: {
+    deprecated: 'La generació d’imatges està deprecada i ja no està disponible al bot.',
     noPermission: 'No tens permís per generar imatges. Demana a un admin que t’activi aquest accés.',
     chooseMode: 'Com vols preparar la imatge?', describeButton: 'Descriure', guidedButton: 'Guiat', cancelButton: 'Cancel·lar', generateButton: 'Generar imatge',
     describePrompt: 'Escriu una descripció directa de la imatge. Pots afegir fins a 4 imatges de referència i després tocar Generar imatge.',
@@ -13,6 +14,7 @@ export const imageGenerationTexts = {
     generationFailed: 'No he pogut generar la imatge ara mateix. Pots tornar-ho a provar o cancel·lar.', optimizationFailed: 'No he pogut preparar el prompt ara mateix. Torna-ho a provar.', cancelled: 'Generació d’imatges cancel·lada.',
   },
   es: {
+    deprecated: 'La generación de imágenes está deprecada y ya no está disponible en el bot.',
     noPermission: 'No tienes permiso para generar imágenes. Pide a un admin que te active este acceso.',
     chooseMode: '¿Cómo quieres preparar la imagen?', describeButton: 'Describir', guidedButton: 'Guiado', cancelButton: 'Cancelar', generateButton: 'Generar imagen',
     describePrompt: 'Escribe una descripción directa de la imagen. Puedes añadir hasta 4 imágenes de referencia y después pulsar Generar imagen.',
@@ -26,6 +28,7 @@ export const imageGenerationTexts = {
     generationFailed: 'No he podido generar la imagen ahora mismo. Puedes volver a intentarlo o cancelar.', optimizationFailed: 'No he podido preparar el prompt ahora mismo. Vuelve a intentarlo.', cancelled: 'Generación de imágenes cancelada.',
   },
   en: {
+    deprecated: 'Image generation is deprecated and is no longer available in the bot.',
     noPermission: 'You do not have permission to generate images. Ask an admin to enable this access.',
     chooseMode: 'How would you like to prepare the image?', describeButton: 'Describe', guidedButton: 'Guided', cancelButton: 'Cancel', generateButton: 'Generate image',
     describePrompt: 'Write a direct image description. You can add up to 4 reference images and then tap Generate image.',

@@ -1,6 +1,5 @@
 import type { AuthorizationService } from '../authorization/service.js';
 import { printPermissionKey } from '../printing/print-permissions.js';
-import { imageGenerationPermissionKey } from '../image-generation/image-generation-permissions.js';
 import type { TelegramActor } from './actor-store.js';
 import type { TelegramChatContext, TelegramChatContextKind } from './chat-context.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
@@ -179,7 +178,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     uxSection: 'primary',
     buttonRole: 'primary',
     contexts: ['private'],
-    isVisible: (context) => context.actor.isApproved && !context.actor.isBlocked && (context.actor.isAdmin || context.authorization.can(imageGenerationPermissionKey)),
+    isVisible: () => false, // Deprecated: retained ID for historical telemetry only.
   },
   {
     id: 'ask_bot',
@@ -314,7 +313,7 @@ const actionDefinitions: TelegramActionDefinition[] = [
     uxSection: 'admin',
     buttonRole: 'secondary',
     contexts: ['private'],
-    isVisible: (context) => context.actor.isAdmin,
+    isVisible: () => false, // Deprecated.
   },
   {
     id: 'google_calendar',

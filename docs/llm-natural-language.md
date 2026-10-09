@@ -20,9 +20,8 @@ parámetros, propone mensajes y devuelve JSON. El bot valida ese JSON, aplica
 permisos, consulta repositorios internos y decide si ejecuta una lectura, pide
 confirmación o deriva al flujo normal.
 
-La generación de imágenes de `Generación de imágenes` es una integración Codex
-separada y no una capacidad de `/ask`: su operación y permisos están descritos
-en `docs/image-generation.md`.
+La generación de imágenes está deprecada y retirada del bot; no es una
+capacidad de `/ask`. El estado histórico se recoge en `docs/image-generation.md`.
 
 ## Entradas de usuario
 

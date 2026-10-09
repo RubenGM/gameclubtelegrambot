@@ -7,6 +7,7 @@ Este documento refleja lo que existe en el código actual, no solo lo que aparec
 - `operativo`: implementado en el bot, persistido si aplica y cubierto por tests relevantes.
 - `parcial`: hay implementación usable, pero falta una parte importante de UX, operación o alcance.
 - `pendiente`: está documentado o preparado en modelo/backlog, pero no hay flujo completo en el bot.
+- `deprecado`: retirado del uso y mantenido sólo como referencia histórica.
 - `técnico`: capacidad de infraestructura u operación, no una feature visible para socios.
 
 ## Resumen ejecutivo
@@ -34,7 +35,7 @@ Este documento refleja lo que existe en el código actual, no solo lo que aparec
 | Rol / partidas de rol                        | 🟢 Operativo        | Campañas/one-shots, personajes, sesiones, recurrencia, handouts internos e importación Notion revisada por DM.                        |
 | Storage / Archivos                           | 🟢 Operativo        | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación web.                     |
 | Impresión                                    | 🟢 Operativo        | Botón privado, estados admin, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial.                          |
-| Generación de imágenes                       | 🟠 Parcial          | Flujo Codex `$imagegen` completo por DM y con permisos separados; la integración real con Codex y Telegram queda por verificar.       |
+| Generación de imágenes                       | Deprecado           | Retirada: menús y comandos ocultos; accesos y sesiones antiguas no generan imágenes ni gestionan permisos.                            |
 | Backups, operación y panel web               | 🟢 Operativo        | CLI/TUI de backup/restore, gestión Debian, dashboard web, Storage web, bienvenidas, temas y páginas públicas.                         |
 | Analytics / UX                               | 🟡 Técnico parcial  | Eventos de menú en auditoría y reportes CLI/TUI; faltan vistas, filtros, exportación y medición de abandono.                          |
 +----------------------------------------------+---------------------+---------------------------------------------------------------------------------------------------------------------------------------+
@@ -101,7 +102,7 @@ Implementado:
 
 Riesgos o pendientes:
 
-- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos especificos para rol admin, revocacion de acceso, storage category access y permisos globales de impresión y generación de imágenes.
+- No hay una UI general para conceder/revocar cualquier permiso global o por recurso. Hay flujos específicos para rol admin, revocación de acceso, Storage y permisos globales de impresión; la gestión de permisos de imágenes está deprecada.
 
 ## Idioma, menús y ayuda
 
@@ -547,7 +548,7 @@ Implementado:
 - Entrada desde adjuntos Telegram: PDFs directos, documentos Office/OpenDocument convertibles a PDF mediante LibreOffice headless y fotos/imágenes JPG, PNG, WebP, TIFF o BMP normalizadas a PDF con ImageMagick.
 - Entrada desde Storage: el detalle de entradas imprimibles muestra `Imprimir` cuando la feature está activa, el archivo tiene `telegramFileId`, el usuario puede leer la entrada de Storage y además es admin o tiene `printing.use`.
 - El flujo rechaza de forma explicativa archivos que superan el límite de descarga del Bot API de Telegram en la nube (20 MB) antes de llamar a `getFile` cuando conoce el tamaño, salvo que el runtime tenga activado `telegram.localBotApi` para descargas grandes de impresión.
-- Integración opcional con Bot API local solicitada explícitamente por impresión y por la descarga de referencias de generación de imágenes: el resto del bot sigue usando la ruta cloud por defecto y, si el intento local falla, se registra el error y se usa el fallback cloud.
+- Integración opcional con Bot API local solicitada explícitamente por impresión: el resto del bot sigue usando la ruta cloud por defecto y, si el intento local falla, se registra el error y se usa el fallback cloud.
 - El despliegue instala `gameclubtelegrambot-local-bot-api.service` como servicio systemd hermano del bot principal: `startup.sh` lo habilita/reinicia antes del bot cuando `telegram.localBotApi.enabled=true`, y lo detiene/deshabilita cuando está apagado.
 - Cuando un archivo no puede descargarse por tamaño, el flujo cierra la sesión de impresión y restaura la navegación normal o el detalle de Storage, sin dejar un teclado de `Cancelar` huérfano.
 - Cuando una descarga falla de forma transitoria (por ejemplo `fetch failed`), el flujo no propaga el error al chat: en adjuntos directos conserva el paso de archivo para reenviar el PDF sin reiniciar, y desde Storage restaura el detalle para reintentar con `Imprimir`.
@@ -576,23 +577,18 @@ Riesgos o pendientes:
 
 ## Generación de imágenes
 
-Estado: `parcial`.
+Estado: `deprecado` desde 2026-10-09, por decisión del usuario.
 
-Implementado:
-
-- Botón privado `Generación de imágenes` y comando `/imagegen`, visibles para admins y socios aprobados con `image_generation.use`; la lista de autorizados es independiente de impresión.
-- `Describir` acepta una descripción directa, hasta cuatro referencias de imagen y genera al pulsar `Generar imagen`.
-- `Guiado` pide una idea general, prepara un prompt personalizado con Codex y permite pedir cambios sucesivos, añadir referencias, generar o cancelar.
-- La ejecución usa `GAMECLUB_CODEX_BIN` y `$imagegen` dentro de un directorio temporal por petición; indica a Codex la ruta exacta del PNG y, en caso de éxito, lo devuelve como foto de Telegram y limpia el workspace al completar o cancelar.
-- `Admin` -> `Imágenes IA` permite conceder, revocar y listar `image_generation.use`. Los admins siempre acceden sin asignación explícita.
-- La optimización del prompt y la generación muestran progreso editable. Esta capacidad queda fuera de `/ask` y de sus intents generales.
-
-Riesgos o pendientes:
-
-- La disponibilidad y cuota dependen del plan y la configuración de Codex de la cuenta operadora.
-- No se conservan historial ni imágenes generadas en Storage en esta primera versión.
-- La suite automatizada cubre el flujo con un servicio de generación simulado; falta una prueba automatizada o una evidencia operativa registrada que ejercite el wrapper Codex, la creación real del PNG y la subida real a Telegram.
-- Un fallo durante la generación puede dejar el directorio temporal hasta una limpieza operativa posterior.
+- Retirada de Inicio, menú de socios, menú Admin, comandos anunciados y ayuda.
+- Accesos antiguos de texto, comandos y enlaces de permisos informan de la
+  deprecación; no invocan Codex ni descargan/generan/envían imágenes o cambian permisos.
+- Sesiones persistidas de generación/permisos se cancelan al interactuar y su
+  teclado se sustituye por `Inicio`. No se borra su workspace antiguo desde estos handlers.
+- P-003, P-008 y P-025 cerrados como descartados por deprecación, sin afirmar
+  validación externa o implementación de las mejoras abandonadas.
+- Servicios auxiliares y permisos históricos conservados; impresión y lectura
+  de portadas mantienen su funcionamiento independiente.
+- Referencia: [generación de imágenes deprecada](image-generation.md).
 
 ## Backups, consola operativa y panel web
 
@@ -672,12 +668,12 @@ Pendiente:
 | Noticias | `src/telegram/news-group-flow.test.ts`, `src/news/news-group-store.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Feedback Telegram | `src/telegram/feedback-flow.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Impresión | `src/telegram/print-flow.test.ts`, `src/telegram/printer-admin-flow.test.ts`, `src/printing/page-selection.test.ts`, `src/printing/print-service.test.ts`, `src/printing/print-settings.test.ts`, `src/printing/print-permissions.test.ts`, `src/printing/print-job-history.test.ts`, `src/telegram/telegram-local-file-download.test.ts` |
-| Generación de imágenes | `src/telegram/image-generation-flow.test.ts` |
+| Generación de imágenes (retirada) | `src/telegram/image-generation-flow.test.ts`, `src/telegram/action-menu.test.ts` |
 | Panel HTTP y web pública | `src/http/admin-http-server.test.ts`, `src/http/http-pages.test.ts`, `src/http/http-theme.test.ts`, `src/http/web-settings-store.test.ts` |
 | Operación | `src/tui/*.test.ts`, `src/operations/*.test.ts`, `src/tray/*.test.ts`, `src/scripts/testing/selection.test.ts` |
 
 ### Perfil IA unificado (2026-09-30)
 
 - `gpt-6-luna` es el modelo por defecto del asistente, `/adminai`, portadas y consulta CLI de imágenes. Los dos perfiles persistidos del asistente usan `low`; las traducciones Codex del catálogo conservan `medium`.
-- Generación de imágenes fija también el coordinador Codex en `gpt-6-luna`/`low`, configurable con `GAMECLUB_IMAGE_GENERATION_MODEL`; la herramienta de generación de imagen conserva su propio modelo. La validación completa de entrega de imágenes por Telegram sigue pendiente.
+- Generación de imágenes deprecada; la validación externa y las mejoras asociadas se descartaron por decisión del usuario.
 - La comparación de 70 tareas está en `data/codex-benchmarks/comparison-2026-09-30/report.md`. `gpt-5.4`, antes configurado para portadas, fue rechazado por la cuenta Codex actual. Se mantiene la configuración manual de modelos desde `Admin` -> `Modelos IA`, incluyendo GPT-6-Luna con `low` y `medium`.

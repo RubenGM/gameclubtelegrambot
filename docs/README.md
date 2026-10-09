@@ -28,8 +28,8 @@ capacidad, su documentación debe actualizarse en el mismo cambio.
   entre Agenda y Google Calendar.
 - [`role-game-notion.md`](role-game-notion.md): fuentes Notion por campaña,
   importación revisada y webhooks.
-- [`image-generation.md`](image-generation.md): generación de imágenes desde
-  Telegram, referencias, permisos y ejecución con Codex.
+- [`image-generation.md`](image-generation.md): retirada y deprecación de la
+  generación de imágenes por Telegram.
 - [`telegram-local-bot-api-printing.md`](telegram-local-bot-api-printing.md):
   arquitectura del Bot API local usado para archivos de impresión grandes.
 - [`telegram-local-bot-api-configuration.md`](telegram-local-bot-api-configuration.md):

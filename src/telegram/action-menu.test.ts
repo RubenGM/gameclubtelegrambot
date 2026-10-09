@@ -100,10 +100,9 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
       [{ text: 'LFG (buscar grup)', semanticRole: 'primary' }, { text: 'Rol', semanticRole: 'primary' }],
       [{ text: 'Avisos', semanticRole: 'primary' }, { text: 'Canviar nom', semanticRole: 'secondary' }],
       [{ text: 'Admin', semanticRole: 'secondary' }],
-      [{ text: 'Generació d’imatges', semanticRole: 'primary' }],
       [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'role_games'], ['notices', 'change_display_name'], ['admin'], ['image_generation'], ['language', 'help']],
+    actionRows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'role_games'], ['notices', 'change_display_name'], ['admin'], ['language', 'help']],
     actions: [
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
       { id: 'catalog', label: 'Catàleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
@@ -114,7 +113,6 @@ test('resolveTelegramActionMenu returns admin private actions by default', async
       { id: 'notices', label: 'Avisos', telemetryActionKey: 'menu.notices', uxSection: 'primary' },
       { id: 'change_display_name', label: 'Canviar nom', telemetryActionKey: 'menu.change_display_name', uxSection: 'utility' },
       { id: 'admin', label: 'Admin', telemetryActionKey: 'menu.admin', uxSection: 'admin' },
-      { id: 'image_generation', label: 'Generació d’imatges', telemetryActionKey: 'menu.image_generation', uxSection: 'primary' },
       { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
       { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
     ],
@@ -149,11 +147,11 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
       [{ text: 'Taules', semanticRole: 'primary' }, { text: 'Equipament', semanticRole: 'primary' }],
       [{ text: 'Benvingudes', semanticRole: 'secondary' }, { text: 'Actualitzar BGG', semanticRole: 'secondary' }],
       [{ text: 'Models IA', semanticRole: 'secondary' }, { text: 'Rol automàtic', semanticRole: 'secondary' }],
-      [{ text: 'Impressora', semanticRole: 'secondary' }, { text: 'Imatges IA', semanticRole: 'secondary' }],
+      [{ text: 'Impressora', semanticRole: 'secondary' }],
       [{ text: 'Calendar Google', semanticRole: 'secondary' }, { text: 'Menú soci', semanticRole: 'secondary' }],
       [{ text: 'Inici', semanticRole: 'navigation' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['catalog_web_admin'], ['review_access', 'manage_users'], ['tables', 'equipment'], ['welcome_templates', 'update_bgg'], ['llm_models', 'role_game_auto_scheduling'], ['printer_admin', 'image_generation_admin'], ['google_calendar', 'member_debug'], ['start', 'help']],
+    actionRows: [['catalog_web_admin'], ['review_access', 'manage_users'], ['tables', 'equipment'], ['welcome_templates', 'update_bgg'], ['llm_models', 'role_game_auto_scheduling'], ['printer_admin'], ['google_calendar', 'member_debug'], ['start', 'help']],
     actions: [
       { id: 'catalog_web_admin', label: 'Catàleg web', telemetryActionKey: 'menu.catalog_web_admin', uxSection: 'admin' },
       { id: 'review_access', label: 'Revisar sol·licituds', telemetryActionKey: 'menu.review_access', uxSection: 'admin' },
@@ -165,7 +163,6 @@ test('resolveTelegramAdminActionMenu returns the admin tools submenu', async () 
       { id: 'llm_models', label: 'Models IA', telemetryActionKey: 'menu.llm_models', uxSection: 'admin' },
       { id: 'role_game_auto_scheduling', label: 'Rol automàtic', telemetryActionKey: 'menu.role_game_auto_scheduling', uxSection: 'admin' },
       { id: 'printer_admin', label: 'Impressora', telemetryActionKey: 'menu.printer_admin', uxSection: 'admin' },
-      { id: 'image_generation_admin', label: 'Imatges IA', telemetryActionKey: 'menu.image_generation_admin', uxSection: 'admin' },
       { id: 'google_calendar', label: 'Calendar Google', telemetryActionKey: 'menu.google_calendar', uxSection: 'admin' },
       { id: 'member_debug', label: 'Menú soci', telemetryActionKey: 'menu.member_debug', uxSection: 'utility' },
       { id: 'start', label: 'Inici', telemetryActionKey: 'menu.start', uxSection: 'utility' },
@@ -468,10 +465,9 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
       [{ text: 'LFG (buscar grup)', semanticRole: 'primary' }, { text: 'Rol', semanticRole: 'primary' }],
       [{ text: 'Avisos', semanticRole: 'primary' }, { text: 'Canviar nom', semanticRole: 'secondary' }],
       [{ text: 'Admin', semanticRole: 'secondary' }],
-      [{ text: 'Generació d’imatges', semanticRole: 'primary' }],
       [{ text: 'Idioma', semanticRole: 'secondary' }, { text: 'Ajuda', semanticRole: 'help' }],
     ],
-    actionRows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'role_games'], ['notices', 'change_display_name'], ['admin'], ['image_generation'], ['language', 'help']],
+    actionRows: [['schedule', 'catalog'], ['storage', 'group_purchases'], ['lfg', 'role_games'], ['notices', 'change_display_name'], ['admin'], ['language', 'help']],
     actions: [
       { id: 'schedule', label: 'Activitats', telemetryActionKey: 'menu.schedule', uxSection: 'primary' },
       { id: 'catalog', label: 'Catàleg', telemetryActionKey: 'menu.catalog', uxSection: 'primary' },
@@ -482,7 +478,6 @@ test('resolveTelegramActionMenu exposes activities to admins in private chats', 
       { id: 'notices', label: 'Avisos', telemetryActionKey: 'menu.notices', uxSection: 'primary' },
       { id: 'change_display_name', label: 'Canviar nom', telemetryActionKey: 'menu.change_display_name', uxSection: 'utility' },
       { id: 'admin', label: 'Admin', telemetryActionKey: 'menu.admin', uxSection: 'admin' },
-      { id: 'image_generation', label: 'Generació d’imatges', telemetryActionKey: 'menu.image_generation', uxSection: 'primary' },
       { id: 'language', label: 'Idioma', telemetryActionKey: 'menu.language', uxSection: 'utility' },
       { id: 'help', label: 'Ajuda', telemetryActionKey: 'menu.help', uxSection: 'utility' },
     ],
@@ -560,4 +555,18 @@ test('resolveTelegramActionMenu replaces the default menu when a flow is active'
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
+});
+
+test('deprecated image generation and permission management stay hidden even with full permissions', () => {
+  for (const isAdmin of [false, true]) {
+    const context = createContext({ actor: { telegramUserId: 42, status: 'approved', isApproved: true, isBlocked: false, isAdmin, permissions: [] }, chat: { kind: 'private', chatId: 42 }, printingEnabled: true });
+    context.authorization.can = () => true;
+    for (const menu of [resolveTelegramActionMenu({ context }), ...(isAdmin ? [resolveTelegramAdminActionMenu({ context })] : [])]) {
+      assert.ok(menu);
+      assert.equal(menu.actions.some((action) => action.id.startsWith('image_generation')), false);
+      assert.doesNotMatch(JSON.stringify(menu.replyKeyboard), /Generació d’imatges|Imatges IA/);
+    }
+    assert.equal(resolveTelegramMenuSelection({ context, text: 'Generació d’imatges' }), undefined);
+    assert.equal(resolveTelegramAdminMenuSelection({ context, text: 'Imatges IA' }), undefined);
+  }
 });

@@ -1904,24 +1904,6 @@ function createDefaultCommands({
       },
     },
     {
-      command: 'imagegen',
-      contexts: ['private'],
-      access: 'approved',
-      descriptionByLanguage: { ca: 'Genera una imatge amb Codex', es: 'Genera una imagen con Codex', en: 'Generate an image with Codex' },
-      handle: async (context) => {
-        await handleTelegramImageGenerationText({ ...context, messageText: '/imagegen' });
-      },
-    },
-    {
-      command: 'imagegen_admin',
-      contexts: ['private'],
-      access: 'admin',
-      descriptionByLanguage: { ca: 'Gestiona accessos de generació d’imatges', es: 'Gestiona accesos de generación de imágenes', en: 'Manage image generation access' },
-      handle: async (context) => {
-        await handleTelegramImageGenerationAdminText({ ...context, messageText: '/imagegen_admin' });
-      },
-    },
-    {
       command: 'google_calendar',
       contexts: ['private'],
       access: 'admin',

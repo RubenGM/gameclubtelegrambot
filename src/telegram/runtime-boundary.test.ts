@@ -239,6 +239,9 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
   assert.equal(events[0], 'token:telegram-token');
   assert.ok(events.includes('register:/access'));
   assert.ok(events.includes('register:/adminai'));
+  assert.equal(events.includes('register:/imagegen'), false);
+  assert.equal(events.includes('register:/imagegen_admin'), false);
+  assert.equal(events.some((event) => event.includes('/imagegen')), false);
   assert.ok(events.includes('register:callback:admin_ai:confirm'));
   assert.ok(events.includes('register:callback:admin_ai:cancel'));
   assert.ok(events.includes('register:callback:approve_access:'));
@@ -300,8 +303,8 @@ test('createTelegramBoundary reports a connected bot when long polling starts', 
         chatKind: 'private',
         actorRole: 'admin',
         language: 'ca',
-        visibleActionIds: ['schedule', 'catalog', 'storage', 'group_purchases', 'lfg', 'role_games', 'notices', 'change_display_name', 'admin', 'image_generation', 'language', 'help'],
-        visibleLabels: ['Activitats', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'LFG (buscar grup)', 'Rol', 'Avisos', 'Canviar nom', 'Admin', 'Generació d’imatges', 'Idioma', 'Ajuda'],
+        visibleActionIds: ['schedule', 'catalog', 'storage', 'group_purchases', 'lfg', 'role_games', 'notices', 'change_display_name', 'admin', 'language', 'help'],
+        visibleLabels: ['Activitats', 'Catàleg', 'Emmagatzematge', 'Compres conjuntes', 'LFG (buscar grup)', 'Rol', 'Avisos', 'Canviar nom', 'Admin', 'Idioma', 'Ajuda'],
       },
     },
   ]);
@@ -1253,12 +1256,12 @@ test('translated quick-action buttons still trigger the same handlers', async ()
   await telegram.stop();
 
   assert.equal(replies.length, 3);
-  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Rol'], ['Avisos', 'Canviar nom'], ['Admin'], ['Generació d’imatges'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[0]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Rol'], ['Avisos', 'Canviar nom'], ['Admin'], ['Idioma', 'Ajuda']]);
   assert.match(replies[0]?.message ?? '', /<b>Game Club Bot<\/b>/);
   assert.match(replies[0]?.message ?? '', /v0\.[0-9.]+/);
   assert.match(replies[0]?.message ?? '', /Benvingut al club/i);
   assert.match(replies[1]?.message ?? '', /Què pots fer ara/);
-  assert.deepEqual(replyKeyboardLabels(replies[1]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Rol'], ['Avisos', 'Canviar nom'], ['Admin'], ['Generació d’imatges'], ['Idioma', 'Ajuda']]);
+  assert.deepEqual(replyKeyboardLabels(replies[1]?.options?.replyKeyboard), [['Activitats', 'Catàleg'], ['Emmagatzematge', 'Compres conjuntes'], ['LFG (buscar grup)', 'Rol'], ['Avisos', 'Canviar nom'], ['Admin'], ['Idioma', 'Ajuda']]);
   assert.match(replies[2]?.message ?? '', /Sol·licituds pendents/);
   assert.deepEqual(
     replies[2]?.options?.inlineKeyboard?.flat().map((button) => button.text),
@@ -3286,7 +3289,6 @@ test('an empty leading bot mention opens Inicio privately for a known user and g
     ['Compras conjuntas', 'LFG (buscar grupo)'],
     ['Rol', 'Avisos'],
     ['Cambiar nombre de usuario'],
-    ['Generación de imágenes'],
     ['Idioma', 'Ayuda'],
   ]);
 });

@@ -6,43 +6,51 @@ import { handleTelegramImageGenerationMessage, handleTelegramImageGenerationText
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { ConversationSessionRecord } from './conversation-session.js';
 
-test('direct image generation is admin-accessible, accepts a reference and sends the generated image', async () => {
+for (const actor of [{ isAdmin: true, allowed: true }, { isAdmin: false, allowed: true }, { isAdmin: false, allowed: false }]) {
+  test(`deprecated generation cannot start for ${JSON.stringify(actor)}`, async () => {
+    const fixture = createContext(actor);
+    for (const text of ['/imagegen', '/image', '/imagegen@club_bot', 'Generación de imágenes']) {
+      assert.equal(await handleTelegramImageGenerationText({ ...fixture.context, messageText: text }), true);
+      assert.match(fixture.replies.at(-1)?.message ?? '', /deprecada/);
+      assert.equal(fixture.current(), null);
+    }
+    assert.deepEqual(fixture.generated, []);
+    assert.deepEqual(fixture.media, []);
+  });
+}
+
+test('deprecated generation cancels a persisted session without generating or downloading references', async () => {
   const fixture = createContext();
-  assert.equal(await handleTelegramImageGenerationText({ ...fixture.context, messageText: '/imagegen' }), true);
-  assert.equal(fixture.current()?.stepKey, 'mode');
-  await handleTelegramImageGenerationText({ ...fixture.context, messageText: 'Describir' });
-  await handleTelegramImageGenerationText({ ...fixture.context, messageText: 'Una torre junto al mar al atardecer' });
-  await handleTelegramImageGenerationMessage({ ...fixture.context, messageMedia: { attachmentKind: 'photo', fileId: 'reference', originalFileName: 'reference.jpg', mimeType: 'image/jpeg', messageId: 8 } });
-  assert.equal(fixture.current()?.data.referenceImagePaths instanceof Array, true);
+  await fixture.context.runtime.session.start({ flowKey: 'image-generation', stepKey: 'direct-input', data: { workspace: '/tmp/old-workspace', description: 'Old prompt' } });
   await handleTelegramImageGenerationText({ ...fixture.context, messageText: 'Generar imagen' });
-  assert.deepEqual(fixture.generated, [{ prompt: 'Una torre junto al mar al atardecer', references: 1 }]);
-  assert.equal(fixture.media.length, 1);
   assert.equal(fixture.current(), null);
+  assert.deepEqual(fixture.generated, []);
+  await fixture.context.runtime.session.start({ flowKey: 'image-generation', stepKey: 'guided-review', data: {} });
+  await handleTelegramImageGenerationMessage({ ...fixture.context, messageMedia: { attachmentKind: 'photo', fileId: 'reference', messageId: 8 } });
+  assert.equal(fixture.current(), null);
+  assert.deepEqual(fixture.media, []);
 });
 
-test('guided image generation refines the prompt before generating', async () => {
+test('deprecated image handlers leave unrelated messages and sessions alone', async () => {
   const fixture = createContext();
-  await handleTelegramImageGenerationText({ ...fixture.context, messageText: '/imagegen' });
-  await handleTelegramImageGenerationText({ ...fixture.context, messageText: 'Guiado' });
-  await handleTelegramImageGenerationText({ ...fixture.context, messageText: 'Una escena de rol acogedora' });
-  assert.match(String(fixture.current()?.data.prompt), /PROMPT: Una escena/);
-  await handleTelegramImageGenerationText({ ...fixture.context, messageText: 'que llueva fuera' });
-  assert.match(String(fixture.current()?.data.prompt), /que llueva fuera/);
-  await handleTelegramImageGenerationText({ ...fixture.context, messageText: 'Generar imagen' });
-  assert.equal(fixture.generated[0]?.prompt.includes('que llueva fuera'), true);
+  await fixture.context.runtime.session.start({ flowKey: 'schedule-create', stepKey: 'title', data: {} });
+  assert.equal(await handleTelegramImageGenerationText({ ...fixture.context, messageText: 'Catan' }), false);
+  assert.equal(await handleTelegramImageGenerationMessage(fixture.context), false);
+  assert.equal(fixture.current()?.flowKey, 'schedule-create');
 });
 
-test('approved members need the separate image permission', async () => {
-  const fixture = createContext({ isAdmin: false, allowed: false });
-  await handleTelegramImageGenerationText({ ...fixture.context, messageText: '/imagegen' });
-  assert.match(fixture.replies.at(-1)?.message ?? '', /No tienes permiso/);
+test('deprecated image permission commands, links and sessions cannot grant access', async () => {
+  const { handleTelegramImageGenerationAdminText, handleTelegramImageGenerationAdminStartText, handleTelegramImageGenerationAdminAction } = await import('./image-generation-admin-flow.js');
+  const fixture = createContext();
+  for (const text of ['/imagegen_admin', 'Imágenes IA', 'Conceder imágenes', 'Revocar imágenes', 'Accesos imágenes']) {
+    assert.equal(await handleTelegramImageGenerationAdminText({ ...fixture.context, messageText: text }), true);
+    assert.match(fixture.replies.at(-1)?.message ?? '', /deprecada/);
+  }
+  assert.equal(await handleTelegramImageGenerationAdminStartText({ ...fixture.context, messageText: '/start imagegen_grant_42' }), true);
+  assert.equal(await handleTelegramImageGenerationAdminAction(fixture.context, 'grant'), true);
+  await fixture.context.runtime.session.start({ flowKey: 'image-generation-permission', stepKey: 'grant', data: {} });
+  await handleTelegramImageGenerationAdminText({ ...fixture.context, messageText: '42' });
   assert.equal(fixture.current(), null);
-});
-
-test('approved members with the separate permission can start generation', async () => {
-  const fixture = createContext({ isAdmin: false, allowed: true });
-  await handleTelegramImageGenerationText({ ...fixture.context, messageText: '/imagegen' });
-  assert.equal(fixture.current()?.stepKey, 'mode');
 });
 
 function createContext({ isAdmin = true, allowed = false }: { isAdmin?: boolean; allowed?: boolean } = {}) {
