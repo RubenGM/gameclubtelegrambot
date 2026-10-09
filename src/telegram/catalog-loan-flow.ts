@@ -1,3 +1,4 @@
+import { replyWithCatalogRichMessage } from './catalog-rich-message.js';
 import type { CatalogItemRecord, CatalogLoanRecord, CatalogLoanRepository, CatalogRepository } from '../catalog/catalog-model.js';
 export type { CatalogLoanRecord } from '../catalog/catalog-model.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
@@ -13,6 +14,7 @@ import type { TelegramInlineButton, TelegramReplyButton, TelegramReplyOptions } 
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import { formatMembershipDisplayName, resolveTelegramDisplayName } from '../membership/display-name.js';
 import { buildTelegramStartUrl } from './deep-links.js';
+import type { TelegramRichMessageTransport } from './rich-message-transport.js';
 import { formatTelegramUserLink } from './telegram-user-links.js';
 
 const loanEditFlowKey = 'catalog-loan-edit';
@@ -84,10 +86,11 @@ type LoanActorContext = {
 type AdminLoanDashboardContext = LoanRepositoryContext & {
   reply(message: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: LoanRepositoryContext['runtime'] & {
+    chat?: { chatId: number; messageThreadId?: number };
     actor: {
       isAdmin: boolean;
     };
-    bot: {
+    bot: Partial<Pick<TelegramRichMessageTransport, 'sendRichMessage'>> & {
       language?: string;
     };
   };
@@ -430,7 +433,7 @@ export async function showMyLoans(context: TelegramCatalogLoanContext): Promise<
   const texts = createTelegramI18n(language).catalogLoan;
   const loans = await loadActiveLoansByBorrower(context, context.runtime.actor.telegramUserId);
   if (loans.length === 0) {
-    await context.reply(texts.noLoans);
+    await replyWithCatalogRichMessage(context, texts.noLoans);
     return;
   }
 
@@ -440,15 +443,16 @@ export async function showMyLoans(context: TelegramCatalogLoanContext): Promise<
 
   for (const loan of loans) {
     const item = await catalog.findItemById(loan.itemId);
-    lines.push(`- ${item?.displayName ?? `Item ${loan.itemId}`} · ${formatLoanSubtitle(loan, language)}`);
+    lines.push(`- <a href="${escapeHtml(buildTelegramStartUrl(`catalog_read_item_${loan.itemId}`))}"><b>${escapeHtml(item?.displayName ?? `Item ${loan.itemId}`)}</b></a> · ${escapeHtml(formatLoanSubtitle(loan, language))}`);
     rows.push([
       { text: item?.displayName ?? `Item ${loan.itemId}`, callbackData: `catalog_read:item:${loan.itemId}` },
       { text: texts.retornar, callbackData: `${catalogLoanCallbackPrefixes.return}${loan.id}` },
     ]);
   }
 
-  await context.reply(lines.join('\n'), {
+  await replyWithCatalogRichMessage(context, lines.join('\n'), {
     inlineKeyboard: rows,
+    parseMode: 'HTML',
   });
 }
 
@@ -456,13 +460,13 @@ export async function showAdminLoanDashboard(context: AdminLoanDashboardContext,
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).catalogLoan;
   if (!context.runtime.actor.isAdmin) {
-    await context.reply(texts.adminDashboardNoPermission);
+    await replyWithCatalogRichMessage(context, texts.adminDashboardNoPermission);
     return;
   }
 
   const loans = sortDashboardLoans(await resolveLoanRepository(context).listActiveLoansWithItems(), new Date());
   if (loans.length === 0) {
-    await context.reply(texts.adminDashboardEmpty);
+    await replyWithCatalogRichMessage(context, texts.adminDashboardEmpty);
     return;
   }
 
@@ -482,7 +486,7 @@ export async function showAdminLoanDashboard(context: AdminLoanDashboardContext,
   });
 
   const inlineKeyboard = buildAdminLoanDashboardNavigation(page, totalPages, language);
-  await context.reply(
+  await replyWithCatalogRichMessage(context,
     lines.join('\n\n'),
     inlineKeyboard.length > 0 ? { inlineKeyboard, parseMode: 'HTML' } : { parseMode: 'HTML' },
   );
@@ -517,13 +521,13 @@ async function showAdminBorrowerSelector(
     throw new Error(`Catalog item ${itemId} not found`);
   }
   if (await resolveLoanRepository(context).findActiveLoanByItemId(itemId)) {
-    await context.reply(texts.adminCreateAlreadyLoaned);
+    await replyWithCatalogRichMessage(context, texts.adminCreateAlreadyLoaned);
     return;
   }
 
   const users = await listApprovedLoanBorrowers(context);
   if (users.length === 0) {
-    await context.reply(texts.adminBorrowerSelectorEmpty);
+    await replyWithCatalogRichMessage(context, texts.adminBorrowerSelectorEmpty);
     return;
   }
 
@@ -561,7 +565,7 @@ async function showAdminBorrowerSelector(
     callbackData: `${catalogLoanCallbackPrefixes.adminCancelCreate}${itemId}`,
   }]);
 
-  await context.reply([
+  await replyWithCatalogRichMessage(context, [
     texts.adminBorrowerSelectorTitle.replace('{item}', escapeHtml(item.displayName)),
     '',
     ...pageUsers.map((user) => `- ${formatTelegramUserLink(user)}`),
@@ -583,15 +587,15 @@ async function showAdminLoanConfirmation(
   }
   const borrower = await loadApprovedLoanBorrower(context, borrowerTelegramUserId);
   if (!borrower) {
-    await context.reply(texts.adminBorrowerUnavailable);
+    await replyWithCatalogRichMessage(context, texts.adminBorrowerUnavailable);
     return;
   }
   if (await resolveLoanRepository(context).findActiveLoanByItemId(itemId)) {
-    await context.reply(texts.adminCreateAlreadyLoaned);
+    await replyWithCatalogRichMessage(context, texts.adminCreateAlreadyLoaned);
     return;
   }
 
-  await context.reply(
+  await replyWithCatalogRichMessage(context,
     texts.adminCreateConfirm
       .replace('{item}', escapeHtml(item.displayName))
       .replace('{borrower}', formatTelegramUserLink(borrower)),
@@ -733,7 +737,7 @@ async function replyWithItemDetail(
     detailsUrl: buildTelegramStartUrl(`${catalogReadFullItemStartPayloadPrefix}${item.id}`),
     language,
   });
-  await context.reply(
+  await replyWithCatalogRichMessage(context,
     confirmation ? `${escapeHtml(confirmation)}\n\n${itemDetail}` : itemDetail,
     {
       replyKeyboard: buildCatalogLoanItemDetailReplyKeyboard({

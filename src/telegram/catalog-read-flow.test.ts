@@ -21,6 +21,38 @@ function successButton(text: string) {
   return { text, semanticRole: 'success' as const };
 }
 
+test('rich catalog search escapes the query and keeps item links and navigation', async () => {
+  const { context, replies } = createContext(createRepository({ items: [buildItem(1, 'Catan <Club> & Amics')] }));
+  const sent: TelegramRichMessageInput[] = [];
+  context.runtime.bot.sendRichMessage = async (message) => { sent.push(message); };
+  context.messageText = '/catalog_search <Club>';
+  await handleTelegramCatalogReadCommand(context);
+  assert.equal(replies.length, 0);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0]?.richMessage.html ?? '', /<table compact>.*catalog_read_item_1/s);
+  assert.match(sent[0]?.richMessage.html ?? '', /&lt;Club&gt;/);
+  assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /<Club>/);
+  assert.match(sent[0]?.fallbackText ?? '', /Pàgina 1\/1/);
+  assert.ok(sent[0]?.options?.inlineKeyboard?.length);
+});
+
+test('borrowed catalog items move onto the first search page and keep their highlight and secondary data', async () => {
+  const items = Array.from({ length: 6 }, (_, index) => buildItem(index + 1, `Game ${index + 1}`));
+  const loans = createLoanRepository([{ id: 1, itemId: 6, borrowerTelegramUserId: 999, borrowerDisplayName: 'Ana <Club>', loanedByTelegramUserId: 7, dueAt: null, notes: null, returnedAt: null, returnedByTelegramUserId: null, createdAt: '2026-10-09T10:00:00Z', updatedAt: '2026-10-09T10:00:00Z' }]);
+  const { context } = createContext(createRepository({ items }), loans);
+  const sent: TelegramRichMessageInput[] = [];
+  context.runtime.bot.sendRichMessage = async (message) => { sent.push(message); };
+  context.messageText = '/catalog_search Game';
+  await handleTelegramCatalogReadCommand(context);
+  const html = sent[0]?.richMessage.html ?? '';
+  assert.match(html, /<mark><a[^>]+><b>Game 6<\/b><\/a><\/mark>/);
+  assert.ok(html.indexOf('Game 6') < html.indexOf('Game 1'));
+  assert.doesNotMatch(html, /Game 5|Disponible/);
+  assert.match(html, /colspan="3".*Ana &lt;Club&gt;/);
+  assert.match(html, /<footer>Pàgina 1\/2<\/footer>/);
+  assert.ok(sent[0]?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === catalogReadCallbackPrefixes.pageNext));
+});
+
 test('catalog item sends a rich heading and table preserving escaped text, detail links and navigation', async () => {
   const item = { ...buildItem(1, 'Catan <Club> & Amics'), description: 'Primera\nSegunda', playerCountMin: 3, playerCountMax: 4, playTimeMinutes: 90 };
   const { context, replies } = createContext(createRepository({ items: [item] }));
@@ -503,7 +535,7 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
   const membershipRepository = createMembershipRepository([
     {
       telegramUserId: 99,
-      displayName: 'Marta',
+      displayName: 'Marta <Club> & amics',
       status: 'approved',
       isAdmin: false,
     },
@@ -513,9 +545,10 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
 
   await handleTelegramCatalogReadCommand(context);
 
-  assert.match(replies[0]?.message ?? '', /Resultats per a "Game"/);
+  assert.match(replies[0]?.message ?? '', /Resultats per a &quot;Game&quot;/);
   assert.match(replies[0]?.message ?? '', /Pàgina 1\/2/);
-  assert.match(replies[0]?.message ?? '', /Prestat a Marta/);
+  assert.match(replies[0]?.message ?? '', /El té:<\/b> Marta &lt;Club&gt; &amp; amics/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /&amp;lt;|&amp;amp;/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
   assert.match(replies[0]?.message ?? '', /catalog_read_item_1/);
   assert.deepEqual(replies[0]?.options?.inlineKeyboard, [

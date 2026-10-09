@@ -37,7 +37,7 @@ export async function formatCatalogAdminDraftSummary({
   return [
     `<b>${texts.itemSummary}</b>`,
     formatHtmlField(texts.name, escapeHtmlPreview(String(data.displayName ?? ''), draftTextLimits.name)),
-    formatHtmlField(texts.type, escapeHtml(renderCatalogItemType(itemType))),
+    formatHtmlField(texts.type, escapeHtml(renderCatalogItemType(itemType, normalizeBotLanguage(botLanguage, 'ca')))),
     ...(catalogFamilyGroupUiEnabled ? [
       formatHtmlField(texts.family, escapeHtmlPreview(familyName ?? texts.noFamily, draftTextLimits.shortText)),
       formatHtmlField(texts.group, escapeHtmlPreview(groupName ?? texts.noGroup, draftTextLimits.shortText)),

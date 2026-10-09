@@ -79,9 +79,9 @@ export function formatMemberCatalogOverview({
   language?: BotLanguage;
 }): string {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
-  const lines: string[] = [texts.catalogRead.available];
+  const lines: string[] = [`<b>${escapeHtml(texts.catalogRead.available)}</b>`];
 
-  lines.push(`- Items: ${items.length}`);
+  lines.push(formatHtmlField(texts.catalogAdmin.items, String(items.length)));
   lines.push(escapeHtml(texts.catalogRead.searchHint));
   return lines.join('\n');
 }

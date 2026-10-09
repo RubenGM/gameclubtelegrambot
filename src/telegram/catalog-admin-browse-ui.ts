@@ -55,7 +55,7 @@ export function buildCatalogAdminBrowseFamilyKeyboard({
 }
 
 export function formatCatalogAdminSearchResultsMessage(query: string, itemLines: string[]): string {
-  return compactCatalogAdminMessage([`Resultats per a "${query}":`, ...itemLines]);
+  return compactCatalogAdminMessage([`<b>Resultats per a "${escapeHtml(query)}":</b>`, ...itemLines]);
 }
 
 export function buildCatalogAdminBrowseSearchKeyboard({

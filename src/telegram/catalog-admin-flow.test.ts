@@ -78,6 +78,54 @@ function createCatalogItemFixture(overrides: Partial<CatalogItemRecord> = {}): C
   };
 }
 
+test('admin item inspection uses rich fields with the full HTML and persistent actions', async () => {
+  const repository = createRepository({ items: [createCatalogItemFixture({ displayName: 'Catan <Club> & Amics', storagePosition: 'A&1' })] });
+  const { context, replies, getCurrentSession } = createContext({ repository, language: 'es' });
+  const sent: Array<{ html: string; fallback: string; options: TelegramReplyOptions | undefined }> = [];
+  context.runtime.bot.sendRichMessage = async (message) => { sent.push({ html: message.richMessage.html ?? '', fallback: message.fallbackText, options: message.options }); };
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}1`;
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.equal(replies.length, 0);
+  assert.equal(getCurrentSession()?.stepKey, 'detail');
+  assert.match(sent[0]?.html ?? '', /<h2>Catan &lt;Club&gt; &amp; Amics<\/h2>/);
+  assert.match(sent[0]?.html ?? '', /<table>.*A&amp;1.*<\/table>/s);
+  assert.match(sent[0]?.fallback ?? '', /catalog_admin_item_full_1/);
+  assert.deepEqual(sent[0]?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
+});
+
+for (const language of supportedBotLanguages) {
+  for (const rich of [false, true]) {
+    test(`catalog initial deep link restores persistent navigation in ${language}, rich=${rich}`, async () => {
+      const repository = createRepository({ items: [createCatalogItemFixture({ displayName: 'Wingspan' })] });
+      const { context, replies, getCurrentSession } = createContext({ repository, language });
+      const richOptions: Array<TelegramReplyOptions | undefined> = [];
+      if (rich) context.runtime.bot.sendRichMessage = async (input) => { richOptions.push(input.options); };
+      context.messageText = '/start catalog_admin_letters_UVW';
+      assert.equal(await handleTelegramCatalogAdminStartText(context), true);
+      const options = rich ? richOptions.at(-1) : replies.at(-1)?.options;
+      const i18n = createTelegramI18n(language);
+      assert.deepEqual(options?.replyKeyboard?.[0], [i18n.actionMenu.catalog]);
+      assert.deepEqual(options?.replyKeyboard?.at(-1), [i18n.actionMenu.start, i18n.actionMenu.help]);
+      assert.ok(options?.replyKeyboard?.flat().includes(i18n.catalogAdmin.searchByName));
+      assert.equal(options?.persistentKeyboard, true);
+      assert.equal(options?.resizeKeyboard, true);
+      assert.equal(getCurrentSession()?.stepKey, 'menu');
+      context.messageText = i18n.actionMenu.catalog;
+      assert.equal(await handleTelegramCatalogAdminText(context), true);
+      assert.equal(getCurrentSession()?.stepKey, 'menu');
+    });
+  }
+}
+
+test('empty catalog initial deep link restores the catalog keyboard too', async () => {
+  const { context, replies } = createContext({ repository: createRepository(), language: 'es' });
+  context.messageText = '/start catalog_admin_letters_UVW';
+  assert.equal(await handleTelegramCatalogAdminStartText(context), true);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], ['Catálogo']);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
+  assert.equal(replies.at(-1)?.options?.persistentKeyboard, true);
+});
+
 function createPendingGameFixture(overrides: Partial<CatalogPendingGameRecord> = {}): CatalogPendingGameRecord {
   return {
     id: 1,
@@ -3259,7 +3307,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}AD`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Arkham Horror Core Set<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /<i>Joc de taula · Posició A3 · Disponible<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Ubicació:<\/b> A3/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Azul<\/b>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Azul<\/b><\/a> · <i>Joc de taula · Posició/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sin familia/);
@@ -4999,7 +5047,7 @@ test('handleTelegramCatalogAdminText hides deactivated items from the normal cat
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}A`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_1"><b>Actiu<\/b><\/a> · <i>Llibre RPG · Disponible<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_1"><b>Actiu<\/b><\/a>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
@@ -5093,9 +5141,9 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}EM`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_2"><b>El color de la magia<\/b><\/a>/);
-  assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Disponible<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Llibres<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_item_3"><b>Mort<\/b><\/a>/);
-  assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Prestat a Anna · des de 04\/04\/2026<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>El té:<\/b> Anna/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#\d+/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
@@ -5189,9 +5237,9 @@ test('handleTelegramCatalogAdminText can search catalog items by name', async ()
 
   context.messageText = 'Mort';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
-  assert.match(replies.at(-1)?.message ?? '', /Resultats per a "Mort"/);
+  assert.match(replies.at(-1)?.message ?? '', /Resultats per a &quot;Mort&quot;/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Mort<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /<i>Llibre · Prestat a Pau · des de 04\/04\/2026<\/i>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>El té:<\/b> Pau/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /#3/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard?.flat().find((button) => button.text === 'Mort')?.callbackData, `${catalogAdminCallbackPrefixes.inspect}3`);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Retornar'));
@@ -5336,7 +5384,7 @@ test('handleTelegramCatalogAdminStartText opens an initial bucket from deep link
   context.messageText = '/start catalog_admin_letters_JKL';
   assert.equal(await handleTelegramCatalogAdminStartText(context), true);
 
-  assert.match(replies.at(-1)?.message ?? '', /<b>J K L<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Catálogo · J K L<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Jaipur<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>King of Tokyo<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Love Letter<\/b>/);
@@ -5398,7 +5446,7 @@ test('handleTelegramCatalogAdminText opens an initial bucket from internal comma
   context.messageText = '/cat_jkl';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.match(replies.at(-1)?.message ?? '', /<b>J K L<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Catálogo · J K L<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Jaipur<\/b>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ark Nova/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);

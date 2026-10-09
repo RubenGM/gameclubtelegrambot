@@ -1,3 +1,5 @@
+import { replyWithCatalogItemTable } from './catalog-item-table.js';
+import { replyWithCatalogRichMessage } from './catalog-rich-message.js';
 import type { CatalogMediaRecord, CatalogRepository, CatalogFamilyRecord, CatalogGroupRecord, CatalogItemRecord } from '../catalog/catalog-model.js';
 import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
@@ -283,7 +285,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
   if (state.view === 'overview') {
     const entries = buildOverviewEntries({ items, language });
     const page = paginateEntries(entries, state.page);
-    await context.reply(
+    await replyWithCatalogRichMessage(context,
       `${formatMemberCatalogOverview({ families, groups, items, language })}\n\n${formatEntryPage(page.items, page.page, page.totalPages, language)}`,
       { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' },
     );
@@ -294,24 +296,23 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
     const initials = normalizeInitialSet(state.initial ?? '');
     const results = await buildLetterEntries(context, { items, activeLoansByItemId, initials });
     const page = paginateEntries(results, state.page);
-    const lines = [
+    await replyWithCatalogReadTable(context, page, items, activeLoansByItemId,
       formatLetterHeading(initials, results.length, language),
-      formatEntryPage(page.items, page.page, page.totalPages, language),
-    ];
-    await context.reply(lines.join('\n\n'), { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' });
+      buildListNavigationOptions([], state, page.totalPages > 1, language));
     return;
   }
 
   if (state.view === 'search') {
     const results = await searchCatalogItems(context, { families, groups, items, activeLoansByItemId, query: state.query ?? '' });
     if (results.length === 0) {
-      await context.reply(texts.catalogRead.noResults.replace('{query}', state.query ?? ''));
+      await replyWithCatalogRichMessage(context, texts.catalogRead.noResults.replace('{query}', state.query ?? ''));
       return;
     }
 
     const page = paginateEntries(results, state.page);
-    const lines = [texts.catalogRead.searchResults.replace('{query}', state.query ?? ''), formatEntryPage(page.items, page.page, page.totalPages, language)];
-    await context.reply(lines.join('\n'), { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' });
+    await replyWithCatalogReadTable(context, page, items, activeLoansByItemId,
+      texts.catalogRead.searchResults.replace('{query}', state.query ?? ''),
+      buildListNavigationOptions([], state, page.totalPages > 1, language));
     return;
   }
 
@@ -323,7 +324,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
 
     const entries = await buildFamilyEntries(context, { family, groups, items, activeLoansByItemId });
     const page = paginateEntries(entries, state.page);
-    await context.reply(
+    await replyWithCatalogRichMessage(context,
       `${formatMemberCatalogFamilyDetails({ family, groups, items, language })}\n\n${formatEntryPage(page.items, page.page, page.totalPages, language)}`,
       { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' },
     );
@@ -338,7 +339,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
 
     const entries = await buildGroupEntries(context, { group, items, activeLoansByItemId });
     const page = paginateEntries(entries, state.page);
-    await context.reply(
+    await replyWithCatalogRichMessage(context,
       `${formatMemberCatalogGroupDetails({ group, family: group.familyId !== null ? familyById(families, group.familyId) ?? null : null, items, language })}\n\n${formatEntryPage(page.items, page.page, page.totalPages, language)}`,
       { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' },
     );
@@ -348,7 +349,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
   if (state.view === 'my-loans') {
     const loans = await loadActiveLoansByBorrower(context, context.runtime.actor.telegramUserId);
     if (loans.length === 0) {
-      await context.reply(texts.catalogRead.noLoans);
+      await replyWithCatalogRichMessage(context, texts.catalogRead.noLoans);
       return;
     }
 
@@ -360,7 +361,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
       loanLines.push(`- ${item ? `<a href="${buildTelegramStartUrl(`catalog_read_item_${item.id}`)}"><b>${escapeHtml(item.displayName)}</b></a>` : `Item ${loan.itemId}`} · ${loan.dueAt ?? texts.catalogLoan.noDate}`);
     }
     const loanRows = await buildLoanRows(context, page.items, language);
-    await context.reply(loanLines.join('\n'), { ...buildListNavigationOptions(loanRows, state, page.totalPages > 1, language), parseMode: 'HTML' });
+    await replyWithCatalogRichMessage(context, loanLines.join('\n'), { ...buildListNavigationOptions(loanRows, state, page.totalPages > 1, language), parseMode: 'HTML' });
     return;
   }
 
@@ -655,6 +656,24 @@ function paginateEntries<T>(entries: T[], page: number): { items: T[]; page: num
   };
 }
 
+async function replyWithCatalogReadTable(
+  context: TelegramCatalogReadContext,
+  page: { items: CatalogBrowseEntry[]; page: number; totalPages: number },
+  items: CatalogItemRecord[],
+  loans: Map<number, CatalogLoanRecord>,
+  title: string,
+  options: TelegramReplyOptions,
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const entries = await Promise.all(page.items.map(async (entry) => {
+    const item = items.find((candidate) => candidate.id === entry.id)!;
+    const loan = loans.get(item.id) ?? null;
+    return { item, loan, ...(loan ? { borrowerName: await resolveLoanBorrowerDisplayName(context, loan) } : {}) };
+  }));
+  const footerHtml = language === 'ca' ? `Pàgina ${page.page}/${page.totalPages}` : language === 'es' ? `Página ${page.page}/${page.totalPages}` : `Page ${page.page}/${page.totalPages}`;
+  await replyWithCatalogItemTable(context, { title, entries, startPayloadPrefix: 'catalog_read_item_', footerHtml }, options);
+}
+
 function formatEntryPage(entries: CatalogBrowseEntry[], page: number, totalPages: number, language: 'ca' | 'es' | 'en'): string {
   const lines = [language === 'ca' ? `Pàgina ${page}/${totalPages}` : language === 'es' ? `Página ${page}/${totalPages}` : `Page ${page}/${totalPages}`];
   if (entries.length === 0) {
@@ -663,7 +682,7 @@ function formatEntryPage(entries: CatalogBrowseEntry[], page: number, totalPages
   }
 
   for (const entry of entries) {
-    lines.push(`- ${formatCatalogBrowseEntryLabel(entry)}${entry.subtitle ? `\n${escapeHtml(entry.subtitle)}` : ''}`);
+    lines.push(`- ${formatCatalogBrowseEntryLabel(entry)}${entry.subtitle ? `\n<i>${escapeHtml(entry.subtitle)}</i>` : ''}`);
   }
   return lines.join('\n');
 }
@@ -740,7 +759,7 @@ async function buildLetterEntries(context: TelegramCatalogReadContext, { items, 
   const initialSet = new Set(normalizeInitialSet(initials).split(''));
   return Promise.all(items
     .filter((item) => initialSet.has(getCatalogItemInitial(item)))
-    .sort((left, right) => left.displayName.localeCompare(right.displayName))
+    .sort((left, right) => Number(activeLoansByItemId.has(right.id)) - Number(activeLoansByItemId.has(left.id)) || left.displayName.localeCompare(right.displayName))
     .map(async (item) => ({
       kind: 'item' as const,
       id: item.id,
@@ -837,7 +856,7 @@ async function searchCatalogItems(context: TelegramCatalogReadContext, {
         group?.description,
       ], tokens);
     })
-    .sort((left, right) => left.displayName.localeCompare(right.displayName))
+    .sort((left, right) => Number(activeLoansByItemId.has(right.id)) - Number(activeLoansByItemId.has(left.id)) || left.displayName.localeCompare(right.displayName))
     .map(async (item) => ({
       kind: 'item' as const,
       id: item.id,
@@ -847,11 +866,11 @@ async function searchCatalogItems(context: TelegramCatalogReadContext, {
 }
 
 async function formatItemSubtitle(context: TelegramCatalogReadContext, item: CatalogItemRecord, loan: CatalogLoanRecord | null): Promise<string> {
-  if (!loan) {
-    return renderCatalogItemType(item.itemType);
-  }
-
-  return `${renderCatalogItemType(item.itemType)} · Prestat a ${escapeHtml(await resolveLoanBorrowerDisplayName(context, loan))} des de ${formatLoanDate(loan.createdAt)}`;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const type = renderCatalogItemType(item.itemType, language);
+  if (!loan) return type;
+  const texts = createTelegramI18n(language).catalogAdmin;
+  return `${type} · ${texts.loanedTo.replace('{name}', await resolveLoanBorrowerDisplayName(context, loan))} · ${texts.loanedSince.replace('{date}', formatLoanDate(loan.createdAt))}`;
 }
 
 function parseCatalogSearchQuery(text: string): string | null {
@@ -899,7 +918,7 @@ function formatLetterHeading(initials: string, count: number, language: 'ca' | '
     : language === 'en'
       ? `Items in ${label}`
       : `Articles a ${label}`;
-  return `<b>${escapeHtml(title)}</b> · ${count} ${articleCountLabel(count, language)}`;
+  return `${title} · ${count} ${articleCountLabel(count, language)}`;
 }
 
 function normalizeInitialSet(value: string): string {

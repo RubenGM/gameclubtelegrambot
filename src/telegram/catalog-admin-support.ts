@@ -1,3 +1,5 @@
+import { replyWithCatalogItemTable, type CatalogTableEntry } from './catalog-item-table.js';
+import { replyWithCatalogRichMessage } from './catalog-rich-message.js';
 import { chmod, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -126,7 +128,6 @@ import {
   buildCatalogAdminSelectionKeyboard,
   formatCatalogAdminFamilyBrowseMessage,
   formatCatalogAdminItemList,
-  formatCatalogAdminSearchResultsMessage,
 } from './catalog-admin-browse-ui.js';
 import { parseCatalogAdminCallbackRoute } from './catalog-admin-callback-routing.js';
 import {
@@ -635,7 +636,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
   if (route.kind === 'browse-search') {
     await startCatalogAdminBrowseSearchSession({
       session: context.runtime.session,
-      reply: context.reply,
+      reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
       language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
       browseFlowKey,
     });
@@ -740,7 +741,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
       }),
     );
     await replyWithCatalogAdminGroupInspection({
-      reply: context.reply,
+      reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
       detailsMessage: await formatCatalogGroupDetails(context, group),
       inlineKeyboard,
     });
@@ -755,7 +756,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
     await startCatalogAdminEditSelectionSession({
       session: context.runtime.session,
-      reply: context.reply,
+      reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
       language,
       editFlowKey,
       itemId: route.itemId,
@@ -859,7 +860,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
     await startCatalogAdminDeactivateSession({
       session: context.runtime.session,
-      reply: context.reply,
+      reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
       language,
       deactivateFlowKey,
       itemId: route.itemId,
@@ -876,7 +877,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
     await startCatalogAdminAddMediaSession({
       session: context.runtime.session,
-      reply: context.reply,
+      reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
       language,
       mediaFlowKey,
       itemId: item.id,
@@ -892,7 +893,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
     await startCatalogAdminEditMediaSession({
       session: context.runtime.session,
-      reply: context.reply,
+      reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
       language,
       mediaFlowKey,
       media,
@@ -908,7 +909,7 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
     const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
     await startCatalogAdminDeleteMediaSession({
       session: context.runtime.session,
-      reply: context.reply,
+      reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
       language,
       mediaDeleteFlowKey,
       media,
@@ -1224,7 +1225,7 @@ async function replyWithCatalogAdminItemDetail(
     data: { itemId: item.id },
   });
   await replyWithCatalogAdminItemInspection({
-    reply: context.reply,
+    reply: (message, options) => replyWithCatalogRichMessage(context, message, options, item.displayName),
     detailsMessage: full
       ? appendCatalogDetailFooterLines(await formatCatalogItemDetails(context, item), footerLines)
       : appendCatalogDetailFooterLines(await formatCatalogItemSummary(context, item), footerLines),
@@ -1441,7 +1442,7 @@ async function replyWithCatalogOwnerSelector(context: TelegramCatalogAdminContex
     .filter((user) => user.status === 'approved')
     .sort((left, right) => left.displayName.localeCompare(right.displayName) || left.telegramUserId - right.telegramUserId);
   if (users.length === 0) {
-    await context.reply(texts.ownerSelectorEmpty);
+    await replyWithCatalogRichMessage(context, texts.ownerSelectorEmpty);
     return;
   }
 
@@ -1466,7 +1467,7 @@ async function replyWithCatalogOwnerSelector(context: TelegramCatalogAdminContex
   }
   rows.push([{ text: texts.browseBack, callbackData: `${catalogAdminCallbackPrefixes.inspect}${itemId}` }]);
 
-  await context.reply(lines.join('\n'), { parseMode: 'HTML', inlineKeyboard: rows });
+  await replyWithCatalogRichMessage(context, lines.join('\n'), { parseMode: 'HTML', inlineKeyboard: rows });
 }
 
 type CatalogAutocorrectDraft = WikipediaBoardGameCatalogDraft;
@@ -1871,7 +1872,7 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
   }
   if (session.flowKey === createFlowKey && session.stepKey === 'cover-confirm') {
     return handleCatalogAdminMediaSession({
-      session: context.runtime.session, reply: context.reply,
+      session: context.runtime.session, reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
       language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
       text, stepKey: session.stepKey, data: session.data,
       repository: resolveCatalogRepository(context), auditRepository: resolveAuditRepository(context),
@@ -1902,7 +1903,7 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
   if (session.flowKey === mediaFlowKey) {
     return handleCatalogAdminMediaSession({
       session: context.runtime.session,
-      reply: context.reply,
+      reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
       language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
       text,
       stepKey: session.stepKey,
@@ -1922,7 +1923,7 @@ async function handleActiveCatalogSession(context: TelegramCatalogAdminContext, 
   if (session.flowKey === mediaDeleteFlowKey) {
     return handleCatalogAdminMediaDeleteSession({
       session: context.runtime.session,
-      reply: context.reply,
+      reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
       language: normalizeBotLanguage(context.runtime.bot.language, 'ca'),
       text,
       data: session.data,
@@ -2670,7 +2671,7 @@ async function showCatalogPendingGames(context: TelegramCatalogAdminContext, req
   const texts = createTelegramI18n(language).catalogAdmin;
   const pendingGames = await listCatalogPendingGamesWithoutExistingItems(context);
   if (pendingGames.length === 0) {
-    await context.reply(texts.pendingGamesEmpty, buildCatalogAdminMenuOptions(language, true));
+    await replyWithCatalogRichMessage(context, texts.pendingGamesEmpty, buildCatalogAdminMenuOptions(language, true));
     return;
   }
 
@@ -2698,7 +2699,7 @@ async function showCatalogPendingGames(context: TelegramCatalogAdminContext, req
   if (page < totalPages) {
     navigation.push({ text: texts.pendingGameNext, callbackData: `${catalogAdminCallbackPrefixes.pendingPage}${page + 1}` });
   }
-  await context.reply(lines.join('\n'), {
+  await replyWithCatalogRichMessage(context, lines.join('\n'), {
     parseMode: 'HTML',
     inlineKeyboard: [
       ...(navigation.length > 0 ? [navigation] : []),
@@ -2743,7 +2744,7 @@ async function showCatalogPendingGameDetail(context: TelegramCatalogAdminContext
   const texts = createTelegramI18n(language).catalogAdmin;
   const game = await resolveCatalogPendingGameRepository(context).findById(pendingGameId);
   if (!game) {
-    await context.reply(texts.pendingGameMissing, {
+    await replyWithCatalogRichMessage(context, texts.pendingGameMissing, {
       inlineKeyboard: [[{ text: texts.pendingGameBackToList, callbackData: `${catalogAdminCallbackPrefixes.pendingPage}1` }]],
     });
     return;
@@ -2766,7 +2767,7 @@ async function showCatalogPendingGameDetail(context: TelegramCatalogAdminContext
     lines.push('', `<b>${escapeHtml(texts.pendingGameCandidates)}:</b>`);
     lines.push(...game.candidates.map((candidate, index) => `${index + 1}. ${formatBulkCandidateLink(candidate)}`));
   }
-  await context.reply(lines.join('\n'), {
+  await replyWithCatalogRichMessage(context, lines.join('\n'), {
     parseMode: 'HTML',
     inlineKeyboard: [
       ...(game.sourceTelegramChatId && game.sourceTelegramMessageId
@@ -2943,10 +2944,10 @@ async function confirmCatalogPendingGameDeletion(context: TelegramCatalogAdminCo
   const texts = createTelegramI18n(language).catalogAdmin;
   const game = await resolveCatalogPendingGameRepository(context).findById(pendingGameId);
   if (!game) {
-    await context.reply(texts.pendingGameMissing);
+    await replyWithCatalogRichMessage(context, texts.pendingGameMissing);
     return;
   }
-  await context.reply(`<b>${escapeHtml(game.displayName)}</b>\n\n${escapeHtml(texts.pendingGameDeleteQuestion)}`, {
+  await replyWithCatalogRichMessage(context, `<b>${escapeHtml(game.displayName)}</b>\n\n${escapeHtml(texts.pendingGameDeleteQuestion)}`, {
     parseMode: 'HTML',
     inlineKeyboard: [
       [{ text: texts.pendingGameDeleteConfirm, callbackData: `${catalogAdminCallbackPrefixes.pendingDeleteConfirm}${game.id}`, semanticRole: 'danger' }],
@@ -3064,7 +3065,7 @@ async function handleCreateSession(
   }
   return handleCatalogAdminCreateSession({
     session: context.runtime.session,
-    reply: context.reply,
+    reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
     language,
     text,
     stepKey,
@@ -3244,7 +3245,7 @@ async function handleEditSession(
   const item = await loadItemOrThrow(context, itemId);
   return handleCatalogAdminEditSession({
     session: context.runtime.session,
-    reply: context.reply,
+    reply: (message, options) => replyWithCatalogRichMessage(context, message, options),
     language,
     text,
     stepKey,
@@ -3364,7 +3365,7 @@ async function showCatalogFamilyBrowse(context: TelegramCatalogAdminContext, fam
     return buildLoanItemButton(loan, item.id, item.displayName, catalogAdminCallbackPrefixes.inspect, language, loan ? canReturnLoan(context, loan) : true);
   }));
   await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
-  await context.reply(formatCatalogAdminFamilyBrowseMessage({
+  await replyWithCatalogRichMessage(context, formatCatalogAdminFamilyBrowseMessage({
     family,
     texts,
     groupSections,
@@ -3382,7 +3383,12 @@ async function showCatalogFamilyBrowse(context: TelegramCatalogAdminContext, fam
 
 async function showCatalogLettersBrowse(context: TelegramCatalogAdminContext, initials: string): Promise<void> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-  const texts = createTelegramI18n(language).catalogAdmin;
+  const i18n = createTelegramI18n(language);
+  const menuOptions = buildCatalogAdminMenuOptions(language, context.runtime.actor.isAdmin);
+  const navigationOptions: TelegramReplyOptions = {
+    ...menuOptions,
+    replyKeyboard: [[i18n.actionMenu.catalog], ...(menuOptions.replyKeyboard ?? [])],
+  };
   const normalizedInitials = normalizeCatalogInitials(initials);
   const initialSet = new Set(normalizedInitials.split(''));
   const repository = resolveCatalogRepository(context);
@@ -3392,24 +3398,19 @@ async function showCatalogLettersBrowse(context: TelegramCatalogAdminContext, in
 
   if (items.length === 0) {
     await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
-    await context.reply(`No he trobat cap item per a ${normalizedInitials}.`, {
-      inlineKeyboard: [[{ text: texts.browseBack, callbackData: catalogAdminCallbackPrefixes.browseMenu }]],
-    });
+    await context.reply(`No he trobat cap item per a ${normalizedInitials}.`, navigationOptions);
     return;
   }
 
   const loanRepository = resolveCatalogLoanRepository(context);
   const activeLoans = await loadActiveLoansByItemMap(loanRepository, items);
-  const sortedItems = items
-    .slice()
-    .sort((left, right) => left.displayName.localeCompare(right.displayName));
-  const itemLines = await Promise.all(sortedItems
-    .map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)));
-
+  const entries = await buildCatalogAdminTableEntries(context, items, activeLoans);
   await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
-  await context.reply([`<b>${formatCatalogInitialsLabel(normalizedInitials)}</b>`, ...itemLines].join('\n'), {
-    parseMode: 'HTML',
-  });
+  await replyWithCatalogItemTable(context, {
+    title: `${createTelegramI18n(language).actionMenu.catalog} · ${formatCatalogInitialsLabel(normalizedInitials)}`,
+    entries,
+    startPayloadPrefix: catalogAdminStartPayloadPrefix,
+  }, navigationOptions);
 }
 
 function normalizeCatalogInitials(value: string): string {
@@ -3440,7 +3441,7 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
 
   const query = text.trim();
   if (!query) {
-    await context.reply(texts.invalidSearchName, buildSingleCancelKeyboard());
+    await replyWithCatalogRichMessage(context, texts.invalidSearchName, buildSingleCancelKeyboard());
     return true;
   }
 
@@ -3459,20 +3460,24 @@ async function handleBrowseSession(context: TelegramCatalogAdminContext, text: s
   await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
 
   if (matches.length === 0) {
-    await context.reply(`No he trobat cap coincidencia per a "${query}".`, {
+    await replyWithCatalogRichMessage(context, `No he trobat cap coincidencia per a "${query}".`, {
       inlineKeyboard: [[{ text: texts.browseBack, callbackData: catalogAdminCallbackPrefixes.browseMenu }]],
     });
     return true;
   }
 
   const activeLoans = await loadActiveLoansByItemMap(loanRepository, matches);
-  const itemLines = await Promise.all(matches.map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)));
+  const entries = await buildCatalogAdminTableEntries(context, matches, activeLoans);
   const itemRows = await Promise.all(matches.map(async (item) => {
     const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
     return buildLoanItemButton(loan, item.id, item.displayName, catalogAdminCallbackPrefixes.inspect, language, loan ? canReturnLoan(context, loan) : true);
   }));
 
-  await context.reply(formatCatalogAdminSearchResultsMessage(query, itemLines), {
+  await replyWithCatalogItemTable(context, {
+    title: createTelegramI18n(language).catalogRead.searchResults.replace('{query}', query),
+    entries,
+    startPayloadPrefix: catalogAdminStartPayloadPrefix,
+  }, {
     parseMode: 'HTML',
     inlineKeyboard: buildCatalogAdminBrowseSearchKeyboard({
       itemRows,
@@ -3588,7 +3593,7 @@ async function replyWithCatalogList(
   const items = (await listCatalogItems({ repository: resolveCatalogRepository(context), includeDeactivated: false }))
     .filter((item) => itemTypeFilter ? item.itemType === itemTypeFilter : item.itemType !== 'expansion');
   if (items.length === 0) {
-    await context.reply(texts.noItems, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca'), context.runtime.actor.isAdmin));
+    await replyWithCatalogRichMessage(context, texts.noItems, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca'), context.runtime.actor.isAdmin));
     return;
   }
   const inlineKeyboard = buildCatalogAdminSelectionKeyboard({
@@ -3598,7 +3603,7 @@ async function replyWithCatalogList(
     editPrefix: catalogAdminCallbackPrefixes.edit,
     deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
   });
-  await context.reply(
+  await replyWithCatalogRichMessage(context,
     mode === 'list' ? await formatCatalogItemList(context, items, itemTypeFilter !== undefined) : mode === 'edit' ? texts.chooseItemToEdit : texts.chooseItemToDeactivate,
     mode === 'list'
       ? { ...buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca'), context.runtime.actor.isAdmin), parseMode: 'HTML' }
@@ -3707,7 +3712,7 @@ async function requestDuplicateCreateConfirmation(
     stepKey: 'duplicate-confirm',
     data: { ...data, pendingDuplicateIds: matches.map((item) => item.id), confirmedDuplicateIds: [] },
   });
-  await context.reply([
+  await replyWithCatalogRichMessage(context, [
     texts.duplicateCreatePrompt,
     ...matches.map((item) => `- <a href="${buildTelegramStartUrl(`catalog_read_item_${item.id}`)}">${escapeHtml(item.displayName)} (#${item.id})</a>`),
   ].join('\n'), { ...duplicateCreateOptions(language), parseMode: 'HTML' });
@@ -4104,6 +4109,17 @@ async function formatCatalogGroupDetails(context: TelegramCatalogAdminContext, g
       ? await Promise.all(items.map((item) => formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null)))
       : [],
   });
+}
+
+async function buildCatalogAdminTableEntries(
+  context: TelegramCatalogAdminContext,
+  items: CatalogItemRecord[],
+  loans: Map<number, CatalogLoanRecord>,
+): Promise<CatalogTableEntry[]> {
+  return Promise.all(items.map(async (item) => {
+    const loan = loans.get(item.id) ?? null;
+    return { item, loan, ...(loan ? { borrowerName: await resolveLoanBorrowerDisplayName(context, loan) } : {}) };
+  }));
 }
 
 async function formatCatalogListItemLine(
@@ -4940,7 +4956,7 @@ async function createWikipediaImportedBoardGame(
   }
   if (!canAdministerCatalog(context)) {
     await context.runtime.session.cancel();
-    await context.reply(`${texts.created}: ${item.displayName} (#${item.id}).`, buildCatalogAdminMenuOptions(language, false));
+    await replyWithCatalogRichMessage(context, `${texts.created}: ${item.displayName} (#${item.id}).`, buildCatalogAdminMenuOptions(language, false));
     return;
   }
   await context.runtime.session.start({
@@ -4948,8 +4964,8 @@ async function createWikipediaImportedBoardGame(
     stepKey: 'select-field',
     data: { itemId: item.id },
   });
-  await context.reply(texts.wikipediaFinalizeImport, buildEditFieldMenuOptions(item.itemType, language));
-  await context.reply(
+  await replyWithCatalogRichMessage(context, texts.wikipediaFinalizeImport, buildEditFieldMenuOptions(item.itemType, language));
+  await replyWithCatalogRichMessage(context,
     `${texts.wikipediaImportedDraft.replace('{name}', escapeHtml(item.displayName))}\n\n${await formatDraftSummary(context, importedData as unknown as Record<string, unknown>)}\n\n${texts.selectEditField}`,
     { ...buildEditFieldMenuOptions(item.itemType, language), parseMode: 'HTML' },
   );

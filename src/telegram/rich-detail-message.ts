@@ -15,7 +15,7 @@ export function buildTelegramRichDetailMessage(displayName: string, renderedDeta
   return { html: `<h2>${escapeHtml(displayName)}</h2>${rows.length ? `<table>${rows.join('')}</table>` : ''}${paragraphs.join('')}` };
 }
 
-function splitDetailLines(html: string): string[] {
+export function splitDetailLines(html: string): string[] {
   const lines: string[] = [];
   let line = '';
   let openTags = 0;

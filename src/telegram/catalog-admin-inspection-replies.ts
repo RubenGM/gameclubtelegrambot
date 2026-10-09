@@ -26,5 +26,5 @@ export async function replyWithCatalogAdminGroupInspection({
   detailsMessage: string;
   inlineKeyboard: NonNullable<TelegramReplyOptions['inlineKeyboard']>;
 }): Promise<void> {
-  await reply(detailsMessage, { inlineKeyboard });
+  await reply(detailsMessage, { inlineKeyboard, parseMode: 'HTML' });
 }
