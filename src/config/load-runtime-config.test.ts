@@ -479,3 +479,16 @@ test('loadRuntimeConfig fails when a required secret is missing from both env so
     },
   );
 });
+
+test('OpenJev configuration loads from env and its key is excluded from JSON persistence', async () => {
+  const config = await loadRuntimeConfig({ env: {}, readConfigFile: async () => validConfigJson,
+    readEnvFile: async () => 'OPENJEV_API_KEY=test-openjev-secret\nGAMECLUB_OPENJEV_ENABLED=true\nGAMECLUB_OPENJEV_TIMEOUT_MS=1500\nGAMECLUB_OPENJEV_CONFIDENCE_THRESHOLD=0.85\n',
+  });
+  assert.equal(config.llmCommands?.openjevEnabled, true);
+  assert.equal(config.llmCommands?.openjevApiKey, 'test-openjev-secret');
+  assert.equal(config.llmCommands?.openjevTimeoutMs, 1500);
+  const { splitRuntimeConfigForPersistence } = await import('./runtime-config-files.js');
+  const persisted = splitRuntimeConfigForPersistence(config);
+  assert.doesNotMatch(JSON.stringify(persisted.jsonConfig), /test-openjev-secret|openjevApiKey/);
+  assert.equal(persisted.envValues.OPENJEV_API_KEY, 'test-openjev-secret');
+});

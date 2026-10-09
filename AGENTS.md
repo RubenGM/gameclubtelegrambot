@@ -76,6 +76,9 @@ actualiza también `docs/feature-status.md`.
 
 ## Local validation workflow
 
+Después de validar y cerrar un ticket, haz commit de los cambios correspondientes
+antes de entregar el trabajo. No hagas push salvo que el usuario lo solicite.
+
 Use `npm test` after code changes to run tests affected by the current Git diff
 (staged, unstaged and untracked files), including domain tests and transitive
 import consumers. Do not run the full suite by default. Inspect the selection

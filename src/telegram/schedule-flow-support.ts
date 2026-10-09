@@ -276,6 +276,32 @@ export interface TelegramScheduleContext {
   scheduleWebCreateTokenStore?: ScheduleWebCreateTokenStore;
 }
 
+/** Prepare a draft only; the ordinary wizard retains validation and final Save. */
+export async function startTelegramScheduleCreatePrefill(
+  context: TelegramScheduleContext,
+  input: { title?: string; date?: string; time?: string; description?: string },
+): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved || context.runtime.actor.isBlocked) return false;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).schedule;
+  const date = input.date ? parseDate(input.date) : undefined;
+  const time = input.time ? parseTime(input.time) : undefined;
+  const data = {
+    ...defaultCreateScheduleValues,
+    ...(input.title ? { title: input.title } : {}),
+    ...(typeof date === 'string' ? { date } : {}),
+    ...(typeof time === 'string' ? { time } : {}),
+    ...(input.description ? { description: input.description, detailsMessageChatId: null, detailsMessageId: null } : {}),
+  };
+  const stepKey = !input.title ? 'title' : typeof date !== 'string' ? 'date' : typeof time !== 'string' ? 'time' : 'capacity';
+  await context.runtime.session.start({ flowKey: createFlowKey, stepKey, data });
+  if (stepKey === 'time') await replyCreateTimePrompt(context, String(data.date), language);
+  else await replyCreateStepPrompt(context, input.title ?? texts.create,
+    stepKey === 'title' ? texts.askTitle : stepKey === 'date' ? texts.askDate : texts.askCapacity,
+    stepKey === 'title' ? buildCreateTitleOptions(language) : stepKey === 'date' ? buildDateOptions(language, true) : buildCreateCapacityOptions(language));
+  return true;
+}
+
 export async function handleTelegramScheduleText(context: TelegramScheduleContext): Promise<boolean> {
   const text = context.messageText?.trim();
   if (!text || context.runtime.chat.kind !== 'private') {

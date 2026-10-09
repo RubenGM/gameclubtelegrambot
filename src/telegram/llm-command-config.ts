@@ -2,6 +2,10 @@ import type { RuntimeConfig } from '../config/runtime-config.js';
 
 export interface ResolvedLlmCommandConfig {
   enabled: boolean;
+  openjevEnabled?: boolean;
+  openjevApiKey?: string | undefined;
+  openjevTimeoutMs?: number;
+  openjevConfidenceThreshold?: number;
   privateFallbackEnabled: boolean;
   groupInteractionsEnabled: boolean;
   provider: 'codex' | 'opencode';

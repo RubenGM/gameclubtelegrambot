@@ -136,6 +136,34 @@ de fidelidad estricta; se puede sobrescribir con
 `GAMECLUB_BGG_DESCRIPTION_TRANSLATION_REASONING_EFFORT`. La lectura de portadas
 se puede sobrescribir con `GAMECLUB_COVER_TITLE_MODEL`.
 
+### Clasificación opcional con OpenJev
+
+OpenJev está preparado como clasificador orientativo antes de Codex, usando
+[su API oficial](https://openjev.sh/docs) (`POST /v1/systemone`, pregunta
+`choice`). Se activa con `GAMECLUB_OPENJEV_ENABLED=true`; por defecto está
+desactivado. `OPENJEV_API_KEY` es un secreto del `.env` local/operativo, nunca
+del JSON persistido ni de archivos versionados. El editor de configuración lo
+trata como secreto. `GAMECLUB_OPENJEV_TIMEOUT_MS` limita la espera (2000 ms por
+defecto) y `GAMECLUB_OPENJEV_CONFIDENCE_THRESHOLD` filtra pistas inciertas (0,8).
+
+Al activarlo, envía a OpenJev el mensaje actual, acotado a 4000 caracteres, y
+hasta 1200 caracteres del reply si existe; no envía credenciales del bot,
+identidad del usuario ni registros internos. La respuesta debe elegir un intent
+de la allowlist local y aportar una confianza válida. Se incorpora al prompt
+Codex sólo como pista: Codex sigue extrayendo parámetros y devolviendo el
+contrato completo; el router local conserva umbrales, permisos y confirmación.
+Errores HTTP, JSON inválido, baja confianza o timeout continúan con Codex sin
+pista. Stop cancela también esta petición. No se registran cuerpos de error,
+clave ni texto de usuario.
+
+Esta primera integración no sustituye la interpretación Codex y suma una
+petición HTTP cuando está activa; no implica menor latencia total. Antes de
+usarlo como ruta rápida hay que medir precisión y latencia sobre peticiones
+reales y definir qué lecturas admiten despacho sin extracción adicional.
+La prueba real del 9 de octubre reconoció los tres intents de P-002 con
+confianzas 0,97/0,98/1 y duraciones 1228/595/551 ms; son tres ejemplos, no una
+medición de precisión general.
+
 ## Configuración
 
 Las variables runtime principales son:
@@ -338,6 +366,30 @@ Acciones admin como `catalog.create` o `catalog.edit` están declaradas para que
 el asistente general pueda reconocerlas, pero `/ask` debe rechazarlas y
 derivarlas al menú normal. `/adminai` usa un contrato y una allowlist separados;
 no amplía la autoridad del contrato general.
+
+### Prellenado de escrituras (P-002)
+
+Tras pulsar `Preparar`, el bot consume la confirmación y vuelve a comprobar
+acceso aprobado, bloqueo, activación y caducidad. No crea recursos al preparar:
+
+- `schedule.create`: reutiliza título y descripción; acepta `date` (YYYY-MM-DD),
+  `time` (HH:mm) o `startsAt`. Fechas con offset se convierten a Europe/Madrid;
+  sin offset se interpretan como hora local del club. Fechas/horas inválidas
+  se solicitan en el asistente normal. El usuario completa los datos que falten,
+  plazas y opciones y guarda desde el resumen editable habitual.
+- `group_purchase.create`: reutiliza título y descripción y abre el primer paso
+  que falte; continúa con modalidad, precio, plazos, campos y guardado habitual.
+- `storage.entry.edit`: requiere un ID real y permiso sobre la entrada activa,
+  excluyendo categorías internas. Abre la edición normal o propone nombre y
+  tags; muestra la propuesta y solicita revisar los tags antes de guardar.
+  `Omitir` conserva los tags mostrados; escribir otros los reemplaza. Un array
+  vacío de tags del contrato LLM significa que no se ha propuesto un cambio.
+  Vuelve a comprobar permisos al guardar; cancelar no cambia la entrada.
+
+Los textos prellenados se guardan como texto plano; no se inventan entidades
+Telegram ni referencias a mensajes del usuario. Los parámetros ausentes siguen
+siendo responsabilidad del asistente guiado; no se infieren mesa, precio o plazas.
+Una pulsación repetida de la confirmación consumida no reinicia el asistente.
 
 ## Feedback loop de lectura
 

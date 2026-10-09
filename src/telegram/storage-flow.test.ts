@@ -23,6 +23,7 @@ import {
   __resetStorageTopicMediaGroupsForTests,
   __flushStorageTopicMediaGroupForTests,
   handleTelegramStorageCallback,
+  startTelegramStorageEntryEditPrefill,
   handleTelegramStorageCommand,
   handleTelegramStorageMessage,
   handleTelegramStorageStartText,
@@ -4338,4 +4339,45 @@ test('handleTelegramStorageText reports partial progress when separate uploads f
   assert.equal(replies.at(-2)?.message, 'Guardando 2/2: dos.pdf');
   assert.equal(replies.at(-1)?.message, 'Se han guardado 1/2 archivos. Ha fallado el 2: dos.pdf. El resto no se ha procesado; vuelve a subir solo los pendientes.');
   assert.equal(getCurrentSession(), null);
+});
+
+
+test('Storage LLM prefill waits for review and saves through the ordinary metadata flow', async () => {
+  const repository = createRepository();
+  const entry = await repository.createEntry({ categoryId: 7, createdByTelegramUserId: 42, sourceKind: 'dm_copy', description: 'Anterior', tags: ['viejo'], messages: [] });
+  const { context, getCurrentSession, replies } = createContext(repository);
+  await startTelegramStorageEntryEditPrefill(context, { entryId: entry.entry.id, description: 'Manual nuevo', tags: ['nuevo'] });
+  assert.equal(getCurrentSession()?.stepKey, 'edit-entry-tags');
+  assert.equal((await repository.getEntryDetail(entry.entry.id))?.entry.description, 'Anterior');
+  assert.match(replies.at(-1)?.message ?? '', /Manual nuevo/);
+  assert.match(replies.at(-1)?.message ?? '', /nuevo/);
+  context.messageText = createTelegramI18n('es').storage.skipOptional;
+  await handleTelegramStorageText(context);
+  const saved = await repository.getEntryDetail(entry.entry.id);
+  assert.equal(saved?.entry.description, 'Manual nuevo');
+  assert.deepEqual(saved?.entry.tags, ['nuevo']);
+});
+
+test('Storage LLM prefill cannot edit another member entry or an internal category', async () => {
+  const repository = createRepository([createCategory(), createCategory({ id: 8, categoryPurpose: 'catalog_media' })]);
+  for (const [categoryId, owner] of [[7, 99], [8, 42]]) {
+    const entry = await repository.createEntry({ categoryId: categoryId!, createdByTelegramUserId: owner!, sourceKind: 'dm_copy', description: 'Anterior', tags: [], messages: [] });
+    const { context, getCurrentSession } = createContext(repository);
+    await startTelegramStorageEntryEditPrefill(context, { entryId: entry.entry.id, description: 'Cambio' });
+    assert.equal(getCurrentSession(), null);
+    assert.equal((await repository.getEntryDetail(entry.entry.id))?.entry.description, 'Anterior');
+  }
+});
+
+test('Storage checks permissions again after LLM prefill before saving', async () => {
+  const repository = createRepository();
+  const entry = await repository.createEntry({ categoryId: 7, createdByTelegramUserId: 99, sourceKind: 'dm_copy', description: 'Anterior', tags: [], messages: [] });
+  const { context, getCurrentSession } = createContext(repository, { isAdmin: true });
+  await startTelegramStorageEntryEditPrefill(context, { entryId: entry.entry.id, description: 'Cambio' });
+  context.runtime.actor.isAdmin = false;
+  context.runtime.authorization.can = () => false;
+  context.messageText = createTelegramI18n('es').storage.skipOptional;
+  await handleTelegramStorageText(context);
+  assert.equal(getCurrentSession(), null);
+  assert.equal((await repository.getEntryDetail(entry.entry.id))?.entry.description, 'Anterior');
 });

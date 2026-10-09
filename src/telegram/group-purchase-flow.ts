@@ -105,6 +105,24 @@ export async function handleTelegramGroupPurchaseCommand(context: TelegramGroupP
   await context.reply(createTelegramI18n(language).groupPurchases.selectMenu, buildGroupPurchaseMenuOptions(language));
 }
 
+/** Prefill known text and let the normal wizard collect mode, price and fields. */
+export async function startTelegramGroupPurchaseCreatePrefill(
+  context: TelegramGroupPurchaseContext,
+  input: { title?: string; description?: string },
+): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved || context.runtime.actor.isBlocked) return false;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).groupPurchases;
+  const stepKey = !input.title ? 'title' : !input.description ? 'description' : 'mode';
+  await context.runtime.session.start({ flowKey: createFlowKey, stepKey, data: {
+    fields: [], ...(input.title ? { title: input.title } : {}),
+    ...(input.description ? { description: input.description, detailsMessageChatId: null, detailsMessageId: null } : {}),
+  } });
+  await context.reply(stepKey === 'title' ? texts.askTitle : stepKey === 'description' ? texts.askDescription : texts.askMode,
+    stepKey === 'title' ? buildGroupPurchaseSingleCancelKeyboard() : stepKey === 'description' ? buildGroupPurchaseSkipCancelKeyboard(language) : buildGroupPurchaseModeOptions(language));
+  return true;
+}
+
 export async function handleTelegramGroupPurchaseText(context: TelegramGroupPurchaseContext): Promise<boolean> {
   const text = (context.messageText ?? context.messageMedia?.caption ?? '').trim();
   if (

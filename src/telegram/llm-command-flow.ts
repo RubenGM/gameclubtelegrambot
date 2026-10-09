@@ -1,4 +1,5 @@
 import type { TelegramCommandHandlerContext } from './command-registry.js';
+import { classifyOpenjevIntent } from './llm-openjev-intent-classifier.js';
 import { buildLlmCommandPrompt } from './llm-command-prompt.js';
 import { routeLlmCommandDecision, type LlmCommandRouteOutcome } from './llm-command-router.js';
 import type { ResolvedLlmCommandConfig } from './llm-command-config.js';
@@ -8,13 +9,14 @@ import { LlmCommandServiceError, type LlmCommandGenerateJsonOptions, type LlmCom
 import { startTelegramLlmGeneration, stopTelegramLlmGenerationByToken, type TelegramLlmGenerationJob } from './llm-command-jobs.js';
 import { createLlmAnswerPreview } from './llm-answer-preview.js';
 import { escapeHtml } from './schedule-presentation.js';
+import { parseDate, parseTime } from './schedule-parsing.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
 import { catalogLoanCallbackPrefixes, handleTelegramCatalogLoanCallback } from './catalog-loan-flow.js';
-import { groupPurchaseCallbackPrefixes, handleTelegramGroupPurchaseCallback } from './group-purchase-flow.js';
+import { startTelegramGroupPurchaseCreatePrefill, groupPurchaseCallbackPrefixes, handleTelegramGroupPurchaseCallback } from './group-purchase-flow.js';
 import { handleTelegramLfgText } from './lfg-flow.js';
 import { noticeCallbackPrefixes, noticeFlowKey, handleTelegramNoticeCallback, handleTelegramNoticeText } from './notice-flow.js';
-import { scheduleCallbackPrefixes, handleTelegramScheduleCallback } from './schedule-flow.js';
-import { storageCallbackPrefixes, handleTelegramStorageCallback, handleTelegramStorageText } from './storage-flow.js';
+import { startTelegramScheduleCreatePrefill, scheduleCallbackPrefixes, handleTelegramScheduleCallback } from './schedule-flow.js';
+import { startTelegramStorageEntryEditPrefill, storageCallbackPrefixes, handleTelegramStorageCallback, handleTelegramStorageText } from './storage-flow.js';
 import { executeTelegramLlmReadAction } from './llm-command-read-actions.js';
 import { startTelegramEditableProgress, type TelegramEditableProgress } from './editable-progress.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
@@ -176,6 +178,15 @@ export async function handleTelegramLlmCallback(context: TelegramLlmCommandConte
     return true;
   }
 
+  const expiresAt = session.data.llmExpiresAt;
+  if (!context.runtime.actor.isApproved || context.runtime.actor.isBlocked || !isLlmCommandsEnabled(context) ||
+    typeof expiresAt !== 'string' || !Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now()) {
+    await context.runtime.session.cancel();
+    await context.reply(resolveLlmCommandTexts(context).staleConfirmation);
+    return true;
+  }
+  // Consume before dispatch: a repeated callback cannot replay this confirmation.
+  await context.runtime.session.cancel();
   const prepared = await prepareConfirmedWrite(context, pending);
   if (!prepared) {
     await context.runtime.session.cancel();
@@ -243,7 +254,13 @@ async function handleTelegramLlmCommandText(
       const base = progress;
       progress = { ...base, update: (message, options) => base.update(message, { ...progressOptions, ...options }) };
     }
+    const intentHint = await classifyOpenjevIntent({ config, text: input.text,
+      ...(context.replyToBotMessageContext?.text ? { replyText: context.replyToBotMessageContext.text } : {}),
+      signal: job.signal,
+    });
+    assertLlmJobActive(job);
     const prompt = buildLlmCommandPrompt({
+      ...(intentHint ? { intentHint } : {}),
       userText: input.text,
       language,
       isApproved: context.runtime.actor.isApproved,
@@ -723,6 +740,45 @@ async function prepareConfirmedWrite(
   context: TelegramLlmCommandContext,
   pending: { intent: string; params: Record<string, unknown> },
 ): Promise<boolean> {
+  if (pending.intent === 'schedule.create') {
+    let date = pickStringParam(pending.params, ['date']);
+    let time = pickStringParam(pending.params, ['time']);
+    const startsAt = pickStringParam(pending.params, ['startsAt']);
+    // Offset-less values are club local time; explicit offsets describe an instant.
+    if (startsAt && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?$/.test(startsAt) &&
+      typeof parseDate(startsAt.slice(0, 10)) === 'string' && typeof parseTime(startsAt.slice(11, 16)) === 'string') {
+      if (/(Z|[+-]\d{2}:\d{2})$/.test(startsAt) && Number.isFinite(Date.parse(startsAt))) {
+        const parts = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(startsAt));
+        const part = (type: string) => parts.find((value) => value.type === type)?.value;
+        date ??= `${part('year')}-${part('month')}-${part('day')}`;
+        time ??= `${part('hour')}:${part('minute')}`;
+      } else if (!/(Z|[+-]\d{2}:\d{2})$/.test(startsAt)) {
+        date ??= startsAt.slice(0, 10); time ??= startsAt.slice(11, 16);
+      }
+    }
+    return startTelegramScheduleCreatePrefill(context, {
+      ...(pickStringParam(pending.params, ['title']) ? { title: pickStringParam(pending.params, ['title'])! } : {}),
+      ...(date ? { date } : {}), ...(time ? { time } : {}),
+      ...(pickStringParam(pending.params, ['description']) ? { description: pickStringParam(pending.params, ['description'])! } : {}),
+    });
+  }
+  if (pending.intent === 'group_purchase.create') {
+    return startTelegramGroupPurchaseCreatePrefill(context, {
+      ...(pickStringParam(pending.params, ['title']) ? { title: pickStringParam(pending.params, ['title'])! } : {}),
+      ...(pickStringParam(pending.params, ['description', 'text']) ? { description: pickStringParam(pending.params, ['description', 'text'])! } : {}),
+    });
+  }
+  if (pending.intent === 'storage.entry.edit') {
+    const entryId = pickNumberParam(pending.params, ['entryId', 'id']);
+    if (entryId === null || !Number.isSafeInteger(entryId) || entryId <= 0) return false;
+    const tags = pending.params.tags;
+    return startTelegramStorageEntryEditPrefill(context, { entryId,
+      ...(typeof pending.params.description === 'string' ? { description: pending.params.description } :
+        pickStringParam(pending.params, ['title']) ? { description: pickStringParam(pending.params, ['title'])! } : {}),
+      ...(Array.isArray(tags) && tags.length > 0 && tags.every((tag) => typeof tag === 'string') ? { tags: tags as string[] } : {}),
+    });
+  }
+
   if (pending.intent === 'notice.create') {
     const text = pickStringParam(pending.params, ['text', 'message', 'body', 'content']);
     if (!text) {

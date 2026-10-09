@@ -189,9 +189,15 @@
         "expiresAt",
         "startsAt",
         "groupTitle",
-        "sources"
+        "sources",
+        "date",
+        "time",
+        "tags"
       ],
       "properties": {
+        "date": { "type": ["string", "null"] },
+        "time": { "type": ["string", "null"] },
+        "tags": { "type": "array", "items": { "type": "string" } },
         "query": { "type": ["string", "null"] },
         "dateRange": { "type": ["string", "null"], "enum": ["today", "this_week", "upcoming", null] },
         "tag": { "type": ["string", "null"] },

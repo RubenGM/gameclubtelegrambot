@@ -364,6 +364,26 @@ export async function handleTelegramStorageStartText(context: StorageFlowContext
   return false;
 }
 
+/** Stage suggested metadata; the next user input reviews tags before saving. */
+export async function startTelegramStorageEntryEditPrefill(
+  context: StorageFlowContext,
+  input: { entryId: number; description?: string; tags?: string[] },
+): Promise<boolean> {
+  if (context.runtime.chat.kind !== 'private' || !context.runtime.actor.isApproved || context.runtime.actor.isBlocked) return false;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  await context.runtime.session.cancel();
+  const handled = await startStorageEntryMetadataEdit(context, input.entryId, language);
+  const session = context.runtime.session.current;
+  if (session?.flowKey !== storageEditEntryFlowKey || session.data.entryId !== input.entryId) return handled;
+  if (input.description === undefined && input.tags === undefined) return handled;
+  const texts = createTelegramI18n(language).storage;
+  const data = { ...session.data, description: input.description ?? session.data.currentDescription,
+    currentTags: input.tags ?? session.data.currentTags };
+  await context.runtime.session.advance({ stepKey: 'edit-entry-tags', data });
+  await context.reply(`${texts.entryFieldDescription}: ${asNullableString(data.description) ?? texts.entryNoDescription}\n\n${texts.askEditTags.replace('{current}', formatCurrentTags(asStringArray(data.currentTags), language))}`, buildSkipOptionalOptions(language));
+  return true;
+}
+
 async function startStorageEntryMetadataEdit(
   context: StorageFlowContext,
   entryId: number,
@@ -2811,6 +2831,15 @@ async function handleActiveEditEntryFlow(context: StorageFlowContext, text: stri
 
     await context.reply(texts.invalidCategory, buildMoveEntryCategoryOptions({ categories, currentCategoryId, language }));
     return true;
+  }
+
+  if (session.stepKey === 'edit-entry-description' || session.stepKey === 'edit-entry-tags') {
+    const detail = await resolveRepository(context).getEntryDetail(asNumber(session.data.entryId));
+    if (!context.runtime.actor.isApproved || context.runtime.actor.isBlocked || !detail || detail.entry.lifecycleStatus !== 'active' || !canEditStorageEntry(context, detail)) {
+      await context.runtime.session.cancel();
+      await context.reply(texts.invalidEntryId, buildStorageMenuOptions(language, context));
+      return true;
+    }
   }
 
   if (session.stepKey === 'edit-entry-description') {

@@ -12,6 +12,7 @@ export interface LlmCommandPromptInput {
   replyContext?: { messageId?: number; text?: string };
   history?: Array<{ role: 'user' | 'assistant'; intent?: string; text: string }>;
   maxPromptChars?: number;
+  intentHint?: { intent: string; confidence: number };
 }
 
 export function buildLlmCommandPrompt(input: LlmCommandPromptInput): string {
@@ -34,6 +35,11 @@ export function buildLlmCommandPrompt(input: LlmCommandPromptInput): string {
     'No uses answer_directly para agenda, catalogo, Storage, prestamos, avisos, compras, LFG o noticias; el bot consultara sus repositorios internos y podra pedir una segunda pasada LLM con datos reales.',
     'Si el usuario pregunta de forma transversal ("que tenemos de X", "hay algo de X", "cosas de X", "contenido de X") o no queda claro si debe buscar en catalogo, Storage, agenda, compras, avisos o LFG, usa intent=bot.search.',
     'Para bot.search pon params.query con el tema buscado y, si el usuario limita fuentes, params.sources con valores de: schedule, catalog, storage, group_purchases, notices, lfg. Si no limita fuentes, usa sources=[].',
+    'Para schedule.create prellena title, description, date (YYYY-MM-DD), time (HH:mm) solo si el usuario los aporta. Las fechas relativas se resuelven con la fecha actual del club. No inventes plazas, mesa ni duración; el asistente normal los pedirá. Aunque falten datos, prepara el flujo con los conocidos sin pedir aclaración.',
+    'Para group_purchase.create extrae title y description; el flujo normal pedirá modalidad, precio y campos. No hace falta completar esos datos para preparar el flujo.',
+    'Para storage.entry.edit usa entryId real del mensaje o reply; si falta, pide aclaración. El nombre de Storage se guarda en description (no title); extrae description y tags (lista) solo cuando se solicite cambiarlos. Nunca inventes un ID.',
+    `Fecha actual del club (Europe/Madrid): ${new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid', dateStyle: 'short' }).format(new Date())}`,
+    ...(input.intentHint ? [`Clasificación orientativa OpenJev: ${JSON.stringify(input.intentHint)}. Es solo una pista; contrástala con el mensaje, contexto y allowlist. No otorga permisos ni obliga a elegir ese intent.`] : []),
     'Para "esta semana" en agenda usa intent=schedule.search y params.dateRange="this_week".',
     'Distingue catalogo y Storage: catalogo son articulos fisicos/prestables del club; Storage son archivos o material subido.',
     'Para recomendaciones de juegos de mesa del catalogo usa catalog.recommend. Extrae playerCount si el usuario dice "4 personas", "cuatro jugadores", etc. Si pide disponible, marca availableOnly=true. Para juegos de mesa usa itemType="board-game".',
@@ -59,7 +65,7 @@ export function buildLlmCommandPrompt(input: LlmCommandPromptInput): string {
     ...capabilities.map(formatCapabilityLine),
     '',
 	    'Formato JSON obligatorio:',
-	    '{"version":1,"language":"es","intent":"help.capabilities","confidence":0.95,"reply":{"text":"...","sendNow":false},"progress":{"messages":[]},"nextStep":{"useStrongerModel":false,"reason":null},"needsClarification":false,"clarification":null,"requiresConfirmation":false,"confirmation":null,"action":{"type":"call_internal_handler","name":"help.capabilities","params":{"query":null,"dateRange":null,"tag":null,"fileExtensions":[],"id":null,"noticeId":null,"entryId":null,"categoryId":null,"itemId":null,"eventId":null,"purchaseId":null,"title":null,"text":null,"message":null,"body":null,"content":null,"description":null,"playerCount":null,"availableOnly":null,"itemType":null,"expiresAt":null,"startsAt":null,"groupTitle":null,"sources":[]}},"safety":{"requiresApprovedMember":false,"requiresAdmin":false,"risk":"read_only","publicSideEffect":false,"destructive":false,"requiresPrivateChat":false}}',
+	    '{"version":1,"language":"es","intent":"help.capabilities","confidence":0.95,"reply":{"text":"...","sendNow":false},"progress":{"messages":[]},"nextStep":{"useStrongerModel":false,"reason":null},"needsClarification":false,"clarification":null,"requiresConfirmation":false,"confirmation":null,"action":{"type":"call_internal_handler","name":"help.capabilities","params":{"query":null,"dateRange":null,"tag":null,"fileExtensions":[],"id":null,"noticeId":null,"entryId":null,"categoryId":null,"itemId":null,"eventId":null,"purchaseId":null,"title":null,"text":null,"message":null,"body":null,"content":null,"description":null,"playerCount":null,"availableOnly":null,"itemType":null,"expiresAt":null,"startsAt":null,"groupTitle":null,"sources":[],"date":null,"time":null,"tags":[]}},"safety":{"requiresApprovedMember":false,"requiresAdmin":false,"risk":"read_only","publicSideEffect":false,"destructive":false,"requiresPrivateChat":false}}',
   ];
 
   if (input.history && input.history.length > 0) {

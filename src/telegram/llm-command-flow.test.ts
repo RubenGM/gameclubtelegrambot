@@ -906,3 +906,73 @@ test('shutdown cancels silent group interpretation without any public or private
   assert.equal(context.replies.length, 0);
   assert.equal(context.privateMessages.length, 0);
 });
+
+for (const [params, expectedStep, expectedDate, expectedTime] of [
+  [{ title: 'Catan', startsAt: '2026-10-10T16:00:00Z', description: 'Partida abierta' }, 'capacity', '2026-10-10', '18:00'],
+  [{ title: 'Catan', startsAt: '2026-10-10T18:00' }, 'capacity', '2026-10-10', '18:00'],
+  [{ title: 'Catan', startsAt: '2026-02-30T16:00:00Z' }, 'date', undefined, undefined],
+  [{ title: 'Catan', date: '2026-02-30', time: '99:00' }, 'date', undefined, undefined],
+  [{ title: 'Catan', date: '2026-10-10' }, 'time', '2026-10-10', undefined],
+  [{ description: 'Sin título todavía' }, 'title', undefined, undefined],
+] as const) {
+  test(`LLM schedule.create prepares the normal wizard at ${expectedStep} with ${JSON.stringify(params)}`, async () => {
+    const context = createContext({ decision: writeDecision('schedule.create', params), overrides: { scheduleRepository: { async listEvents() { return []; } } } });
+    await handleTelegramLlmAskCommand(context);
+    context.callbackData = llmCommandCallbackPrefixes.confirmWrite;
+    await handleTelegramLlmCallback(context);
+    assert.equal(context.session.current?.flowKey, 'schedule-create');
+    assert.equal(context.session.current?.stepKey, expectedStep);
+    assert.equal(context.session.current?.data.date, expectedDate);
+    assert.equal(context.session.current?.data.time, expectedTime);
+    const draft = context.session.current;
+    await handleTelegramLlmCallback(context);
+    assert.equal(context.session.current, draft, 'repeated confirmation cannot restart the wizard');
+  });
+}
+
+for (const [params, expectedStep] of [
+  [{ title: 'Fundas', description: 'Fundas transparentes' }, 'mode'],
+  [{ title: 'Fundas' }, 'description'],
+  [{}, 'title'],
+] as const) {
+  test(`LLM group_purchase.create collects missing data at ${expectedStep}`, async () => {
+    const context = createContext({ decision: writeDecision('group_purchase.create', params) });
+    await handleTelegramLlmAskCommand(context);
+    context.callbackData = llmCommandCallbackPrefixes.confirmWrite;
+    await handleTelegramLlmCallback(context);
+    assert.equal(context.session.current?.flowKey, 'group-purchase-create');
+    assert.equal(context.session.current?.stepKey, expectedStep);
+    assert.equal(context.session.current?.data.title, 'title' in params ? params.title : undefined);
+  });
+}
+
+for (const reason of ['expired', 'revoked', 'blocked', 'disabled'] as const) {
+  test(`LLM write confirmation rejects ${reason} access without opening a wizard`, async () => {
+    const context = createContext({ decision: writeDecision('schedule.create', { title: 'Catan' }) });
+    await handleTelegramLlmAskCommand(context);
+    if (reason === 'expired') context.session.current!.data.llmExpiresAt = '2000-01-01T00:00:00Z';
+    if (reason === 'revoked') context.runtime.actor.isApproved = false;
+    if (reason === 'blocked') context.runtime.actor.isBlocked = true;
+    if (reason === 'disabled') context.runtime.llmCommands!.enabled = false;
+    context.callbackData = llmCommandCallbackPrefixes.confirmWrite;
+    await handleTelegramLlmCallback(context);
+    assert.equal(context.session.current, null);
+  });
+}
+
+test('LLM storage.entry.edit delegates to the normal metadata review without writing', async () => {
+  const context = createContext({ decision: writeDecision('storage.entry.edit', { entryId: 42, title: 'Manual de Catan', description: null, tags: ['catan', 'reglas'] }),
+    overrides: { storageRepository: { async getEntryDetail() { return {
+      entry: { id: 42, lifecycleStatus: 'active', createdByTelegramUserId: 123, description: 'Anterior', tags: ['viejo'] },
+      category: { id: 7, categoryPurpose: 'user_uploads' }, messages: [],
+    }; } } },
+  });
+  await handleTelegramLlmAskCommand(context);
+  context.callbackData = llmCommandCallbackPrefixes.confirmWrite;
+  await handleTelegramLlmCallback(context);
+  assert.equal(context.session.current?.flowKey, 'storage-edit-entry');
+  assert.equal(context.session.current?.stepKey, 'edit-entry-tags');
+  assert.equal(context.session.current?.data.description, 'Manual de Catan');
+  assert.deepEqual(context.session.current?.data.currentTags, ['catan', 'reglas']);
+  assert.match(context.replies.at(-1) ?? '', /Manual de Catan/);
+});
