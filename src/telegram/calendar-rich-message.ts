@@ -2,14 +2,13 @@ import type { CalendarEntry } from './calendar-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
 import type { TelegramRichMessage } from './rich-message-transport.js';
-import { formatScheduleDescriptionSummary } from './schedule-presentation.js';
 
 const defaultTimeZone = 'Europe/Madrid';
 export type CalendarRichEntry = CalendarEntry & { equipmentNames?: string[]; venueImpactText?: string };
 const calendarLabels = {
-  ca: { period: 'Pròxims 30 dies', generated: 'Actualitzat', venue: 'Local', free: 'lliures' },
-  es: { period: 'Próximos 30 días', generated: 'Actualizado', venue: 'Local', free: 'libres' },
-  en: { period: 'Next 30 days', generated: 'Updated', venue: 'Venue', free: 'free' },
+  ca: { period: 'Pròxims 30 dies', generated: 'Actualitzat', venue: 'Local', seat: 'plaça', seats: 'places' },
+  es: { period: 'Próximos 30 días', generated: 'Actualizado', venue: 'Local', seat: 'plaza', seats: 'plazas' },
+  en: { period: 'Next 30 days', generated: 'Updated', venue: 'Venue', seat: 'seat', seats: 'seats' },
 } as const;
 
 export function buildCalendarRichMessage({
@@ -78,32 +77,25 @@ function formatEntryRows(
     ? texts.calendar.allDay
     : `${formatTime(entry.startsAt, locale, timeZone)}–${formatTime(entry.endsAt, locale, timeZone)}`;
   const activity = entry.kind === 'schedule'
-    ? `<a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${entry.id}`))}"><b>${escapeHtml(entry.title)}</b></a>`
+    ? `<a href="${escapeHtml(buildTelegramStartUrl(`schedule_event_${entry.id}`))}"><b>${escapeHtml(entry.title)}</b>${entry.hasDetails || Boolean(entry.description?.trim()) ? ' ℹ️' : ''}</a>`
     : `<b>${escapeHtml(entry.title)}</b>`;
-  const details = entry.kind === 'schedule' && entry.hasDetails
-    ? ` · <a href="${escapeHtml(buildTelegramStartUrl(`schedule_details_${entry.id}`))}">${escapeHtml(texts.schedule.detailsButton)}</a>`
-    : '';
   const detailParts = entry.kind === 'schedule'
-    ? [
-        entry.tableName,
-        entry.attendanceMode === 'open'
-          ? `${entry.availableSeats}/${entry.capacity} ${labels.free}`
-          : `${entry.capacity}p`,
-        entry.attendanceMode === 'open' ? texts.schedule.openDetailTag : texts.schedule.closedDetailTag,
-      ]
+    ? [entry.tableName]
     : [labels.venue];
   const detailHtml = detailParts.filter((part): part is string => Boolean(part)).map(escapeHtml).join(' · ');
-  const description = !entry.description || (entry.kind === 'schedule' && entry.hasDetails)
+  const description = !entry.description || entry.kind === 'schedule'
     ? ''
-    : entry.kind === 'schedule'
-      ? ` · ${formatScheduleDescriptionSummary({ description: entry.description, eventId: entry.id, language })}`
-      : ` · <i>${escapeHtml(entry.description)}</i>`;
+    : ` · <i>${escapeHtml(entry.description)}</i>`;
   const equipment = entry.equipmentNames?.length
     ? ` · ${escapeHtml(texts.schedule.detailsEquipment)}: ${escapeHtml(entry.equipmentNames.join(', '))}`
     : '';
   const venueImpact = entry.venueImpactText ? ` · ${escapeHtml(entry.venueImpactText)}` : '';
+  const seatStatus = entry.kind === 'schedule'
+    ? `${entry.capacity} ${entry.capacity === 1 ? labels.seat : labels.seats}${entry.attendanceMode === 'closed' ? ' 🔒' : ''}`
+    : '';
+  const seatStatusCellAttributes = entry.kind === 'schedule' ? ' align="right"' : '';
 
-  return `<tr><td align="left" valign="top">${escapeHtml(range)}</td><td align="left" valign="top">${activity}</td></tr><tr><td></td><td>${detailHtml}${equipment}${details}${description}${venueImpact}</td></tr>`;
+  return `<tr><td align="left" valign="top"><b>${escapeHtml(range)}</b></td><td align="left" valign="top">${activity}</td></tr><tr><td${seatStatusCellAttributes}>${seatStatus}</td><td>${detailHtml}${equipment}${description}${venueImpact}</td></tr>`;
 }
 
 function getDayKey(value: string, timeZone: string): string {

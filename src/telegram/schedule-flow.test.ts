@@ -16,7 +16,7 @@ import { normalizeDisplayName } from '../membership/display-name.js';
 import { publishCalendarSnapshotToNewsGroups, publishPublicCalendarSnapshotToNewsGroups, refreshCalendarSnapshotsToNewsGroups } from './schedule-notifications.js';
 import { createTelegramI18n } from './i18n.js';
 import { loadUpcomingCalendarEntries } from './calendar-summary.js';
-import { runAfterScheduleSaveSideEffects } from './schedule-flow-support.js';
+import { replyCreateTablePrompt, runAfterScheduleSaveSideEffects } from './schedule-flow-support.js';
 import {
   handleTelegramScheduleCallback,
   handleTelegramScheduleMessage,
@@ -1289,11 +1289,12 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
       ['Diumenge, 05/04', 'Dilluns, 06/04'],
       ['Dimarts, 07/04', 'Dimecres, 08/04'],
       ['Dijous, 09/04', 'Divendres, 10/04'],
-      ['Tornar a Agenda'],
+      ['Enrere'], ['Sortir a Agenda'],
       [{ text: '/cancel', semanticRole: 'danger' }],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
+    parseMode: 'HTML',
   });
 
   context.messageText = 'Diumenge, 05/04';
@@ -1332,9 +1333,10 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'confirm-table');
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Mesa TV'], [{ text: 'Sense taula', semanticRole: 'success' }], ['Tornar a Agenda'], [{ text: '/cancel', semanticRole: 'danger' }]],
+    replyKeyboard: [['Mesa TV'], [{ text: 'Sense taula', semanticRole: 'success' }], ['Enrere'], ['Sortir a Agenda'], [{ text: '/cancel', semanticRole: 'danger' }]],
     resizeKeyboard: true,
     persistentKeyboard: true,
+    parseMode: 'HTML',
   });
 
   context.messageText = 'Mesa TV';
@@ -1345,7 +1347,7 @@ test('handleTelegramScheduleText creates an activity through keyboard-guided con
   context.messageText = scheduleLabels.confirmCreate;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
-  assert.match(replies.at(-1)?.message ?? '', /Activitat creada correctament: <b>Dungeons &amp; Dragons<\/b>/);
+  assert.match(replies.at(-1)?.message ?? '', /Activitat creada correctament\. <b>Dungeons &amp; Dragons<\/b>/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Taula:<\/b> Mesa TV/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Inici:<\/b> 05\/04\/2026 16:00/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Durada:<\/b> 3 h/);
@@ -1409,9 +1411,9 @@ test('handleTelegramScheduleText uses the full-create defaults, shows the select
   assert.match(replies.at(-1)?.message ?? '', /<b>Tipo:<\/b> Mesa cerrada/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Mesa:<\/b> Sin mesa/);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.slice(0, 3), [
-    [texts.editFieldDuration, texts.editFieldAttendanceMode],
-    [texts.editFieldTable, texts.editFieldEquipment],
-    [texts.editFieldDescription],
+    [texts.editFieldTitle, texts.editFieldDate],
+    [texts.editFieldTime, texts.editFieldDuration],
+    [texts.editFieldAttendanceMode, texts.editFieldCapacity],
   ]);
 
   context.messageText = texts.editFieldDuration;
@@ -1477,6 +1479,10 @@ test('handleTelegramScheduleText asks for capacity and creates a simple activity
 
   context.messageText = '7';
   assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'confirm');
+  assert.equal(await scheduleRepository.findEventById(1), null);
+  context.messageText = createTelegramI18n('ca').schedule.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
 
   const created = await scheduleRepository.findEventById(1);
@@ -1502,13 +1508,9 @@ test('handleTelegramScheduleText asks for capacity and creates a simple activity
     tableId: null,
   });
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'schedule.created');
-  assert.match(replies.at(-1)?.message ?? '', /Activitat creada correctament: <b>Cascadia<\/b>/);
-  assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Veure activitats', 'Crear activitat', 'Crear (simple)'], ['Editar activitat', 'Cancel·lar activitat'], ['Inici', 'Ajuda']],
-    resizeKeyboard: true,
-    persistentKeyboard: true,
-    parseMode: 'HTML',
-  });
+  assert.match(replies.at(-1)?.message ?? '', /Activitat creada correctament\. <b>Cascadia<\/b>/);
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.length);
+  assert.equal(replies.at(-1)?.options?.replyKeyboard, undefined);
 });
 
 test('handleTelegramScheduleText creates a simple activity after selecting minutes for an hour-only time', async () => {
@@ -1536,6 +1538,9 @@ test('handleTelegramScheduleText creates a simple activity after selecting minut
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'capacity');
   context.messageText = '6';
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'confirm');
+  context.messageText = createTelegramI18n('ca').schedule.confirmCreate;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession(), null);
   assert.equal((await scheduleRepository.findEventById(1))?.startsAt, '2026-04-05T14:30:00.000Z');
@@ -1565,7 +1570,7 @@ test('handleTelegramScheduleText validates capacity and returns to time in simpl
   assert.equal(replies.at(-1)?.message, texts.invalidCapacity);
   assert.equal(await scheduleRepository.findEventById(1), null);
 
-  context.messageText = texts.back;
+  context.messageText = texts.creationBack;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create-simple',
@@ -1575,6 +1580,7 @@ test('handleTelegramScheduleText validates capacity and returns to time in simpl
       date: '2026-04-05',
       time: '16:00',
       durationMinutes: 180,
+      attendanceMode: 'open',
       isPublic: false,
       initialOccupiedSeats: 0,
       tableId: null,
@@ -1672,11 +1678,12 @@ test('handleTelegramScheduleText adds an optional description only from the fina
   assert.deepEqual(replies.at(-1)?.options, {
     replyKeyboard: [
       [{ text: scheduleLabels.skipOptional, semanticRole: 'success' }],
-      ['Tornar a Agenda'],
+      ['Enrere'], ['Sortir a Agenda'],
       [{ text: '/cancel', semanticRole: 'danger' }],
     ],
     resizeKeyboard: true,
     persistentKeyboard: true,
+    parseMode: 'HTML',
   });
 
   context.messageText = 'Campanya narrativa';
@@ -1753,12 +1760,12 @@ test('handleTelegramScheduleText goes back to the previous create step without l
     data: { title: 'Terraforming Mars', date: '2026-04-05', timeHour: '17' },
   });
 
-  context.messageText = 'Tornar a Agenda';
+  context.messageText = createTelegramI18n('ca').schedule.creationBack;
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.deepEqual(getCurrentSession(), {
     flowKey: 'schedule-create',
     stepKey: 'time',
-    data: { title: 'Terraforming Mars', date: '2026-04-05' },
+    data: { title: 'Terraforming Mars', date: '2026-04-05', timeHour: '17' },
   });
   assert.match(replies.at(-1)?.message ?? '', /HH o HH:MM/);
 
@@ -1769,6 +1776,7 @@ test('handleTelegramScheduleText goes back to the previous create step without l
     title: 'Terraforming Mars',
     date: '2026-04-05',
     time: '18:30',
+    timeHour: '17',
     durationMinutes: 120,
     attendanceMode: 'closed',
     isPublic: false,
@@ -1872,12 +1880,13 @@ test('handleTelegramScheduleText localizes the back button for spanish create fl
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'time-minute');
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Volver a Agenda'], [dangerButton('/cancel')]],
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Atrás'], ['Salir a Agenda'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
+    parseMode: 'HTML',
   });
 
-  context.messageText = 'Volver a Agenda';
+  context.messageText = 'Atrás';
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.equal(getCurrentSession()?.stepKey, 'time');
 });
@@ -2019,9 +2028,10 @@ test('handleTelegramScheduleText offers quick minute buttons when creating an ac
   assert.match(replies.at(-1)?.message ?? '', /minuts|minutos|minutes/i);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /HH o HH:MM|HH or HH:MM/);
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar a Agenda'], [dangerButton('/cancel')]],
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Enrere'], ['Sortir a Agenda'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
+    parseMode: 'HTML',
   });
 
   context.messageText = ':15';
@@ -2056,9 +2066,10 @@ test('handleTelegramScheduleText accepts one-digit hours when creating an activi
   assert.match(replies.at(-1)?.message ?? '', /minuts|minutos|minutes/i);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /HH o HH:MM|HH or HH:MM/);
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar a Agenda'], [dangerButton('/cancel')]],
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Enrere'], ['Sortir a Agenda'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
+    parseMode: 'HTML',
   });
 
   context.messageText = ':15';
@@ -2110,7 +2121,7 @@ test('handleTelegramScheduleText rejects invalid quick minute selections while c
   assert.equal(getCurrentSession()?.stepKey, 'time-minute');
   assert.match(replies.at(-1)?.message ?? '', /HH o HH:MM/);
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Tornar a Agenda'], [dangerButton('/cancel')]],
+    replyKeyboard: [[':00', ':15'], [':30', ':45'], ['Enrere'], ['Sortir a Agenda'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
   });
@@ -2649,9 +2660,10 @@ test('handleTelegramScheduleText accepts dd/MM/yyyy dates and shows upcoming day
   await handleTelegramScheduleText(context);
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], ['Tornar a Agenda'], [dangerButton('/cancel')]],
+    replyKeyboard: [['Diumenge, 05/04', 'Dilluns, 06/04'], ['Dimarts, 07/04', 'Dimecres, 08/04'], ['Dijous, 09/04', 'Divendres, 10/04'], ['Enrere'], ['Sortir a Agenda'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
+    parseMode: 'HTML',
   });
 
   context.messageText = 'Dilluns, 06/04/2026';
@@ -2699,9 +2711,10 @@ test('handleTelegramScheduleText shows created tables as reply keyboard buttons 
   await handleTelegramScheduleText(context);
 
   assert.deepEqual(replies.at(-1)?.options, {
-    replyKeyboard: [['Mesa TV', 'Mesa gran'], [successButton('Sense taula')], ['Tornar a Agenda'], [dangerButton('/cancel')]],
+    replyKeyboard: [['Mesa TV', 'Mesa gran'], [successButton('Sense taula')], ['Enrere'], ['Sortir a Agenda'], [dangerButton('/cancel')]],
     resizeKeyboard: true,
     persistentKeyboard: true,
+    parseMode: 'HTML',
   });
 
   context.messageText = 'Mesa gran';
@@ -3718,7 +3731,7 @@ test('activity creation can reserve several equipment items and warns about equi
   assert.equal(await handleTelegramScheduleText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Equipamiento:<\/b> TV móvil, Proyector/);
   assert.match(replies.at(-1)?.message ?? '', /posible conflicto con tus reservas del club/);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[1], ['Mesa', 'Equipamiento']);
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.some((row) => row[0] === 'Mesa' && row[1] === 'Equipamiento'));
 
   context.messageText = 'Equipamiento';
   assert.equal(await handleTelegramScheduleText(context), true);
@@ -4202,7 +4215,7 @@ test('admin priority flow stores optional explanation, shows details and blocks 
   assert.match(replies.at(-1)?.message ?? '', /&lt;asamblea&gt; &amp; votación/);
   context.messageText = 'Crear (simple)';
   await handleTelegramScheduleText(context);
-  for (const text of ['Otra actividad', '05/04/2026', '18:30', 'Cerrada', '4']) {
+  for (const text of ['Otra actividad', '05/04/2026', '18:30', 'Cerrada', '4', 'Guardar actividad']) {
     context.messageText = text;
     await handleTelegramScheduleText(context);
   }
@@ -4458,4 +4471,168 @@ test('direct activity lists keep their existing group routing exclusion when a r
   context.messageText = scheduleLabels.list;
   assert.equal(await handleTelegramScheduleText(context), false);
   assert.equal(replies.length, 0);
+});
+
+function savedDraft(): Record<string, unknown> {
+  return { title: '<Plan & juego>', description: '<texto>', date: '2026-04-05', time: '16:00', durationMinutes: 120,
+    attendanceMode: 'closed', isPublic: false, capacity: 4, initialOccupiedSeats: 0, tableId: null, equipmentIds: [] };
+}
+
+test('creation sends an immediate saved rich receipt and edits it through concrete stages without a reply keyboard', async () => {
+  const { context, replies, getCurrentSession } = createContext({ language: 'es' });
+  await context.runtime.session.start({ flowKey: 'schedule-create', stepKey: 'confirm', data: savedDraft() });
+  const sent: TelegramRichMessageInput[] = [];
+  const edited: Array<TelegramRichMessageInput & { messageId: number }> = [];
+  context.runtime.bot.sendRichMessage = async (input) => {
+    assert.equal(getCurrentSession(), null);
+    assert.equal((await context.scheduleRepository!.findEventById(1))?.title, '<Plan & juego>');
+    sent.push(input); return { messageId: 501 };
+  };
+  context.runtime.bot.editRichMessage = async (input) => { edited.push(input); };
+  context.messageText = createTelegramI18n('es').schedule.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0]!.fallbackText, /Actividad creada correctamente/);
+  assert.match(sent[0]!.richMessage.html ?? '', /&lt;Plan &amp; juego&gt;/);
+  assert.equal(sent[0]!.options?.replyKeyboard, undefined);
+  assert.equal(edited.length, 4);
+  assert.deepEqual(edited.map((input) => input.messageId), [501, 501, 501, 501]);
+  assert.match(edited[0]!.fallbackText, /Google Calendar/);
+  assert.match(edited[1]!.fallbackText, /solapamientos/);
+  assert.match(edited[2]!.fallbackText, /grupos y canales/);
+  assert.match(edited[3]!.richMessage.html ?? '', /&lt;texto&gt;/);
+  assert.ok(edited[3]!.options?.inlineKeyboard?.length);
+  assert.ok(edited.every((input) => input.options?.replyKeyboard === undefined));
+  assert.ok(replies.some((reply) => reply.options?.replyKeyboard));
+});
+
+test('creation rich editing failures fall back to a final rich receipt and retain the saved activity', async () => {
+  const { context, getCurrentSession } = createContext({ language: 'es' });
+  await context.runtime.session.start({ flowKey: 'schedule-create', stepKey: 'confirm', data: savedDraft() });
+  const sent: TelegramRichMessageInput[] = [];
+  context.runtime.bot.sendRichMessage = async (input) => { sent.push(input); return { messageId: 501 + sent.length }; };
+  context.runtime.bot.editRichMessage = async () => { throw new Error('message cannot be edited'); };
+  context.messageText = createTelegramI18n('es').schedule.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.equal(sent.length, 2);
+  assert.match(sent[1]!.fallbackText, /&lt;Plan &amp; juego&gt;/);
+  assert.ok(sent[1]!.options?.inlineKeyboard?.length);
+  assert.equal((await context.scheduleRepository!.listEvents({ includeCancelled: false })).length, 1);
+});
+
+test('creation still delivers an HTML receipt when rich sending is unavailable or rejected', async () => {
+  const { context, replies, getCurrentSession } = createContext({ language: 'en' });
+  await context.runtime.session.start({ flowKey: 'schedule-create', stepKey: 'confirm', data: savedDraft() });
+  context.runtime.bot.sendRichMessage = async () => { throw new Error('unknown method'); };
+  context.messageText = createTelegramI18n('en').schedule.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /Activity created successfully/);
+  assert.match(replies.at(-1)?.message ?? '', /&lt;Plan &amp; juego&gt;/);
+  assert.equal(replies.at(-1)?.options?.parseMode, 'HTML');
+  assert.ok(replies.at(-1)?.options?.inlineKeyboard?.length);
+});
+
+test('an audit failure after creation cannot leave the draft available for duplicate saving', async () => {
+  const auditRepository = createAuditRepository();
+  auditRepository.appendEvent = async () => { throw new Error('audit unavailable'); };
+  const { context, replies, getCurrentSession } = createContext({ auditRepository, language: 'es' });
+  await context.runtime.session.start({ flowKey: 'schedule-create', stepKey: 'confirm', data: savedDraft() });
+  context.messageText = createTelegramI18n('es').schedule.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession(), null);
+  assert.match(replies.at(-1)?.message ?? '', /Actividad creada correctamente/);
+  assert.equal((await context.scheduleRepository!.listEvents({ includeCancelled: false })).length, 1);
+  await handleTelegramScheduleText(context);
+  assert.equal((await context.scheduleRepository!.listEvents({ includeCancelled: false })).length, 1);
+});
+
+test('a session retirement failure records the saved ID and retrying confirm does not create another activity', async () => {
+  const { context, replies, getCurrentSession } = createContext({ language: 'es' });
+  await context.runtime.session.start({ flowKey: 'schedule-create', stepKey: 'confirm', data: savedDraft() });
+  context.runtime.session.cancel = async () => { throw new Error('session retirement unavailable'); };
+  context.messageText = createTelegramI18n('es').schedule.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.data.savedEventId, 1);
+  assert.match(replies.at(-1)?.message ?? '', /Actividad creada correctamente/);
+  context.messageText = createTelegramI18n('es').schedule.editFieldTable;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'confirm');
+  context.messageText = createTelegramI18n('es').schedule.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal((await context.scheduleRepository!.listEvents({ includeCancelled: false })).length, 1);
+});
+
+test('creation presents every active table as busy or free and recomputes availability before selecting', async () => {
+  const tableRepository = createTableRepository([7, 8].map((id) => ({ id, displayName: id === 7 ? 'Mesa <TV>' : 'Mesa libre',
+    description: null, recommendedCapacity: 4, lifecycleStatus: 'active' as const, createdAt: '2026-04-04T10:00:00.000Z',
+    updatedAt: '2026-04-04T10:00:00.000Z', deactivatedAt: null })));
+  const { context, replies } = createContext({ tableRepository, language: 'es' });
+  const draft = savedDraft();
+  await replyCreateTablePrompt(context, draft);
+  assert.match(replies.at(-1)?.message ?? '', /🟢 Mesa &lt;TV&gt;: Libre/);
+  await context.scheduleRepository!.createEvent({ title: 'Reserva reciente', description: null,
+    startsAt: '2026-04-05T14:00:00.000Z', durationMinutes: 120, organizerTelegramUserId: 42, createdByTelegramUserId: 42,
+    tableId: 7, equipmentIds: [], attendanceMode: 'closed', isPublic: false, capacity: 4, initialOccupiedSeats: 0 });
+  await replyCreateTablePrompt(context, draft);
+  assert.match(replies.at(-1)?.message ?? '', /🟠 Mesa &lt;TV&gt;: Ocupado/);
+  assert.match(replies.at(-1)?.message ?? '', /🟢 Mesa libre: Libre/);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.[0], ['Mesa <TV>', 'Mesa libre']);
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.some((row) => row.includes('Atrás')));
+});
+
+test('creation selected-day preview reuses the approved two-column rich calendar with escaped content and full fallback', async () => {
+  const { context } = createContext({ language: 'es' });
+  await context.scheduleRepository!.createEvent({ title: 'Actividad <anterior>', description: 'Texto & detalle',
+    startsAt: '2026-04-05T14:00:00.000Z', durationMinutes: 120, organizerTelegramUserId: 42, createdByTelegramUserId: 42,
+    tableId: null, equipmentIds: [], attendanceMode: 'closed', isPublic: false, capacity: 4, initialOccupiedSeats: 0 });
+  const sent: TelegramRichMessageInput[] = [];
+  context.runtime.bot.sendRichMessage = async (input) => { sent.push(input); return { messageId: sent.length }; };
+  for (const text of ['Crear actividad', 'Nueva', '05/04/2026']) {
+    context.messageText = text; await handleTelegramScheduleText(context);
+  }
+  assert.match(sent.at(-1)?.richMessage.html ?? '', /<table compact>/);
+  assert.match(sent.at(-1)?.richMessage.html ?? '', /Actividad &lt;anterior&gt;/);
+  assert.match(sent.at(-1)?.richMessage.html ?? '', /4 plazas 🔒/);
+  assert.match(sent.at(-1)?.fallbackText ?? '', /Actividad &lt;anterior&gt;/);
+  assert.ok(sent.at(-1)?.options?.replyKeyboard?.length);
+});
+
+test('simple creation can add attachment details from its summary and retains them through save', async () => {
+  const { context, getCurrentSession } = createContext({ language: 'es' });
+  await context.runtime.session.start({ flowKey: 'schedule-create-simple', stepKey: 'confirm', data: savedDraft() });
+  context.messageText = createTelegramI18n('es').schedule.editFieldDescription;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'description');
+  context.messageText = undefined;
+  context.messageId = 778;
+  context.messageMedia = { caption: 'Traed <dados> & figuras', messageId: 778 };
+  assert.equal(await handleTelegramScheduleMessage(context), true);
+  assert.equal(getCurrentSession()?.stepKey, 'confirm');
+  assert.equal(getCurrentSession()?.data.detailsMessageChatId, 1);
+  assert.equal(getCurrentSession()?.data.detailsMessageId, 778);
+  context.messageMedia = null;
+  context.messageText = createTelegramI18n('es').schedule.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  const saved = await context.scheduleRepository!.findEventById(1);
+  assert.equal(saved?.description, 'Traed <dados> & figuras');
+  assert.equal(saved?.detailsMessageChatId, 1);
+  assert.equal(saved?.detailsMessageId, 778);
+});
+
+test('ordinary text edits can update a saved receipt when rich transport is absent', async () => {
+  const { context, replies } = createContext({ language: 'es' });
+  await context.runtime.session.start({ flowKey: 'schedule-create', stepKey: 'confirm', data: savedDraft() });
+  const edits: Array<{ messageId: number; text: string; options?: TelegramReplyOptions }> = [];
+  const reply = context.reply;
+  context.reply = async (text, options) => { await reply(text, options); return { messageId: 701 }; };
+  context.runtime.bot.editMessageText = async (input) => { edits.push(input); };
+  context.messageText = createTelegramI18n('es').schedule.confirmCreate;
+  assert.equal(await handleTelegramScheduleText(context), true);
+  assert.equal(edits.length, 4);
+  assert.ok(edits.every((input) => input.messageId === 701 && !input.options?.replyKeyboard));
+  assert.match(edits.at(-1)?.text ?? '', /Actividad creada correctamente/);
+  assert.ok(edits.at(-1)?.options?.inlineKeyboard?.length);
+  assert.ok(replies.some((reply) => reply.options?.replyKeyboard));
 });

@@ -17,16 +17,13 @@ export function parseScheduleStartPayload(messageText: string | undefined, paylo
 export function parseDate(value: string): string | Error {
   const normalizedValue = value.includes(',') ? value.slice(value.indexOf(',') + 1).trim() : value;
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
-    return normalizedValue;
-  }
-
+  const isoMatch = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const match = normalizedValue.match(/^(\d{2})\/(\d{2})(?:\/(\d{4}))?$/);
-  if (!match) {
+  if (!isoMatch && !match) {
     return new Error('invalid-date');
   }
 
-  const [, dayText, monthText, yearText] = match;
+  const [, dayText, monthText, yearText] = isoMatch ? [undefined, isoMatch[3], isoMatch[2], isoMatch[1]] : match!;
   const year = Number(yearText ?? String(new Date().getUTCFullYear()));
   const month = Number(monthText);
   const day = Number(dayText);
@@ -45,11 +42,12 @@ export function parseDate(value: string): string | Error {
 }
 
 export function parseTime(value: string): string | Error {
-  return /^\d{2}:\d{2}$/.test(value) ? value : new Error('invalid-time');
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  return match && Number(match[1]) <= 23 && Number(match[2]) <= 59 ? value : new Error('invalid-time');
 }
 
 export function parseTimeHour(value: string): string | Error {
-  return /^\d{1,2}$/.test(value) ? value.padStart(2, '0') : new Error('invalid-time-hour');
+  return /^\d{1,2}$/.test(value) && Number(value) <= 23 ? value.padStart(2, '0') : new Error('invalid-time-hour');
 }
 
 export function parseTimeMinuteSelection(value: string): string | Error {

@@ -4426,9 +4426,21 @@ test('handleTelegramCatalogAdminCallback starts activity creation from a board g
   assert.match(replies.at(-1)?.message ?? '', /Escribe la fecha de inicio/i);
   assert.equal(replies.at(-1)?.options?.resizeKeyboard, true);
   assert.equal(replies.at(-1)?.options?.persistentKeyboard, true);
-  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-2), ['Volver a Agenda']);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-3), ['Atrás']);
+  assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-2), ['Salir a Agenda']);
   assert.deepEqual(replies.at(-1)?.options?.replyKeyboard?.at(-1), [dangerButton('/cancel')]);
   assert.equal(replies.at(-1)?.options?.replyKeyboard?.slice(0, 3).every((row) => row.length === 2), true);
+
+  const richMessages: Array<{ html: string; fallbackText: string; options?: TelegramReplyOptions }> = [];
+  context.runtime.bot.sendRichMessage = async (input) => {
+    richMessages.push({ html: input.richMessage.html ?? '', fallbackText: input.fallbackText, ...(input.options ? { options: input.options } : {}) });
+    return { messageId: 901 };
+  };
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(richMessages[0]?.html ?? '', /<h2>Root · Fecha inicio<\/h2>/);
+  assert.match(richMessages[0]?.fallbackText ?? '', /Escribe la fecha de inicio/i);
+  assert.deepEqual(richMessages[0]?.options?.replyKeyboard?.at(-3), ['Atrás']);
+  assert.equal(getCurrentSession()?.data.catalogItemId, 3);
 });
 
 test('handleTelegramCatalogAdminCallback warns when creating activity from a loaned board game', async () => {
@@ -4463,7 +4475,7 @@ test('handleTelegramCatalogAdminCallback warns when creating activity from a loa
       id: 1,
       itemId: 3,
       borrowerTelegramUserId: 77,
-      borrowerDisplayName: 'Marta',
+      borrowerDisplayName: 'Marta <TV> & club',
       loanedByTelegramUserId: 99,
       dueAt: '2026-05-10T00:00:00.000Z',
       notes: null,
@@ -4483,9 +4495,18 @@ test('handleTelegramCatalogAdminCallback warns when creating activity from a loa
     stepKey: 'date',
     data: { title: 'Root', catalogItemId: 3 },
   });
-  assert.match(replies.at(-1)?.message ?? '', /Atenció: aquest joc està prestat a Marta fins 10\/05/i);
-  assert.match(replies.at(-1)?.message ?? '', /Pots continuar creant l'activitat igualment/i);
-  assert.match(replies.at(-1)?.message ?? '', /Escriu la data d'inici/i);
+  assert.match(replies.at(-1)?.message ?? '', /Atenció: aquest joc està prestat a Marta &lt;TV&gt; &amp; club fins 10\/05/i);
+  assert.match(replies.at(-1)?.message ?? '', /Pots continuar creant l&#39;activitat igualment/i);
+  assert.match(replies.at(-1)?.message ?? '', /Escriu la data d&#39;inici/i);
+  const richMessages: string[] = [];
+  context.runtime.bot.sendRichMessage = async (input) => {
+    richMessages.push(input.richMessage.html ?? '');
+    assert.match(input.fallbackText, /Marta &lt;TV&gt; &amp; club/);
+    return { messageId: 902 };
+  };
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.match(richMessages[0] ?? '', /Marta &lt;TV&gt; &amp; club/);
+  assert.doesNotMatch(richMessages[0] ?? '', /<TV>/);
 });
 
 test('handleTelegramCatalogAdminCallback warns without due date when loan has no due date', async () => {
@@ -4537,7 +4558,7 @@ test('handleTelegramCatalogAdminCallback warns without due date when loan has no
 
   assert.match(replies.at(-1)?.message ?? '', /Atenció: aquest joc està prestat a Marta\./i);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /fins/);
-  assert.match(replies.at(-1)?.message ?? '', /Escriu la data d'inici/i);
+  assert.match(replies.at(-1)?.message ?? '', /Escriu la data d&#39;inici/i);
 });
 
 test('handleTelegramCatalogAdminCallback hides admin-only item actions for approved non-admin members', async () => {

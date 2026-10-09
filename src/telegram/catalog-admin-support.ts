@@ -85,6 +85,8 @@ import {
   type TelegramCatalogLoanContext,
 } from './catalog-loan-flow.js';
 import { buildDateOptions } from './schedule-keyboards.js';
+import { replyCreateStepPrompt } from './schedule-flow-support.js';
+import type { TelegramRichMessageTransport } from './rich-message-transport.js';
 import {
   buildCatalogAdminMenuOptions,
   buildBulkPhotoReviewOptions,
@@ -374,7 +376,7 @@ export interface TelegramCatalogAdminContext {
     };
     wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
     boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
-    bot: {
+    bot: Partial<Pick<TelegramRichMessageTransport, 'sendRichMessage'>> & {
       publicName: string;
       clubName: string;
       language?: string;
@@ -776,7 +778,8 @@ export async function handleTelegramCatalogAdminCallback(context: TelegramCatalo
       stepKey: 'date',
       data: { title: item.displayName, catalogItemId: item.id },
     });
-    await context.reply(loanWarning ? `${loanWarning}\n\n${datePrompt}` : datePrompt, buildDateOptions(context.runtime.bot.language ?? language));
+    await replyCreateStepPrompt(context, item.displayName, loanWarning ? `${escapeHtml(loanWarning)}\n\n${escapeHtml(datePrompt)}` : escapeHtml(datePrompt),
+      buildDateOptions(context.runtime.bot.language ?? language, true));
     return true;
   }
   if (route.kind === 'autocorrect-item') {

@@ -37,6 +37,8 @@ capacidad, su documentación debe actualizarse en el mismo cambio.
 
 ## UX e interfaces
 
+- [`telegram-activity-creation.md`](telegram-activity-creation.md): creación,
+  revisión del borrador, disponibilidad y recibos rich de actividades.
 - [`telegram-pagination-style.md`](telegram-pagination-style.md): patrones
   obligatorios para listas y navegación paginada.
 - [`telegram-editable-progress.md`](telegram-editable-progress.md): mensajes de

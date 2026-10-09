@@ -8,6 +8,9 @@ import type { GoogleCalendarServiceAccountConfig } from '../google-calendar/goog
 import { buildTelegramStartUrl } from './deep-links.js';
 import { buildTelegramRichDetailMessage } from './rich-detail-message.js';
 import type { TelegramRichMessageTransport } from './rich-message-transport.js';
+import { extractTelegramReplyMessageId, resumeTelegramEditableProgress, type TelegramEditableProgress } from './editable-progress.js';
+import { buildScheduleResourceAvailability } from './schedule-resource-availability.js';
+import { buildScheduleResourceAvailabilityMessage, scheduleCreateLabels } from './schedule-create-presentation.js';
 import {
   SchedulePriorityConflictError,
   assertSchedulePriorityAvailability,
@@ -118,7 +121,10 @@ import {
   buildAttendanceModeOptions,
   buildCancelConfirmOptions,
   buildCreateConfirmOptions,
+  buildCreateTitleOptions,
   buildCreateDurationOptions,
+  buildCreateCapacityOptions,
+  buildCreateTimeOptions,
   buildDateOptions,
   buildDescriptionOptions,
   buildEditConfirmOptions,
@@ -305,13 +311,13 @@ export async function handleTelegramScheduleText(context: TelegramScheduleContex
   if (text === texts.create || text === scheduleLabels.create || text === '/schedule_create' || text === '/start schedule_create') {
     await context.runtime.session.start({ flowKey: createFlowKey, stepKey: 'title', data: {} });
     await replyScheduleWebCreateOffer(context, language);
-    await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
+    await replyCreateStepPrompt(context, texts.create, texts.askTitle, buildCreateTitleOptions(language));
     return true;
   }
 
   if (text === texts.createSimple || text === scheduleLabels.createSimple || text === '/schedule_create_simple') {
     await context.runtime.session.start({ flowKey: simpleCreateFlowKey, stepKey: 'title', data: {} });
-    await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
+    await replyCreateStepPrompt(context, texts.createSimple, texts.askTitle, buildCreateTitleOptions(language));
     return true;
   }
 
@@ -441,7 +447,7 @@ export async function handleTelegramScheduleMessage(context: TelegramScheduleCon
     return false;
   }
 
-  if (session.flowKey === createFlowKey) {
+  if (session.flowKey === createFlowKey || session.flowKey === simpleCreateFlowKey) {
     await replyCreateConfirm(context, {
       ...session.data,
       ...buildDetailsMessagePatch(context),
@@ -1140,13 +1146,25 @@ async function handleCreateSession(
 ): Promise<boolean> {
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const texts = createTelegramI18n(language).schedule;
-  if (text === texts.back) {
+  if (asNullableNumber(data.savedEventId) !== null) {
+    return persistCreateScheduleEvent(context, data, language);
+  }
+  if (text === texts.exitCreation || text === texts.back) {
+    await context.runtime.session.cancel();
+    await context.reply(texts.selectMenu, buildScheduleMenuOptions(language));
+    return true;
+  }
+  if (text === texts.creationBack) {
     return handleCreateSessionBack(context, stepKey, data, language, isSimpleCreate);
   }
 
-  if (stepKey === 'title') {
-    await context.runtime.session.advance({ stepKey: 'date', data: { title: text } });
-    await context.reply(texts.askDate, buildDateOptions(resolveBotLanguage(context)));
+  if (stepKey === 'title' || stepKey === 'confirm-title') {
+    if (stepKey === 'confirm-title') {
+      await replyCreateConfirm(context, { ...data, title: text });
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'date', data: { ...data, title: text } });
+    await replyCreateStepPrompt(context, text, texts.askDate, buildDateOptions(resolveBotLanguage(context), true));
     return true;
   }
 
@@ -1160,10 +1178,14 @@ async function handleCreateSession(
     return true;
   }
 
-  if (stepKey === 'date') {
+  if (stepKey === 'date' || stepKey === 'confirm-date') {
     const date = parseDate(text);
     if (date instanceof Error) {
-      await context.reply(texts.invalidDate, buildDateOptions(resolveBotLanguage(context)));
+      await context.reply(texts.invalidDate, buildDateOptions(resolveBotLanguage(context), true));
+      return true;
+    }
+    if (stepKey === 'confirm-date') {
+      await replyCreateConfirm(context, { ...data, date });
       return true;
     }
     await context.runtime.session.advance({ stepKey: 'time', data: { ...data, date } });
@@ -1171,33 +1193,37 @@ async function handleCreateSession(
     return true;
   }
 
-  if (stepKey === 'time') {
+  if (stepKey === 'time' || stepKey === 'confirm-time') {
     const time = parseTime(text);
     if (!(time instanceof Error)) {
-      if (isSimpleCreate) {
-        await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, time, ...simpleScheduleDefaults } });
-        await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+      if (stepKey === 'confirm-time') {
+        await replyCreateConfirm(context, { ...data, time });
         return true;
       }
-      await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...defaultCreateScheduleValues } });
-      await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+      if (isSimpleCreate) {
+        await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...simpleScheduleDefaults, ...data, time } });
+        await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askAttendanceMode, buildAttendanceModeOptions(language, true));
+        return true;
+      }
+      await context.runtime.session.advance({ stepKey: 'capacity', data: { ...defaultCreateScheduleValues, ...data, time } });
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askCapacity, buildCreateCapacityOptions(language));
       return true;
     }
     const timeHour = parseTimeHour(text);
     if (timeHour instanceof Error) {
-      await context.reply(texts.invalidTime, buildSingleBackCancelKeyboard(language));
+      await context.reply(texts.invalidTime, buildCreateTimeOptions(language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'time-minute', data: { ...data, timeHour } });
-    await context.reply(texts.askTimeMinute, buildTimeMinuteOptions(language));
+    await context.runtime.session.advance({ stepKey: stepKey === 'confirm-time' ? 'confirm-time-minute' : 'time-minute', data: { ...data, timeHour } });
+    await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askTimeMinute, buildTimeMinuteOptions(language));
     return true;
   }
 
-  if (stepKey === 'time-minute') {
+  if (stepKey === 'time-minute' || stepKey === 'confirm-time-minute') {
     const timeHour = typeof data.timeHour === 'string' ? data.timeHour : null;
     if (timeHour === null) {
       await context.runtime.session.advance({ stepKey: 'time', data });
-      await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askTime, buildSingleBackCancelKeyboard(language, true));
       return true;
     }
     const minuteSelection = parseTimeMinuteSelection(text);
@@ -1206,57 +1232,61 @@ async function handleCreateSession(
       return true;
     }
     const time = buildTimeFromHourAndMinute(timeHour, minuteSelection);
-    if (isSimpleCreate) {
-      await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, time, ...simpleScheduleDefaults } });
-      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    if (stepKey === 'confirm-time-minute') {
+      await replyCreateConfirm(context, { ...data, time });
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, time, ...defaultCreateScheduleValues } });
-    await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+    if (isSimpleCreate) {
+      await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...simpleScheduleDefaults, ...data, time } });
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askAttendanceMode, buildAttendanceModeOptions(language, true));
+      return true;
+    }
+    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...defaultCreateScheduleValues, ...data, time } });
+    await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askCapacity, buildCreateCapacityOptions(language));
     return true;
   }
 
   if (stepKey === 'duration-mode' || stepKey === 'confirm-duration-mode') {
     const returnToSummary = stepKey === 'confirm-duration-mode';
-    if (text === texts.durationNone || text === scheduleLabels.durationNone) {
+    if (text === texts.createDefaultDuration || text === texts.durationNone || text === scheduleLabels.durationNone) {
       if (returnToSummary) {
         await replyCreateConfirm(context, { ...data, durationMinutes: 120 });
       } else {
         await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes: 120 } });
-        await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+        await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askAttendanceMode, buildAttendanceModeOptions(language, true));
       }
       return true;
     }
     if (text === texts.durationHours || text === scheduleLabels.durationHours) {
       await context.runtime.session.advance({ stepKey: returnToSummary ? 'confirm-duration-hours' : 'duration-hours', data });
-      await context.reply(texts.askDurationHours, buildSingleBackCancelKeyboard(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askDurationHours, buildSingleBackCancelKeyboard(language, true));
       return true;
     }
     if (text === texts.durationHoursMinutes || text === scheduleLabels.durationHoursMinutes) {
       await context.runtime.session.advance({ stepKey: returnToSummary ? 'confirm-duration-hours-minutes' : 'duration-hours-minutes', data });
-      await context.reply(texts.askDurationHoursMinutes, buildSingleBackCancelKeyboard(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askDurationHoursMinutes, buildSingleBackCancelKeyboard(language, true));
       return true;
     }
     if (text === texts.durationMinutes || text === scheduleLabels.durationMinutes) {
       await context.runtime.session.advance({ stepKey: returnToSummary ? 'confirm-duration' : 'duration', data });
-      await context.reply(texts.askDurationMinutes, buildSingleBackCancelKeyboard(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askDurationMinutes, buildSingleBackCancelKeyboard(language, true));
       return true;
     }
-    await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+    await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askDuration, buildCreateDurationOptions(language, true));
     return true;
   }
 
   if (stepKey === 'duration-hours' || stepKey === 'confirm-duration-hours') {
     const durationMinutes = parseDurationHours(text);
     if (durationMinutes instanceof Error) {
-      await context.reply(texts.invalidDurationHours, buildSingleBackCancelKeyboard(language));
+      await context.reply(texts.invalidDurationHours, buildSingleBackCancelKeyboard(language, true));
       return true;
     }
     if (stepKey === 'confirm-duration-hours') {
       await replyCreateConfirm(context, { ...data, durationMinutes });
     } else {
       await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
-      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askAttendanceMode, buildAttendanceModeOptions(language, true));
     }
     return true;
   }
@@ -1264,14 +1294,14 @@ async function handleCreateSession(
   if (stepKey === 'duration-hours-minutes' || stepKey === 'confirm-duration-hours-minutes') {
     const durationMinutes = parseDurationHoursMinutes(text);
     if (durationMinutes instanceof Error) {
-      await context.reply(texts.invalidDurationHoursMinutes, buildSingleBackCancelKeyboard(language));
+      await context.reply(texts.invalidDurationHoursMinutes, buildSingleBackCancelKeyboard(language, true));
       return true;
     }
     if (stepKey === 'confirm-duration-hours-minutes') {
       await replyCreateConfirm(context, { ...data, durationMinutes });
     } else {
       await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
-      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askAttendanceMode, buildAttendanceModeOptions(language, true));
     }
     return true;
   }
@@ -1284,14 +1314,14 @@ async function handleCreateSession(
       defaultDurationMinutes: defaultScheduleDurationMinutes,
     });
     if (durationMinutes instanceof Error) {
-      await context.reply(texts.invalidDurationMinutes, buildSingleBackCancelKeyboard(language));
+      await context.reply(texts.invalidDurationMinutes, buildSingleBackCancelKeyboard(language, true));
       return true;
     }
     if (stepKey === 'confirm-duration') {
       await replyCreateConfirm(context, { ...data, durationMinutes });
     } else {
       await context.runtime.session.advance({ stepKey: 'attendance-mode', data: { ...data, durationMinutes } });
-      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askAttendanceMode, buildAttendanceModeOptions(language, true));
     }
     return true;
   }
@@ -1299,64 +1329,72 @@ async function handleCreateSession(
   if (stepKey === 'attendance-mode' || stepKey === 'confirm-attendance-mode') {
     const attendanceMode = parseAttendanceModeSelection(text, texts);
     if (attendanceMode === null) {
-      await context.reply(texts.invalidAttendanceMode, buildAttendanceModeOptions(language));
+      await context.reply(texts.invalidAttendanceMode, buildAttendanceModeOptions(language, true));
       return true;
     }
     if (stepKey === 'confirm-attendance-mode') {
       await replyCreateConfirm(context, {
         ...data,
         attendanceMode,
-        isPublic: false,
-        initialOccupiedSeats: 0,
+        ...(attendanceMode === 'closed' ? { isPublic: false, initialOccupiedSeats: 0 } : {}),
       });
       return true;
     }
     if (isSimpleCreate) {
       await context.runtime.session.advance({
         stepKey: 'capacity',
-        data: { ...data, attendanceMode, isPublic: false, initialOccupiedSeats: 0 },
+        data: { ...data, attendanceMode, ...(attendanceMode === 'closed' ? { isPublic: false, initialOccupiedSeats: 0 } : {}) },
       });
-      await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askCapacity, buildCreateCapacityOptions(language));
       return true;
     }
     if (attendanceMode === 'open') {
       await context.runtime.session.advance({ stepKey: 'public-visibility', data: { ...data, attendanceMode } });
-      await context.reply(texts.askPublicVisibility, buildPublicVisibilityOptions(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askPublicVisibility, buildPublicVisibilityOptions(language));
       return true;
     }
-    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, attendanceMode, isPublic: false } });
-    await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+    await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, attendanceMode, isPublic: false, initialOccupiedSeats: 0 } });
+    await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askCapacity, buildCreateCapacityOptions(language));
     return true;
   }
 
-  if (stepKey === 'public-visibility') {
+  if (stepKey === 'public-visibility' || stepKey === 'confirm-public-visibility') {
     const isPublic = parsePublicVisibilitySelection(text, texts);
     if (isPublic === null) {
       const capacity = parseCapacity(text);
-      if (!(capacity instanceof Error)) {
+      if (stepKey === 'public-visibility' && !(capacity instanceof Error)) {
         return advanceCreateCapacity(context, { ...data, isPublic: false }, capacity, language);
       }
       await context.reply(texts.invalidPublicVisibility, buildPublicVisibilityOptions(language));
       return true;
     }
+    if (stepKey === 'confirm-public-visibility') {
+      await replyCreateConfirm(context, { ...data, isPublic: data.attendanceMode === 'open' && isPublic });
+      return true;
+    }
     await context.runtime.session.advance({ stepKey: 'capacity', data: { ...data, isPublic } });
-    await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+    await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askCapacity, buildCreateCapacityOptions(language));
     return true;
   }
 
-  if (stepKey === 'capacity') {
+  if (stepKey === 'capacity' || stepKey === 'confirm-capacity') {
     const capacity = parseCapacity(text);
     if (capacity instanceof Error) {
-      await context.reply(texts.invalidCapacity, buildSingleBackCancelKeyboard(language));
+      await context.reply(texts.invalidCapacity, buildCreateCapacityOptions(language));
       return true;
     }
-    if (isSimpleCreate) {
-      return persistCreateScheduleEvent(context, { ...data, capacity }, language);
+    if (Number(data.initialOccupiedSeats ?? 0) > capacity) {
+      await context.reply(texts.invalidInitialOccupiedSeatsRange, buildCreateCapacityOptions(language));
+      return true;
+    }
+    if (isSimpleCreate || stepKey === 'confirm-capacity') {
+      await replyCreateConfirm(context, { ...data, capacity });
+      return true;
     }
     return advanceCreateCapacity(context, data, capacity, language);
   }
 
-  if (stepKey === 'initial-occupied-seats') {
+  if (stepKey === 'initial-occupied-seats' || stepKey === 'confirm-initial-occupied-seats') {
     const initialOccupiedSeats = parseInitialOccupiedSeats(text);
     if (initialOccupiedSeats instanceof Error) {
       await context.reply(texts.invalidInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
@@ -1365,16 +1403,20 @@ async function handleCreateSession(
     const capacity = typeof data.capacity === 'number' ? data.capacity : Number(data.capacity);
     if (!Number.isInteger(capacity) || capacity <= 0) {
       await context.runtime.session.advance({ stepKey: 'capacity', data });
-      await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askCapacity, buildCreateCapacityOptions(language));
       return true;
     }
     if (initialOccupiedSeats > capacity) {
       await context.reply(texts.invalidInitialOccupiedSeatsRange, buildInitialOccupiedSeatsOptions(language));
       return true;
     }
-    const nextData = { ...data, initialOccupiedSeats };
+    const nextData = { ...data, initialOccupiedSeats: data.attendanceMode === 'open' ? initialOccupiedSeats : 0 };
+    if (stepKey === 'confirm-initial-occupied-seats') {
+      await replyCreateConfirm(context, nextData);
+      return true;
+    }
     await context.runtime.session.advance({ stepKey: 'table', data: nextData });
-    await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+    await replyCreateTablePrompt(context, context.runtime.session.current?.data ?? data);
     return true;
   }
 
@@ -1387,19 +1429,48 @@ async function handleCreateSession(
   }
 
   if (stepKey === 'confirm') {
+    const basicFields = [
+      [texts.editFieldTitle, scheduleLabels.editFieldTitle, 'confirm-title', texts.askTitle, buildSingleBackCancelKeyboard(language, true)],
+      [texts.editFieldDate, scheduleLabels.editFieldDate, 'confirm-date', texts.askDate, buildDateOptions(resolveBotLanguage(context), true)],
+      [texts.editFieldTime, scheduleLabels.editFieldTime, 'confirm-time', texts.askTime, buildCreateTimeOptions(language)],
+      [texts.editFieldCapacity, scheduleLabels.editFieldCapacity, 'confirm-capacity', texts.askCapacity, buildCreateCapacityOptions(language)],
+    ] as const;
+    for (const [label, legacyLabel, editStep, prompt, options] of basicFields) {
+      if (text === label || text === legacyLabel) {
+        await context.runtime.session.advance({ stepKey: editStep, data });
+        if (editStep === 'confirm-time') {
+          await replyCreateTimePrompt(context, String(data.date), language);
+        } else {
+          await replyCreateStepPrompt(context, String(data.title ?? texts.create), prompt, options);
+        }
+        return true;
+      }
+    }
+    if (text === texts.editFieldPublicVisibility || text === scheduleLabels.editFieldPublicVisibility) {
+      if (data.attendanceMode !== 'open') { await replyCreateConfirm(context, data); return true; }
+      await context.runtime.session.advance({ stepKey: 'confirm-public-visibility', data });
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askPublicVisibility, buildPublicVisibilityOptions(language));
+      return true;
+    }
+    if (text === texts.editFieldInitialOccupiedSeats || text === scheduleLabels.editFieldInitialOccupiedSeats) {
+      if (data.attendanceMode !== 'open') { await replyCreateConfirm(context, data); return true; }
+      await context.runtime.session.advance({ stepKey: 'confirm-initial-occupied-seats', data });
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
+      return true;
+    }
     if (text === texts.editFieldDuration || text === scheduleLabels.editFieldDuration) {
       await context.runtime.session.advance({ stepKey: 'confirm-duration-mode', data });
-      await context.reply(texts.askDuration, buildCreateDurationOptions(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askDuration, buildCreateDurationOptions(language, true));
       return true;
     }
     if (text === texts.editFieldAttendanceMode || text === scheduleLabels.editFieldAttendanceMode || text === texts.detailsAttendanceMode) {
       await context.runtime.session.advance({ stepKey: 'confirm-attendance-mode', data });
-      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askAttendanceMode, buildAttendanceModeOptions(language, true));
       return true;
     }
     if (text === texts.editFieldTable || text === scheduleLabels.editFieldTable) {
       await context.runtime.session.advance({ stepKey: 'confirm-table', data });
-      await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+      await replyCreateTablePrompt(context, context.runtime.session.current?.data ?? data);
       return true;
     }
     if (text === texts.editFieldEquipment || text === scheduleLabels.editFieldEquipment) {
@@ -1408,11 +1479,11 @@ async function handleCreateSession(
     }
     if (text === texts.editFieldDescription || text === scheduleLabels.editFieldDescription) {
       await context.runtime.session.advance({ stepKey: 'description', data });
-      await context.reply(texts.askDescription, buildDescriptionOptions(language));
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askDescription, buildDescriptionOptions(language));
       return true;
     }
     if (text !== texts.confirmCreate && text !== scheduleLabels.confirmCreate) {
-      await context.reply(texts.confirmCreatePrompt, buildCreateConfirmOptions(language));
+      await context.reply(texts.confirmCreatePrompt, buildCreateConfirmOptions(language, data));
       return true;
     }
     try {
@@ -1422,7 +1493,7 @@ async function handleCreateSession(
       });
     } catch {
       await context.runtime.session.advance({ stepKey: 'table', data });
-      await context.reply(texts.inactiveTableCreate, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+      await context.reply(texts.inactiveTableCreate, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language, creation: true }));
       return true;
     }
     if (!(await selectedEquipmentIsActive(context, normalizeEquipmentIds(data.equipmentIds)))) {
@@ -1442,6 +1513,15 @@ async function persistCreateScheduleEvent(
   language: 'ca' | 'es' | 'en',
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).schedule;
+  const savedEventId = asNullableNumber(data.savedEventId);
+  if (savedEventId !== null) {
+    const saved = await resolveScheduleRepository(context).findEventById(savedEventId);
+    if (saved) {
+      await ignoreSchedulePostSaveFailure(() => context.runtime.session.cancel().then(() => {}));
+      await replyAfterScheduleSave(context, `${texts.created} <b>${escapeHtml(saved.title)}</b>`, { ...buildScheduleMenuOptions(language), parseMode: 'HTML' });
+      return true;
+    }
+  }
   const created = await createScheduleEvent({
     repository: resolveScheduleRepository(context),
     title: String(data.title ?? ''),
@@ -1460,29 +1540,61 @@ async function persistCreateScheduleEvent(
     initialOccupiedSeats: Number(data.initialOccupiedSeats ?? 0),
     capacity: Number(data.capacity),
   });
-  await appendAuditEvent({
-    repository: resolveAuditRepository(context),
-    actorTelegramUserId: context.runtime.actor.telegramUserId,
-    actionKey: 'schedule.created',
-    targetType: 'schedule-event',
-    targetId: created.id,
-    summary: `Activitat creada: ${created.title}`,
-    details: {
-      startsAt: created.startsAt,
-      capacity: created.capacity,
-      tableId: created.tableId,
-      equipmentIds: created.equipmentIds ?? [],
-      catalogItemId: created.catalogItemId ?? null,
-    },
+  // The activity already exists. Retire the draft before any optional audit or delivery work.
+  data.savedEventId = created.id;
+  await ignoreSchedulePostSaveFailure(() => context.runtime.session.cancel().then(() => {}));
+  if (context.runtime.session.current) {
+    await ignoreSchedulePostSaveFailure(() => context.runtime.session.advance({ stepKey: 'confirm', data }).then(() => {}));
+  }
+  let progress: TelegramEditableProgress | undefined;
+  const savedHeading = `${texts.created} <b>${escapeHtml(created.title)}</b>`;
+  await ignoreSchedulePostSaveFailure(async () => {
+    const sent = await replyCreateStepPrompt(context, created.title, savedHeading, { parseMode: 'HTML' });
+    const messageId = extractTelegramReplyMessageId(sent);
+    if (messageId !== null) progress = createScheduleSaveProgress(context, created.title, messageId);
   });
-  await context.runtime.session.cancel();
-  await runAfterScheduleSaveSideEffects(context, created, 'created');
-  await replyAfterScheduleSave(
-    context,
-    `${texts.created.replace('.', '')}: <b>${escapeHtml(created.title)}</b>\n${await formatScheduleEventView(context, created)}`,
-    { ...buildScheduleMenuOptions(language), parseMode: 'HTML' },
-  );
+  await ignoreSchedulePostSaveFailure(async () => {
+    await appendAuditEvent({
+      repository: resolveAuditRepository(context), actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'schedule.created', targetType: 'schedule-event', targetId: created.id,
+      summary: `Activitat creada: ${created.title}`,
+      details: { startsAt: created.startsAt, capacity: created.capacity, tableId: created.tableId,
+        equipmentIds: created.equipmentIds ?? [], catalogItemId: created.catalogItemId ?? null },
+    });
+  });
+  const result = await runAfterScheduleSaveSideEffects(context, created, 'created', undefined, async (stage) => {
+    await progress?.update(`${savedHeading}\n\n${scheduleCreateLabels[language][stage]}`, { parseMode: 'HTML' });
+  });
+  await replyAfterScheduleSave(context, texts.selectMenu, buildScheduleMenuOptions(language));
+  await ignoreSchedulePostSaveFailure(async () => {
+    let detail = savedHeading;
+    try { detail += `\n\n${await formatScheduleEventView(context, created)}`; }
+    catch (error) { logSchedulePostSaveFailure('schedule.create.receipt-details.failed', error); }
+    if (result.failedStages.length) detail += `\n\n${escapeHtml(scheduleCreateLabels[language].partial)}`;
+    let actionOptions: TelegramReplyOptions = { parseMode: 'HTML' };
+    try { actionOptions = { ...actionOptions, ...(await resolveScheduleDetailActionOptions(context, created)) }; }
+    catch (error) { logSchedulePostSaveFailure('schedule.create.receipt-actions.failed', error); }
+    if (progress) await progress.complete(detail, actionOptions);
+    else await replyCreateStepPrompt(context, created.title, detail, actionOptions);
+  });
   return true;
+}
+
+function createScheduleSaveProgress(context: TelegramScheduleContext, title: string, messageId: number): TelegramEditableProgress {
+  const richEdit = context.runtime.bot.editRichMessage;
+  const textEdit = context.runtime.bot.editMessageText;
+  return resumeTelegramEditableProgress({
+    reply: async (text, options) => replyCreateStepPrompt(context, title, text, options ?? { parseMode: 'HTML' }),
+    runtime: { chat: context.runtime.chat, bot: {
+      ...(richEdit || textEdit ? { editMessageText: async (input: { chatId: number; messageId: number; text: string; options?: TelegramReplyOptions }) => {
+        const { replyKeyboard: _keyboard, ...options } = input.options ?? {};
+        if (richEdit) {
+          await richEdit.call(context.runtime.bot, { chatId: input.chatId, messageId: input.messageId,
+            richMessage: buildTelegramRichDetailMessage(title, input.text), fallbackText: input.text, options });
+        } else await textEdit!.call(context.runtime.bot, { ...input, options });
+      } } : {}),
+    } },
+  }, messageId, { editFailedEvent: 'schedule.create.progress-edit.failed' });
 }
 
 async function handleJoinReminderSession(
@@ -1537,7 +1649,7 @@ async function advanceCreateCapacity(
   const attendanceMode = data.attendanceMode;
   if (attendanceMode !== 'open' && attendanceMode !== 'closed') {
     await context.runtime.session.advance({ stepKey: 'attendance-mode', data });
-    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
+    await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askAttendanceMode, buildAttendanceModeOptions(language, true));
     return true;
   }
   const nextData = { ...data, capacity };
@@ -1547,11 +1659,11 @@ async function advanceCreateCapacity(
   }
   if (attendanceMode === 'open') {
     await context.runtime.session.advance({ stepKey: 'initial-occupied-seats', data: nextData });
-    await context.reply(texts.askInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
+    await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
     return true;
   }
   await context.runtime.session.advance({ stepKey: 'table', data: { ...nextData, isPublic: false, initialOccupiedSeats: 0 } });
-  await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+  await replyCreateTablePrompt(context, { ...nextData, isPublic: false, initialOccupiedSeats: 0 });
   return true;
 }
 
@@ -1571,26 +1683,42 @@ async function replyCreateTimePrompt(
     startsAtFrom,
     startsAtTo,
   })).filter((event) => event.startsAt < startsAtTo);
-  const daySchedule = events.length === 0
-    ? texts.noScheduledEventsDay
-    : await formatScheduleListWithVenueImpact({
-        events,
-        language,
-        loadAttendance: async (eventId) => {
-          const attendance = await getScheduleEventAttendance({
-            repository: resolveScheduleRepository(context),
-            eventId,
-          });
-          return attendance.snapshot;
-        },
-        loadTableName: async (event) => loadTableName(context, event.tableId),
-        loadEquipmentNames: async (event) => loadEquipmentNames(context, event.equipmentIds),
-        loadRelevantVenueEvents: async (event) => listRelevantVenueEventsForScheduleEvent(context, event),
-      });
-  await context.reply(`${texts.askTime}\n\n${daySchedule}`, {
-    ...buildSingleBackCancelKeyboard(language),
-    parseMode: 'HTML',
+  const metadata = new Map(await Promise.all(events.map(async (event) => {
+    const [attendance, tableName, equipmentNames, venueEvents] = await Promise.all([
+      getScheduleEventAttendance({ repository: resolveScheduleRepository(context), eventId: event.id }),
+      loadTableName(context, event.tableId), loadEquipmentNames(context, event.equipmentIds),
+      listRelevantVenueEventsForScheduleEvent(context, event),
+    ]);
+    return [event.id, { attendance: attendance.snapshot, tableName, equipmentNames, venueEvents }] as const;
+  })));
+  const daySchedule = events.length === 0 ? texts.noScheduledEventsDay : await formatScheduleListWithVenueImpact({
+    events, language,
+    loadAttendance: async (eventId) => metadata.get(eventId)!.attendance,
+    loadTableName: async (event) => metadata.get(event.id)!.tableName,
+    loadEquipmentNames: async (event) => metadata.get(event.id)!.equipmentNames,
+    loadRelevantVenueEvents: async (event) => metadata.get(event.id)!.venueEvents,
   });
+  const options = { ...buildCreateTimeOptions(language), parseMode: 'HTML' as const };
+  if (context.runtime.bot.sendRichMessage) {
+    const entries: CalendarRichEntry[] = events.map((event) => {
+      const { attendance, tableName, equipmentNames, venueEvents } = metadata.get(event.id)!;
+      return {
+        kind: 'schedule' as const, id: event.id, title: event.title, description: event.description,
+        startsAt: event.startsAt, endsAt: getScheduleEventEndsAt(event), tableName, equipmentNames,
+        attendanceMode: event.attendanceMode, isPublic: event.isPublic, capacity: event.capacity,
+        availableSeats: attendance.availableSeats, hasDetails: hasScheduleDetailsMessage(event),
+        ...(venueEvents.length ? { venueImpactText: venueEvents.map((venueEvent) =>
+          `${venueEvent.name} (${venueEvent.occupancyScope}, ${venueEvent.impactLevel})`).join(', ') } : {}),
+      };
+    });
+    await replyCreateRichMessage(context, {
+      richMessage: buildCalendarRichMessage({ entries, language, title: formatTimestamp(startsAtFrom),
+        emptyText: texts.noScheduledEventsDay, footerHtml: '', actionsHtml: `<p>${escapeHtml(texts.askTime)}</p>`, now: new Date() }),
+      text: `${texts.askTime}\n\n${daySchedule}`, options,
+    });
+    return;
+  }
+  await context.reply(`${texts.askTime}\n\n${daySchedule}`, options);
 }
 
 async function saveJoinReminderPreference(
@@ -1622,216 +1750,46 @@ async function handleCreateSessionBack(
   isSimpleCreate = false,
 ): Promise<boolean> {
   const texts = createTelegramI18n(language).schedule;
-  const descriptionPatch = data.description === undefined ? {} : { description: data.description };
-  const linkedCatalogPatch = data.catalogItemId === undefined ? {} : { catalogItemId: data.catalogItemId };
-
   if (stepKey === 'title') {
     await context.runtime.session.cancel();
     await context.reply(texts.selectMenu, buildScheduleMenuOptions(language));
     return true;
   }
-
-  if (stepKey === 'description') {
-    await replyCreateConfirm(context, data);
-    return true;
-  }
-
-  if (stepKey === 'date') {
-    await context.runtime.session.advance({ stepKey: 'title', data: linkedCatalogPatch });
-    await context.reply(texts.askTitle, buildSingleBackCancelKeyboard(language));
-    return true;
-  }
-
-  if (stepKey === 'time') {
-    await context.runtime.session.advance({ stepKey: 'date', data: { ...data, time: undefined } });
-    await context.reply(texts.askDate, buildDateOptions(resolveBotLanguage(context)));
-    return true;
-  }
-
-  if (stepKey === 'time-minute') {
-    await context.runtime.session.advance({
-      stepKey: 'time',
-      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date },
-    });
-    await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
-    return true;
-  }
-
-  if (stepKey === 'duration-mode') {
-    await context.runtime.session.advance({
-      stepKey: 'time',
-      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date },
-    });
-    await context.reply(texts.askTime, buildSingleBackCancelKeyboard(language));
-    return true;
-  }
-
-  if (stepKey === 'duration-hours' || stepKey === 'duration-hours-minutes' || stepKey === 'duration') {
-    await context.runtime.session.advance({
-      stepKey: 'duration-mode',
-      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date, time: data.time },
-    });
-    await context.reply(texts.askDuration, buildCreateDurationOptions(language));
-    return true;
-  }
-
-  if (stepKey === 'attendance-mode') {
-    await context.runtime.session.advance({
-      stepKey: 'duration-mode',
-      data: { title: data.title, ...descriptionPatch, ...linkedCatalogPatch, date: data.date, time: data.time },
-    });
-    await context.reply(texts.askDuration, buildCreateDurationOptions(language));
-    return true;
-  }
-
-  if (stepKey === 'public-visibility') {
-    await context.runtime.session.advance({
-      stepKey: 'attendance-mode',
-      data: {
-        title: data.title,
-        ...descriptionPatch,
-        ...linkedCatalogPatch,
-        date: data.date,
-        time: data.time,
-        durationMinutes: data.durationMinutes,
-      },
-    });
-    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
-    return true;
-  }
-
-  if (stepKey === 'capacity') {
-    if (isSimpleCreate) {
-      await context.runtime.session.advance({
-        stepKey: 'attendance-mode',
-        data: {
-          title: data.title,
-          ...descriptionPatch,
-          ...linkedCatalogPatch,
-          date: data.date,
-          time: data.time,
-          ...simpleScheduleDefaults,
-        },
-      });
-      await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
-      return true;
+  if (stepKey === 'description' || stepKey.startsWith('confirm-')) {
+    if (stepKey === 'confirm-time-minute') {
+      await context.runtime.session.advance({ stepKey: 'confirm-time', data });
+      await replyCreateTimePrompt(context, String(data.date), language);
+    } else if (['confirm-duration-hours', 'confirm-duration-hours-minutes', 'confirm-duration'].includes(stepKey)) {
+      await context.runtime.session.advance({ stepKey: 'confirm-duration-mode', data });
+      await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askDuration, buildCreateDurationOptions(language, true));
+    } else {
+      await replyCreateConfirm(context, data);
     }
-    if (data.attendanceMode === 'open') {
-      await context.runtime.session.advance({
-        stepKey: 'public-visibility',
-        data: {
-          title: data.title,
-          ...descriptionPatch,
-          ...linkedCatalogPatch,
-          date: data.date,
-          time: data.time,
-          durationMinutes: data.durationMinutes,
-          attendanceMode: data.attendanceMode,
-        },
-      });
-      await context.reply(texts.askPublicVisibility, buildPublicVisibilityOptions(language));
-      return true;
-    }
-    await context.runtime.session.advance({
-      stepKey: 'attendance-mode',
-      data: {
-        title: data.title,
-        ...descriptionPatch,
-        ...linkedCatalogPatch,
-        date: data.date,
-        time: data.time,
-        durationMinutes: data.durationMinutes,
-      },
-    });
-    await context.reply(texts.askAttendanceMode, buildAttendanceModeOptions(language));
     return true;
   }
-
-  if (stepKey === 'initial-occupied-seats') {
-    await context.runtime.session.advance({
-      stepKey: 'capacity',
-      data: {
-        title: data.title,
-        ...descriptionPatch,
-        ...linkedCatalogPatch,
-        date: data.date,
-        time: data.time,
-        durationMinutes: data.durationMinutes,
-        attendanceMode: data.attendanceMode,
-        isPublic: data.isPublic,
-      },
-    });
-    await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
-    return true;
-  }
-
-  if (stepKey === 'table') {
-    if (data.attendanceMode === 'open') {
-      await context.runtime.session.advance({
-        stepKey: 'initial-occupied-seats',
-        data: {
-          title: data.title,
-          ...descriptionPatch,
-          ...linkedCatalogPatch,
-          date: data.date,
-          time: data.time,
-          durationMinutes: data.durationMinutes,
-          attendanceMode: data.attendanceMode,
-          isPublic: data.isPublic,
-          capacity: data.capacity,
-        },
-      });
-      await context.reply(texts.askInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
-      return true;
-    }
-
-    await context.runtime.session.advance({
-      stepKey: 'capacity',
-      data: {
-        title: data.title,
-        ...descriptionPatch,
-        ...linkedCatalogPatch,
-        date: data.date,
-        time: data.time,
-        durationMinutes: data.durationMinutes,
-        attendanceMode: data.attendanceMode,
-        isPublic: data.isPublic,
-      },
-    });
-    await context.reply(texts.askCapacity, buildSingleBackCancelKeyboard(language));
-    return true;
-  }
-  if (stepKey === 'equipment') {
-    await context.runtime.session.advance({ stepKey: 'table', data });
-    await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
-    return true;
-  }
-
-  if (stepKey === 'confirm') {
-    await context.runtime.session.advance({
-      stepKey: 'table',
-      data: {
-        title: data.title,
-        ...descriptionPatch,
-        ...linkedCatalogPatch,
-        date: data.date,
-        time: data.time,
-        durationMinutes: data.durationMinutes,
-        attendanceMode: data.attendanceMode,
-        isPublic: data.isPublic,
-        capacity: data.capacity,
-        initialOccupiedSeats: data.initialOccupiedSeats,
-      },
-    });
-    await context.reply(texts.askTable, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
-    return true;
-  }
-
-  if (stepKey === 'confirm-duration-mode' || stepKey === 'confirm-duration-hours' || stepKey === 'confirm-duration-hours-minutes' || stepKey === 'confirm-duration' || stepKey === 'confirm-attendance-mode' || stepKey === 'confirm-table' || stepKey === 'confirm-equipment') {
-    await replyCreateConfirm(context, data);
-    return true;
-  }
-
+  const previousStep = stepKey === 'date' ? 'title'
+    : stepKey === 'time' ? 'date'
+    : stepKey === 'time-minute' || stepKey === 'duration-mode' ? 'time'
+    : ['duration-hours', 'duration-hours-minutes', 'duration'].includes(stepKey) ? 'duration-mode'
+    : stepKey === 'attendance-mode' ? (isSimpleCreate ? 'time' : 'duration-mode')
+    : stepKey === 'public-visibility' ? 'attendance-mode'
+    : stepKey === 'capacity' ? 'time'
+    : stepKey === 'initial-occupied-seats' ? 'capacity'
+    : stepKey === 'table' ? (data.attendanceMode === 'open' ? 'initial-occupied-seats' : 'capacity')
+    : stepKey === 'equipment' ? 'table'
+    : stepKey === 'confirm' ? 'capacity' : null;
+  // Simple's attendance step precedes capacity; full creation goes directly time -> capacity.
+  const targetStep = stepKey === 'capacity' && isSimpleCreate ? 'attendance-mode' : previousStep;
+  if (targetStep === null) return true;
+  await context.runtime.session.advance({ stepKey: targetStep, data });
+  if (targetStep === 'title') await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askTitle, buildCreateTitleOptions(language));
+  else if (targetStep === 'date') await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askDate, buildDateOptions(resolveBotLanguage(context), true));
+  else if (targetStep === 'time') await replyCreateTimePrompt(context, String(data.date), language);
+  else if (targetStep === 'duration-mode') await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askDuration, buildCreateDurationOptions(language, true));
+  else if (targetStep === 'attendance-mode') await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askAttendanceMode, buildAttendanceModeOptions(language, true));
+  else if (targetStep === 'capacity') await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askCapacity, buildCreateCapacityOptions(language));
+  else if (targetStep === 'initial-occupied-seats') await replyCreateStepPrompt(context, String(data.title ?? texts.create), texts.askInitialOccupiedSeats, buildInitialOccupiedSeatsOptions(language));
+  else if (targetStep === 'table') await replyCreateTablePrompt(context, data);
   return true;
 }
 
@@ -2268,7 +2226,7 @@ async function handleTableSelectionCallback(context: TelegramScheduleContext, ca
       tableId,
     });
   } catch {
-    await context.reply(texts.inactiveTableCreate, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+    await context.reply(texts.inactiveTableCreate, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language, creation: session.flowKey !== editFlowKey }));
     return true;
   }
 
@@ -2309,13 +2267,93 @@ async function advanceCreateTableSelection(
 
   const selectedTable = await findSchedulableTableByDisplayName(context, text);
   if (!selectedTable) {
-    await context.reply(texts.invalidTableCreate, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language }));
+    await context.reply(texts.invalidTableCreate, buildTableSelectionOptions({ tableNames: await listSchedulableTableNames(context), language, creation: true }));
     return true;
   }
 
   const nextData = { ...data, tableId: selectedTable.id };
   await promptCreateEquipmentSelection(context, nextData, false, selectedTable);
   return true;
+}
+
+/** Creation prompts retain the same text and controls on older Telegram clients. */
+type ScheduleCreateMessageContext = Pick<TelegramScheduleContext, 'reply' | 'messageThreadId'> & {
+  runtime: { chat: { chatId: number }; bot: Partial<Pick<TelegramRichMessageTransport, 'sendRichMessage'>> & { language?: string };
+    session?: Pick<ConversationSessionRuntime, 'current'> };
+};
+
+export async function replyCreateStepPrompt(
+  context: ScheduleCreateMessageContext,
+  title: string,
+  text: string,
+  options: TelegramReplyOptions,
+): Promise<unknown> {
+  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).schedule;
+  const step = context.runtime.session?.current?.stepKey.replace(/^confirm-/, '');
+  const headings: Record<string, string> = {
+    title: texts.editFieldTitle, date: texts.editFieldDate, time: texts.editFieldTime, 'time-minute': texts.editFieldTime,
+    'duration-mode': texts.editFieldDuration, duration: texts.editFieldDuration,
+    'duration-hours': texts.editFieldDuration, 'duration-hours-minutes': texts.editFieldDuration,
+    capacity: texts.editFieldCapacity, 'attendance-mode': texts.editFieldAttendanceMode,
+    'public-visibility': texts.editFieldPublicVisibility, 'initial-occupied-seats': texts.editFieldInitialOccupiedSeats,
+    table: texts.editFieldTable, equipment: texts.editFieldEquipment, description: texts.editFieldDescription,
+  };
+  const heading = step && headings[step] ? `${title} · ${headings[step]}` : title;
+  return replyCreateRichMessage(context, {
+    richMessage: buildTelegramRichDetailMessage(heading, text), text, options: { ...options, parseMode: 'HTML' },
+  });
+}
+
+async function replyCreateRichMessage(context: ScheduleCreateMessageContext, input: {
+  richMessage: Parameters<TelegramRichMessageTransport['sendRichMessage']>[0]['richMessage'];
+  text: string;
+  options: TelegramReplyOptions;
+}): Promise<unknown> {
+  if (context.runtime.bot.sendRichMessage) {
+    try {
+      return await context.runtime.bot.sendRichMessage({
+        chatId: context.runtime.chat.chatId, richMessage: input.richMessage,
+        fallbackText: input.text, options: input.options,
+        ...(context.messageThreadId !== undefined ? { messageThreadId: context.messageThreadId } : {}),
+      });
+    } catch (error) {
+      console.warn(JSON.stringify({ event: 'schedule.create.rich-send.failed', error: error instanceof Error ? error.message : String(error) }));
+    }
+  }
+  return context.reply(input.text, input.options);
+}
+
+export async function replyCreateTablePrompt(context: TelegramScheduleContext, data: Record<string, unknown>): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const tables = await listSchedulableTables({ repository: resolveTableRepository(context) });
+  await replyCreateResourcePrompt(context, data, 'tables', createTelegramI18n(language).schedule.askTable,
+    buildTableSelectionOptions({ tableNames: tables.map((table) => table.displayName), language, creation: true }), tables);
+}
+
+async function replyCreateResourcePrompt(
+  context: TelegramScheduleContext,
+  data: Record<string, unknown>,
+  kind: 'tables' | 'equipment',
+  prompt: string,
+  options: TelegramReplyOptions,
+  tables?: ClubTableRecord[],
+  equipment?: ClubEquipmentRecord[],
+): Promise<void> {
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const startsAt = buildStartsAt(String(data.date ?? ''), String(data.time ?? ''));
+  const availability = buildScheduleResourceAvailability({
+    startsAt, durationMinutes: Number(data.durationMinutes), tables: tables ?? [], equipment: equipment ?? [],
+    events: await listScheduleEvents({ repository: resolveScheduleRepository(context), includeCancelled: false }),
+  });
+  if (!availability) {
+    await replyCreateStepPrompt(context, String(data.title ?? prompt), escapeHtml(prompt), options);
+    return;
+  }
+  const endsAt = new Date(new Date(startsAt).getTime() + Number(data.durationMinutes) * 60000).toISOString();
+  const presentation = buildScheduleResourceAvailabilityMessage({ availability, kind, language, prompt,
+    intervalLabel: `${formatTimestamp(startsAt)} – ${formatTimestamp(endsAt)}` });
+  await replyCreateRichMessage(context, { richMessage: presentation.richMessage, text: presentation.text,
+    options: { ...options, parseMode: 'HTML' } });
 }
 
 async function promptCreateEquipmentSelection(
@@ -2335,11 +2373,12 @@ async function promptCreateEquipmentSelection(
     stepKey: returnToSummary ? 'confirm-equipment' : 'equipment',
     data: { ...data, equipmentIds },
   });
-  await context.reply(createTelegramI18n(language).schedule.askEquipment, buildEquipmentSelectionOptions({
+  await replyCreateResourcePrompt(context, data, 'equipment', createTelegramI18n(language).schedule.askEquipment, buildEquipmentSelectionOptions({
     equipment,
     selectedEquipmentIds: equipmentIds,
     language,
-  }));
+    creation: true,
+  }), undefined, equipment);
 }
 
 async function advanceCreateEquipmentSelection(
@@ -2359,7 +2398,7 @@ async function advanceCreateEquipmentSelection(
   const normalizedText = text.startsWith('✓ ') ? text.slice(2) : text;
   const selected = equipment.find((item) => item.displayName === normalizedText);
   if (!selected) {
-    await context.reply(texts.invalidEquipment, buildEquipmentSelectionOptions({ equipment, selectedEquipmentIds, language }));
+    await context.reply(texts.invalidEquipment, buildEquipmentSelectionOptions({ equipment, selectedEquipmentIds, language, creation: true }));
     return true;
   }
   const nextEquipmentIds = selectedEquipmentIds.includes(selected.id)
@@ -2370,7 +2409,8 @@ async function advanceCreateEquipmentSelection(
     stepKey: returnToSummary ? 'confirm-equipment' : 'equipment',
     data: nextData,
   });
-  await context.reply(texts.askEquipment, buildEquipmentSelectionOptions({ equipment, selectedEquipmentIds: nextEquipmentIds, language }));
+  await replyCreateResourcePrompt(context, nextData, 'equipment', texts.askEquipment,
+    buildEquipmentSelectionOptions({ equipment, selectedEquipmentIds: nextEquipmentIds, language, creation: true }), undefined, equipment);
   return true;
 }
 
@@ -2383,7 +2423,7 @@ async function replyCreateConfirm(
   const texts = createTelegramI18n(language).schedule;
   await context.runtime.session.advance({ stepKey: 'confirm', data });
   const conflictWarning = await formatCreateDraftConflictWarning(context, data, language);
-  await context.reply(
+  await replyCreateStepPrompt(context, String(data.title ?? texts.create),
       `${await formatScheduleDraftSummary({
       botLanguage: resolveBotLanguage(context),
       data,
@@ -2392,7 +2432,7 @@ async function replyCreateConfirm(
         resolveOrganizerDisplayName: async (telegramUserId) => resolveMemberDisplayName(context, telegramUserId),
         ...(selectedTable === undefined ? {} : { selectedTable }),
       })}${conflictWarning ? `\n\n${conflictWarning}` : ''}\n\n${texts.confirmPrompt}`,
-    { ...buildCreateConfirmOptions(language), parseMode: 'HTML' },
+    { ...buildCreateConfirmOptions(language, data), parseMode: 'HTML' },
   );
 }
 
@@ -3297,8 +3337,15 @@ export async function runAfterScheduleSaveSideEffects(
   event: ScheduleEventRecord,
   action: 'created' | 'updated' | 'deleted',
   previousEvent?: ScheduleEventRecord,
-): Promise<void> {
-  await ignoreSchedulePostSaveFailure(async () => {
+  onStage?: (stage: 'calendar' | 'conflicts' | 'news') => Promise<void>,
+): Promise<{ failedStages: Array<'calendar' | 'conflicts' | 'news'> }> {
+  const failedStages: Array<'calendar' | 'conflicts' | 'news'> = [];
+  const stage = async (name: 'calendar' | 'conflicts' | 'news', action: () => Promise<void>) => {
+    if (onStage) await ignoreSchedulePostSaveFailure(() => onStage(name));
+    try { await action(); }
+    catch (error) { failedStages.push(name); logSchedulePostSaveFailure(`schedule.post-save.${name}.failed`, error); }
+  };
+  await stage('calendar', async () => {
     await synchronizeGoogleCalendarScheduleEvent({
       event,
       storage: createDatabaseAppMetadataSessionStorage({ database: context.runtime.services.database.db }),
@@ -3307,7 +3354,7 @@ export async function runAfterScheduleSaveSideEffects(
   });
 
   if (action !== 'deleted') {
-    await ignoreSchedulePostSaveFailure(async () => {
+    await stage('conflicts', async () => {
       await notifyScheduleConflicts({
         eventId: event.id,
         actorTelegramUserId: context.runtime.actor.telegramUserId,
@@ -3319,7 +3366,7 @@ export async function runAfterScheduleSaveSideEffects(
     });
   }
 
-  await ignoreSchedulePostSaveFailure(async () => {
+  await stage('news', async () => {
     const calendarBroadcastDependencies = buildCalendarBroadcastDependencies(context);
     await publishCalendarSnapshotToNewsGroups({
       change: {
@@ -3338,6 +3385,7 @@ export async function runAfterScheduleSaveSideEffects(
       ...calendarBroadcastDependencies,
     });
   });
+  return { failedStages };
 }
 
 async function replyAfterScheduleSave(
@@ -3353,9 +3401,14 @@ async function replyAfterScheduleSave(
 async function ignoreSchedulePostSaveFailure(action: () => Promise<void>): Promise<void> {
   try {
     await action();
-  } catch {
+  } catch (error) {
     // Once the activity is persisted, Telegram delivery failures must not turn the save into an apparent error.
+    logSchedulePostSaveFailure('schedule.post-save.delivery.failed', error);
   }
+}
+
+function logSchedulePostSaveFailure(event: string, error: unknown): void {
+  console.warn(JSON.stringify({ event, error: error instanceof Error ? error.message : String(error) }));
 }
 
 function resolveVenueEventRepository(context: TelegramScheduleContext): VenueEventRepository {
