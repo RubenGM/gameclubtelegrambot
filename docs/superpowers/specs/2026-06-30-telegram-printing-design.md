@@ -110,7 +110,10 @@ Cuando está activada:
 7. Si es PDF, lo conserva como fuente normalizada.
 8. Si es Office, lo convierte a PDF con `soffice --headless --convert-to pdf`.
 9. Si es imagen o foto Telegram, la normaliza a un PDF A4 de una página con
-   `magick`, autoorientada, ajustada y centrada sobre fondo blanco.
+   `magick`, autoorientada, ajustada a 600 ppp con filtro Lanczos y centrada
+   sobre fondo blanco. La imagen se escala para ocupar el máximo área posible
+   de la hoja sin deformarla; si la fuente es pequeña, el escalado no recupera
+   el detalle que no contiene el original.
 10. El bot inspecciona el PDF resultante con `pdfinfo` y obtiene el número de
    páginas.
 11. Si el PDF normalizado tiene una sola página, el bot salta la selección de

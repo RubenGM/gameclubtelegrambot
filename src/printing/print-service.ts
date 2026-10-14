@@ -61,18 +61,27 @@ export function createPrintService({
     },
     async convertImageToPdf(inputPath, outputDir, orientation) {
       const outputPath = join(outputDir, `${basename(inputPath, extname(inputPath))}.pdf`);
-      const pageSize = orientation === 'landscape' ? '842x595' : '595x842';
+      // A4 at the configured queue's maximum of 600 dpi. Resize both down and
+      // up so the image uses the page area; Lanczos softens unavoidable
+      // interpolation when the source has fewer pixels than the output.
+      const pageSize = orientation === 'landscape' ? '7016x4961' : '4961x7016';
       await runChecked(runner, 'magick', [
         inputPath,
         '-auto-orient',
+        '-filter',
+        'Lanczos',
         '-resize',
-        `${pageSize}>`,
+        pageSize,
         '-gravity',
         'center',
         '-background',
         'white',
         '-extent',
         pageSize,
+        '-units',
+        'PixelsPerInch',
+        '-density',
+        '600',
         outputPath,
       ]);
       return outputPath;
@@ -102,6 +111,8 @@ export function createPrintService({
         'fit-to-page=true',
         '-o',
         'media=A4',
+        '-o',
+        'OutputMode=Best',
         pdfPath,
       ]);
 
