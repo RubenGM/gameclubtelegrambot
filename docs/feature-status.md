@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-10-09.
+Última revisión: 2026-10-16.
 
 Este documento refleja lo que existe en el código actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -22,7 +22,7 @@ Este documento refleja lo que existe en el código actual, no solo lo que aparec
 | Asistente LLM de órdenes naturales           | 🟠 Parcial          | `/ask` y fallback privado; menciones IA en grupos/topics responden sólo por privado, sin mensajes públicos.                           |
 | Mesas                                        | 🟢 Operativo        | Administración de mesas y consulta de tablas activas para socios.                                                                     |
 | Equipamiento                                 | 🟢 Operativo        | Alta admin y reserva múltiple de equipamiento en actividades, con detalle y avisos de solapamiento.                                   |
-| Agenda de actividades                        | 🟢 Operativo        | Creación Telegram/web con token, reservas de mesa/equipamiento, promoción, altas/bajas, conflictos y recordatorios.                  |
+| Agenda de actividades                        | 🟢 Operativo        | Creación Telegram/web con token, reservas, bloqueos de limpieza configurables, promoción, conflictos y recordatorios.                |
 | Google Calendar                              | 🟢 Operativo        | Configuración web completa, acceso público/privado, sincronización Agenda → Google y enlace limpio desde grupos/topics.              |
 | Eventos del local                            | 🟢 Operativo        | Gestión admin de eventos con impacto directo en agenda y resumen diario, con progreso editable.                                       |
 | Catálogo                                     | 🟢 Operativo        | CRUD, posiciones físicas fila/columna, búsqueda, media con Storage, BGG/Open Library/Wikipedia y progreso editable.                   |
@@ -247,6 +247,10 @@ Riesgos o pendientes:
 - No se crean elementos iniciales en la migración; los admins dan de alta únicamente el equipamiento real del club.
 
 ## Agenda de actividades
+
+- `Admin → Limpieza` configura el día de la semana y la franja horaria que no admite reservas. La configuración inicial bloquea los viernes de 09:00 a 12:00, en hora local `Europe/Madrid`; se guarda en `app_metadata` y se aplica en tiempo real a creación y cambios de horario de Agenda, web y Rol. Los solapamientos se rechazan con un aviso y no se crean actividades de limpieza ni eventos de calendario.
+- La comprobación de limpieza se realiza también dentro de la transacción PostgreSQL de creación y edición, serializada con las demás reservas para evitar carreras. Se permiten reservas que empiecen justo al finalizar la franja.
+- Validación de limpieza: `schedule-catalog.test.ts`; flujo de administración: `schedule-cleaning-admin-flow.ts`.
 
 - **Actividades prioritarias**: sólo un admin puede marcar/quitar prioridad o editar su explicación desde el detalle. El bot pide explicación opcional (hasta 1000 caracteres) y confirmación. Si hay actividades coincidentes, muestra sus detalles y exige gestionarlas antes de activar la prioridad; no cancela actividades existentes automáticamente.
 - Una actividad prioritaria reserva todo el club en su intervalo `[inicio, fin)`, independientemente de mesa/equipamiento. Crear o mover una actividad coincidente se rechaza y termina el intento con aviso de club reservado, actividad y explicación. La protección cubre Agenda normal/simple, formulario web, sesiones de Rol y worker recurrente; el worker omite franjas bloqueadas y sigue con las demás. Cancelar la actividad o quitar su prioridad libera la franja. Los detalles de Telegram y de actividades públicas web muestran prioridad y explicación con HTML escapado. El guardado PostgreSQL serializa las comprobaciones para evitar carreras entre reservas y activación de prioridad.
@@ -655,7 +659,7 @@ Pendiente:
 | Acceso | `src/membership/*.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Autorización y auditoría | `src/authorization/service.test.ts`, `src/audit/audit-log.test.ts` |
 | LLM / Admin IA | `src/telegram/llm-openjev-intent-classifier.test.ts`, `src/telegram/llm-command-flow.test.ts`, `src/telegram/llm-command-router.test.ts`, `src/telegram/llm-command-service.test.ts`, `src/telegram/llm-command-schema.test.ts`, `src/telegram/llm-command-prompt.test.ts`, `src/telegram/llm-command-read-actions.test.ts`, `src/telegram/llm-command-metrics.test.ts`, `src/telegram/llm-model-admin-flow.test.ts`, `src/telegram/llm-model-settings.test.ts`, `src/telegram/admin-ai-flow.test.ts` |
-| Agenda | `src/telegram/today-at-club-summary.test.ts`, `src/telegram/schedule-flow.test.ts`, `src/telegram/schedule-create-wizard.test.ts`, `src/telegram/schedule-create-presentation.test.ts`, `src/telegram/schedule-resource-availability.test.ts`, `src/telegram/calendar-rich-message.test.ts`, `src/telegram/calendar-flow.test.ts`, `src/telegram/schedule-parsing.test.ts`, `src/telegram/schedule-presentation.test.ts`, `src/telegram/promotion-destination-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-catalog-store.test.ts`, `src/schedule/schedule-table-selection.test.ts`, `src/schedule/*reminder*.test.ts` |
+| Agenda | `src/telegram/today-at-club-summary.test.ts`, `src/telegram/schedule-flow.test.ts`, `src/telegram/schedule-create-wizard.test.ts`, `src/telegram/schedule-create-presentation.test.ts`, `src/telegram/schedule-resource-availability.test.ts`, `src/telegram/calendar-rich-message.test.ts`, `src/telegram/calendar-flow.test.ts`, `src/telegram/schedule-parsing.test.ts`, `src/telegram/schedule-presentation.test.ts`, `src/telegram/promotion-destination-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-cleaning-settings.test.ts`, `src/schedule/schedule-catalog-store.test.ts`, `src/schedule/schedule-table-selection.test.ts`, `src/schedule/*reminder*.test.ts` |
 | Google Calendar | `src/google-calendar/google-calendar-admin-service.test.ts`, `src/google-calendar/google-calendar-settings.test.ts`, `src/google-calendar/google-calendar-sync.test.ts`, `src/telegram/google-calendar-public-link-flow.test.ts`, `src/http/admin-http-server.test.ts` |
 | Mesas | `src/telegram/table-admin-flow.test.ts`, `src/telegram/table-read-flow.test.ts` |
 | Equipamiento | `src/equipment/equipment-catalog.test.ts`, `src/telegram/equipment-admin-flow.test.ts`, `src/telegram/schedule-flow.test.ts`, `src/schedule/schedule-catalog.test.ts`, `src/schedule/schedule-catalog-store.test.ts` |

@@ -388,5 +388,5 @@ test('database rechecks priority inside a locked transaction before creating or 
   const input = { title: 'Otra mesa', description: null, startsAt: '2026-04-05T17:00:00.000Z', durationMinutes: 60, organizerTelegramUserId: 42, createdByTelegramUserId: 42, tableId: 99, attendanceMode: 'closed' as const, isPublic: false, initialOccupiedSeats: 0, capacity: 4 };
   await assert.rejects(repository.createEvent(input), /club está reservado.*Votación anual/);
   await assert.rejects(repository.updateEvent({ ...input, eventId: 8 }), /club está reservado.*Votación anual/);
-  assert.deepEqual(calls, ['lock', 'read', 'lock', 'read']);
+  assert.deepEqual(calls, ['lock', 'read', 'read', 'lock', 'read', 'read']);
 });

@@ -106,6 +106,11 @@ import {
   handleTelegramRoleGameAutoSchedulingAdminText,
   roleGameAutoSchedulingAdminCallbackPrefixes,
 } from './role-game-auto-scheduling-admin-flow.js';
+import {
+  handleTelegramScheduleCleaningAdminCallback,
+  handleTelegramScheduleCleaningAdminText,
+  scheduleCleaningAdminCallbackPrefix,
+} from './schedule-cleaning-admin-flow.js';
 import { openRoleGameNotion } from './role-game-notion-flow.js';
 import {
   handleTelegramLlmAskCommand,
@@ -276,6 +281,7 @@ export function registerHandlers({
   registerLfgCallbacks({ bot });
   registerRoleGameCallbacks({ bot });
   registerRoleGameAutoSchedulingAdminCallbacks({ bot });
+  bot.onCallback(scheduleCleaningAdminCallbackPrefix, async (context) => { await handleTelegramScheduleCleaningAdminCallback(context); });
   registerLlmCommandCallbacks({ bot });
   registerAdminAiCallbacks({ bot, publicName, adminElevationPasswordHash });
   registerLlmModelAdminCallbacks({ bot });
@@ -321,6 +327,10 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramRoleGameAutoSchedulingAdminText(context)) {
+      return;
+    }
+
+    if (await handleTelegramScheduleCleaningAdminText(context)) {
       return;
     }
 
@@ -3215,6 +3225,10 @@ async function handleTelegramActionMenuText(
 
     if (selection.actionId === 'role_game_auto_scheduling') {
       return handleTelegramRoleGameAutoSchedulingAdminText({ ...context, messageText: selection.label });
+    }
+
+    if (selection.actionId === 'schedule_cleaning') {
+      return handleTelegramScheduleCleaningAdminText({ ...context, messageText: selection.label });
     }
 
     if (selection.actionId === 'printer_admin') {

@@ -3,6 +3,12 @@ export type ScheduleParticipantStatus = 'active' | 'removed';
 export type ScheduleAttendanceMode = 'open' | 'closed';
 export type ScheduleParticipationRole = 'player' | 'spectator';
 
+export interface ScheduleCleaningSettings {
+  weekday: number;
+  startsAt: string;
+  endsAt: string;
+}
+
 export interface ScheduleEventRecord {
   id: number;
   title: string;
@@ -56,6 +62,7 @@ export interface ScheduleParticipantRecord {
 }
 
 export interface ScheduleRepository {
+  getCleaningSettings?(): Promise<ScheduleCleaningSettings>;
   createEvent(input: {
     title: string;
     description: string | null;
@@ -1001,6 +1008,21 @@ export class SchedulePriorityConflictError extends Error {
   }
 }
 
+export class ScheduleCleaningConflictError extends SchedulePriorityConflictError {
+  constructor(settings: ScheduleCleaningSettings) {
+    const event = {
+      id: -1, title: 'Limpieza', description: null, detailsMessageChatId: null, detailsMessageId: null,
+      startsAt: new Date().toISOString(), durationMinutes: 1, organizerTelegramUserId: 0, createdByTelegramUserId: 0,
+      tableId: null, attendanceMode: 'closed' as const, isPublic: false, isPriority: true,
+      priorityExplanation: `El club está cerrado por limpieza (${settings.startsAt}–${settings.endsAt}).`,
+      initialOccupiedSeats: 0, capacity: 1, lifecycleStatus: 'scheduled' as const, createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(), cancelledAt: null, cancelledByTelegramUserId: null, cancellationReason: null,
+    } satisfies ScheduleEventRecord;
+    super(event);
+    this.name = 'ScheduleCleaningConflictError';
+  }
+}
+
 export function assertNoSchedulePriorityConflict(
   events: ScheduleEventRecord[],
   input: { eventId?: number | undefined; startsAt: string; durationMinutes: number; isPriority?: boolean | undefined },
@@ -1022,7 +1044,47 @@ export async function assertSchedulePriorityAvailability({
   durationMinutes: number;
   isPriority?: boolean | undefined;
 }): Promise<void> {
+  const cleaning = await repository.getCleaningSettings?.();
+  if (cleaning && overlapsWeeklyCleaning(input.startsAt, input.durationMinutes, cleaning)) {
+    throw new ScheduleCleaningConflictError(cleaning);
+  }
   assertNoSchedulePriorityConflict(await repository.listEvents({ includeCancelled: false }), input);
+}
+
+export function overlapsWeeklyCleaning(startsAt: string, durationMinutes: number, settings: ScheduleCleaningSettings): boolean {
+  const start = new Date(startsAt);
+  const end = new Date(start.getTime() + durationMinutes * 60_000);
+  const day = new Date(start);
+  day.setUTCHours(0, 0, 0, 0);
+  for (let offset = -1; offset <= Math.ceil(durationMinutes / 1440) + 1; offset += 1) {
+    const date = new Date(day.getTime() + offset * 86_400_000);
+    const dayParts = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Madrid', weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+    const weekday = ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as const)[dayParts.find((part) => part.type === 'weekday')?.value as 'Sun' | 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat'];
+    if (weekday !== settings.weekday) continue;
+    const datePart = `${dayParts.find((part) => part.type === 'year')?.value}-${dayParts.find((part) => part.type === 'month')?.value}-${dayParts.find((part) => part.type === 'day')?.value}`;
+    const cleaningStart = madridLocalDateTimeToUtc(datePart, settings.startsAt);
+    const cleaningEnd = madridLocalDateTimeToUtc(datePart, settings.endsAt);
+    if (start < cleaningEnd && cleaningStart < end) return true;
+  }
+  return false;
+}
+
+export function assertNoScheduleCleaningConflict(startsAt: string, durationMinutes: number, settings: ScheduleCleaningSettings): void {
+  if (overlapsWeeklyCleaning(startsAt, durationMinutes, settings)) throw new ScheduleCleaningConflictError(settings);
+}
+
+function madridLocalDateTimeToUtc(date: string, time: string): Date {
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  const desired = Date.UTC(year!, month! - 1, day!, hour!, minute!);
+  let guess = desired;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(guess));
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const represented = Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day), Number(values.hour), Number(values.minute));
+    guess += desired - represented;
+  }
+  return new Date(guess);
 }
 
 export async function setScheduleEventPriority({

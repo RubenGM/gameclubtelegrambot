@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
-import { scheduleEventEquipment, scheduleEventParticipants, scheduleEvents } from '../infrastructure/database/schema.js';
-import { assertNoSchedulePriorityConflict } from './schedule-catalog.js';
+import { appMetadata, scheduleEventEquipment, scheduleEventParticipants, scheduleEvents } from '../infrastructure/database/schema.js';
+import { assertNoScheduleCleaningConflict, assertNoSchedulePriorityConflict, type ScheduleCleaningSettings } from './schedule-catalog.js';
+import { defaultScheduleCleaningSettings, parseScheduleCleaningSettings, scheduleCleaningSettingsKey } from './schedule-cleaning-settings.js';
 import type {
   ScheduleEventParticipationRecord,
   ScheduleEventRecord,
@@ -16,9 +17,13 @@ export function createDatabaseScheduleRepository({
   database: DatabaseConnection['db'];
 }): ScheduleRepository {
   return {
+    async getCleaningSettings() {
+      return loadCleaningSettings(database);
+    },
     async createEvent(input) {
       return database.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(73190421)`);
+        assertNoScheduleCleaningConflict(input.startsAt, input.durationMinutes, await loadCleaningSettings(tx));
         const events = await tx.select().from(scheduleEvents).where(eq(scheduleEvents.lifecycleStatus, 'scheduled'));
         assertNoSchedulePriorityConflict(events.map((row) => mapScheduleEventRow(row)), input);
         const created = await tx
@@ -119,6 +124,7 @@ export function createDatabaseScheduleRepository({
     async updateEvent(input) {
       return database.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(73190421)`);
+        assertNoScheduleCleaningConflict(input.startsAt, input.durationMinutes, await loadCleaningSettings(tx));
         const events = await tx.select().from(scheduleEvents).where(eq(scheduleEvents.lifecycleStatus, 'scheduled'));
         const current = events.find((row) => row.id === input.eventId);
         if (!current) throw new Error(`Schedule event ${input.eventId} is not scheduled`);
@@ -339,6 +345,13 @@ export function createDatabaseScheduleRepository({
       });
     },
   };
+}
+
+async function loadCleaningSettings(database: DatabaseConnection['db']): Promise<ScheduleCleaningSettings> {
+  const result = await database.select({ value: appMetadata.value }).from(appMetadata).where(eq(appMetadata.key, scheduleCleaningSettingsKey));
+  const value = result[0]?.value;
+  if (!value) return defaultScheduleCleaningSettings;
+  try { return parseScheduleCleaningSettings(JSON.parse(value)); } catch { return defaultScheduleCleaningSettings; }
 }
 
 function mapScheduleEventRow(row: typeof scheduleEvents.$inferSelect, equipmentIds: number[] = []): ScheduleEventRecord {

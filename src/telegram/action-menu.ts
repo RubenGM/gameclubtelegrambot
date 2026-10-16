@@ -298,6 +298,15 @@ const actionDefinitions: TelegramActionDefinition[] = [
     isVisible: (context) => context.actor.isAdmin,
   },
   {
+    id: 'schedule_cleaning',
+    label: (language) => createTelegramI18n(language).actionMenu.scheduleCleaning,
+    telemetryActionKey: 'menu.schedule_cleaning',
+    uxSection: 'admin',
+    buttonRole: 'secondary',
+    contexts: ['private'],
+    isVisible: (context) => context.actor.isAdmin,
+  },
+  {
     id: 'printer_admin',
     label: (language) => createTelegramI18n(language).actionMenu.printerAdmin,
     telemetryActionKey: 'menu.printer_admin',
@@ -385,7 +394,7 @@ const menuDefinitions: TelegramActionMenuDefinition[] = [
   {
     id: 'private-admin-tools',
     matches: () => false,
-    rows: [['catalog_web_admin'], ['review_access', 'manage_users'], ['tables', 'equipment'], ['welcome_templates', 'update_bgg'], ['llm_models', 'role_game_auto_scheduling'], ['printer_admin', 'image_generation_admin'], ['google_calendar', 'member_debug'], ['start', 'help']],
+    rows: [['catalog_web_admin'], ['review_access', 'manage_users'], ['tables', 'equipment'], ['welcome_templates', 'update_bgg'], ['llm_models', 'role_game_auto_scheduling'], ['schedule_cleaning', 'printer_admin'], ['image_generation_admin'], ['google_calendar', 'member_debug'], ['start', 'help']],
   },
   {
     id: 'private-approved-default',

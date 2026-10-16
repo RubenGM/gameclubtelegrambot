@@ -1,4 +1,4 @@
-import { SchedulePriorityConflictError, type ScheduleEventRecord } from '../schedule/schedule-catalog.js';
+import { ScheduleCleaningConflictError, SchedulePriorityConflictError, type ScheduleEventRecord } from '../schedule/schedule-catalog.js';
 import type { TelegramActor } from './actor-store.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
@@ -382,6 +382,9 @@ function formatHourLabel(isoTimestamp: string): string {
 
 export function formatSchedulePriorityConflict(error: SchedulePriorityConflictError, language: BotLanguage): string {
   const texts = createTelegramI18n(language).schedule;
+  if (error instanceof ScheduleCleaningConflictError) {
+    return `${texts.cleaningBlocked}\n\n${escapeHtml(error.event.priorityExplanation ?? '')}`;
+  }
   return [
     error.markingPriority ? texts.priorityExistingConflict : texts.priorityBlocked,
     ...error.conflicts.map((event) => [

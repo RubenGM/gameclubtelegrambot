@@ -8,6 +8,7 @@ import {
   assignScheduleInitialOccupiedSeat,
   createScheduleEvent,
   detectScheduleConflicts,
+  overlapsWeeklyCleaning,
   getScheduleCapacitySnapshot,
   getScheduleEventAttendance,
   joinScheduleEvent,
@@ -22,6 +23,13 @@ import {
   type ScheduleParticipantRecord,
   type ScheduleRepository,
 } from './schedule-catalog.js';
+
+test('weekly cleaning blocks overlaps in Europe/Madrid local time and allows the end boundary', () => {
+  const settings = { weekday: 5, startsAt: '09:00', endsAt: '12:00' };
+  assert.equal(overlapsWeeklyCleaning('2026-10-16T06:30:00.000Z', 60, settings), true);
+  assert.equal(overlapsWeeklyCleaning('2026-10-16T10:00:00.000Z', 60, settings), false);
+  assert.equal(overlapsWeeklyCleaning('2026-10-15T22:00:00.000Z', 30, settings), false);
+});
 
 type ScheduleEventFixture = Omit<ScheduleEventRecord, 'attendanceMode' | 'isPublic' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'> &
   Partial<Pick<ScheduleEventRecord, 'attendanceMode' | 'isPublic' | 'initialOccupiedSeats' | 'detailsMessageChatId' | 'detailsMessageId'>>;

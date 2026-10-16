@@ -13,6 +13,7 @@ export const scheduleTexts = {
     priorityBlocked: "Reserva cancel·lada: durant aquestes hores el club està reservat per a aquesta activitat prioritària.",
     priorityExistingConflict: "No es pot activar la prioritat: primer has de gestionar les activitats coincidents.",
     priorityExplanationLabel: "Explicació",
+    cleaningBlocked: 'No es pot reservar en aquest horari: el club estarà tancat per neteja.',
 
     openMenu: 'Activitats',
     list: 'Veure activitats',
@@ -236,6 +237,7 @@ export const scheduleTexts = {
     priorityBlocked: "Reserva cancelada: durante esas horas el club está reservado para esta actividad prioritaria.",
     priorityExistingConflict: "No se puede activar la prioridad: primero debes gestionar las actividades coincidentes.",
     priorityExplanationLabel: "Explicación",
+    cleaningBlocked: 'No se puede reservar en ese horario: el club estará cerrado por limpieza.',
 
     openMenu: 'Actividades',
     list: 'Ver actividades',
@@ -459,6 +461,7 @@ export const scheduleTexts = {
     priorityBlocked: "Booking cancelled: the club is reserved for this priority activity during those hours.",
     priorityExistingConflict: "Priority cannot be enabled: manage the overlapping activities first.",
     priorityExplanationLabel: "Explanation",
+    cleaningBlocked: 'You cannot book this time: the club is closed for cleaning.',
 
     openMenu: 'Activities',
     list: 'View activities',
