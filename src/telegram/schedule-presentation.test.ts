@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildScheduleDetailActionOptions,
   formatScheduleDescriptionSummary,
+  formatScheduleEventDetails,
   formatTimestamp,
   truncateScheduleDescription,
 } from './schedule-presentation.js';
@@ -12,6 +13,43 @@ test('formatTimestamp displays schedule timestamps in local time', () => {
   const localInstant = new Date(2026, 3, 27, 22, 15, 0, 0).toISOString();
 
   assert.equal(formatTimestamp(localInstant), '27/04/2026 22:15');
+});
+
+test('activity details show creation date until the event is edited, then show the last edit date', () => {
+  const event = {
+    id: 7,
+    title: 'Partida',
+    description: null,
+    detailsMessageChatId: null,
+    detailsMessageId: null,
+    startsAt: '2026-04-05T16:00:00.000Z',
+    durationMinutes: 120,
+    organizerTelegramUserId: 99,
+    createdByTelegramUserId: 99,
+    tableId: null,
+    attendanceMode: 'open' as const,
+    isPublic: false,
+    initialOccupiedSeats: 0,
+    capacity: 4,
+    lifecycleStatus: 'scheduled' as const,
+    createdAt: '2026-04-04T10:00:00.000Z',
+    updatedAt: '2026-04-04T10:00:00.000Z',
+    cancelledAt: null,
+    cancelledByTelegramUserId: null,
+    cancellationReason: null,
+  };
+
+  const createdDetails = formatScheduleEventDetails({ event, tableName: null, language: 'es' });
+  assert.match(createdDetails, /<b>Creada:<\/b> 04\/04\/2026 12:00/);
+  assert.doesNotMatch(createdDetails, /Última edición/);
+
+  const editedDetails = formatScheduleEventDetails({
+    event: { ...event, updatedAt: '2026-04-04T11:30:00.000Z' },
+    tableName: null,
+    language: 'es',
+  });
+  assert.match(editedDetails, /<b>Última edición:<\/b> 04\/04\/2026 13:30/);
+  assert.doesNotMatch(editedDetails, /<b>Creada:<\/b>/);
 });
 
 test('truncateScheduleDescription limits summaries to 30 characters including ellipsis', () => {

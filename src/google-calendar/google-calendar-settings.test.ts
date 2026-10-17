@@ -61,6 +61,11 @@ test('toGoogleEvent includes event detail URL in description', () => {
   assert.match(String(gEventDefault.description), /https:\/\/cawa\.hopto\.org\/actividades\/42/);
   assert.match(String(gEventDefault.description), /Partida de prueba con amigos/);
   assert.match(String(gEventDefault.description), /Plazas: 6/);
+  assert.match(String(gEventDefault.description), /Creada: 20\/05\/2026, 12:00/);
+
+  const gEventEdited = toGoogleEvent({ ...event, updatedAt: '2026-05-21T08:45:00.000Z' });
+  assert.match(String(gEventEdited.description), /Última edición: 21\/05\/2026, 10:45/);
+  assert.doesNotMatch(String(gEventEdited.description), /Creada:/);
 
   const gEventCustom = toGoogleEvent(event, 'https://custom.club.org/');
   assert.match(String(gEventCustom.description), /https:\/\/custom\.club\.org\/actividades\/42/);

@@ -141,6 +141,10 @@ export function formatScheduleEventDetails({
     `<b>${escapeHtml(event.title)}</b>`,
     ...(event.isPriority ? [`<b>${escapeHtml(texts.priorityLabel)}</b>`, ...(event.priorityExplanation ? [formatHtmlField(texts.priorityExplanationLabel, escapeHtml(event.priorityExplanation))] : [])] : []),
     ...(creatorLabel ? [formatHtmlField(texts.detailsCreatedBy, creatorLabel)] : []),
+    formatHtmlField(
+      new Date(event.updatedAt).getTime() > new Date(event.createdAt).getTime() ? texts.detailsLastEditedAt : texts.detailsCreatedAt,
+      formatTimestamp(new Date(event.updatedAt).getTime() > new Date(event.createdAt).getTime() ? event.updatedAt : event.createdAt),
+    ),
     ...(event.catalogItemId ? [formatHtmlField(resolveLinkedGameLabel(language), `<a href="${escapeHtml(buildTelegramStartUrl(`catalog_read_item_${event.catalogItemId}`))}">${escapeHtml(event.title)}</a>`)] : []),
     formatHtmlField(texts.detailsStart, formatTimestamp(event.startsAt)),
     formatHtmlField(texts.detailsDuration, formatDurationMinutes(event.durationMinutes)),

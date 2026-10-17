@@ -233,15 +233,19 @@ function googleEventId(scheduleEventId: number): string {
 }
 
 export function toGoogleEvent(
-  event: Pick<ScheduleEventRecord, 'id' | 'title' | 'description' | 'startsAt' | 'durationMinutes' | 'capacity'>,
+  event: Pick<ScheduleEventRecord, 'id' | 'title' | 'description' | 'startsAt' | 'durationMinutes' | 'capacity' | 'createdAt' | 'updatedAt'>,
   publicBaseUrl = 'https://cawa.hopto.org',
 ): Record<string, unknown> {
   const endsAt = new Date(new Date(event.startsAt).getTime() + event.durationMinutes * 60_000).toISOString();
   const normalizedBase = publicBaseUrl.trim().replace(/\/+$/, '');
   const detailUrl = `${normalizedBase}/actividades/${event.id}`;
+  const wasEdited = new Date(event.updatedAt).getTime() > new Date(event.createdAt).getTime();
+  const activityDate = wasEdited ? event.updatedAt : event.createdAt;
+  const activityDateLabel = wasEdited ? 'Última edición' : 'Creada';
   const description = [
     event.description?.trim() || null,
     `Plazas: ${event.capacity}`,
+    `${activityDateLabel}: ${formatGoogleCalendarTimestamp(activityDate)}`,
     `Actividad del club #${event.id}`,
     `Detalles y asistentes:\n${detailUrl}`,
   ].filter((line): line is string => Boolean(line)).join('\n\n');
@@ -252,6 +256,18 @@ export function toGoogleEvent(
     end: { dateTime: endsAt, timeZone: 'Europe/Madrid' },
     extendedProperties: { private: { gameclubScheduleEventId: String(event.id) } },
   };
+}
+
+function formatGoogleCalendarTimestamp(value: string): string {
+  return new Intl.DateTimeFormat('es-ES', {
+    timeZone: 'Europe/Madrid',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(value));
 }
 
 function resolveServiceAccountJson(config: GoogleCalendarServiceAccountConfig | undefined): string | undefined {
