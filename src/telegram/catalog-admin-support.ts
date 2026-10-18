@@ -409,7 +409,7 @@ export interface TelegramCatalogAdminContext {
   catalogLookupService?: CatalogLookupService;
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
-  coverTitleResolver?: (input: { imagePath: string; question: string; model: string }) => Promise<string>;
+  coverTitleResolver?: (input: { imagePath: string; question: string; model: string; reasoningEffort?: 'low' | 'medium' }) => Promise<string>;
   descriptionTranslator?: CatalogDescriptionTranslator;
   externalImageDownloader?: CatalogMediaExternalImageDownloader;
 }
@@ -3118,7 +3118,7 @@ async function handleCreateSession(
   });
 }
 
-async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminContext, question?: string): Promise<string | { displayName: string; coverAttachment?: Record<string, unknown> } | Error | null> {
+async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminContext, question?: string, onRetry?: () => Promise<void>): Promise<string | { displayName: string; coverAttachment?: Record<string, unknown> } | Error | null> {
   const media = context.messageMedia;
   if (!media) {
     return null;
@@ -3168,14 +3168,28 @@ async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminCont
       question: input.question,
       model: input.model,
       codexBin: catalogCodexBin,
-      reasoningEffort: 'low',
+      reasoningEffort: input.reasoningEffort ?? 'low',
     }));
-    const detected = await resolver({
+    let detected = await resolver({
       imagePath,
       question: question ?? texts.coverTitleQuestion,
       model: catalogCoverTitleModel,
+      reasoningEffort: 'low',
     });
-    const normalized = normalizeDetectedCoverTitle(detected);
+    let normalized = normalizeDetectedCoverTitle(detected);
+    // Single-game photos may include people, hands or a busy background.
+    // Retry only an inconclusive reading; download/process errors remain errors.
+    if (!normalized && question && !/ProviderModelNotFoundError|Model not found|Error:/i.test(detected)) {
+      console.info(JSON.stringify({ event: 'catalog.cover-title.retry', model: catalogCoverTitleModel, reasoningEffort: 'medium', reason: 'unidentified' }));
+      await onRetry?.();
+      detected = await resolver({
+        imagePath,
+        question: `${question}\n\n${catalogPhotoTexts[language].gameRetryQuestion}`,
+        model: catalogCoverTitleModel,
+        reasoningEffort: 'medium',
+      });
+      normalized = normalizeDetectedCoverTitle(detected);
+    }
     console.info(JSON.stringify({
       event: 'catalog.cover-title.detected',
       model: catalogCoverTitleModel,
@@ -5525,7 +5539,7 @@ function normalizeCatalogMatchText(value: string): string {
 
 
 const catalogPhotoDependencies: CatalogPhotoDependencies = {
-  detectTitle: (context) => detectDisplayNameFromAttachment(context, catalogPhotoTexts[normalizeBotLanguage(context.runtime.bot.language, 'ca')].gameQuestion),
+  detectTitle: (context, onRetry) => detectDisplayNameFromAttachment(context, catalogPhotoTexts[normalizeBotLanguage(context.runtime.bot.language, 'ca')].gameQuestion, onRetry),
   async importTitle(context, title) {
     // Photo lookup only needs identity and aliases; it does not translate descriptions.
     return resolveWikipediaBoardGameImportService(context).importByTitle(title);

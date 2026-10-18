@@ -20,7 +20,7 @@ const pageSize = 5;
 export { catalogPhotoTexts } from './i18n-catalog-photo.js';
 
 export interface CatalogPhotoDependencies {
-  detectTitle(context: TelegramCatalogAdminContext): Promise<string | { displayName: string; coverAttachment?: Record<string, unknown> } | Error | null>;
+  detectTitle(context: TelegramCatalogAdminContext, onRetry?: () => Promise<void>): Promise<string | { displayName: string; coverAttachment?: Record<string, unknown> } | Error | null>;
   importTitle(context: TelegramCatalogAdminContext, title: string): Promise<WikipediaBoardGameImportResult>;
   saveCover(context: TelegramCatalogAdminContext, item: CatalogItemRecord, attachment: Record<string, unknown>): Promise<void>;
   createLoan(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<void>;
@@ -93,7 +93,7 @@ export async function handleCatalogPhotoMessage(context: TelegramCatalogAdminCon
   const data = implicit ? null : await start(context, 'detecting');
   const progress = await startTelegramEditableProgress(context, texts(context).detecting, { editFailedEvent: 'catalog.photo.progress-edit.failed' });
   let detected: Awaited<ReturnType<CatalogPhotoDependencies['detectTitle']>>;
-  try { detected = await dependencies.detectTitle(context); }
+  try { detected = await dependencies.detectTitle(context, async () => { await progress.update(texts(context).retrying); }); }
   catch { detected = new Error(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin.coverTitleNoResult); }
   if (!canUse(context) || (data ? !isCurrent(context, data) : JSON.stringify(context.runtime.session.current) !== previousSession)) return true;
   const detectedTitle = !detected || detected instanceof Error ? '' : typeof detected === 'string' ? detected : detected.displayName;

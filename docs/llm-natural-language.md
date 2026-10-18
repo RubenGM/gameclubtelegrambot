@@ -432,7 +432,13 @@ catálogo independiente del intérprete de órdenes. Una foto privada sin captio
 ni reply también lo activa automáticamente cuando se identifica un juego de mesa
 o expansión, incluso si queda una sesión `llm-command/awaiting-input` de una
 conversación anterior. La visión debe devolver `UNKNOWN` para libros, otros
-objetos y títulos dudosos; en esos casos no se abre una sesión de catálogo ni
+objetos y títulos dudosos. Las fotos casuales con una persona sujetando una caja,
+manos, perspectiva o fondo se evalúan por el objeto principal, sin exigir una
+imagen de producto. Si la primera lectura con `low` no identifica un título,
+se reintenta una sola vez con la misma imagen, el mismo modelo y razonamiento
+`medium`, actualizando el progreso a revisión del título. Los fallos de descarga
+o ejecución no se tratan como una lectura dudosa ni disparan ese reintento.
+Si ambas lecturas son dudosas no se abre una sesión de catálogo ni
 se sustituye la conversación anterior. Las fotos reenviadas y los asistentes
 activos de otros módulos o confirmaciones de IA conservan su flujo. Reutiliza `GAMECLUB_CODEX_BIN`
 (y el override de catálogo existente) para transcribir el título visible y

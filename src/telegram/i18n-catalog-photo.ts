@@ -1,6 +1,8 @@
 export const catalogPhotoTexts = {
   es: {
-    gameQuestion: 'Determina si la foto muestra claramente la caja o portada de un juego de mesa o una expansión. Devuelve solo su título completo visible. Si muestra un libro, documento u otro objeto, el título no es legible o hay varios juegos sin uno principal, devuelve exactamente UNKNOWN. No supongas que es un juego por contener texto, dibujos o un nombre conocido; no inventes ni completes el título.',
+    gameQuestion: "Identifica el juego de mesa principal de la foto y transcribe su título visible. Puede ser una foto casual: una persona sujetando la caja, manos, fondo, perspectiva o un lateral visible. Céntrate en la caja e ignora personas y objetos del fondo; no exijas una imagen de producto ni que se vea la caja completa. Los textos de juego cooperativo, edad o número de jugadores ayudan a distinguirla de un libro. Devuelve solo el título completo visible de un juego de mesa o una expansión, sin describir la foto. Si el objeto principal es un libro, documento u otro objeto, el título no es legible o hay varios juegos sin uno principal, devuelve exactamente UNKNOWN. No inventes ni completes el título.",
+    gameRetryQuestion: "Revisa de nuevo el objeto principal y lee su título, aunque la caja esté inclinada o sostenida por una persona. No descartes una caja por las manos o el fondo; conserva UNKNOWN si realmente no puedes identificar un juego y leer su título.",
+    retrying: "Revisando el título de la caja…",
     notIdentified: 'No he podido identificar un juego de mesa en esta foto. Si querías buscar uno, envía una imagen clara de su portada.',
     open: 'Buscar juego por foto', prompt: 'Envía una foto clara de la portada del juego. También puedes escribir su nombre.',
     detecting: 'Leyendo el título de la portada…', searching: 'Buscando el juego en la ludoteca…',
@@ -20,7 +22,9 @@ export const catalogPhotoTexts = {
     previous: 'Anterior', next: 'Siguiente', page: 'Página {page}/{pages}',
   },
   ca: {
-    gameQuestion: 'Determina si la foto mostra clarament la caixa o portada d’un joc de taula o una expansió. Retorna només el títol complet visible. Si mostra un llibre, document o un altre objecte, el títol no és llegible o hi ha diversos jocs sense un de principal, retorna exactament UNKNOWN. No suposis que és un joc perquè contingui text, dibuixos o un nom conegut; no inventis ni completis el títol.',
+    gameQuestion: "Identifica el joc de taula principal de la foto i transcriu-ne el títol visible. Pot ser una foto casual: una persona sostenint la caixa, mans, fons, perspectiva o un lateral visible. Centra’t en la caixa i ignora les persones i els objectes del fons; no cal una imatge de producte ni veure la caixa completa. Els textos de joc cooperatiu, edat o nombre de jugadors ajuden a distingir-la d’un llibre. Retorna només el títol complet visible d’un joc de taula o una expansió, sense descriure la foto. Si l’objecte principal és un llibre, document o un altre objecte, el títol no és llegible o hi ha diversos jocs sense un de principal, retorna exactament UNKNOWN. No inventis ni completis el títol.",
+    gameRetryQuestion: "Revisa de nou l’objecte principal i llegeix-ne el títol, encara que la caixa estigui inclinada o la sostingui una persona. No descartis una caixa per les mans o el fons; mantén UNKNOWN si realment no pots identificar un joc i llegir-ne el títol.",
+    retrying: "Revisant el títol de la caixa…",
     notIdentified: 'No he pogut identificar cap joc de taula en aquesta foto. Si en volies cercar un, envia una imatge clara de la portada.',
     open: 'Cercar joc per foto', prompt: 'Envia una foto clara de la portada del joc. També pots escriure’n el nom.',
     detecting: 'Llegint el títol de la portada…', searching: 'Cercant el joc a la ludoteca…',
@@ -40,7 +44,9 @@ export const catalogPhotoTexts = {
     previous: 'Anterior', next: 'Següent', page: 'Pàgina {page}/{pages}',
   },
   en: {
-    gameQuestion: 'Determine whether the photo clearly shows the box or cover of a board game or expansion. Return only its full visible title. If it shows a book, document or another object, the title is unreadable, or several games have no main subject, return exactly UNKNOWN. Do not assume it is a game because it contains text, illustrations or a familiar name; do not invent or complete the title.',
+    gameQuestion: "Identify the main board game in the photo and transcribe its visible title. It may be a casual photo with someone holding the box, hands, background objects, perspective or a visible box side. Focus on the box and ignore people and background objects; do not require a product image or the entire box. Cooperative game, age and player count labels help distinguish it from a book. Return only the full visible title of a board game or expansion, without describing the photo. If the main object is a book, document or another object, the title is unreadable or several games have no main subject, return exactly UNKNOWN. Do not invent or complete the title.",
+    gameRetryQuestion: "Review the main object and read its title again, even if the box is tilted or held by a person. Do not reject a box because of hands or background objects; retain UNKNOWN if you truly cannot identify a game and read its title.",
+    retrying: "Checking the title on the box…",
     notIdentified: 'I could not identify a board game in this photo. If you wanted to find one, send a clear picture of its cover.',
     open: 'Find game by photo', prompt: 'Send a clear photo of the game cover. You can also type its name.',
     detecting: 'Reading the title on the cover…', searching: 'Searching the club library…',

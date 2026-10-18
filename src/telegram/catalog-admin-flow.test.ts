@@ -652,7 +652,7 @@ function createContext({
   catalogLookupService?: CatalogLookupService;
   wikipediaBoardGameImportService?: WikipediaBoardGameImportService;
   boardGameGeekCollectionImportService?: BoardGameGeekCollectionImportService;
-  coverTitleResolver?: (input: { imagePath: string; question: string; model: string }) => Promise<string>;
+  coverTitleResolver?: (input: { imagePath: string; question: string; model: string; reasoningEffort?: 'low' | 'medium' }) => Promise<string>;
   descriptionTranslator?: (input: { description: string; model: string; reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; targetLanguage: 'es' }) => Promise<string>;
   externalImageDownloader?: CatalogMediaExternalImageDownloader;
   sendPrivateMessage?: (telegramUserId: number, message: string, options?: TelegramReplyOptions) => Promise<void>;
@@ -5796,9 +5796,11 @@ test('a private cover uses production routing to borrow immediately and enqueue 
 });
 
 test('a non-game image does not replace an idle AI conversation through the production photo handler', async () => {
+  let calls = 0;
   const { context, replies } = createContext({
     isAdmin: false, language: 'es',
     coverTitleResolver: async ({ question }) => {
+      calls += 1;
       assert.match(question, /libro, documento u otro objeto/);
       return 'UNKNOWN';
     },
@@ -5810,9 +5812,60 @@ test('a non-game image does not replace an idle AI conversation through the prod
   context.messageMedia = { attachmentKind: 'photo', fileId: 'not-a-game', messageId: 45 };
   assert.equal(await handleTelegramCatalogAdminMessage(context), true);
   assert.strictEqual(context.runtime.session.current, previous);
+  assert.equal(calls, 2);
   assert.match(replies.at(-1)?.message ?? '', /No he podido identificar un juego de mesa/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 });
+
+test('an inconclusive game photo retries the same image with more reasoning before opening the catalog', async () => {
+  const calls: Array<{ imagePath: string; question: string; reasoningEffort?: 'low' | 'medium' }> = [];
+  const { context, replies } = createContext({
+    repository: createRepository({ items: [createCatalogItemFixture({ displayName: 'La Iniciativa' })] }),
+    isAdmin: false, language: 'es',
+    coverTitleResolver: async (input) => { calls.push(input); return calls.length === 1 ? 'UNKNOWN' : 'LA INICIATIVA'; },
+  });
+  const edits: Array<{ messageId: number; text: string }> = [];
+  const editMessageText = context.runtime.bot.editMessageText!;
+  context.runtime.bot.editMessageText = async (input) => {
+    edits.push(input);
+    await editMessageText(input);
+  };
+  await useLivePhotoSession(context);
+  context.messageMedia = { attachmentKind: 'photo', fileId: 'casual-cover', messageId: 46 };
+  assert.equal(await handleTelegramCatalogAdminMessage(context), true);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0]?.imagePath, calls[1]?.imagePath);
+  assert.equal(calls[0]?.reasoningEffort, 'low');
+  assert.equal(calls[1]?.reasoningEffort, 'medium');
+  assert.match(calls[1]?.question ?? '', /persona sujetando la caja/);
+  assert.match(calls[1]?.question ?? '', /No descartes una caja por las manos/);
+  assert.ok(edits.some((edit) => edit.messageId === 1 && edit.text === 'Revisando el título de la caja…'));
+  assert.ok(edits.every((edit) => edit.messageId === 1));
+  assert.equal(context.runtime.session.current?.stepKey, 'matches');
+  assert.ok(photoAction(replies, 'select:1'));
+});
+
+for (const failure of ['process', 'provider', 'download'] as const) {
+  test(`a ${failure} failure does not retry photo recognition or replace the previous conversation`, async () => {
+    let calls = 0;
+    const { context } = createContext({
+      isAdmin: false, language: 'es',
+      coverTitleResolver: async () => {
+        calls += 1;
+        if (failure === 'process') throw new Error('process_failed');
+        return 'ProviderModelNotFoundError: Model not found';
+      },
+      ...(failure === 'download' ? { downloadFile: async () => { throw new Error('download_failed'); } } : {}),
+    });
+    await useLivePhotoSession(context);
+    await context.runtime.session.start({ flowKey: 'llm-command', stepKey: 'awaiting-input', data: { history: [] } });
+    const previous = context.runtime.session.current;
+    context.messageMedia = { attachmentKind: 'photo', fileId: 'failed-cover', messageId: 47 };
+    assert.equal(await handleTelegramCatalogAdminMessage(context), true);
+    assert.equal(calls, failure === 'download' ? 0 : 1);
+    assert.strictEqual(context.runtime.session.current, previous);
+  });
+}
 
 test('an unknown private cover uses production registration to retain its cover and enqueue a cession owned by its creator', async () => {
   const repository = createRepository();
