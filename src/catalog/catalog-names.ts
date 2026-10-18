@@ -4,7 +4,7 @@ type CatalogNamedItem = {
   metadata?: Record<string, unknown> | null;
 };
 
-export const catalogNameMetadataVersion = 2;
+export const catalogNameMetadataVersion = 3;
 
 export function normalizeCatalogSearchText(value: string): string {
   return value.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
@@ -13,16 +13,27 @@ export function normalizeCatalogSearchText(value: string): string {
 
 /** Edition records can contain labels such as "Spanish edition 2015" instead of a game title. */
 export function isUsableCatalogTitle(value: string, publisherLabels: string[] = []): boolean {
-  const normalized = normalizeCatalogSearchText(value);
+  let normalized = normalizeCatalogSearchText(value);
   if (!normalized) return false;
+  // Publishers often prefix a version label with their name.
+  const publisherPrefixes = publisherLabels.flatMap((label) => {
+    const full = normalizeCatalogSearchText(label);
+    const short = full.replace(/(?: (?:games|game|production|productions|publishing|publisher|publishers|ltd|inc|aps))+$/, '');
+    return [full, short];
+  });
+  for (const publisher of publisherPrefixes.filter(Boolean).sort((a, b) => b.length - a.length)) {
+    if (normalized.startsWith(`${publisher} `)) normalized = normalized.slice(publisher.length).trim();
+  }
   const ordinal = '(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|primera|segunda|tercera|cuarta|quinta|primer|segona|new|revised|limited|deluxe|special|\\d+(?:st|nd|rd|th|a|o)?|[ivx]+)';
-  const language = '(?:spanish|english|french|german|italian|portuguese|dutch|polish|catalan|espanol|espanola|castellano|castellana|castilian|ingles|inglesa|multilingual|bilingual|international|multilingue|bilingue)';
-  const edition = '(?:edition|editions|edicion|ediciones|edicio|version|printing)';
-  if (new RegExp(`^(?:${ordinal} )*${language} (?:${ordinal} )*${edition}\\b`).test(normalized)
+  const language = '(?:spanish|english|french|german|italian|portuguese|dutch|polish|catalan|finnish|swedish|danish|norwegian|greek|iberian|espanol|espanola|castellano|castellana|castilian|ingles|inglesa|multilingual|bilingual|international|multilingue|bilingue|en|eng|fr|fre|de|ger|it|ita|es|sp|spa|pt|por|nl|dut|el|fi|fin|sv|swe|da|dan|no|nor|ca|cat)';
+  const edition = '(?:edition|editions|edtion|edicion|ediciones|edicio|version|printing)';
+  const variant = `(?:${ordinal}|${language}|meeples?|miniatures?|sundrop|hardcover|softcover|collector|collectors|s|master|print|governor|merchant|anniversary|aniversary|recharged|metal|box|long|flat|square|travel|canadian)`;
+  if (new RegExp(`^(?:${ordinal} )*${language} (?:${variant} )*${edition}\\b`).test(normalized)
     || new RegExp(`^(?:${ordinal} )*${edition} ${language}\\b`).test(normalized)) return false;
+  if (new RegExp(`\\b(?:multilingual|bilingual|multilingue|bilingue)\\b.*\\b${edition}\\b`).test(normalized)) return false;
   const tokens = normalized.split(' ');
   const genericMarkers = new Set([
-    'edition', 'editions', 'edicion', 'ediciones', 'edicio', 'edicoes', 'printing', 'print', 'version',
+    'edition', 'editions', 'edtion', 'edicion', 'ediciones', 'edicio', 'edicoes', 'printing', 'print', 'version',
     'spanish', 'english', 'french', 'german', 'italian', 'portuguese', 'dutch', 'polish', 'catalan',
     'espanol', 'espanola', 'espanoles', 'castellano', 'castellana', 'castilian', 'ingles', 'inglesa',
     'francais', 'francaise', 'deutsch', 'deutsche', 'italiano', 'italiana', 'catala', 'catalana',
@@ -33,7 +44,7 @@ export function isUsableCatalogTitle(value: string, publisherLabels: string[] = 
     ...genericMarkers, 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth',
     'primera', 'segunda', 'tercera', 'cuarta', 'quinta', 'primer', 'segona', 'tercera',
     'original', 'new', 'nueva', 'nouvelle', 'revised', 'revisada', 'reprint', 'reimpresion',
-    'deluxe', 'limited', 'limitada', 'special', 'especial', 'retail', 'standard', 'regular',
+    'deluxe', 'limited', 'limitada', 'special', 'especial', 'retail', 'standard', 'regular', 'anniversary', 'aniversary',
     'publisher', 'publishers', 'publishing', 'editorial', 'games', 'game', 'board', 'inc', 'ltd',
     'the', 'a', 'an', 'of', 'in', 'en', 'de', 'del', 'la', 'el', 'and', 'or', 'y', 'e',
     ...publisherLabels.flatMap((publisher) => normalizeCatalogSearchText(publisher).split(' ')),
@@ -103,13 +114,14 @@ export function mergeCatalogNameMetadata(
 
 /** Provider refreshes may replace the old primary title, but preserve a custom visible title. */
 export function preserveCatalogDisplayName(previous: CatalogNamedItem, imported: CatalogNamedItem): string {
-  if (!isUsableCatalogTitle(previous.displayName)) {
+  const publishers = [...stringNames(previous.metadata?.publishers), ...stringNames(imported.metadata?.publishers)];
+  if (!isUsableCatalogTitle(previous.displayName, publishers)) {
     return [imported.displayName, imported.originalName, previous.originalName].find((name): name is string =>
-      typeof name === 'string' && isUsableCatalogTitle(name)) ?? imported.displayName;
+      typeof name === 'string' && isUsableCatalogTitle(name, publishers)) ?? imported.displayName;
   }
   const existing = normalizeCatalogSearchText(previous.displayName);
   const original = normalizeCatalogSearchText(previous.originalName ?? '');
   const importedOriginal = normalizeCatalogSearchText(imported.originalName ?? '');
   if (existing && existing !== original && existing !== importedOriginal) return previous.displayName;
-  return stringNames(previous.metadata?.spanishName).find((name) => isUsableCatalogTitle(name)) ?? imported.displayName;
+  return stringNames(previous.metadata?.spanishName).find((name) => isUsableCatalogTitle(name, publishers)) ?? imported.displayName;
 }

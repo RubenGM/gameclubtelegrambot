@@ -1,4 +1,4 @@
-import { catalogItemNames, catalogItemMatchesQuery, mergeCatalogNameMetadata, preserveCatalogDisplayName } from '../catalog/catalog-names.js';
+import { catalogNameMetadataVersion, catalogItemNames, catalogItemMatchesQuery, mergeCatalogNameMetadata, preserveCatalogDisplayName } from '../catalog/catalog-names.js';
 import { handleCatalogPhotoText, handleCatalogPhotoMessage, handleCatalogPhotoCallback, type CatalogPhotoDependencies } from './catalog-photo-flow.js';
 import { catalogPhotoTexts } from './i18n-catalog-photo.js';
 import { createDatabaseCatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event-store.js';
@@ -1141,7 +1141,7 @@ async function handleCatalogAdminBulkBggMetadataUpdate(context: TelegramCatalogA
       stats.skippedWithoutBgg += 1;
       continue;
     }
-    if (!isBoardGameGeekReimportRecommended(item) && item.metadata?.nameMetadataVersion === 2) {
+    if (!isBoardGameGeekReimportRecommended(item) && item.metadata?.nameMetadataVersion === catalogNameMetadataVersion) {
       stats.checked += 1;
       stats.skippedFresh += 1;
       continue;

@@ -22,7 +22,7 @@ function draft(): WikipediaBoardGameCatalogDraft {
     description: 'Provider description', language: null, publisher: 'Provider publisher', publicationYear: 2020,
     playerCountMin: 1, playerCountMax: 9, recommendedAge: null, playTimeMinutes: null,
     externalRefs: { boardGameGeekId: '1' },
-    metadata: { source: 'boardgamegeek', spanishName: 'La isla prohibida', spanishNames: ['La isla prohibida'], alternateNames: ['Forbidden Island', 'La isla prohibida'], nameMetadataVersion: 2, averageWeight: 9.9 },
+    metadata: { source: 'boardgamegeek', spanishName: 'La isla prohibida', spanishNames: ['La isla prohibida'], alternateNames: ['Forbidden Island', 'La isla prohibida'], nameMetadataVersion: 3, averageWeight: 9.9 },
   };
 }
 
@@ -55,7 +55,7 @@ test('catalog name backfill only writes names and retains existing metadata, ali
 test('catalog name backfill dry-run respects eligibility and limit without writing', async () => {
   const queries: string[] = [];
   const summary = await updateCatalogNames({
-    items: [item(1, { metadata: { nameMetadataVersion: 2 } }), item(2, { itemType: 'book' }),
+    items: [item(1, { metadata: { nameMetadataVersion: 3 } }), item(2, { itemType: 'book' }),
       item(3, { lifecycleStatus: 'deactivated' }), item(4, { externalRefs: null, metadata: null }), item(5), item(6)],
     importService: { async importByTitle(query) { queries.push(query); return { ok: true, draft: draft() }; } },
     async save() { assert.fail('dry-run must not write'); }, dryRun: true, limit: 1,
@@ -66,6 +66,21 @@ test('catalog name backfill dry-run respects eligibility and limit without writi
   assert.equal(summary.updated, 0);
   assert.equal(summary.wouldUpdate, 1);
   assert.deepEqual(queries, ['https://boardgamegeek.com/boardgame/5']);
+});
+
+test('name repair revisits a current-version record containing an edition label', async () => {
+  const saved: CatalogNameUpdate[] = [];
+  const summary = await updateCatalogNames({
+    items: [item(1, { displayName: 'Repos EN/NL/ES edition 2014', originalName: 'Forbidden Island', metadata: {
+      publishers: ['Repos Production'], spanishName: 'Repos EN/NL/ES edition 2014', nameMetadataVersion: 3,
+    } })],
+    importService: { async importByTitle() { return { ok: true, draft: draft() }; } },
+    async save(update) { saved.push(update); return true; },
+  });
+  assert.equal(summary.updated, 1);
+  assert.equal(summary.renamed, 1);
+  assert.equal(saved[0]?.displayName, 'La isla prohibida');
+  assert.deepEqual(saved[0]?.metadata.spanishNames, ['La isla prohibida']);
 });
 
 test('catalog name backfill continues after lookup errors and concurrent edits without exposing exception data', async () => {

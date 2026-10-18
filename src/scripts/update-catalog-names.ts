@@ -2,7 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import type { CatalogItemRecord } from '../catalog/catalog-model.js';
-import { catalogNameMetadataVersion, mergeCatalogNameMetadata, preserveCatalogDisplayName } from '../catalog/catalog-names.js';
+import { catalogNameMetadataVersion, isUsableCatalogTitle, mergeCatalogNameMetadata, preserveCatalogDisplayName } from '../catalog/catalog-names.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { importBoardGameGeekItemsByIds, parseBoardGameGeekCandidateId, type WikipediaBoardGameImportResult, type WikipediaBoardGameImportService } from '../catalog/wikipedia-boardgame-import-service.js';
 import { loadRuntimeConfig } from '../config/load-runtime-config.js';
@@ -75,8 +75,12 @@ export function catalogNameUpdateBggId(item: CatalogItemRecord): string | null {
 }
 
 function needsCatalogNameUpdate(item: CatalogItemRecord): boolean {
+  const publishers = Array.isArray(item.metadata?.publishers) ? item.metadata.publishers.filter((name): name is string => typeof name === 'string') : [];
+  const spanishNames = [item.metadata?.spanishName, ...(Array.isArray(item.metadata?.spanishNames) ? item.metadata.spanishNames : [])];
+  const corrupted = !isUsableCatalogTitle(item.displayName, publishers)
+    || spanishNames.some((name) => typeof name === 'string' && !isUsableCatalogTitle(name, publishers));
   return item.lifecycleStatus === 'active' && (item.itemType === 'board-game' || item.itemType === 'expansion')
-    && item.metadata?.nameMetadataVersion !== catalogNameMetadataVersion && catalogNameUpdateBggId(item) !== null;
+    && (item.metadata?.nameMetadataVersion !== catalogNameMetadataVersion || corrupted) && catalogNameUpdateBggId(item) !== null;
 }
 
 /** Reuse one BGG response for up to 20 pending IDs, including repeated physical copies. */

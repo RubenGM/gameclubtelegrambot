@@ -57,3 +57,35 @@ test('catalog name repair drops generic persisted aliases and replaces corrupted
   assert.equal(metadata?.nameMetadataVersion, 2);
   assert.equal(preserveCatalogDisplayName(previous, imported), 'Catan');
 });
+
+test('version labels with language codes, publishers, variants and typos are not commercial titles', () => {
+  const publishers = ['asmodee', 'Devir', 'Queen Games', 'Quined Games', 'Joc Internacional', 'Repos Production'];
+  for (const label of ['Asmodée Spanish edtion', 'DUT/ENG/FRE/GER/ITA/SPA edition',
+    'Devir Italian/Portuguese/Spanish edition', 'Queen multilingual anniversary edition',
+    'EN/FR/DE/IT/ES edition', 'EN/FR/ES edition', 'FR/EL/NL/ES edition', 'EN/FR/SP edition',
+    'Spanish meeples edition', 'Spanish miniatures edition', "Spanish Collector's edition",
+    'English/Finnish/Spanish/Swedish edition', 'Quined Games Spanish Master Print Governor edition',
+    'Iberian edition', 'Spanish sundrop edition', 'Spanish hardcover edition',
+    'Spanish second "recharged" edition', 'Joc Internacional edition',
+    'English/French/Spanish Canadian edition 2003', 'Risk multilingual edition 2003',
+    'Repos EN/DE/IT/NL/ES edition 2011', 'Repos EN/NL/ES edition 2014']) {
+    assert.equal(isUsableCatalogTitle(label, publishers), false, label);
+  }
+  for (const title of ['Viticulture Essential Edition', 'Blood Bowl (2016 Edition)',
+    'A Game of Thrones: The Board Game (Second Edition)', 'La isla prohibida (Spanish edition)',
+    'Spanish Main', 'Goa', 'Genoa', 'La Iniciativa']) {
+    assert.equal(isUsableCatalogTitle(title, publishers), true, title);
+  }
+});
+
+test('refresh repairs a publisher-prefixed title using publisher metadata without losing manual titles', () => {
+  const imported = { displayName: 'Azul', originalName: 'Azul', metadata: { publishers: ['Maldón'] } };
+  const previous = { displayName: 'Maldón Spanish edition', originalName: 'Azul', metadata: {
+    publishers: ['Maldón'], spanishName: 'Maldón Spanish edition', alternateNames: ['Azul del club'],
+  } };
+  assert.equal(preserveCatalogDisplayName(previous, imported), 'Azul');
+  assert.equal(preserveCatalogDisplayName({ ...previous, displayName: 'Azul del club' }, imported), 'Azul del club');
+  const merged = mergeCatalogNameMetadata(previous.metadata, imported.metadata);
+  assert.equal(merged?.spanishName, undefined);
+  assert.deepEqual(merged?.alternateNames, ['Azul del club']);
+});

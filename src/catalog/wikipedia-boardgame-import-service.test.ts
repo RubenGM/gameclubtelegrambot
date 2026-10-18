@@ -87,7 +87,9 @@ test('BGG batch import separates nested editions and rejects generic version lab
       return new Response(`<items><item type="boardgame" id="1"><name type="primary" value="Catan"/>
         <name type="alternate" value="Los colonos de Catán"/>
         <versions><item type="boardgameversion" id="101"><name type="primary" value="Spanish edition 2015"/><link type="language" value="Spanish"/></item>
-        <item type="boardgameversion" id="102"><name type="primary" value="Spanish edition (Devir)"/><link type="language" value="Spanish"/><link type="boardgamepublisher" value="Devir"/></item></versions></item>
+        <item type="boardgameversion" id="102"><name type="primary" value="Spanish edition (Devir)"/><link type="language" value="Spanish"/><link type="boardgamepublisher" value="Devir"/></item>
+        <item type="boardgameversion" id="103"><name type="primary" value="EN/FR/ES edition"/><link type="language" value="Spanish"/></item>
+        <item type="boardgameversion" id="104"><name type="primary" value="Asmodée Spanish edtion"/><link type="language" value="Spanish"/><link type="boardgamepublisher" value="asmodee"/></item></versions></item>
         <item type="boardgame" id="2"><name type="primary" value="Forbidden Island"/>
         <versions><item type="boardgameversion" id="201"><name type="primary" value="La isla prohibida"/><link type="language" value="Spanish"/></item></versions></item></items>`);
     }) as typeof fetch,
@@ -99,7 +101,7 @@ test('BGG batch import separates nested editions and rejects generic version lab
   assert.deepEqual(drafts[0]?.metadata?.alternateNames, ['Catan', 'Los colonos de Catán']);
   assert.equal(drafts[1]?.displayName, 'La isla prohibida');
   assert.equal(drafts[1]?.originalName, 'Forbidden Island');
-  assert.equal(drafts[1]?.metadata?.nameMetadataVersion, 2);
+  assert.equal(drafts[1]?.metadata?.nameMetadataVersion, 3);
 });
 
 test('BGG web import accepts an exact BoardGameGeek URL without searching', async () => {

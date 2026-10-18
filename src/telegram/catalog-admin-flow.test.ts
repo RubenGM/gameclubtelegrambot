@@ -973,7 +973,7 @@ test('handleTelegramCatalogAdminText bulk updates stale BGG metadata with progre
         recommendedAge: null,
         playTimeMinutes: null,
         externalRefs: { boardGameGeekId: '13' },
-        metadata: { source: 'boardgamegeek', boardGameGeekId: '13', averageWeight: 2.1, nameMetadataVersion: 2 },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '13', averageWeight: 2.1, nameMetadataVersion: 3 },
         lifecycleStatus: 'active',
         createdAt: '2026-04-04T10:00:00.000Z',
         updatedAt: '2026-04-04T10:00:00.000Z',
@@ -5922,7 +5922,7 @@ test('bulk BGG refresh fills Spanish names on otherwise current games while pres
         return { ok: true, draft: { ...createCatalogItemFixture({
           displayName: 'Los castillos de Borgoña', originalName: 'The Castles of Burgundy',
           externalRefs: { boardGameGeekId: '84876' },
-          metadata: { source: 'boardgamegeek', boardGameGeekId: '84876', averageWeight: 2.9, spanishName: 'Los castillos de Borgoña', alternateNames: ['The Castles of Burgundy', 'Los castillos de Borgoña'], nameMetadataVersion: 2 },
+          metadata: { source: 'boardgamegeek', boardGameGeekId: '84876', averageWeight: 2.9, spanishName: 'Los castillos de Borgoña', alternateNames: ['The Castles of Burgundy', 'Los castillos de Borgoña'], nameMetadataVersion: 3 },
         }) } };
       },
     },
@@ -5934,7 +5934,7 @@ test('bulk BGG refresh fills Spanish names on otherwise current games while pres
   assert.equal(updated?.displayName, 'Los castillos de Borgoña');
   assert.equal(updated?.originalName, 'The Castles of Burgundy');
   assert.equal(updated?.metadata?.customFlag, true);
-  assert.equal(updated?.metadata?.nameMetadataVersion, 2);
+  assert.equal(updated?.metadata?.nameMetadataVersion, 3);
   assert.equal(updated?.metadata?.spanishName, 'Los castillos de Borgoña');
   assert.ok((updated?.metadata?.alternateNames as string[]).includes('Borgoña del club'));
   assert.match(replies.at(-1)?.message ?? '', /actualizados 1/);
