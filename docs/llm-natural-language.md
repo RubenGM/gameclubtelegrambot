@@ -428,7 +428,13 @@ reales de ediciones españolas; la comparación textual ignora tildes y puntuaci
 Actualizar metadatos conserva los nombres anteriores y los títulos personalizados.
 
 El flujo privado `Buscar juego por foto` / `/catalog_photo` es un asistente de
-catálogo independiente del intérprete de órdenes. Reutiliza `GAMECLUB_CODEX_BIN`
+catálogo independiente del intérprete de órdenes. Una foto privada sin caption
+ni reply también lo activa automáticamente cuando se identifica un juego de mesa
+o expansión, incluso si queda una sesión `llm-command/awaiting-input` de una
+conversación anterior. La visión debe devolver `UNKNOWN` para libros, otros
+objetos y títulos dudosos; en esos casos no se abre una sesión de catálogo ni
+se sustituye la conversación anterior. Las fotos reenviadas y los asistentes
+activos de otros módulos o confirmaciones de IA conservan su flujo. Reutiliza `GAMECLUB_CODEX_BIN`
 (y el override de catálogo existente) para transcribir el título visible y
 resolver coincidencias reales por nombre o ID BGG. La imagen se descarga a un
 directorio temporal legible por el operador `cawa` y se elimina al terminar.

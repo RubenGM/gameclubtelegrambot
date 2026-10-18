@@ -5767,9 +5767,15 @@ test('a private cover uses production routing to borrow immediately and enqueue 
   const { context, replies } = createContext({
     repository, catalogLoanRepository: loanRepository, isAdmin: false, language: 'es',
     membershipRepository: createMembershipRepository([{ telegramUserId: 99, username: null, displayName: 'María', status: 'approved', isAdmin: false }]),
-    coverTitleResolver: async () => 'Wingspan',
+    coverTitleResolver: async ({ question }) => {
+      assert.match(question, /juego de mesa o una expansión/);
+      assert.match(question, /libro, documento u otro objeto/);
+      assert.match(question, /UNKNOWN/);
+      return 'Wingspan';
+    },
   });
   await useLivePhotoSession(context);
+  await context.runtime.session.start({ flowKey: 'llm-command', stepKey: 'awaiting-input', data: { history: [] } });
   const events = capturePhotoNews(context);
   context.messageMedia = { attachmentKind: 'photo', fileId: 'cover-id', messageId: 44 };
   assert.equal(await handleTelegramCatalogAdminMessage(context), true);
@@ -5787,6 +5793,25 @@ test('a private cover uses production routing to borrow immediately and enqueue 
   assert.equal(loans[0]?.borrowerDisplayName, 'María');
   assert.equal((await repository.findItemById(1))?.ownerTelegramUserId, 20);
   assert.deepEqual(events.map((event) => ({ action: event.action, itemId: event.itemId, userName: event.userName })), [{ action: 'borrowed', itemId: 1, userName: 'María' }]);
+});
+
+test('a non-game image does not replace an idle AI conversation through the production photo handler', async () => {
+  const { context, replies } = createContext({
+    isAdmin: false, language: 'es',
+    coverTitleResolver: async ({ question }) => {
+      assert.match(question, /libro, documento u otro objeto/);
+      return 'UNKNOWN';
+    },
+    wikipediaBoardGameImportService: { async importByTitle() { assert.fail('Non-games must not be looked up in BGG'); } },
+  });
+  await useLivePhotoSession(context);
+  await context.runtime.session.start({ flowKey: 'llm-command', stepKey: 'awaiting-input', data: { history: ['Hello'] } });
+  const previous = context.runtime.session.current;
+  context.messageMedia = { attachmentKind: 'photo', fileId: 'not-a-game', messageId: 45 };
+  assert.equal(await handleTelegramCatalogAdminMessage(context), true);
+  assert.strictEqual(context.runtime.session.current, previous);
+  assert.match(replies.at(-1)?.message ?? '', /No he podido identificar un juego de mesa/);
+  assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 });
 
 test('an unknown private cover uses production registration to retain its cover and enqueue a cession owned by its creator', async () => {

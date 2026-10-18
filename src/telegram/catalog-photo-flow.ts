@@ -80,24 +80,35 @@ export async function handleCatalogPhotoMessage(context: TelegramCatalogAdminCon
   if (!canUse(context) || !context.messageMedia) return false;
   const current = context.runtime.session.current;
   const passive = !current || current.flowKey === 'catalog-read'
+    || (current.flowKey === 'llm-command' && current.stepKey === 'awaiting-input')
     || (current.flowKey === 'catalog-admin-browse' && ['menu', 'search-query', 'detail', 'letters'].includes(current.stepKey));
   if (!passive && current?.flowKey !== flowKey) return false;
   if (current?.flowKey === flowKey && current.stepKey === 'saving') return false;
   const media = context.messageMedia;
   if (media.attachmentKind !== 'photo' && !media.mimeType?.startsWith('image/')) return false;
-  const data = await start(context, 'detecting');
+  const implicit = current?.flowKey !== flowKey;
+  if (implicit && (media.caption?.trim() || context.isForwardedMessage || context.replyToBotMessage)) return false;
+  // A background conversation is preserved until a game has actually been identified.
+  const previousSession = JSON.stringify(current);
+  const data = implicit ? null : await start(context, 'detecting');
   const progress = await startTelegramEditableProgress(context, texts(context).detecting, { editFailedEvent: 'catalog.photo.progress-edit.failed' });
   let detected: Awaited<ReturnType<CatalogPhotoDependencies['detectTitle']>>;
   try { detected = await dependencies.detectTitle(context); }
   catch { detected = new Error(createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin.coverTitleNoResult); }
-  if (!isCurrent(context, data)) return true;
-  if (!detected || detected instanceof Error) {
+  if (!canUse(context) || (data ? !isCurrent(context, data) : JSON.stringify(context.runtime.session.current) !== previousSession)) return true;
+  const detectedTitle = !detected || detected instanceof Error ? '' : typeof detected === 'string' ? detected : detected.displayName;
+  if (!detectedTitle.trim() || /^UNKNOWN[.!]?$/i.test(detectedTitle.trim())) {
+    if (implicit) {
+      await progress.complete(texts(context).notIdentified);
+      return true;
+    }
+    if (!data) return true;
     await context.runtime.session.advance({ stepKey: 'correct', data });
     await progress.complete(`${detected instanceof Error ? escapeHtml(detected.message) + '\n\n' : ''}${texts(context).correctPrompt}`, { parseMode: 'HTML' });
     return true;
   }
-  const query = typeof detected === 'string' ? detected : detected.displayName;
-  await search(context, dependencies, query, { ...data, ...(typeof detected === 'object' && detected.coverAttachment ? { coverAttachment: detected.coverAttachment } : {}) }, progress);
+  const photoData = data ?? await start(context, 'detecting');
+  await search(context, dependencies, detectedTitle, { ...photoData, ...(detected && !(detected instanceof Error) && typeof detected === 'object' && detected.coverAttachment ? { coverAttachment: detected.coverAttachment } : {}) }, progress);
   return true;
 }
 

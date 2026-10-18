@@ -126,6 +126,56 @@ test('a cover in Spanish finds an alternate title and asks before any action', a
   assert.equal(h.activities.length, 0);
 });
 
+test('a context-free game photo opens the catalog after an ordinary AI conversation', async () => {
+  const h = harness([item()]);
+  await h.context.runtime.session.start({ flowKey: 'llm-command', stepKey: 'awaiting-input', data: { history: [{ role: 'user', content: 'Hola' }] } });
+  assert.equal(await handleCatalogPhotoMessage(h.context, h.dependencies), true);
+  assert.equal(h.detections, 1);
+  assert.equal(h.session?.flowKey, 'catalog-photo');
+  assert.ok(h.callback('select:1'));
+  assert.equal(h.createdItems.length + h.loanedItems.length + h.activities.length, 0);
+});
+
+for (const priorConversation of [false, true]) {
+  test(`an unidentified photo preserves its previous context (AI conversation=${priorConversation})`, async () => {
+    const h = harness([], 'UNKNOWN');
+    if (priorConversation) await h.context.runtime.session.start({ flowKey: 'llm-command', stepKey: 'awaiting-input', data: { history: ['conversation'] } });
+    const previous = h.session;
+    assert.equal(await handleCatalogPhotoMessage(h.context, h.dependencies), true);
+    assert.strictEqual(h.session, previous);
+    assert.equal(h.imports, 0);
+    assert.equal(h.createdItems.length, 0);
+    assert.match(h.replies.at(-1)?.message ?? '', /No he podido identificar un juego de mesa/);
+    assert.equal(h.replies.at(-1)?.options?.inlineKeyboard, undefined);
+  });
+}
+
+test('an unreadable photo in the explicit photo wizard still allows correcting the title', async () => {
+  const h = harness([], 'UNKNOWN');
+  h.context.messageText = '/catalog_photo';
+  await handleCatalogPhotoText(h.context, h.dependencies);
+  await handleCatalogPhotoMessage(h.context, h.dependencies);
+  assert.equal(h.session?.stepKey, 'correct');
+  assert.match(h.replies.at(-1)?.message ?? '', /Escribe el nombre correcto/);
+});
+
+for (const contextualPhoto of ['caption', 'forward', 'reply', 'AI confirmation', 'printing', 'upload'] as const) {
+  test(`a photo with ${contextualPhoto} context retains its intended flow`, async () => {
+    const h = harness([item()]);
+    if (contextualPhoto === 'caption') h.context.messageMedia!.caption = 'Quiero imprimir esta foto';
+    if (contextualPhoto === 'forward') h.context.isForwardedMessage = true;
+    if (contextualPhoto === 'reply') h.context.replyToBotMessage = true;
+    if (contextualPhoto === 'AI confirmation') await h.context.runtime.session.start({ flowKey: 'llm-command', stepKey: 'confirm-write', data: {} });
+    if (contextualPhoto === 'printing') await h.context.runtime.session.start({ flowKey: 'print-job', stepKey: 'file', data: {} });
+    if (contextualPhoto === 'upload') await h.context.runtime.session.start({ flowKey: 'storage-upload', stepKey: 'upload-media', data: {} });
+    const previous = h.session;
+    assert.equal(await handleCatalogPhotoMessage(h.context, h.dependencies), false);
+    assert.strictEqual(h.session, previous);
+    assert.equal(h.detections, 0);
+    assert.equal(h.replies.length, 0);
+  });
+}
+
 test('multiple copies require choosing the physical item', async () => {
   const h = harness([item(), item({ id: 2, storagePosition: 'B2' })]);
   await handleCatalogPhotoMessage(h.context, h.dependencies);

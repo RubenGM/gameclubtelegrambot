@@ -1,5 +1,7 @@
 export const catalogPhotoTexts = {
   es: {
+    gameQuestion: 'Determina si la foto muestra claramente la caja o portada de un juego de mesa o una expansión. Devuelve solo su título completo visible. Si muestra un libro, documento u otro objeto, el título no es legible o hay varios juegos sin uno principal, devuelve exactamente UNKNOWN. No supongas que es un juego por contener texto, dibujos o un nombre conocido; no inventes ni completes el título.',
+    notIdentified: 'No he podido identificar un juego de mesa en esta foto. Si querías buscar uno, envía una imagen clara de su portada.',
     open: 'Buscar juego por foto', prompt: 'Envía una foto clara de la portada del juego. También puedes escribir su nombre.',
     detecting: 'Leyendo el título de la portada…', searching: 'Buscando el juego en la ludoteca…',
     found: 'He encontrado estas coincidencias. Confirma qué juego tienes delante:',
@@ -18,6 +20,8 @@ export const catalogPhotoTexts = {
     previous: 'Anterior', next: 'Siguiente', page: 'Página {page}/{pages}',
   },
   ca: {
+    gameQuestion: 'Determina si la foto mostra clarament la caixa o portada d’un joc de taula o una expansió. Retorna només el títol complet visible. Si mostra un llibre, document o un altre objecte, el títol no és llegible o hi ha diversos jocs sense un de principal, retorna exactament UNKNOWN. No suposis que és un joc perquè contingui text, dibuixos o un nom conegut; no inventis ni completis el títol.',
+    notIdentified: 'No he pogut identificar cap joc de taula en aquesta foto. Si en volies cercar un, envia una imatge clara de la portada.',
     open: 'Cercar joc per foto', prompt: 'Envia una foto clara de la portada del joc. També pots escriure’n el nom.',
     detecting: 'Llegint el títol de la portada…', searching: 'Cercant el joc a la ludoteca…',
     found: 'He trobat aquestes coincidències. Confirma quin joc tens al davant:',
@@ -36,6 +40,8 @@ export const catalogPhotoTexts = {
     previous: 'Anterior', next: 'Següent', page: 'Pàgina {page}/{pages}',
   },
   en: {
+    gameQuestion: 'Determine whether the photo clearly shows the box or cover of a board game or expansion. Return only its full visible title. If it shows a book, document or another object, the title is unreadable, or several games have no main subject, return exactly UNKNOWN. Do not assume it is a game because it contains text, illustrations or a familiar name; do not invent or complete the title.',
+    notIdentified: 'I could not identify a board game in this photo. If you wanted to find one, send a clear picture of its cover.',
     open: 'Find game by photo', prompt: 'Send a clear photo of the game cover. You can also type its name.',
     detecting: 'Reading the title on the cover…', searching: 'Searching the club library…',
     found: 'I found these matches. Confirm which game you have:',

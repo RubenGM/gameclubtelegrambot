@@ -1,5 +1,6 @@
 import { catalogItemNames, catalogItemMatchesQuery, mergeCatalogNameMetadata, preserveCatalogDisplayName } from '../catalog/catalog-names.js';
 import { handleCatalogPhotoText, handleCatalogPhotoMessage, handleCatalogPhotoCallback, type CatalogPhotoDependencies } from './catalog-photo-flow.js';
+import { catalogPhotoTexts } from './i18n-catalog-photo.js';
 import { createDatabaseCatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event-store.js';
 import type { CatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event.js';
 import { replyWithCatalogItemTable, type CatalogTableEntry } from './catalog-item-table.js';
@@ -355,6 +356,8 @@ export const catalogAdminLabels = {
 } as const;
 
 export interface TelegramCatalogAdminContext {
+  isForwardedMessage?: boolean | undefined;
+  replyToBotMessage?: boolean | undefined;
   messageText?: string | undefined;
   callbackData?: string | undefined;
   messageMedia?: {
@@ -3115,7 +3118,7 @@ async function handleCreateSession(
   });
 }
 
-async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminContext): Promise<string | { displayName: string; coverAttachment?: Record<string, unknown> } | Error | null> {
+async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminContext, question?: string): Promise<string | { displayName: string; coverAttachment?: Record<string, unknown> } | Error | null> {
   const media = context.messageMedia;
   if (!media) {
     return null;
@@ -3169,7 +3172,7 @@ async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminCont
     }));
     const detected = await resolver({
       imagePath,
-      question: texts.coverTitleQuestion,
+      question: question ?? texts.coverTitleQuestion,
       model: catalogCoverTitleModel,
     });
     const normalized = normalizeDetectedCoverTitle(detected);
@@ -5522,7 +5525,7 @@ function normalizeCatalogMatchText(value: string): string {
 
 
 const catalogPhotoDependencies: CatalogPhotoDependencies = {
-  detectTitle: detectDisplayNameFromAttachment,
+  detectTitle: (context) => detectDisplayNameFromAttachment(context, catalogPhotoTexts[normalizeBotLanguage(context.runtime.bot.language, 'ca')].gameQuestion),
   async importTitle(context, title) {
     // Photo lookup only needs identity and aliases; it does not translate descriptions.
     return resolveWikipediaBoardGameImportService(context).importByTitle(title);
