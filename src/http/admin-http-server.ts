@@ -25,6 +25,7 @@ import {
   type CatalogDescriptionTranslator,
 } from '../catalog/catalog-description-translation.js';
 import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
+import { isUsableCatalogTitle, mergeCatalogNameMetadata, normalizeCatalogSearchText, preserveCatalogDisplayName } from '../catalog/catalog-names.js';
 import {
   createBoardGameGeekWebImportService,
   type BoardGameGeekCandidate,
@@ -1595,7 +1596,10 @@ async function applyCatalogBggDraft(
   draft: WikipediaBoardGameCatalogDraft,
   version: BoardGameGeekVersionCandidate | null,
 ): Promise<void> {
-  const metadata = {
+  const previousResult = await services.database.pool.query<CatalogWebAdminItem>('select * from catalog_items where id = $1 limit 1', [itemId]);
+  const previous = previousResult.rows[0];
+  if (!previous) throw new CatalogWebAdminInputError('No se ha encontrado el artículo.');
+  const importedMetadata = {
     ...(draft.metadata ?? {}),
     ...(version ? {
       boardGameGeekVersionId: version.id,
@@ -1604,15 +1608,21 @@ async function applyCatalogBggDraft(
       boardGameGeekVersionProductCode: version.productCode,
       imageUrl: version.imageUrl ?? draft.metadata?.imageUrl ?? null,
       thumbnailUrl: version.thumbnailUrl ?? draft.metadata?.thumbnailUrl ?? null,
+      ...(isUsableCatalogTitle(version.name, version.publishers) && version.languages.some((language) => /^(Spanish|es|español|castellano)$/i.test(language))
+        ? { spanishName: version.name, spanishNames: [version.name] } : {}),
     } : {}),
   };
+  const metadata = mergeCatalogNameMetadata(previous.metadata, importedMetadata, [previous.display_name, previous.original_name ?? '', draft.displayName, draft.originalName ?? '', version?.name ?? '']);
+  const localizedDraft = version && isUsableCatalogTitle(version.name, version.publishers) && version.languages.some((language) => /^(Spanish|es|español|castellano)$/i.test(language))
+    ? { ...draft, displayName: version.name } : draft;
+  const displayName = preserveCatalogDisplayName({ displayName: previous.display_name, originalName: previous.original_name, metadata: previous.metadata }, localizedDraft);
   const result = await services.database.pool.query(
     `update catalog_items set item_type=$1, display_name=$2, original_name=$3, description=$4, language=$5, publisher=$6,
       publication_year=$7, player_count_min=$8, player_count_max=$9, recommended_age=$10, play_time_minutes=$11,
       external_refs=$12::jsonb, metadata=$13::jsonb, updated_at=now() where id=$14 returning id`,
     [
       draft.itemType,
-      draft.displayName,
+      displayName,
       draft.originalName,
       draft.description,
       version?.languages.join(', ') || draft.language,
@@ -3880,8 +3890,14 @@ async function fetchPublicCatalogItems(
     : publicCatalogPageSize;
 
   if (normalizedSearch) {
-    params.push(`%${normalizedSearch.toLowerCase()}%`);
-    filters.push(`(lower(items.display_name) like $${params.length} or lower(coalesce(items.original_name, '')) like $${params.length} or lower(coalesce(items.publisher, '')) like $${params.length})`);
+    // Fold accents without requiring PostgreSQL's optional unaccent extension.
+    const corpus = `trim(regexp_replace(translate(lower(concat_ws(' ', items.display_name, items.original_name, items.publisher,
+      items.metadata->>'spanishName', items.metadata->>'spanishNames', items.metadata->>'alternateNames', items.metadata->>'boardGameGeekVersionName')),
+      'áàäâãåéèëêíìïîóòöôõúùüûñç', 'aaaaaaeeeeiiiiooooouuuunc'), '[^[:alnum:]]+', ' ', 'g'))`;
+    for (const token of normalizeCatalogSearchText(normalizedSearch).split(' ').filter(Boolean)) {
+      params.push(`%${token}%`);
+      filters.push(`${corpus} like $${params.length}`);
+    }
   }
 
   if (normalizedType && ['board-game', 'book', 'rpg-book', 'expansion', 'accessory'].includes(normalizedType)) {

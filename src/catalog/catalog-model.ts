@@ -1,3 +1,5 @@
+import { mergeCatalogNameMetadata } from './catalog-names.js';
+
 export type CatalogFamilyKind = 'board-game-line' | 'rpg-line' | 'generic-line';
 export type CatalogItemType = 'board-game' | 'expansion' | 'book' | 'rpg-book' | 'accessory';
 export type CatalogItemLifecycleStatus = 'active' | 'deactivated';
@@ -445,7 +447,7 @@ export async function updateCatalogItem({
     playTimeMinutes: normalizePositiveInteger(playTimeMinutes, 'La durada ha de ser un enter positiu'),
     storagePosition: normalizeCatalogStoragePosition(storagePosition === undefined ? existing.storagePosition : storagePosition),
     externalRefs: normalizeObject(externalRefs),
-    metadata: normalizeObject(metadata),
+    metadata: mergeCatalogNameMetadata(existing.metadata, normalizeObject(metadata)),
   });
 }
 

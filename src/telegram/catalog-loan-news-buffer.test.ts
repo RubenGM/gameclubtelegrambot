@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { CatalogLoanNewsEventRecord, CatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event.js';
 import type { NewsGroupRepository } from '../news/news-group-catalog.js';
-import { flushDueCatalogLoanNewsEvents } from './catalog-loan-news-buffer.js';
+import { flushDueCatalogLoanNewsEvents, formatCatalogLoanNewsBatch } from './catalog-loan-news-buffer.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
 test('catalog loan news waits five minutes after the newest event and then sends one grouped message', async () => {
@@ -69,6 +69,25 @@ function event(
     publishedAt: null,
   };
 }
+
+test('cession news describes lending to the club, escapes names and reaches its subscribed topic', async () => {
+  const events = [event(1, 'ceded', 10, 'Catan <Club> & Amigos', 'María <socia> & Ana', '2026-10-18T10:00:00.000Z')];
+  const formatted = formatCatalogLoanNewsBatch(events, 'es');
+  assert.match(formatted, /María &lt;socia&gt; &amp; Ana ha dejado/);
+  assert.match(formatted, /Catan &lt;Club&gt; &amp; Amigos<\/a> cedido en la ludoteca y sigue siendo su propietario/);
+  assert.doesNotMatch(formatted, /ha devuelto|ha tomado prestado/);
+  const messages: Array<{ chatId: number; message: string; options?: TelegramReplyOptions }> = [];
+  const result = await flushDueCatalogLoanNewsEvents({
+    eventRepository: createEventRepository(events), newsGroupRepository: createNewsRepository(), language: 'es',
+    now: new Date('2026-10-18T10:05:00.000Z'),
+    async sendGroupMessage(chatId, message, options) { messages.push({ chatId, message, ...(options ? { options } : {}) }); },
+  });
+  assert.deepEqual(result, { pendingEvents: 1, deliveredTargets: 1, failedTargets: 0 });
+  assert.equal(messages[0]?.chatId, -200);
+  assert.equal(messages[0]?.options?.messageThreadId, 7);
+  assert.equal(messages[0]?.message, formatted);
+  assert.equal(events[0]?.publishedAt, '2026-10-18T10:05:00.000Z');
+});
 
 function createEventRepository(events: CatalogLoanNewsEventRecord[]): CatalogLoanNewsEventRepository {
   return {

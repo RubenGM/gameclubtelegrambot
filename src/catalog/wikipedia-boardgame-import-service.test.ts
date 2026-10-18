@@ -5,6 +5,7 @@ import {
   createBoardGameGeekCollectionImportService,
   createBoardGameGeekWebImportService,
   createWikipediaBoardGameImportService,
+  importBoardGameGeekItemsByIds,
 } from './wikipedia-boardgame-import-service.js';
 
 test('BGG web import returns every search result and exposes language versions', async () => {
@@ -36,14 +37,69 @@ test('BGG web import returns every search result and exposes language versions',
   assert.equal(search.candidates[11]?.thumbnailUrl, 'https://example.test/12-thumb.jpg');
   assert.equal(search.candidates[11]?.imageUrl, 'https://example.test/12.jpg');
   const detail = await service.inspect('12');
+  assert.equal(detail.draft.displayName, 'Juego Doce');
+  assert.equal(detail.draft.originalName, 'Game Twelve');
+  assert.equal(detail.draft.metadata?.spanishName, 'Juego Doce');
   assert.equal(detail.versions.length, 2);
   assert.deepEqual(detail.versions[0], { id: '120', name: 'Juego Doce', languages: ['Spanish'], publishers: ['Editorial ES'], yearPublished: 2012, productCode: 'ED-ES-12', imageUrl: 'https://example.test/es.jpg', thumbnailUrl: null });
   assert.deepEqual(requests, [
     'https://boardgamegeek.com/xmlapi2/search?query=Game+Twelve&type=boardgame',
     'https://boardgamegeek.com/xmlapi2/thing?id=1%2C2%2C3%2C4%2C5%2C6%2C7%2C8%2C9%2C10%2C11%2C12&stats=1',
-    'https://boardgamegeek.com/xmlapi2/thing?id=12&stats=1',
+    'https://boardgamegeek.com/xmlapi2/thing?id=12&stats=1&versions=1',
     'https://boardgamegeek.com/xmlapi2/thing?id=12&versions=1',
   ]);
+});
+
+test('BGG names use Spanish version titles and keep nested edition data outside the game fields', async () => {
+  const service = createWikipediaBoardGameImportService({
+    bggApiKey: 'test-key',
+    fetchImpl: (async (input: string | URL) => {
+      assert.match(String(input), /stats=1&versions=1/);
+      return { ok: true, status: 200, text: async () => `<items><item type="boardgame" id="12">
+        <name type="primary" value="Forbidden Island"/><name type="alternate" value="Die verbotene Insel"/>
+        <versions><item type="boardgameversion" id="120"><name type="primary" value="La isla prohibida"/>
+          <yearpublished value="2024"/><link type="language" value="Spanish"/><link type="boardgamepublisher" value="Editorial ES"/>
+        </item><item type="boardgameversion" id="121"><name type="primary" value="L’Île interdite"/><link type="language" value="French"/></item></versions>
+        <yearpublished value="2010"/><minplayers value="2"/><maxplayers value="4"/>
+        <link type="boardgamepublisher" value="Original publisher"/>
+        <statistics><ratings><average value="7.1"/></ratings></statistics>
+      </item><item type="boardgame" id="13"><name type="primary" value="Other game"/></item></items>` } as Response;
+    }) as typeof fetch,
+  });
+  const result = await service.importByTitle('https://boardgamegeek.com/boardgame/12');
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.draft.displayName, 'La isla prohibida');
+  assert.equal(result.draft.originalName, 'Forbidden Island');
+  assert.equal(result.draft.publicationYear, 2010);
+  assert.equal(result.draft.publisher, 'Original publisher');
+  assert.equal(result.draft.metadata?.averageRating, 7.1);
+  assert.deepEqual(result.draft.metadata?.alternateNames, ['Forbidden Island', 'Die verbotene Insel', 'La isla prohibida', 'L’Île interdite']);
+  assert.deepEqual(result.draft.metadata?.spanishNames, ['La isla prohibida']);
+});
+
+test('BGG batch import separates nested editions and rejects generic version labels as game titles', async () => {
+  const requests: string[] = [];
+  const drafts = await importBoardGameGeekItemsByIds({
+    bggApiKey: 'test-key', itemIds: ['1', '2', '1'],
+    fetchImpl: (async (input) => {
+      requests.push(String(input));
+      return new Response(`<items><item type="boardgame" id="1"><name type="primary" value="Catan"/>
+        <name type="alternate" value="Los colonos de Catán"/>
+        <versions><item type="boardgameversion" id="101"><name type="primary" value="Spanish edition 2015"/><link type="language" value="Spanish"/></item>
+        <item type="boardgameversion" id="102"><name type="primary" value="Spanish edition (Devir)"/><link type="language" value="Spanish"/><link type="boardgamepublisher" value="Devir"/></item></versions></item>
+        <item type="boardgame" id="2"><name type="primary" value="Forbidden Island"/>
+        <versions><item type="boardgameversion" id="201"><name type="primary" value="La isla prohibida"/><link type="language" value="Spanish"/></item></versions></item></items>`);
+    }) as typeof fetch,
+  });
+  assert.equal(requests.length, 1);
+  assert.match(requests[0]!, /id=1%2C2&stats=1&versions=1/);
+  assert.equal(drafts[0]?.displayName, 'Catan');
+  assert.equal(drafts[0]?.metadata?.spanishName, undefined);
+  assert.deepEqual(drafts[0]?.metadata?.alternateNames, ['Catan', 'Los colonos de Catán']);
+  assert.equal(drafts[1]?.displayName, 'La isla prohibida');
+  assert.equal(drafts[1]?.originalName, 'Forbidden Island');
+  assert.equal(drafts[1]?.metadata?.nameMetadataVersion, 2);
 });
 
 test('BGG web import accepts an exact BoardGameGeek URL without searching', async () => {
@@ -140,7 +196,7 @@ test('createWikipediaBoardGameImportService resolves a direct BGG URL by exact I
   assert.equal(result.ok, true);
   assert.equal(result.ok && result.draft.displayName, 'Scythe: Legendary Box');
   assert.equal(result.ok && result.draft.externalRefs?.boardGameGeekId, '216132');
-  assert.deepEqual(requests, ['https://boardgamegeek.com/xmlapi2/thing?id=216132&stats=1']);
+  assert.deepEqual(requests, ['https://boardgamegeek.com/xmlapi2/thing?id=216132&stats=1&versions=1']);
   assert.equal(wikipediaCalls, 0);
 });
 
@@ -329,6 +385,6 @@ test('createBoardGameGeekCollectionImportService imports owned board games and e
   assert.deepEqual(requests, [
     'https://boardgamegeek.com/xmlapi2/collection?username=ruben&subtype=boardgame&own=1',
     'https://boardgamegeek.com/xmlapi2/collection?username=ruben&subtype=boardgameexpansion&own=1',
-    'https://boardgamegeek.com/xmlapi2/thing?id=101%2C202&stats=1',
+    'https://boardgamegeek.com/xmlapi2/thing?id=101%2C202&stats=1&versions=1',
   ]);
 });

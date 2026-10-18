@@ -1,3 +1,4 @@
+import { catalogPhotoCallbackPrefix } from './catalog-photo-flow.js';
 import { createDatabaseClubTableRepository } from '../tables/table-catalog-store.js';
 import { createDatabaseClubEquipmentRepository } from '../equipment/equipment-catalog-store.js';
 import { buildStartPresentation, replyWithStartPresentation } from './start-presentation.js';
@@ -1971,6 +1972,14 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'catalog_photo',
+      contexts: ['private'],
+      access: 'approved',
+      handle: async (context) => {
+        await handleTelegramCatalogAdminText({ ...context, messageText: '/catalog_photo' });
+      },
+    },
+    {
       command: 'catalog_bulk',
       contexts: ['private'],
       access: 'approved',
@@ -2767,6 +2776,9 @@ function registerCatalogAdminCallbacks({
 }: {
   bot: TelegramBotLike;
 }): void {
+  bot.onCallback(catalogPhotoCallbackPrefix, async (context) => {
+    await handleTelegramCatalogAdminCallback(context);
+  });
   bot.onCallback(catalogAdminCallbackPrefixes.inspect, async (context) => {
     await handleTelegramCatalogAdminCallback(context);
   });

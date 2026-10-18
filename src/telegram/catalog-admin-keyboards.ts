@@ -1,3 +1,4 @@
+import { catalogPhotoTexts } from './i18n-catalog-photo.js';
 import type { CatalogItemType } from '../catalog/catalog-model.js';
 import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import { createTelegramI18n } from './i18n.js';
@@ -14,6 +15,7 @@ export function buildCatalogAdminMenuOptions(language: 'ca' | 'es' | 'en', isAdm
     [texts.listBoardGames, texts.listBooks],
     [texts.listRpgBooks, texts.listExpansions],
     [texts.searchByName, texts.importBggCollection],
+    [catalogPhotoTexts[language].open],
   ] });
 }
 

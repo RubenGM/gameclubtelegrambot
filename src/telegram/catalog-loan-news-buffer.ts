@@ -93,7 +93,9 @@ export function formatCatalogLoanNewsBatch(
     '',
     ...events.map((event) => {
       const itemLink = `<a href="${escapeHtml(buildTelegramStartUrl(`catalog_read_item_${event.itemId}`))}">${escapeHtml(event.itemDisplayName)}</a>`;
-      const line = event.action === 'borrowed'
+      const line = event.action === 'ceded'
+        ? texts.groupCeded.replace('{user}', escapeHtml(event.userName)).replace('{item}', itemLink)
+        : event.action === 'borrowed'
         ? texts.groupBorrowed.replace('{user}', escapeHtml(event.userName)).replace('{item}', itemLink)
         : texts.groupReturned.replace('{user}', escapeHtml(event.userName)).replace('{item}', itemLink);
       return `• ${line}`;

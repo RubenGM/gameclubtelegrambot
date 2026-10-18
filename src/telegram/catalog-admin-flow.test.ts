@@ -24,7 +24,8 @@ import {
   type CatalogPendingGameRepository,
 } from '../catalog/catalog-pending-game-store.js';
 import type { StorageCategoryRecord, StorageCategoryRepository, StorageEntryDetailRecord } from '../storage/storage-catalog.js';
-import type { ConversationSessionRecord } from './conversation-session.js';
+import { loadConversationSessionRuntime, type ConversationSessionRecord } from './conversation-session.js';
+import type { CatalogLoanNewsEventRecord, CatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event.js';
 import type { AppMetadataSessionStorage } from './conversation-session-store.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { TelegramPhotoMediaInput } from './telegram-media.js';
@@ -767,6 +768,7 @@ test('handleTelegramCatalogAdminText opens the catalog admin menu', async () => 
     [catalogAdminLabels.listBoardGames, catalogAdminLabels.listBooks],
     [catalogAdminLabels.listRpgBooks, catalogAdminLabels.listExpansions],
     [catalogAdminLabels.searchByName, 'Importar col·lecció BGG'],
+    ['Cercar joc per foto'],
     [catalogAdminLabels.start, 'Ajuda'],
   ]);
 });
@@ -785,6 +787,7 @@ test('handleTelegramCatalogAdminText accepts Spanish catalog action buttons', as
     ['Listar juegos de mesa', 'Listar libros'],
     ['Listar libros RPG', 'Listar expansiones'],
     ['Búsqueda en catálogo', 'Importar colección BGG'],
+    ['Buscar juego por foto'],
     ['Inicio', 'Ayuda'],
   ]);
 
@@ -970,7 +973,7 @@ test('handleTelegramCatalogAdminText bulk updates stale BGG metadata with progre
         recommendedAge: null,
         playTimeMinutes: null,
         externalRefs: { boardGameGeekId: '13' },
-        metadata: { source: 'boardgamegeek', boardGameGeekId: '13', averageWeight: 2.1 },
+        metadata: { source: 'boardgamegeek', boardGameGeekId: '13', averageWeight: 2.1, nameMetadataVersion: 2 },
         lifecycleStatus: 'active',
         createdAt: '2026-04-04T10:00:00.000Z',
         updatedAt: '2026-04-04T10:00:00.000Z',
@@ -1122,6 +1125,7 @@ test('handleTelegramCatalogAdminText bulk updates stale BGG metadata with progre
     usersRated: 1000,
     bestPlayerCounts: ['4'],
     recommendedPlayerCounts: ['3', '4'],
+    alternateNames: ['Old BGG Game'],
   });
   const updatedExpansion = await repository.findItemById(5);
   assert.equal(updatedExpansion?.publisher, 'Manual Expansion Publisher');
@@ -3653,6 +3657,7 @@ test('handleTelegramCatalogAdminStartText refreshes only BGG metadata from the q
     recommendedPlayerCounts: ['3', '4'],
     categories: ['Negotiation'],
     mechanics: ['Trading'],
+    alternateNames: ['Middle BGG Game'],
   });
   assert.match(replies[0]?.message ?? '', /Metadatos BGG actualizados/);
   const detailMessage = replies.at(-1)?.message ?? '';
@@ -5711,4 +5716,148 @@ test('non-admin saves the supplied cover after manual creation and cannot edit e
   context.callbackData = `${catalogAdminCallbackPrefixes.edit}1`;
   await handleTelegramCatalogAdminCallback(context);
   assert.match(replies.at(-1)?.message ?? '', /administrador/i);
+});
+
+async function useLivePhotoSession(context: TelegramCatalogAdminContext) {
+  const sessions = new Map<string, ConversationSessionRecord>();
+  context.runtime.session = await loadConversationSessionRuntime({
+    scope: { chatId: context.runtime.chat.chatId, userId: context.runtime.actor.telegramUserId },
+    store: {
+      async loadSession(key) { return sessions.get(key) ?? null; },
+      async saveSession(session) { sessions.set(session.key, session); },
+      async deleteSession(key) { return sessions.delete(key); },
+      async deleteExpiredSessions() { return 0; },
+    },
+  });
+}
+
+function capturePhotoNews(context: TelegramCatalogAdminContext) {
+  const events: CatalogLoanNewsEventRecord[] = [];
+  context.catalogLoanNewsEventRepository = {
+    async enqueue(input) {
+      const event: CatalogLoanNewsEventRecord = { ...input, id: events.length + 1, occurredAt: new Date().toISOString(), publishedAt: null };
+      events.push(event);
+      return event;
+    },
+    async listPendingBatchReadyBefore() { return []; },
+    async markPublished() {},
+  } satisfies CatalogLoanNewsEventRepository;
+  return events;
+}
+
+function photoAction(replies: Array<{ options?: TelegramReplyOptions | undefined }>, action: string) {
+  const callback = replies.flatMap((reply) => reply.options?.inlineKeyboard?.flat() ?? [])
+    .map((button) => button.callbackData).filter((value): value is string => !!value)
+    .reverse().find((value) => value.startsWith('catalog_photo:') && value.split(':').slice(2).join(':') === action);
+  assert.ok(callback, `Photo callback ${action} is available`);
+  return callback;
+}
+
+test('a private cover uses production routing to borrow immediately and enqueue borrowed news without changing ownership', async () => {
+  const repository = createRepository({ items: [createCatalogItemFixture({ displayName: 'Wingspan', ownerTelegramUserId: 20 })] });
+  const loans: CatalogLoanRecord[] = [];
+  const loanRepository = createLoanRepository(loans);
+  loanRepository.createLoan = async (input) => {
+    const loan: CatalogLoanRecord = { ...input, id: 1, returnedAt: null, returnedByTelegramUserId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    loans.push(loan);
+    return loan;
+  };
+  loanRepository.findActiveLoanByItemId = async (id) => loans.find((loan) => loan.itemId === id && !loan.returnedAt) ?? null;
+  loanRepository.listLoansByItem = async (id) => loans.filter((loan) => loan.itemId === id);
+  const { context, replies } = createContext({
+    repository, catalogLoanRepository: loanRepository, isAdmin: false, language: 'es',
+    membershipRepository: createMembershipRepository([{ telegramUserId: 99, username: null, displayName: 'María', status: 'approved', isAdmin: false }]),
+    coverTitleResolver: async () => 'Wingspan',
+  });
+  await useLivePhotoSession(context);
+  const events = capturePhotoNews(context);
+  context.messageMedia = { attachmentKind: 'photo', fileId: 'cover-id', messageId: 44 };
+  assert.equal(await handleTelegramCatalogAdminMessage(context), true);
+  assert.equal(context.runtime.session.current?.flowKey, 'catalog-photo');
+  for (const action of ['select:1', 'borrow:1']) {
+    context.callbackData = photoAction(replies, action);
+    assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  }
+  assert.equal(loans.length, 0);
+  context.callbackData = photoAction(replies, 'confirm');
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.equal(loans.length, 1);
+  assert.equal(loans[0]?.borrowerTelegramUserId, 99);
+  assert.equal(loans[0]?.dueAt, null);
+  assert.equal(loans[0]?.borrowerDisplayName, 'María');
+  assert.equal((await repository.findItemById(1))?.ownerTelegramUserId, 20);
+  assert.deepEqual(events.map((event) => ({ action: event.action, itemId: event.itemId, userName: event.userName })), [{ action: 'borrowed', itemId: 1, userName: 'María' }]);
+});
+
+test('an unknown private cover uses production registration to retain its cover and enqueue a cession owned by its creator', async () => {
+  const repository = createRepository();
+  const storageRepository = createStorageRepository();
+  const { context, replies } = createContext({
+    repository, storageRepository, isAdmin: false, language: 'es',
+    storageDefaultChatStore: createMemoryMetadataStorage({ 'storage.default_chat': JSON.stringify({ chatId: -100123 }) }),
+    createForumTopic: async ({ chatId, name }) => ({ chatId, name, messageThreadId: 456 }),
+    copyMessage: async () => ({ messageId: 888 }),
+    membershipRepository: createMembershipRepository([{ telegramUserId: 99, username: null, displayName: 'María', status: 'approved', isAdmin: false }]),
+    wikipediaBoardGameImportService: { async importByTitle() { return { ok: false, error: { type: 'not-found', message: 'No encontrado' } }; } },
+    coverTitleResolver: async () => 'Juego de María',
+  });
+  await useLivePhotoSession(context);
+  const events = capturePhotoNews(context);
+  context.messageMedia = { attachmentKind: 'photo', fileId: 'cover-id', messageId: 44 };
+  assert.equal(await handleTelegramCatalogAdminMessage(context), true);
+  context.callbackData = photoAction(replies, 'new-cede');
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  assert.equal((await repository.listItems({ includeDeactivated: false })).length, 0);
+  context.callbackData = photoAction(replies, 'confirm');
+  assert.equal(await handleTelegramCatalogAdminCallback(context), true);
+  const created = await repository.findItemById(1);
+  assert.equal(created?.displayName, 'Juego de María');
+  assert.equal(created?.ownerTelegramUserId, 99);
+  assert.equal(created?.metadata?.pendingCatalogReview, true);
+  assert.equal((await repository.listMedia({ itemId: 1 }))[0]?.url, 'storage:entry:1');
+  assert.deepEqual(events.map((event) => ({ action: event.action, itemId: event.itemId, userName: event.userName })), [{ action: 'ceded', itemId: 1, userName: 'María' }]);
+  assert.match(replies.at(-1)?.message ?? '', /cedido.*a tu nombre/i);
+});
+
+test('catalog name search finds a Spanish alias independently of accents', async () => {
+  const repository = createRepository({ items: [createCatalogItemFixture({ displayName: 'The Castles of Burgundy', metadata: { alternateNames: ['Los castillos de Borgoña'] } })] });
+  const { context, replies } = createContext({ repository, language: 'es' });
+  context.messageText = createTelegramI18n('es').catalogAdmin.searchByName;
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  context.messageText = 'castillos de borgona';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.match(replies.at(-1)?.message ?? '', /The Castles of Burgundy/);
+});
+
+test('bulk BGG refresh fills Spanish names on otherwise current games while preserving custom metadata and aliases', async () => {
+  const repository = createRepository({ items: [createCatalogItemFixture({
+    displayName: 'The Castles of Burgundy', originalName: 'The Castles of Burgundy',
+    externalRefs: { boardGameGeekId: '84876' },
+    metadata: { source: 'boardgamegeek', boardGameGeekId: '84876', averageWeight: 2.9, customFlag: true, alternateNames: ['Borgoña del club'] },
+  })] });
+  const calls: string[] = [];
+  const { context, replies } = createContext({
+    repository, language: 'es',
+    wikipediaBoardGameImportService: {
+      async importByTitle(title) {
+        calls.push(title);
+        return { ok: true, draft: { ...createCatalogItemFixture({
+          displayName: 'Los castillos de Borgoña', originalName: 'The Castles of Burgundy',
+          externalRefs: { boardGameGeekId: '84876' },
+          metadata: { source: 'boardgamegeek', boardGameGeekId: '84876', averageWeight: 2.9, spanishName: 'Los castillos de Borgoña', alternateNames: ['The Castles of Burgundy', 'Los castillos de Borgoña'], nameMetadataVersion: 2 },
+        }) } };
+      },
+    },
+  });
+  context.messageText = '/update_bgg';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(calls.length, 1);
+  const updated = await repository.findItemById(1);
+  assert.equal(updated?.displayName, 'Los castillos de Borgoña');
+  assert.equal(updated?.originalName, 'The Castles of Burgundy');
+  assert.equal(updated?.metadata?.customFlag, true);
+  assert.equal(updated?.metadata?.nameMetadataVersion, 2);
+  assert.equal(updated?.metadata?.spanishName, 'Los castillos de Borgoña');
+  assert.ok((updated?.metadata?.alternateNames as string[]).includes('Borgoña del club'));
+  assert.match(replies.at(-1)?.message ?? '', /actualizados 1/);
 });

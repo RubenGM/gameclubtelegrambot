@@ -427,7 +427,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     async inspect(boardGameGeekId) {
       return {
         draft: { familyId: null, groupId: null, itemType: 'board-game', displayName: 'Game Twelve', originalName: 'Game Twelve', description: 'Long BGG description ready to translate.', language: null, publisher: 'BGG Publisher', publicationYear: 2011, playerCountMin: 2, playerCountMax: 4, recommendedAge: 10, playTimeMinutes: 90, externalRefs: { boardGameGeekId, boardGameGeekUrl: `https://boardgamegeek.com/boardgame/${boardGameGeekId}` }, metadata: { source: 'boardgamegeek', thumbnailUrl: 'https://example.test/general.jpg' } },
-        versions: [{ id: '120', name: 'Spanish edition', languages: ['Spanish'], publishers: ['Editorial ES'], yearPublished: 2012, productCode: 'ED-ES-12', imageUrl: 'https://example.test/es.jpg', thumbnailUrl: null }],
+        versions: [{ id: '120', name: 'Juego Doce', languages: ['Spanish'], publishers: ['Editorial ES'], yearPublished: 2012, productCode: 'ED-ES-12', imageUrl: 'https://example.test/es.jpg', thumbnailUrl: null }],
       };
     },
   };
@@ -637,6 +637,12 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(catalogHtml, /Pagina 2 de 2/);
     assert.match(catalogHtml, /href="\/catalogo\?q=dune&amp;type=board-game&amp;page=1"/);
 
+    const spanishCatalogSearch = await fetch(`${baseUrl}/catalogo?q=Se%C3%B1or%20Anillos`);
+    assert.equal(spanishCatalogSearch.status, 200);
+    assert.ok(queries.some((query) => query.sql.includes("items.metadata->>'alternateNames'")
+      && query.sql.includes("items.metadata->>'spanishName'")
+      && query.params.includes('%senor%') && query.params.includes('%anillos%')));
+
     const catalogDetailPage = await fetch(`${baseUrl}/catalogo/11`);
     assert.equal(catalogDetailPage.status, 200);
     const catalogDetailHtml = await catalogDetailPage.text();
@@ -708,7 +714,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.equal(catalogBggInspect.status, 200);
     const catalogBggInspectHtml = await catalogBggInspect.text();
     assert.match(catalogBggInspectHtml, /Elegir edición física/);
-    assert.match(catalogBggInspectHtml, /Spanish edition/);
+    assert.match(catalogBggInspectHtml, /Juego Doce/);
     assert.match(catalogBggInspectHtml, /Spanish/);
     assert.match(catalogBggInspectHtml, /Ficha general de BGG/);
     assert.match(catalogBggInspectHtml, /class="bgg-version-cover" src="https:\/\/example\.test\/general\.jpg"/);
@@ -726,9 +732,12 @@ test('admin http server exposes public feedback and protects admin pages', async
     });
     assert.equal(catalogBggApply.status, 303);
     const bggUpdate = queries.find((query) => query.sql.includes('update catalog_items set item_type=') && query.params[4] === 'Spanish');
-    assert.equal(bggUpdate?.params[1], 'Game Twelve');
+    assert.equal(bggUpdate?.params[1], 'Juego Doce');
     assert.equal(bggUpdate?.params[2], 'Game Twelve');
-    assert.equal(JSON.parse(String(bggUpdate?.params[12])).boardGameGeekVersionName, 'Spanish edition');
+    assert.equal(JSON.parse(String(bggUpdate?.params[12])).boardGameGeekVersionName, 'Juego Doce');
+    assert.equal(JSON.parse(String(bggUpdate?.params[12])).spanishName, 'Juego Doce');
+    assert.ok(JSON.parse(String(bggUpdate?.params[12])).alternateNames.includes('Dune Imperium'));
+    assert.ok(JSON.parse(String(bggUpdate?.params[12])).alternateNames.includes('Game Twelve'));
     assert.deepEqual(translatedDescriptions, ['Long BGG description ready to translate.']);
     assert.ok(queries.some((query) => query.sql.includes('update catalog_items set item_type=') && query.params[3] === 'Descripción de BGG traducida automáticamente.'));
 

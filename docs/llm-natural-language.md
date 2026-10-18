@@ -420,6 +420,26 @@ Ejemplos donde se usa o se puede usar esta segunda pasada:
 - `bot.search`: redactar una respuesta transversal usando agenda, catálogo,
   Storage, compras conjuntas, avisos y LFG.
 
+## Búsqueda de catálogo por nombres y foto
+
+Las lecturas `catalog.search`, `catalog.detail` y el corpus de recomendaciones
+incluyen el título visible, el original y los alias BGG, incluidos los nombres
+reales de ediciones españolas; la comparación textual ignora tildes y puntuación.
+Actualizar metadatos conserva los nombres anteriores y los títulos personalizados.
+
+El flujo privado `Buscar juego por foto` / `/catalog_photo` es un asistente de
+catálogo independiente del intérprete de órdenes. Reutiliza `GAMECLUB_CODEX_BIN`
+(y el override de catálogo existente) para transcribir el título visible y
+resolver coincidencias reales por nombre o ID BGG. La imagen se descarga a un
+directorio temporal legible por el operador `cawa` y se elimina al terminar.
+El progreso editable distingue lectura de portada, búsqueda y registro. La visión
+no autoriza escrituras: cada juego/copia se selecciona y cada préstamo o alta se
+confirma en el bot. Los préstamos son inmediatos; no se crean reservas futuras.
+Una cesión registra al socio como propietario y publica mediante la cola habitual
+de movimientos de juegos. Una foto no interrumpe asistentes activos de otros
+módulos. Cancelar o sustituir la sesión impide que un resultado de visión tardío
+continúe el flujo anterior.
+
 ## Recomendaciones de catálogo
 
 `catalog.recommend` no debe usar el texto de consulta como filtro duro. El bot:

@@ -2,7 +2,7 @@ import type { NewsGroupCategoryKey } from '../news/news-group-catalog.js';
 
 export const catalogLoanNewsDebounceMs = 5 * 60 * 1000;
 
-export type CatalogLoanNewsAction = 'borrowed' | 'returned';
+export type CatalogLoanNewsAction = 'borrowed' | 'returned' | 'ceded';
 
 export interface CatalogLoanNewsEventRecord {
   id: number;

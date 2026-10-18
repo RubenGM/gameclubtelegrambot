@@ -1,5 +1,6 @@
 import { createDatabaseCatalogLoanRepository } from '../catalog/catalog-loan-store.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
+import { catalogItemNames, catalogItemMatchesQuery } from '../catalog/catalog-names.js';
 import { createDatabaseGroupPurchaseRepository } from '../group-purchases/group-purchase-catalog-store.js';
 import { createDatabaseLfgRepository } from '../lfg/lfg-catalog-store.js';
 import { createDatabaseNewsGroupRepository } from '../news/news-group-store.js';
@@ -109,13 +110,11 @@ async function searchCatalog(context: TelegramLlmCommandContext, params: Record<
   const availableOnly = booleanParam(params, 'availableOnly') === true;
   const items = await repository.listItems({ includeDeactivated: false });
   const activeLoanItemIds = availableOnly ? await listActiveCatalogLoanItemIds(context) : new Set<number>();
-  return filterByQuery(items, query, (item) => [
-    item.displayName,
-    item.originalName,
+  return items.filter((item) => catalogItemMatchesQuery(item, query ?? '', [
     item.description,
     item.publisher,
     item.itemType,
-  ])
+  ]))
     .filter((item) => itemType === null || item.itemType === itemType)
     .filter((item) => playerCount === null || catalogItemSupportsPlayerCount(item, playerCount))
     .filter((item) => !availableOnly || !activeLoanItemIds.has(item.id));
@@ -1228,8 +1227,7 @@ function scoreCatalogRecommendationItem(
 
 function catalogRecommendationTextCorpus(item: CatalogItemRecord): string {
   return [
-    item.displayName,
-    item.originalName,
+    ...catalogItemNames(item),
     item.description,
     item.publisher,
     item.itemType,

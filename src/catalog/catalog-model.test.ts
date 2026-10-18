@@ -644,7 +644,7 @@ test('updateCatalogMedia and removeCatalogMedia preserve ownership and lifecycle
   assert.equal(remaining.length, 0);
 });
 
-test('updateCatalogItem preserves identity while changing optional metadata', async () => {
+test('updateCatalogItem preserves identity and known names while changing optional metadata', async () => {
   const repository = createRepository({
     items: [
       {
@@ -663,7 +663,7 @@ test('updateCatalogItem preserves identity while changing optional metadata', as
         recommendedAge: null,
         playTimeMinutes: null,
         externalRefs: null,
-        metadata: null,
+        metadata: { spanishName: 'El bosque', alternateNames: ['Raíces'] },
         lifecycleStatus: 'active',
         createdAt: '2026-04-04T10:00:00.000Z',
         updatedAt: '2026-04-04T10:00:00.000Z',
@@ -688,6 +688,8 @@ test('updateCatalogItem preserves identity while changing optional metadata', as
   assert.equal(updated.displayName, 'Root Deluxe');
   assert.equal(updated.description, 'Joc d area control');
   assert.equal(updated.playerCountMax, 6);
+  assert.equal(updated.metadata?.spanishName, 'El bosque');
+  assert.deepEqual(updated.metadata?.alternateNames, ['Raíces']);
 });
 
 test('deactivateCatalogItem preserves historical references and becomes idempotent', async () => {

@@ -2,6 +2,7 @@ import { replyWithCatalogItemTable } from './catalog-item-table.js';
 import { replyWithCatalogRichMessage } from './catalog-rich-message.js';
 import type { CatalogMediaRecord, CatalogRepository, CatalogFamilyRecord, CatalogGroupRecord, CatalogItemRecord } from '../catalog/catalog-model.js';
 import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
+import { catalogItemMatchesQuery, normalizeCatalogSearchText } from '../catalog/catalog-names.js';
 import { createDatabaseCatalogRepository } from '../catalog/catalog-store.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import type { MembershipAccessRepository } from '../membership/access-flow.js';
@@ -833,7 +834,7 @@ async function searchCatalogItems(context: TelegramCatalogReadContext, {
   activeLoansByItemId: Map<number, CatalogLoanRecord>;
   query: string;
 }): Promise<CatalogBrowseEntry[]> {
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = normalizeCatalogSearchText(query);
   const tokens = normalizedQuery.split(/\s+/).filter((token) => token.length > 0);
   if (tokens.length === 0) {
     return [];
@@ -843,9 +844,7 @@ async function searchCatalogItems(context: TelegramCatalogReadContext, {
     .filter((item) => {
       const family = catalogFamilyGroupUiEnabled && item.familyId !== null ? familyById(families, item.familyId) : null;
       const group = catalogFamilyGroupUiEnabled && item.groupId !== null ? groupById(groups, item.groupId) : null;
-      return matchesText([
-        item.displayName,
-        item.originalName,
+      return catalogItemMatchesQuery(item, normalizedQuery, [
         item.description,
         item.publisher,
         item.language,
@@ -854,7 +853,7 @@ async function searchCatalogItems(context: TelegramCatalogReadContext, {
         family?.description,
         group?.displayName,
         group?.description,
-      ], tokens);
+      ]);
     })
     .sort((left, right) => Number(activeLoansByItemId.has(right.id)) - Number(activeLoansByItemId.has(left.id)) || left.displayName.localeCompare(right.displayName))
     .map(async (item) => ({

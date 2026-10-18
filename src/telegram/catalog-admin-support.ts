@@ -1,6 +1,10 @@
+import { catalogItemNames, catalogItemMatchesQuery, mergeCatalogNameMetadata, preserveCatalogDisplayName } from '../catalog/catalog-names.js';
+import { handleCatalogPhotoText, handleCatalogPhotoMessage, handleCatalogPhotoCallback, type CatalogPhotoDependencies } from './catalog-photo-flow.js';
+import { createDatabaseCatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event-store.js';
+import type { CatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event.js';
 import { replyWithCatalogItemTable, type CatalogTableEntry } from './catalog-item-table.js';
 import { replyWithCatalogRichMessage } from './catalog-rich-message.js';
-import { chmod, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -394,6 +398,7 @@ export interface TelegramCatalogAdminContext {
   catalogRepository?: CatalogRepository;
   catalogPendingGameRepository?: CatalogPendingGameRepository;
   catalogLoanRepository?: CatalogLoanRepository;
+  catalogLoanNewsEventRepository?: CatalogLoanNewsEventRepository;
   membershipRepository?: TelegramCatalogLoanContext['membershipRepository'] | undefined;
   auditRepository?: AuditLogRepository;
   storageRepository?: StorageCategoryRepository;
@@ -415,6 +420,7 @@ export async function handleTelegramCatalogAdminText(context: TelegramCatalogAdm
   const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
   const i18n = createTelegramI18n(language);
   const texts = i18n.catalogAdmin;
+  if (await handleCatalogPhotoText(context, catalogPhotoDependencies)) return true;
   const activeCatalogSession = context.runtime.session.current;
   const isBrowseMenuSession = activeCatalogSession?.flowKey === browseFlowKey
     && activeCatalogSession.stepKey === 'menu';
@@ -553,6 +559,8 @@ export async function handleTelegramCatalogAdminMessage(context: TelegramCatalog
     return false;
   }
 
+  if (await handleCatalogPhotoMessage(context, catalogPhotoDependencies)) return true;
+
   if (session?.flowKey === createFlowKey && session.stepKey === 'display-name') {
     return handleCreateSession(context, '', session.stepKey, session.data);
   }
@@ -619,6 +627,7 @@ export async function handleTelegramCatalogAdminStartText(context: TelegramCatal
 }
 
 export async function handleTelegramCatalogAdminCallback(context: TelegramCatalogAdminContext): Promise<boolean> {
+  if (await handleCatalogPhotoCallback(context, catalogPhotoDependencies)) return true;
   const callbackData = context.callbackData;
   if (!callbackData || context.runtime.chat.kind !== 'private' || !canAccessCatalog(context)) {
     return false;
@@ -959,7 +968,7 @@ async function handleCatalogAdminAutocorrectItem(
     familyId: item.familyId,
     groupId: item.groupId,
     itemType: draft.itemType,
-    displayName: draft.displayName || item.displayName,
+    displayName: preserveCatalogDisplayName(item, draft),
     originalName: draft.originalName,
     description: translatedDraft.description,
     language: translatedDraft.language,
@@ -1046,17 +1055,14 @@ async function refreshCatalogItemBggMetadataOnly(
     return { ok: false, reason: texts.quickBggMetadataMissing };
   }
 
-  const mergedMetadata = {
-    ...(asNullableObject(item.metadata) ?? {}),
-    ...importedMetadata,
-  };
+  const mergedMetadata = mergeCatalogNameMetadata(item.metadata, { ...item.metadata, ...importedMetadata }, catalogItemNames(item));
   const updated = await updateCatalogItem({
     repository: resolveCatalogRepository(context),
     itemId: item.id,
     familyId: item.familyId,
     groupId: item.groupId,
     itemType: item.itemType,
-    displayName: item.displayName,
+    displayName: typeof importResult.draft.metadata?.spanishName === 'string' ? preserveCatalogDisplayName(item, importResult.draft) : item.displayName,
     originalName: item.originalName,
     description: item.description,
     language: item.language,
@@ -1132,7 +1138,7 @@ async function handleCatalogAdminBulkBggMetadataUpdate(context: TelegramCatalogA
       stats.skippedWithoutBgg += 1;
       continue;
     }
-    if (!isBoardGameGeekReimportRecommended(item)) {
+    if (!isBoardGameGeekReimportRecommended(item) && item.metadata?.nameMetadataVersion === 2) {
       stats.checked += 1;
       stats.skippedFresh += 1;
       continue;
@@ -3129,31 +3135,27 @@ async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminCont
   }
 
   const tempDir = await mkdtemp(join(tmpdir(), 'gameclub-cover-'));
-  const imagePath = join(tempDir, `cover${extensionForMedia(media)}`);
-  const debugDir = process.env.GAMECLUB_COVER_DEBUG_DIR?.trim() || join(tmpdir(), 'gameclub-cover-debug');
-  const shouldKeepDebugFile = true;
-  const effectiveImagePath = shouldKeepDebugFile
-    ? join(debugDir!, `cover-${Date.now()}${extensionForMedia(media)}`)
-    : imagePath;
+  const imagePath = join(tempDir, `cover-${Date.now()}${extensionForMedia(media)}`);
 
   try {
-    await mkdir(debugDir, { recursive: true });
-    await context.runtime.bot.downloadFile({ fileId: media.fileId, destinationPath: effectiveImagePath, allowLocalBotApi: true });
-    const downloaded = await stat(effectiveImagePath);
+    await chmod(tempDir, 0o755);
+    await context.runtime.bot.downloadFile({ fileId: media.fileId, destinationPath: imagePath, allowLocalBotApi: true });
+    await chmod(imagePath, 0o644);
+    const downloaded = await stat(imagePath);
     console.info(JSON.stringify({
       event: 'catalog.cover-title.downloaded',
       attachmentKind: media.attachmentKind,
       mimeType: media.mimeType ?? null,
       originalFileName: media.originalFileName ?? null,
       fileSizeBytes: downloaded.size,
-      imagePath: effectiveImagePath,
-      debugFileKept: shouldKeepDebugFile,
+      imagePath,
+      debugFileKept: false,
     }));
     console.info(JSON.stringify({
       event: 'catalog.cover-title.codex-command',
       command: catalogCodexBin,
       args: buildCodexImageQueryArgs({
-        imagePath: effectiveImagePath,
+        imagePath,
         model: catalogCoverTitleModel,
         reasoningEffort: 'low',
       }),
@@ -3166,7 +3168,7 @@ async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminCont
       reasoningEffort: 'low',
     }));
     const detected = await resolver({
-      imagePath: effectiveImagePath,
+      imagePath,
       question: texts.coverTitleQuestion,
       model: catalogCoverTitleModel,
     });
@@ -3185,9 +3187,7 @@ async function detectDisplayNameFromAttachment(context: TelegramCatalogAdminCont
     }));
     return new Error(error instanceof Error ? error.message : texts.coverTitleNoResult);
   } finally {
-    if (!shouldKeepDebugFile) {
-      await rm(tempDir, { recursive: true, force: true });
-    }
+    await rm(tempDir, { recursive: true, force: true });
   }
 }
 
@@ -3227,11 +3227,12 @@ function normalizeDetectedCoverTitle(value: string): string {
     .filter((line) => line && !line.startsWith('>') && !/^sqlite-migration:/i.test(line) && !/^database migration/i.test(line));
 
   const candidate = cleanedLines.at(-1) ?? '';
-  return candidate
+  const title = candidate
     .replace(/^nombre(?: completo)?\s*:\s*/i, '')
     .replace(/^t[ií]tulo\s*:\s*/i, '')
     .replace(/^["'`]+|["'`]+$/g, '')
     .trim();
+  return /^UNKNOWN[.!]?$/i.test(title) ? '' : title;
 }
 
 async function handleEditSession(
@@ -3685,7 +3686,7 @@ async function requestDuplicateCreateConfirmation(
   data: Record<string, unknown>,
 ): Promise<boolean> {
   const itemType = getDraftItemTypeFromData(data);
-  const names = [data.displayName, data.originalName, data.duplicateSourceTitle]
+  const names = [...catalogItemNames(data as unknown as CatalogItemRecord), data.duplicateSourceTitle]
     .filter((name): name is string => typeof name === 'string' && !!name.trim())
     .map(normalizeCatalogMatchText);
   const bggId = readBoardGameGeekId(asNullableObject(data.externalRefs))
@@ -3694,7 +3695,7 @@ async function requestDuplicateCreateConfirmation(
   const matches = items.filter((item) => {
     if (item.itemType !== itemType && !(itemType === 'board-game' && item.itemType === 'expansion')) return false;
     if (bggId && readBoardGameGeekIdFromItem(item) === bggId) return true;
-    return [item.displayName, item.originalName ?? ''].some((title) => names.some((name) => {
+    return catalogItemNames(item).some((title) => names.some((name) => {
       const normalized = normalizeCatalogMatchText(title);
       if (normalized === name) return true;
       // Warn about close titles, including subtitles/editions; never merge automatically.
@@ -4400,12 +4401,7 @@ function searchCatalogItemsByName({
   return items.filter((item) => {
     const family = item.familyId !== null ? families.find((candidate) => candidate.id === item.familyId) : null;
     const group = item.groupId !== null ? groups.find((candidate) => candidate.id === item.groupId) : null;
-    return matchesText([
-      item.displayName,
-      item.originalName,
-      family?.displayName,
-      group?.displayName,
-    ], tokens);
+    return catalogItemMatchesQuery(item, query, [family?.displayName, group?.displayName].filter((value): value is string => typeof value === 'string'));
   });
 }
 
@@ -5313,7 +5309,7 @@ async function reconcileBoardGameGeekCollectionImport(
         familyId: existingByBggId.familyId,
         groupId: existingByBggId.groupId,
         itemType: draft.itemType,
-        displayName: draft.displayName,
+        displayName: preserveCatalogDisplayName(existingByBggId, draft),
         originalName: draft.originalName,
         description: draft.description,
         language: draft.language,
@@ -5461,6 +5457,7 @@ function cleanCatalogAutocorrectMetadata(
     'usersRated',
     'averageWeight',
     'numWeights',
+    'nameMetadataVersion',
   ]);
   copyMetadataStringArrayFields(cleaned, metadata, [
     'bestPlayerCounts',
@@ -5471,7 +5468,10 @@ function cleanCatalogAutocorrectMetadata(
     'categories',
     'mechanics',
     'families',
+    'alternateNames',
+    'spanishNames',
   ]);
+  if (typeof metadata?.spanishName === 'string') cleaned.spanishName = metadata.spanishName;
 
   if (Object.keys(cleaned).length === 0) {
     return null;
@@ -5519,3 +5519,44 @@ function normalizeCatalogMatchText(value: string): string {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 }
+
+
+const catalogPhotoDependencies: CatalogPhotoDependencies = {
+  detectTitle: detectDisplayNameFromAttachment,
+  async importTitle(context, title) {
+    // Photo lookup only needs identity and aliases; it does not translate descriptions.
+    return resolveWikipediaBoardGameImportService(context).importByTitle(title);
+  },
+  async saveCover(context, item, attachment) {
+    const stored = await storeCatalogMediaAttachment({
+      repository: resolveCatalogStorageRepository(context),
+      defaultChatStore: resolveCatalogStorageDefaultChatStore(context),
+      bot: context.runtime.bot,
+      actorTelegramUserId: context.runtime.actor.telegramUserId,
+    }, { itemDisplayName: item.displayName, attachment: attachment as unknown as CatalogMediaAttachmentInput });
+    if (!stored.ok) throw new Error(`Catalog cover storage failed: ${stored.reason}`);
+    await createCatalogMedia({ repository: resolveCatalogRepository(context), familyId: null, itemId: item.id, mediaType: 'image', url: stored.catalogMediaUrl, altText: item.displayName, sortOrder: 0 });
+  },
+  async createLoan(context, item) {
+    await handleTelegramCatalogLoanCallback({ ...context, callbackData: `${catalogLoanCallbackPrefixes.create}${item.id}` } as TelegramCatalogLoanContext);
+  },
+  async createActivity(context, item) {
+    await handleTelegramCatalogAdminCallback({ ...context, callbackData: `${catalogAdminCallbackPrefixes.createActivity}${item.id}` });
+  },
+  async publishCession(context, item) {
+    try {
+      const member = await resolveMembershipRepository(context).findUserByTelegramUserId(context.runtime.actor.telegramUserId);
+      const news = context.catalogLoanNewsEventRepository ?? createDatabaseCatalogLoanNewsEventRepository({ database: context.runtime.services.database.db as never });
+      await news.enqueue({ categoryKey: 'catalog-loans:board-game', action: 'ceded', itemId: item.id, itemDisplayName: item.displayName, userName: member?.displayName ?? String(context.runtime.actor.telegramUserId) });
+      return true;
+    } catch (error) {
+      console.warn(JSON.stringify({ event: 'catalog.cession.enqueue.failed', itemId: item.id, error: error instanceof Error ? error.message : String(error) }));
+      return false;
+    }
+  },
+  async auditCreated(context, item, action) {
+    await appendAuditEvent({ repository: resolveAuditRepository(context), actorTelegramUserId: context.runtime.actor.telegramUserId,
+      actionKey: 'catalog.item.created', targetType: 'catalog-item', targetId: item.id,
+      summary: `Juego registrado por foto: ${item.displayName}`, details: { source: 'catalog-photo', action, pendingCatalogReview: true, ownerTelegramUserId: item.ownerTelegramUserId ?? null } });
+  },
+};

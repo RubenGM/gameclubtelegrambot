@@ -36,6 +36,17 @@ test('rich catalog search escapes the query and keeps item links and navigation'
   assert.ok(sent[0]?.options?.inlineKeyboard?.length);
 });
 
+test('catalog search finds a Spanish edition alias without accents while preserving the visible title', async () => {
+  const item = { ...buildItem(1, 'The Lord of the Rings'), metadata: { spanishName: 'El Señor de los Anillos', alternateNames: ['Der Herr der Ringe'] } };
+  const { context } = createContext(createRepository({ items: [item, buildItem(2, 'Catan')] }));
+  const sent: TelegramRichMessageInput[] = [];
+  context.runtime.bot.sendRichMessage = async (message) => { sent.push(message); };
+  context.messageText = '/catalog_search senor anillos';
+  await handleTelegramCatalogReadCommand(context);
+  assert.match(sent[0]?.richMessage.html ?? '', /The Lord of the Rings/);
+  assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /Catan/);
+});
+
 test('borrowed catalog items move onto the first search page and keep their highlight and secondary data', async () => {
   const items = Array.from({ length: 6 }, (_, index) => buildItem(index + 1, `Game ${index + 1}`));
   const loans = createLoanRepository([{ id: 1, itemId: 6, borrowerTelegramUserId: 999, borrowerDisplayName: 'Ana <Club>', loanedByTelegramUserId: 7, dueAt: null, notes: null, returnedAt: null, returnedByTelegramUserId: null, createdAt: '2026-10-09T10:00:00Z', updatedAt: '2026-10-09T10:00:00Z' }]);

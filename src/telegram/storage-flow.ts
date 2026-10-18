@@ -1269,7 +1269,8 @@ export async function handleTelegramStorageText(context: StorageFlowContext): Pr
 }
 
 function isCatalogSearchButtonText(text: string): boolean {
-  return supportedBotLanguages.some((language) => text === createTelegramI18n(language).catalogAdmin.searchByName);
+  return text === '/catalog_photo' || supportedBotLanguages.some((language) =>
+    text === createTelegramI18n(language).catalogAdmin.searchByName || text === catalogPhotoTexts[language].open);
 }
 
 async function handleActiveSubscribeFlow(context: StorageFlowContext, text: string, language: 'ca' | 'es' | 'en'): Promise<boolean> {
@@ -6731,3 +6732,4 @@ function parseSignedInteger(value: string): number | null {
 function isSupportedAttachmentKind(value: string): value is DmUploadDraftMessage['attachmentKind'] {
   return value === 'document' || value === 'photo' || value === 'video' || value === 'audio' || value === 'text';
 }
+import { catalogPhotoTexts } from './i18n-catalog-photo.js';
