@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 
 import type { CatalogItemType } from './catalog-model.js';
 import { catalogNameMetadataVersion, isUsableCatalogTitle, uniqueCatalogNames } from './catalog-names.js';
+import { resolveCatalogSpanishNames, type CatalogSpanishNameResolver } from './catalog-spanish-names.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -204,11 +205,13 @@ export function createWikipediaBoardGameImportService({
   execImpl = execFileAsync,
   fetchImpl = fetch,
   bggApiKey,
+  spanishNameResolver,
 }: {
   scriptPath?: string;
   execImpl?: typeof execFileAsync;
   fetchImpl?: typeof fetch;
   bggApiKey?: string;
+  spanishNameResolver?: CatalogSpanishNameResolver;
 } = {}): WikipediaBoardGameImportService {
   return {
     async importByTitle(title: string) {
@@ -235,7 +238,9 @@ export function createWikipediaBoardGameImportService({
           apiKey: normalizedBggApiKey,
         });
         if (boardGameGeekResult) {
-          return boardGameGeekResult;
+          return boardGameGeekResult.ok ? { ...boardGameGeekResult,
+            draft: (await resolveCatalogSpanishNames([boardGameGeekResult.draft], spanishNameResolver))[0]!,
+          } : boardGameGeekResult;
         }
         if (exactBoardGameGeekId) {
           return {
@@ -268,9 +273,11 @@ export function createWikipediaBoardGameImportService({
 export function createBoardGameGeekWebImportService({
   fetchImpl = fetch,
   bggApiKey,
+  spanishNameResolver,
 }: {
   fetchImpl?: typeof fetch;
   bggApiKey?: string;
+  spanishNameResolver?: CatalogSpanishNameResolver;
 } = {}): BoardGameGeekWebImportService {
   const apiKey = bggApiKey?.trim();
   const requireApiKey = () => {
@@ -314,7 +321,7 @@ export function createBoardGameGeekWebImportService({
       const params = new URLSearchParams({ id: boardGameGeekId, versions: '1' });
       const versionsXml = await fetchBoardGameGeekXml(fetchImpl, `https://boardgamegeek.com/xmlapi2/thing?${params.toString()}`, resolvedApiKey);
       const versions = parseBoardGameGeekVersions(versionsXml);
-      return { draft: applyBoardGameGeekNames(draft, versions), versions };
+      return { draft: (await resolveCatalogSpanishNames([applyBoardGameGeekNames(draft, versions)], spanishNameResolver))[0]!, versions };
     },
   };
 }
@@ -322,9 +329,11 @@ export function createBoardGameGeekWebImportService({
 export function createBoardGameGeekCollectionImportService({
   fetchImpl = fetch,
   bggApiKey,
+  spanishNameResolver,
 }: {
   fetchImpl?: typeof fetch;
   bggApiKey?: string;
+  spanishNameResolver?: CatalogSpanishNameResolver;
 } = {}): BoardGameGeekCollectionImportService {
   async function listCollections(username: string): Promise<BoardGameGeekCollectionListResult> {
     const normalizedUsername = username.trim();
@@ -506,7 +515,7 @@ export function createBoardGameGeekCollectionImportService({
       username: normalizedUsername,
       collectionKey: resolvedDefinition.key,
       totalCount: collectionEntries.length,
-      items,
+      items: await resolveCatalogSpanishNames(items, spanishNameResolver),
       errors,
     };
   }
@@ -1145,6 +1154,7 @@ function parseBoardGameGeekThing(xml: string, itemId: string): WikipediaBoardGam
       mechanics,
       families,
       alternateNames,
+      boardGameGeekNameCandidates: [displayName, ...alternateNames],
     },
   }, parseBoardGameGeekVersions(itemMatch.body));
 }

@@ -104,6 +104,23 @@ test('BGG batch import separates nested editions and rejects generic version lab
   assert.equal(drafts[1]?.metadata?.nameMetadataVersion, 3);
 });
 
+test('BGG import can select the visible Spanish name from a main-game alias without a named Spanish edition', async () => {
+  const service = createWikipediaBoardGameImportService({
+    bggApiKey: 'test-key',
+    fetchImpl: (async () => new Response('<items><item type="boardgame" id="342"><name type="primary" value="The Initiative"/><name type="alternate" value="La Iniciativa"/></item></items>')) as typeof fetch,
+    spanishNameResolver: async (candidates) => {
+      assert.deepEqual(candidates[0]?.names, ['The Initiative', 'La Iniciativa']);
+      return new Map([['0', 'La Iniciativa']]);
+    },
+  });
+  const result = await service.importByTitle('https://boardgamegeek.com/boardgame/342');
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.draft.displayName, 'La Iniciativa');
+  assert.equal(result.draft.originalName, 'The Initiative');
+  assert.equal(result.draft.metadata?.spanishName, 'La Iniciativa');
+});
+
 test('BGG web import accepts an exact BoardGameGeek URL without searching', async () => {
   const service = createBoardGameGeekWebImportService({ bggApiKey: 'test-key', fetchImpl: (async () => { throw new Error('search must not run'); }) as typeof fetch });
   assert.deepEqual(await service.search('https://boardgamegeek.com/boardgame/315196/example'), { candidates: [], directBoardGameGeekId: '315196', totalCandidates: 0, page: 1, pageSize: 20, totalPages: 1 });

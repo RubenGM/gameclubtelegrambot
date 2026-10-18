@@ -1,6 +1,7 @@
 import { createAuthorizationService } from '../authorization/service.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import { createCatalogDescriptionTranslator } from '../catalog/catalog-description-translation.js';
+import { createCatalogSpanishNameResolver } from '../catalog/catalog-spanish-names.js';
 import type { InfrastructureRuntimeServices } from '../infrastructure/runtime-boundary.js';
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { resolveTelegramDisplayName } from '../membership/display-name.js';
@@ -56,12 +57,10 @@ export function createMiddlewarePipeline({
     loadLanguage(telegramUserId: number): Promise<'ca' | 'es' | 'en' | null>;
   };
 }): TelegramMiddleware[] {
-  const wikipediaBoardGameImportService = createWikipediaBoardGameImportService(
-    config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {},
-  );
-  const boardGameGeekCollectionImportService = createBoardGameGeekCollectionImportService(
-    config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {},
-  );
+  const spanishNameResolver = createCatalogSpanishNameResolver();
+  const bggImportOptions = { ...(config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {}), spanishNameResolver };
+  const wikipediaBoardGameImportService = createWikipediaBoardGameImportService(bggImportOptions);
+  const boardGameGeekCollectionImportService = createBoardGameGeekCollectionImportService(bggImportOptions);
   const descriptionTranslator = createCatalogDescriptionTranslator({
     ...optionalDeepLConfig(config),
     ...optionalDeepLTimeout(process.env.GAMECLUB_DEEPL_TIMEOUT_MS),

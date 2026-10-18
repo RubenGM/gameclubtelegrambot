@@ -26,6 +26,7 @@ import {
 } from '../catalog/catalog-description-translation.js';
 import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import { isUsableCatalogTitle, mergeCatalogNameMetadata, normalizeCatalogSearchText, preserveCatalogDisplayName } from '../catalog/catalog-names.js';
+import { createCatalogSpanishNameResolver } from '../catalog/catalog-spanish-names.js';
 import {
   createBoardGameGeekWebImportService,
   type BoardGameGeekCandidate,
@@ -362,7 +363,7 @@ export function createAdminHttpServer({
   const catalogWebAdminTokens = catalogWebAdminTokenStore
     ?? createDatabaseCatalogWebAdminTokenStore({ database: services.database.db });
   const catalogBggWebImporter = catalogBggWebImportService
-    ?? createBoardGameGeekWebImportService({ ...(config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {}) });
+    ?? createBoardGameGeekWebImportService({ ...(config.bgg?.apiKey ? { bggApiKey: config.bgg.apiKey } : {}), spanishNameResolver: createCatalogSpanishNameResolver() });
   const catalogTranslator = catalogDescriptionTranslator ?? createCatalogDescriptionTranslator({
     ...(config.translation?.deeplApiKey ? { deeplApiKey: config.translation.deeplApiKey } : {}),
     ...(config.translation?.deeplApiUrl ? { deeplApiUrl: config.translation.deeplApiUrl } : {}),

@@ -5475,6 +5475,7 @@ function cleanCatalogAutocorrectMetadata(
     'averageWeight',
     'numWeights',
     'nameMetadataVersion',
+    'spanishNameResolutionVersion',
   ]);
   copyMetadataStringArrayFields(cleaned, metadata, [
     'bestPlayerCounts',
@@ -5487,8 +5488,10 @@ function cleanCatalogAutocorrectMetadata(
     'families',
     'alternateNames',
     'spanishNames',
+    'boardGameGeekNameCandidates',
   ]);
   if (typeof metadata?.spanishName === 'string') cleaned.spanishName = metadata.spanishName;
+  if (typeof metadata?.spanishNameSource === 'string') cleaned.spanishNameSource = metadata.spanishNameSource;
 
   if (Object.keys(cleaned).length === 0) {
     return null;

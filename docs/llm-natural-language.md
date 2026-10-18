@@ -427,6 +427,20 @@ incluyen el título visible, el original y los alias BGG, incluidos los nombres
 reales de ediciones españolas; la comparación textual ignora tildes y puntuación.
 Actualizar metadatos conserva los nombres anteriores y los títulos personalizados.
 
+Las importaciones BGG de Telegram, colecciones y Admin HTTP seleccionan también
+el nombre castellano entre los alias de la ficha principal, aunque las versiones
+sólo tengan etiquetas como `Spanish edition`. Codex clasifica nombres existentes
+con `GAMECLUB_CATALOG_NAME_MODEL` (por defecto `gpt-6-luna`, razonamiento `medium`)
+y el wrapper `GAMECLUB_CATALOG_CODEX_BIN`/`GAMECLUB_CODEX_BIN`. Devuelve el nombre exacto de un candidato,
+validado localmente: no puede aportar una traducción ni un nombre nuevo.
+Los lotes contienen como máximo 10 juegos. Sin un nombre español fiable se
+conserva el original; los fallos dejan el lote pendiente para reintentar.
+El nombre original sigue siendo buscable y se respetan los títulos personalizados.
+`src/scripts/update-catalog-spanish-names.ts` aplica esta selección a los alias
+ya almacenados, sin volver a descargar BGG ni modificar otros datos del juego;
+`--dry-run` muestra los cambios sin guardarlos. Guarda versión de resolución y
+auditoría, y detecta ediciones concurrentes antes de escribir.
+
 El flujo privado `Buscar juego por foto` / `/catalog_photo` es un asistente de
 catálogo independiente del intérprete de órdenes. Una foto privada sin caption
 ni reply también lo activa automáticamente cuando se identifica un juego de mesa
