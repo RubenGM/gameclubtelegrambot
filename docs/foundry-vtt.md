@@ -3,6 +3,26 @@
 Configuración operativa verificada el 19 de octubre de 2026 con Foundry VTT
 14, build 369.
 
+## Comando del bot y edición del mensaje
+
+`/foundry` muestra las instrucciones de conexión a socios aprobados, tanto en
+privado como en grupos y topics. El comando conserva cualquier flujo activo
+del usuario. El texto inicial está disponible en catalán, español e inglés e
+incluye el enlace HTTPS, la selección de usuario y la indicación de contactar
+con el máster si no hay una partida abierta.
+
+En el menú privado **Admin → Foundry**, un administrador puede consultar el
+mensaje actual, pulsar **Editar mensaje** y enviar el texto nuevo. Admite
+hasta 3500 caracteres y conserva las entidades de formato de Telegram como
+HTML seguro, incluidos enlaces, negritas y cursivas. **Previsualizar** muestra
+la misma respuesta que el comando. **Cancelar edición** o `/cancel` salen sin
+guardar. Los permisos de administrador se comprueban de nuevo al guardar.
+
+La personalización se guarda en PostgreSQL, en `app_metadata` con clave
+`foundry.connection_message`, y se aplica inmediatamente sin reiniciar el bot.
+El mensaje personalizado es común a todos los idiomas; mientras no se haya
+guardado uno, se muestra el texto inicial en el idioma del usuario.
+
 ## Acceso y topología
 
 - Dirección pública: <https://cawa.hopto.org/foundry/>.

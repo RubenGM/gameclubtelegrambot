@@ -168,6 +168,13 @@ import { buildTodayAtClubPresentation } from './today-at-club-summary.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { renderTelegramMessageTextAsHtml } from './telegram-entity-html.js';
 import {
+  foundryAdminCallbackPrefix,
+  handleTelegramFoundryAdminCallback,
+  handleTelegramFoundryAdminText,
+  handleTelegramFoundryCommand,
+  openTelegramFoundryAdmin,
+} from './role-game-foundry-flow.js';
+import {
   groupPurchaseCallbackPrefixes,
   handleTelegramGroupPurchaseCallback,
   handleTelegramGroupPurchaseCommand,
@@ -281,6 +288,7 @@ export function registerHandlers({
   registerGroupPurchaseCallbacks({ bot });
   registerLfgCallbacks({ bot });
   registerRoleGameCallbacks({ bot });
+  bot.onCallback(foundryAdminCallbackPrefix, async (context) => { await handleTelegramFoundryAdminCallback(context); });
   registerRoleGameAutoSchedulingAdminCallbacks({ bot });
   bot.onCallback(scheduleCleaningAdminCallbackPrefix, async (context) => { await handleTelegramScheduleCleaningAdminCallback(context); });
   registerLlmCommandCallbacks({ bot });
@@ -332,6 +340,10 @@ function registerTextHandlers({
     }
 
     if (await handleTelegramScheduleCleaningAdminText(context)) {
+      return;
+    }
+
+    if (await handleTelegramFoundryAdminText(context)) {
       return;
     }
 
@@ -1835,6 +1847,17 @@ function createDefaultCommands({
       },
     },
     {
+      command: 'foundry',
+      contexts: ['private', 'group', 'group-news'],
+      access: 'approved',
+      descriptionByLanguage: {
+        ca: 'Consulta com connectar a Foundry VTT',
+        es: 'Consulta cómo conectar a Foundry VTT',
+        en: 'See how to connect to Foundry VTT',
+      },
+      handle: handleTelegramFoundryCommand,
+    },
+    {
       command: 'notion',
       contexts: ['private'],
       access: 'approved',
@@ -3241,6 +3264,11 @@ async function handleTelegramActionMenuText(
 
     if (selection.actionId === 'schedule_cleaning') {
       return handleTelegramScheduleCleaningAdminText({ ...context, messageText: selection.label });
+    }
+
+    if (selection.actionId === 'foundry_admin') {
+      await openTelegramFoundryAdmin(context);
+      return true;
     }
 
     if (selection.actionId === 'printer_admin') {

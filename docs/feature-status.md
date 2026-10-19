@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-10-16.
+Última revisión: 2026-10-19.
 
 Este documento refleja lo que existe en el código actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -32,7 +32,7 @@ Este documento refleja lo que existe en el código actual, no solo lo que aparec
 | Feedback web y Telegram                      | 🟢 Operativo        | Formulario público y flujo privado voluntario con consentimiento, persistencia compartida y consulta admin.                           |
 | Avisos                                       | 🟢 Operativo        | Socios y admins crean, ven, editan y archivan avisos con formato/adjuntos en destinos `/news avisos`.                                 |
 | Compras conjuntas                            | 🟢 Operativo        | Crear/listar/unirse/confirmar, descripciones, `/news group-purchases`, participantes y recordatorios.                                 |
-| Rol / partidas de rol                        | 🟢 Operativo        | Campañas/one-shots, personajes, sesiones, recurrencia, handouts internos e importación Notion revisada por DM.                        |
+| Rol / partidas de rol                        | 🟢 Operativo        | Campañas/one-shots, personajes, sesiones, materiales/Notion y /foundry con mensaje editable desde Admin.                              |
 | Storage / Archivos                           | 🟢 Operativo        | Índice de adjuntos con categorías, permisos, búsquedas, cargas Telegram y gestión admin web/TUI sin creación web.                     |
 | Impresión                                    | 🟢 Operativo        | Botón privado, estados admin, PDF/Office/imágenes desde adjunto o Storage, páginas/copias/caras e historial.                          |
 | Generación de imágenes                       | Deprecado           | Retirada: menús y comandos ocultos; accesos y sesiones antiguas no generan imágenes ni gestionan permisos.                            |
@@ -130,6 +130,7 @@ Implementado:
 
 - Botón privado `Rol` para socios aprobados y admins en el menú raíz, manteniendo herramientas administrativas dentro de `Admin`.
 - Comandos `/rol` y `/role_games`, además del botón `Rol`, abren directamente `Mis partidas`; el teclado conserva `Partidas visibles` y `Crear partida` como acciones secundarias.
+- `/foundry` muestra instrucciones para conectar al tablero virtual a socios aprobados, en privado, grupos y topics, sin alterar su flujo activo. En `Admin` → `Foundry`, los admins pueden consultar, previsualizar y editar un mensaje común a todos los idiomas, de hasta 3500 caracteres, conservando enlaces y formato Telegram como HTML seguro. El texto se guarda en `app_metadata` (`foundry.connection_message`) y se aplica sin reiniciar; antes de personalizarlo se usan instrucciones iniciales en ca/es/en con el enlace HTTPS. La edición permite cancelar y vuelve a comprobar permisos antes de guardar. Guía: `docs/foundry-vtt.md`.
 - Home con `Mis partidas`, `Partidas visibles`, `Crear partida` y `Cancelar` con rol danger.
 - Listas read-only de partidas propias y visibles desde `RoleGameRepository`, con paginación estilo Telegram y deep links `role_game_<id>` al detalle.
 - El detalle de partida funciona como portada con teclado persistente, resume ocupación, solicitudes pendientes y la sesión futura enlazada más próxima (o su ausencia), y ofrece los submenús de Participantes, Sesiones, Materiales, Invitar y Configurar sin depender de acciones inline bajo el mensaje.
@@ -673,7 +674,7 @@ Pendiente:
 | Préstamos | `src/telegram/catalog-loan-news-buffer.test.ts`, `src/telegram/catalog-loan-flow.test.ts`, `src/catalog/catalog-loan-reminders.test.ts`, `src/catalog/catalog-loan-store.test.ts` |
 | LFG | `src/telegram/lfg-flow.test.ts`, `src/lfg/lfg-catalog.test.ts`, `src/lfg/lfg-catalog-store.test.ts` |
 | Compras conjuntas | `src/telegram/group-purchase-flow.test.ts`, `src/group-purchases/*.test.ts` |
-| Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-notion-store.test.ts`, `src/notion/notion-client.test.ts`, `src/notion/notion-renderer.test.ts`, `src/notion/notion-webhook.test.ts`, `src/role-games/role-game-character-catalog.test.ts`, `src/role-games/role-game-character-store.test.ts`, `src/role-games/role-game-character-store.integration.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/role-games/role-game-auto-scheduling-store.test.ts`, `src/role-games/role-game-recurrence-worker.test.ts`, `src/telegram/role-game-participants.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/telegram/role-game-notion-flow.test.ts`, `src/telegram/role-game-character-flow.test.ts`, `src/telegram/role-game-auto-scheduling-admin-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
+| Rol / partidas de rol | `src/role-games/role-game-catalog.test.ts`, `src/role-games/role-game-catalog-store.test.ts`, `src/role-games/role-game-notion-store.test.ts`, `src/notion/notion-client.test.ts`, `src/notion/notion-renderer.test.ts`, `src/notion/notion-webhook.test.ts`, `src/role-games/role-game-character-catalog.test.ts`, `src/role-games/role-game-character-store.test.ts`, `src/role-games/role-game-character-store.integration.test.ts`, `src/role-games/role-game-scheduler.test.ts`, `src/role-games/role-game-auto-scheduling-store.test.ts`, `src/role-games/role-game-recurrence-worker.test.ts`, `src/telegram/role-game-participants.test.ts`, `src/telegram/role-game-flow.test.ts`, `src/telegram/role-game-notion-flow.test.ts`, `src/telegram/role-game-character-flow.test.ts`, `src/telegram/role-game-auto-scheduling-admin-flow.test.ts`, `src/telegram/role-game-foundry-flow.test.ts`, `src/bootstrap/create-app.test.ts`, `src/telegram/action-menu.test.ts`, `src/telegram/runtime-boundary.test.ts` |
 | Avisos | `src/telegram/notice-flow.test.ts`, `src/notices/*.test.ts`, `src/news/news-group-store.test.ts` |
 | Storage | `src/telegram/storage-rich-presentation.test.ts`, `src/telegram/storage-flow.test.ts`, `src/storage/*.test.ts` |
 | Noticias | `src/telegram/news-group-flow.test.ts`, `src/news/news-group-store.test.ts`, `src/telegram/runtime-boundary.test.ts` |
