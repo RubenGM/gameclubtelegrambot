@@ -2126,6 +2126,11 @@ function createDefaultCommands({
       handle: async (context) => {
         const startPayload = parseStartCommandPayload(context.messageText);
 
+        if (startPayload === 'foundry') {
+          await handleTelegramFoundryCommand(context);
+          return;
+        }
+
         if (startPayload === 'request_access' && (await handlePrivateAutoMembershipRequest(context))) {
           return;
         }

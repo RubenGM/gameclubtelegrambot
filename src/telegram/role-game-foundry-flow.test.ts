@@ -54,6 +54,36 @@ test('default connection instructions follow the member language and preserve th
   assert.equal(fixture.context.runtime.session.current?.flowKey, 'role-game');
 });
 
+test('start=foundry shares the configured command response and preserves the active flow', async () => {
+  const commands = registeredCommands();
+  const fixture = await createFixture();
+  await fixture.context.foundrySettingsStore.set({ text: 'Conecta aquí', html: '<b>Conecta</b> aquí' });
+  await fixture.context.runtime.session.start({ flowKey: 'role-game', stepKey: 'title' });
+  await commands.get('foundry')!(fixture.context);
+  const expected = fixture.replies.at(-1);
+  for (const command of ['/start foundry', '/start@cawa_management_bot foundry']) {
+    fixture.context.messageText = command;
+    await commands.get('start')!(fixture.context);
+    assert.deepEqual(fixture.replies.at(-1), expected);
+    assert.equal(fixture.context.runtime.session.current?.flowKey, 'role-game');
+  }
+});
+
+test('start=foundry denies pending, revoked and blocked users without showing the message', async () => {
+  const commands = registeredCommands();
+  for (const status of ['pending', 'revoked', 'blocked'] as const) {
+    const fixture = await createFixture();
+    fixture.context.runtime.actor.status = status;
+    fixture.context.runtime.actor.isApproved = status === 'blocked';
+    fixture.context.runtime.actor.isBlocked = status === 'blocked';
+    fixture.context.messageText = '/start foundry';
+    await commands.get('start')!(fixture.context);
+    assert.equal(fixture.replies.length, 1);
+    assert.equal(fixture.replies[0]!.message, createTelegramI18n('es').common.accessDeniedApproved);
+    assert.equal(fixture.context.runtime.session.current, null);
+  }
+});
+
 test('admin edits persist formatting across store recreation and are used by the next command', async () => {
   const fixture = await createFixture();
   await openTelegramFoundryAdmin(fixture.context);
@@ -147,4 +177,17 @@ async function createFixture() {
     },
   } as TelegramCommandHandlerContext & { foundrySettingsStore: ReturnType<typeof createAppMetadataFoundrySettingsStore> };
   return { context, records, storage, replies };
+}
+
+function registeredCommands(): Map<string, TelegramCommandHandler> {
+  const commands = new Map<string, TelegramCommandHandler>();
+  registerHandlers({
+    bot: {
+      onCommand: (name: string, handler: TelegramCommandHandler) => { commands.set(name, handler); },
+      onCallback: () => {},
+      onText: () => {},
+    } as unknown as TelegramBotLike,
+    publicName: 'Club', adminElevationPasswordHash: '',
+  });
+  return commands;
 }

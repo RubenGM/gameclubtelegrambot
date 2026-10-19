@@ -11,6 +11,11 @@ del usuario. El texto inicial está disponible en catalán, español e inglés e
 incluye el enlace HTTPS, la selección de usuario y la indicación de contactar
 con el máster si no hay una partida abierta.
 
+El enlace <https://t.me/cawa_management_bot?start=foundry> abre el chat privado
+y muestra el mismo mensaje configurado. También exige que el usuario esté
+aprobado y no bloqueado; conserva cualquier flujo activo y no inicia el
+onboarding para los usuarios sin acceso.
+
 En el menú privado **Admin → Foundry**, un administrador puede consultar el
 mensaje actual, pulsar **Editar mensaje** y enviar el texto nuevo. Admite
 hasta 3500 caracteres y conserva las entidades de formato de Telegram como
