@@ -66,6 +66,7 @@ Implementado:
 - Detección local de frustración o insultos en mensajes privados de socios aprobados y no bloqueados: usa sólo diccionarios y frases fijas en catalán, español e inglés, ofrece enviar feedback de forma voluntaria y lo guarda en el mismo registro visible desde `/admin/feedback`; no usa LLM ni interviene en flujos activos.
 - El comando privado admin `/status` adjunta la copia canónica `docs/feature-status.md`; el despliegue sincroniza esa copia al directorio operativo mediante `./startup.sh`.
 - El despliegue público usa Nginx como reverse proxy hacia `127.0.0.1:8787` con HTTPS de Let's Encrypt para `cawa.hopto.org`.
+- El mismo Nginx publica Foundry VTT en `https://cawa.hopto.org/foundry/`, reenviando HTTP y WebSocket a `192.168.1.22:30000`. Foundry se ejecuta como servicio Windows con el prefijo `foundry`; esta infraestructura todavía no sincroniza campañas, personajes ni materiales con Rol. Configuración y comprobaciones operativas en `docs/foundry-vtt.md`.
 
 Riesgos o pendientes:
 

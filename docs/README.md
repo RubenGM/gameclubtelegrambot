@@ -28,6 +28,8 @@ capacidad, su documentación debe actualizarse en el mismo cambio.
   entre Agenda y Google Calendar.
 - [`role-game-notion.md`](role-game-notion.md): fuentes Notion por campaña,
   importación revisada y webhooks.
+- [`foundry-vtt.md`](foundry-vtt.md): acceso HTTPS a Foundry en Windows mediante
+  el Nginx del bot, configuración efectiva y recuperación.
 - [`image-generation.md`](image-generation.md): retirada y deprecación de la
   generación de imágenes por Telegram.
 - [`telegram-local-bot-api-printing.md`](telegram-local-bot-api-printing.md):
