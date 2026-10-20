@@ -6,6 +6,32 @@
   including accents, `ñ`, `ç`, `l·l`, `¿`, `¡`, and normal Unicode. The
   ASCII-only editing preference does not apply to these artifacts.
 
+## Skills del proyecto
+
+Las skills externas de `.agents/skills/` se mantienen sin modificaciones respecto
+a su origen y se registran en `skills-lock.json`. No aplicar parches locales a
+su contenido, enlaces ni formato: las adaptaciones pertenecen a las skills
+propias o a las guías del repositorio.
+
+- Para cambios de Telegram, usar también
+  [gameclub-telegram](.agents/skills/gameclub-telegram/SKILL.md), que reúne el
+  contexto de grammY y enlaza las guías del bot.
+- Para schema, consultas o migraciones, usar
+  [gameclub-drizzle](.agents/skills/gameclub-drizzle/SKILL.md), que contiene las
+  rutas y convenciones reales de Game Club.
+
+Estas skills propias complementan a `telegram-bot-builder` y `drizzle` y no se
+incluyen en el lock de fuentes externas. Las reglas y arquitectura del proyecto
+prevalecen sobre ejemplos de otros repositorios; en particular, las rutas,
+helpers y políticas específicas de LobeHub no se aplican a Game Club.
+
+Para actualizar las externas del proyecto, usar `npx skills update -p -y`; para
+las globales, `npx skills update -g -y`. Si hay que restaurar una copia local
+modificada, reinstalar sólo esa skill desde el origen y `skillPath` del lock.
+Después, revisar el diff y comprobar que las skills propias siguen intactas.
+Los enlaces de una externa a recursos de otra skill pueden requerir consultar
+el repositorio original si ese recurso no está instalado.
+
 ## Service Logs
 
 Use `./scripts/service-journal.sh` to inspect the Telegram bot journal. It sets

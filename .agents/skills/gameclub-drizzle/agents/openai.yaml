@@ -1,0 +1,3 @@
+interface:
+  display_name: "Game Club Drizzle"
+  short_description: "Persistencia y migraciones PostgreSQL de Game Club"
