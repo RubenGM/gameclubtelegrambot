@@ -5,12 +5,35 @@ description: Expert in building Telegram bots that solve real problems - from
   Telegram Bot API, inline and reply keyboards, topics, polls, business and
   managed-bot features, Mini App handoffs, monetization strategies, and
   scaling bots to thousands of users.
-risk: unknown
-source: vibeship-spawner-skills (Apache 2.0)
-date_added: 2026-02-27
+metadata:
+  source: vibeship-spawner-skills (Apache 2.0)
+  upstream: https://github.com/sickn33/antigravity-awesome-skills/tree/32b8ad933cfb84065a4ce5304c2557c9e39b25fa/skills/telegram-bot-builder
+  reviewed: '2026-10-21'
+  maintenance: local-fork
 ---
 
 # Telegram Bot Builder
+
+## Game Club Context
+
+This is a maintained local fork. Compare upstream changes before merging them;
+preserve the local topics, polls, draft and webhook guidance below.
+
+The bot uses TypeScript, grammY with `@grammyjs/runner`, PostgreSQL and systemd.
+The support web is the bot's integrated Admin HTTP server. Follow existing
+handlers and persistence rather than introducing Telegraf, Express, a separate
+frontend or a different deployment platform from the generic examples.
+
+Before changing pagination, editable progress or LLM behavior, read the matching
+guide named in `AGENTS.md`. Preserve the current permission and topic routing
+rules. Slow actions use the repository's editable progress flow; drafts need a
+durable final message. Natural-language AI calls use the configured wrappers.
+
+The API feature list below is a reference snapshot, not a current compatibility
+guarantee. Check the official Telegram Bot API changelog and the installed grammY
+types before adopting a method or field. Raw API access still needs compatibility
+and behavior validation. Generic examples are not deployment instructions for
+this project.
 
 Expert in building Telegram bots that solve real problems - from simple
 automation to complex AI-powered bots. Covers bot architecture, the Telegram
@@ -52,8 +75,8 @@ what makes money. You design conversations that feel natural.
 
 ## Recent Bot API Features
 
-Account for these current Bot API additions when designing new bots or updating
-older code:
+Check these Bot API additions against current official documentation when
+designing new bots or updating older code:
 
 - Bot API 9.6: managed bots, `request_managed_bot`, `managed_bot` updates,
   `managed_bot_created` messages, `getManagedBotToken`,
@@ -521,7 +544,7 @@ export default async (req, res) => {
 
 ### Railway/Render Deployment
 ```dockerfile
-FROM node:18-alpine
+FROM node:24-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
