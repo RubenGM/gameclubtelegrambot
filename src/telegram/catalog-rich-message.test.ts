@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCatalogRichMessage, replyWithCatalogRichMessage } from './catalog-rich-message.js';
+import { buildCatalogRichDetailMessage, buildCatalogRichMessage, replyWithCatalogRichMessage } from './catalog-rich-message.js';
+import { createTelegramI18n, supportedBotLanguages } from './i18n.js';
+import { escapeHtml, formatHtmlField } from './catalog-presentation.js';
 
 test('catalog rich sections preserve multiline field HTML and the order of links, fields and results', () => {
   const rich = buildCatalogRichMessage('Catálogo <club>', '<a href="https://example.test/">Volver</a>\n<b>Descripción:</b> <i>Uno\nDos</i>\n\n- <a href="https://example.test/game">Juego &amp; Amigos</a>\n\nPágina 1/2');
@@ -22,4 +24,54 @@ test('catalog rich replies preserve topic, keyboard and full fallback', async ()
   let sent: unknown;
   await replyWithCatalogRichMessage({ reply: async () => { assert.fail('Unexpected fallback'); }, runtime: { bot: { language: 'es', sendRichMessage: async (input) => { sent = input; } }, chat: { chatId: -100, messageThreadId: 9 } } }, text, options);
   assert.deepEqual(sent, { chatId: -100, messageThreadId: 9, richMessage: buildCatalogRichMessage('Catálogo', text), fallbackText: text, options });
+});
+
+for (const language of supportedBotLanguages) {
+  test(`catalog item hierarchy retains borrower, owner, metadata and multiline description in ${language}`, () => {
+    const { catalogAdmin: admin, catalogLoan: loan } = createTelegramI18n(language);
+    const html = buildCatalogRichDetailMessage('Juego <Club>', [
+      '<a href="https://example.test/back">Volver</a>',
+      '<b>Juego &lt;Club&gt;</b>',
+      formatHtmlField(admin.owner, '<a href="tg://user?id=7">Ana &amp; Leo</a>'),
+      formatHtmlField(admin.storagePosition, 'A&amp;1'),
+      formatHtmlField(loan.availabilityAvailable, loan.availabilityLoaned),
+      formatHtmlField(loan.availabilityHas, 'María &lt;Club&gt;'),
+      formatHtmlField(admin.players, '2-4'),
+      formatHtmlField(admin.playTimeMinutes, '45 min'),
+      formatHtmlField(admin.recommendedAge, '10+'),
+      formatHtmlField(admin.description, '<i>Primera\nSegunda &amp; tercera</i>'),
+      '<b>Extra:</b> Valor',
+      '<a href="https://example.test/full">Más detalles</a>',
+    ].join('\n'), language).html!;
+    assert.match(html, /^<h2>Juego &lt;Club&gt;<\/h2><p><a[^>]+>Volver<\/a><\/p><p>👥 /);
+    assert.ok(html.indexOf('45 min') < html.indexOf('A&amp;1'));
+    assert.ok(html.indexOf('A&amp;1') < html.indexOf('tg://user?id=7'));
+    assert.ok(html.includes(`<mark>${escapeHtml(loan.availabilityLoaned)}</mark>`));
+    assert.ok(html.includes('María &lt;Club&gt;'));
+    assert.ok(html.includes('<a href="tg://user?id=7">Ana &amp; Leo</a>'));
+    assert.ok(html.includes(`<h3>${escapeHtml(admin.description)}</h3><p><i>Primera\nSegunda &amp; tercera</i></p>`));
+    assert.match(html, /<th>Extra:<\/th><td>Valor<\/td>/);
+    assert.match(html, /<p><a href="https:\/\/example.test\/full">Más detalles<\/a><\/p>$/);
+    assert.doesNotMatch(html, /<Club>/);
+    assert.equal((html.match(/Juego &lt;Club&gt;/g) ?? []).length, 1);
+  });
+}
+
+test('catalog detail without game metrics retains plain descriptions and does not mark available items as loaned', () => {
+  const html = buildCatalogRichDetailMessage('Libro', '<b>Libro</b>\n<b>Disponibilidad:</b> Disponible\nDescripción: Uno &amp; dos\n<b>Editorial:</b> Club', 'es').html!;
+  assert.match(html, /<td><b>Disponible<\/b><\/td>/);
+  assert.match(html, /<h3>Descripción<\/h3><p>Uno &amp; dos<\/p>/);
+  assert.doesNotMatch(html, /👥|⏱|<mark>/);
+});
+
+test('catalog detail replies preserve receipts, admin IDs, fallback, topic and keyboard', async () => {
+  const text = 'Préstamo registrado.\n\n<b>Juego</b> (#12)\n<b>Disponibilidad:</b> En préstamo';
+  const options = { parseMode: 'HTML' as const, replyKeyboard: [['Inicio', 'Ayuda']] };
+  let sent: import('./rich-message-transport.js').TelegramRichMessageInput | undefined;
+  await replyWithCatalogRichMessage({ reply: async () => { assert.fail('Unexpected fallback'); }, runtime: { bot: { language: 'es', sendRichMessage: async (input) => { sent = input; } }, chat: { chatId: -100, messageThreadId: 9 } } }, text, options, 'Juego');
+  assert.equal(sent?.fallbackText, text);
+  assert.deepEqual(sent?.options, options);
+  assert.equal(sent?.messageThreadId, 9);
+  assert.match(sent?.richMessage.html ?? '', /^<h2>Juego<\/h2><p>Préstamo registrado.<\/p>/);
+  assert.match(sent?.richMessage.html ?? '', /<th>ID:<\/th><td><code>#12<\/code><\/td>/);
 });

@@ -89,7 +89,7 @@ test('admin item inspection uses rich fields with the full HTML and persistent a
   assert.equal(replies.length, 0);
   assert.equal(getCurrentSession()?.stepKey, 'detail');
   assert.match(sent[0]?.html ?? '', /<h2>Catan &lt;Club&gt; &amp; Amics<\/h2>/);
-  assert.match(sent[0]?.html ?? '', /<table>.*A&amp;1.*<\/table>/s);
+  assert.match(sent[0]?.html ?? '', /<table compact>.*A&amp;1.*<\/table>/s);
   assert.match(sent[0]?.fallback ?? '', /catalog_admin_item_full_1/);
   assert.deepEqual(sent[0]?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
 });

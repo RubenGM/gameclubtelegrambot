@@ -751,6 +751,7 @@ async function replyWithItemDetail(
       persistentKeyboard: true,
       parseMode: 'HTML',
     },
+    item.displayName,
   );
 }
 

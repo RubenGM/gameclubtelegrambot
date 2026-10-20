@@ -38,16 +38,29 @@ export function buildCatalogItemTable(input: {
   ];
   for (const section of sections) {
     if (!section.entries.length) continue;
-    const columns = section.game ? 3 : 2;
-    rich.push(`<h3>${section.title}</h3><table compact><tr><th>${texts.name}</th><th>${section.game ? texts.players : texts.publisher}</th>${section.game ? `<th>${texts.duration}</th>` : ''}</tr>`);
+    rich.push(`<h3>${section.title}</h3><table compact>`);
     fallback.push('', `<b>${section.title}</b>`);
     for (const { item, loan, borrowerName } of section.entries) {
       const name = escapeHtml(item.displayName);
       const link = `<a href="${escapeHtml(buildTelegramStartUrl(`${input.startPayloadPrefix}${item.id}`))}"><b>${name}</b></a>`;
-      const players = item.playerCountMin !== null || item.playerCountMax !== null ? renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax) : '—';
-      const duration = item.playTimeMinutes !== null ? `${item.playTimeMinutes} min` : '—';
-      rich.push(`<tr><td>${loan ? `<mark>${link}</mark>` : link}</td><td>${section.game ? players : escapeHtml(item.publisher ?? '—')}</td>${section.game ? `<td>${duration}</td>` : ''}</tr>`);
-      fallback.push(`${loan ? '🟠 ' : '- '}${link}${section.game ? ` · ${texts.players}: ${players} · ${duration}` : item.publisher ? ` · ${escapeHtml(item.publisher)}` : ''}`);
+      const metrics: string[] = [];
+      const fallbackMetrics: string[] = [];
+      if (section.game) {
+        if (item.playerCountMin !== null || item.playerCountMax !== null) {
+          const players = renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, normalizeBotLanguage(input.language, 'ca'));
+          metrics.push(`👥 ${players}`);
+          fallbackMetrics.push(`${texts.players}: ${players}`);
+        }
+        if (item.playTimeMinutes !== null) {
+          metrics.push(`⏱ ${item.playTimeMinutes} min`);
+          fallbackMetrics.push(`${item.playTimeMinutes} min`);
+        }
+      } else if (item.publisher) {
+        metrics.push(escapeHtml(item.publisher));
+        fallbackMetrics.push(escapeHtml(item.publisher));
+      }
+      rich.push(`<tr><td align="left" valign="top">${loan ? `<mark>${link}</mark>` : link}</td><td align="right" valign="top">${metrics.join(' · ')}</td></tr>`);
+      fallback.push(`${loan ? '🟠 ' : '- '}${link}${fallbackMetrics.length ? ` · ${fallbackMetrics.join(' · ')}` : ''}`);
       const details: string[] = [];
       const add = (label: string, value: string | null | undefined) => { if (value) details.push(`<b>${label}:</b> ${escapeHtml(value)}`); };
       if (loan) add(texts.borrower, borrowerName ?? loan.borrowerDisplayName);
@@ -62,7 +75,7 @@ export function buildCatalogItemTable(input: {
       }
       if (item.language) details.push(escapeHtml(item.language));
       if (details.length) {
-        rich.push(`<tr><td colspan="${columns}"><i>${details.join(' · ')}</i></td></tr>`);
+        rich.push(`<tr><td colspan="2"><i>${details.join(' · ')}</i></td></tr>`);
         fallback.push(details.join(' · '));
       }
     }

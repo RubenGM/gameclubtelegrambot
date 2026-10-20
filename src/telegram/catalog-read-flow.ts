@@ -1,5 +1,5 @@
 import { replyWithCatalogItemTable } from './catalog-item-table.js';
-import { replyWithCatalogRichMessage } from './catalog-rich-message.js';
+import { buildCatalogRichDetailMessage, replyWithCatalogRichMessage } from './catalog-rich-message.js';
 import type { CatalogMediaRecord, CatalogRepository, CatalogFamilyRecord, CatalogGroupRecord, CatalogItemRecord } from '../catalog/catalog-model.js';
 import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import { catalogItemMatchesQuery, normalizeCatalogSearchText } from '../catalog/catalog-names.js';
@@ -34,7 +34,6 @@ import type { TelegramInlineButton, TelegramReplyButton, TelegramReplyOptions } 
 import { buildTelegramStartUrl } from './deep-links.js';
 import { sendCatalogItemCoverIfPresent } from './catalog-cover-media.js';
 import { formatTelegramUserLink } from './telegram-user-links.js';
-import { buildTelegramRichDetailMessage } from './rich-detail-message.js';
 
 const catalogReadFlowKey = 'catalog-read';
 const catalogReadPageSize = 5;
@@ -421,7 +420,7 @@ async function replyWithCatalogReadItemDetail(
   if (context.runtime.bot.sendRichMessage) {
     await context.runtime.bot.sendRichMessage({
       chatId: context.runtime.chat.chatId,
-      richMessage: buildTelegramRichDetailMessage(input.item.displayName, text),
+      richMessage: buildCatalogRichDetailMessage(input.item.displayName, text, input.language),
       fallbackText: text,
       options,
       ...(context.messageThreadId !== undefined ? { messageThreadId: context.messageThreadId } : {}),

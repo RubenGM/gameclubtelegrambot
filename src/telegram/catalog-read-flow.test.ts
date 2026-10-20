@@ -59,13 +59,13 @@ test('borrowed catalog items move onto the first search page and keep their high
   assert.match(html, /<mark><a[^>]+><b>Game 6<\/b><\/a><\/mark>/);
   assert.ok(html.indexOf('Game 6') < html.indexOf('Game 1'));
   assert.doesNotMatch(html, /Game 5|Disponible/);
-  assert.match(html, /colspan="3".*Ana &lt;Club&gt;/);
+  assert.match(html, /colspan="2".*Ana &lt;Club&gt;/);
   assert.match(html, /<footer>Pàgina 1\/2<\/footer>/);
   assert.ok(sent[0]?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === catalogReadCallbackPrefixes.pageNext));
 });
 
 test('catalog item sends a rich heading and table preserving escaped text, detail links and navigation', async () => {
-  const item = { ...buildItem(1, 'Catan <Club> & Amics'), description: 'Primera\nSegunda', playerCountMin: 3, playerCountMax: 4, playTimeMinutes: 90 };
+  const item = { ...buildItem(1, 'Catan <Club> & Amics'), description: 'Primera\nSegunda', playerCountMin: 3, playerCountMax: 4, playTimeMinutes: 90, recommendedAge: 10 };
   const { context, replies } = createContext(createRepository({ items: [item] }));
   const sent: TelegramRichMessageInput[] = [];
   context.runtime.bot.sendRichMessage = async (message) => { sent.push(message); return { messageId: 42 }; };
@@ -74,13 +74,15 @@ test('catalog item sends a rich heading and table preserving escaped text, detai
   assert.equal(replies.length, 0);
   assert.equal(sent.length, 1);
   assert.match(sent[0]?.richMessage.html ?? '', /<h2>Catan &lt;Club&gt; &amp; Amics<\/h2>/);
-  assert.match(sent[0]?.richMessage.html ?? '', /<table>.*Jugadors:.*3-4.*Durada:.*90.*<\/table>/s);
+  assert.match(sent[0]?.richMessage.html ?? '', /<p>👥 <b>Jugadors:<\/b> 3-4 · ⏱ <b>Durada:<\/b> 90 min · <b>Edat recomanada:<\/b> 10\+<\/p>/);
   assert.match(sent[0]?.richMessage.html ?? '', /catalog_read_item_full_1/);
   assert.match(sent[0]?.fallbackText ?? '', /<b>Catan &lt;Club&gt; &amp; Amics<\/b>/);
+  assert.match(sent[0]?.fallbackText ?? '', /<b>Durada:<\/b> 90 min/);
+  assert.match(sent[0]?.fallbackText ?? '', /<b>Edat recomanada:<\/b> 10\+/);
   assert.deepEqual(sent[0]?.options?.replyKeyboard?.at(-1), ['Inici', 'Ajuda']);
   context.messageText = '/start catalog_read_item_full_1';
   assert.equal(await handleTelegramCatalogReadStartText(context), true);
-  assert.match(sent[1]?.richMessage.html ?? '', /<td><i>Primera\nSegunda<\/i><\/td>/);
+  assert.match(sent[1]?.richMessage.html ?? '', /<h3>Descripció<\/h3><p><i>Primera\nSegunda<\/i><\/p>/);
 });
 
 function createRepository({

@@ -171,8 +171,8 @@ export function formatMemberCatalogItemDetails({
     ...(item.itemType !== 'book' && item.itemType !== 'rpg-book' && (item.playerCountMin !== null || item.playerCountMax !== null)
       ? [formatHtmlField(texts.catalogAdmin.players, renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, language))]
       : []),
-    ...(item.recommendedAge !== null ? [formatHtmlField(texts.catalogAdmin.recommendedAge, String(item.recommendedAge))] : []),
-    ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.catalogAdmin.playTimeMinutes, String(item.playTimeMinutes))] : []),
+    ...(item.recommendedAge !== null ? [formatHtmlField(texts.catalogAdmin.recommendedAge, `${item.recommendedAge}+`)] : []),
+    ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.catalogAdmin.playTimeMinutes, `${item.playTimeMinutes} min`)] : []),
     ...extraLines,
   ];
 
@@ -213,14 +213,15 @@ export function formatCatalogItemSummaryDetails({
     ...(breadcrumbLine ? [breadcrumbLine] : []),
     `<b>${escapeHtml(item.displayName)}</b>`,
     '',
-    ...(ownerLine ? [ownerLine] : []),
-    ...(item.storagePosition ? [formatHtmlField(texts.catalogAdmin.storagePosition, escapeHtml(item.storagePosition))] : []),
     availabilityLine,
     ...(borrowerLine ? [borrowerLine] : []),
+    ...(item.storagePosition ? [formatHtmlField(texts.catalogAdmin.storagePosition, escapeHtml(item.storagePosition))] : []),
+    ...(ownerLine ? [ownerLine] : []),
     ...(item.itemType !== 'book' && item.itemType !== 'rpg-book' && (item.playerCountMin !== null || item.playerCountMax !== null)
       ? [formatHtmlField(texts.catalogAdmin.players, renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, language))]
       : []),
-    ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.catalogAdmin.playTimeMinutes, String(item.playTimeMinutes))] : []),
+    ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.catalogAdmin.playTimeMinutes, `${item.playTimeMinutes} min`)] : []),
+    ...(item.recommendedAge !== null ? [formatHtmlField(texts.catalogAdmin.recommendedAge, `${item.recommendedAge}+`)] : []),
     '',
     `<a href="${escapeHtml(detailsUrl)}">${escapeHtml(texts.catalogAdmin.viewDetails)}</a>`,
   ];

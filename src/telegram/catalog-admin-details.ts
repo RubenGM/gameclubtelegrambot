@@ -63,8 +63,8 @@ export function formatCatalogAdminItemDetails({
     ...(itemTypeSupportsPlayers(item.itemType) && (item.playerCountMin !== null || item.playerCountMax !== null)
       ? [formatHtmlField(texts.players, renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, language))]
       : []),
-    ...(item.recommendedAge !== null ? [formatHtmlField(texts.recommendedAge, String(item.recommendedAge))] : []),
-    ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.playTimeMinutes, String(item.playTimeMinutes))] : []),
+    ...(item.recommendedAge !== null ? [formatHtmlField(texts.recommendedAge, `${item.recommendedAge}+`)] : []),
+    ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.playTimeMinutes, `${item.playTimeMinutes} min`)] : []),
     ...mediaLines,
     formatHtmlField(texts.status, item.lifecycleStatus),
     ...footerLines,

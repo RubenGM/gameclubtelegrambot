@@ -19,17 +19,19 @@ test('catalog tables group types, put borrowed games first, and highlight them w
   assert.ok(html.indexOf('Zeta') < html.indexOf('Azul'));
   assert.ok(html.indexOf('Azul') < html.indexOf('Libro</b>'));
   assert.match(html, /<mark><a[^>]+><b>Zeta &lt;Club&gt;<\/b><\/a><\/mark>/);
-  assert.match(html, /<td>2-4<\/td><td>45 min<\/td>/);
-  assert.match(html, /<td colspan="3">.*Ana &lt;Club&gt;.*A1.*Economic, &lt;script&gt;.*Worker Placement/);
-  assert.match(html, /<h3>Libros<\/h3><table compact><tr><th>Título<\/th><th>Editorial<\/th>/);
+  assert.match(html, /<td align="right" valign="top">👥 2-4 · ⏱ 45 min<\/td>/);
+  assert.match(html, /<td colspan="2">.*Ana &lt;Club&gt;.*A1.*Economic, &lt;script&gt;.*Worker Placement/);
+  assert.match(html, /<h3>Libros<\/h3><table compact><tr><td align="left" valign="top">.*Libro.*<td align="right" valign="top">Editorial &amp; Amigos<\/td>/);
+  assert.doesNotMatch(html, /<th>/);
   assert.doesNotMatch(html, /Disponible|Disponibilidad|Joc de taula|Llibre RPG|<script>/);
   assert.doesNotMatch(result.fallbackText, /<mark>|<table>|Disponible/);
   assert.match(result.fallbackText, /🟠 <a[^>]+><b>Zeta/);
 });
 
-test('catalog only renders populated sections and retains unknown player ranges without inventing metadata', () => {
+test('catalog only renders populated sections and omits unknown metrics without inventing metadata', () => {
   const { richMessage } = buildCatalogItemTable({ title: 'Games', language: 'en', startPayloadPrefix: 'catalog_read_item_', entries: [{ item: item(1, 'Unknown', { metadata: { categories: [42, null], mechanics: 'not an array' } }), loan: null }] });
-  assert.match(richMessage.html!, /<td>—<\/td><td>—<\/td>/);
+  assert.match(richMessage.html!, /<td align="right" valign="top"><\/td>/);
+  assert.doesNotMatch(richMessage.html!, /👥|⏱|—/);
   assert.doesNotMatch(richMessage.html!, /Books|Accessories|Categories|Mechanics|colspan|<mark>/);
 });
 
