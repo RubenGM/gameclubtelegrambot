@@ -28,7 +28,6 @@ function render(entries: CalendarRichEntry[] = [visibleEntry], timeZone?: string
     footerHtml: '<i>Admin ha creado la actividad</i>',
     actionsHtml: '<p><a href="https://t.me/example?start=schedule_create">Haz tu reserva</a></p>',
     now: new Date('2026-10-09T08:20:00.000Z'),
-    startsAtTo: '2026-11-08T08:20:00.000Z',
     ...(timeZone ? { timeZone } : {}),
   }).html ?? '';
 }
@@ -96,7 +95,9 @@ test('calendar rich message escapes untrusted labels and titles while preserving
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /<i>Admin ha creado la actividad<\/i>/);
   assert.match(html, /<a href="https:\/\/t\.me\/example\?start=schedule_create">Haz tu reserva<\/a>/);
-  assert.match(html, /Próximos 30 días · 9 oct 2026 – 8 nov 2026/);
+  assert.match(html, /^<h2>Calendario &lt;club&gt;<\/h2><footer><i>Admin ha creado la actividad<\/i><\/footer><h3>/);
+  assert.equal(html.split('Admin ha creado la actividad').length - 1, 1);
+  assert.doesNotMatch(html, /Próximos 30 días|Pròxims 30 dies|Next 30 days/);
 });
 
 test('schedule title shows the info icon for details or a description in Catalan, Spanish and English', () => {
@@ -132,6 +133,7 @@ test('local date headings retain their weekday and month across the UTC+14 month
 
 test('empty calendars render the caller-provided empty message and retain footer links', () => {
   const html = render([]);
+  assert.match(html, /<\/h2><footer><i>Admin ha creado la actividad<\/i><\/footer><p>Sin actividades<\/p>/);
   assert.match(html, /<p>Sin actividades<\/p>/);
   assert.match(html, /schedule_create/);
   assert.doesNotMatch(html, /<table compact>/);

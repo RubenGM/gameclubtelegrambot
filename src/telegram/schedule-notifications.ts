@@ -167,14 +167,14 @@ async function publishCalendarSnapshotForCategory({
     ...(tableRepository ? { tableRepository } : {}),
     publicOnly,
   });
-  const message = entries.length > 0
-    ? `${publicOnly ? texts.publicCalendarBroadcastTitle : texts.calendarBroadcastTitle}\n${formatCalendarMessage(entries, language)}`
-    : publicOnly
-      ? texts.publicCalendarBroadcastEmpty
-      : texts.calendarBroadcastEmpty;
   const footer = change && resolveActorDisplayName && (!publicOnly || change.event.isPublic)
     ? await formatCalendarBroadcastFooter({ change, language, resolveActorDisplayName })
     : '';
+  const message = entries.length > 0
+    ? `${publicOnly ? texts.publicCalendarBroadcastTitle : texts.calendarBroadcastTitle}\n${footer ? `${footer}\n` : ''}${formatCalendarMessage(entries, language)}`
+    : publicOnly
+      ? texts.publicCalendarBroadcastEmpty
+      : texts.calendarBroadcastEmpty;
   const createAction = publicOnly
     ? ''
     : `\n\n<a href="${escapeHtml(buildTelegramStartUrl('schedule_create'))}"><b>${escapeHtml(texts.calendarBroadcastCreateAction)}</b></a>`;
@@ -182,7 +182,7 @@ async function publishCalendarSnapshotForCategory({
     ? ''
     : await buildGoogleCalendarBroadcastAction({ snapshotStorage, label: texts.calendarBroadcastGoogleCalendarAction });
   const replacedText = texts.calendarBroadcastReplaced;
-  const text = `${message}${footer ? `\n\n${footer}` : ''}${createAction}${googleCalendarAction}`;
+  const text = `${message}${entries.length === 0 && footer ? `\n\n${footer}` : ''}${createAction}${googleCalendarAction}`;
   const richMessage = buildCalendarRichMessage({
     entries,
     language,
@@ -191,7 +191,6 @@ async function publishCalendarSnapshotForCategory({
     footerHtml: footer,
     actionsHtml: [createAction, googleCalendarAction].filter(Boolean).map((action) => `<p>${action.trim()}</p>`).join(''),
     now,
-    startsAtTo,
   });
 
   await Promise.all(

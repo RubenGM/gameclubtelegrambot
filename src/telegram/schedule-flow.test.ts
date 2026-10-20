@@ -4306,6 +4306,11 @@ test('calendar changes send a new rich topic snapshot and retire every previous 
   assert.match(sent[0]?.fallbackText ?? '', /Privada secreta/);
   assert.match(sent[0]?.fallbackText ?? '', /schedule_create/);
   assert.match(sent[0]?.fallbackText ?? '', /Ada/);
+  for (const content of [sent[0]?.richMessage.html ?? '', sent[0]?.fallbackText ?? '']) {
+    assert.ok(content.indexOf('Ada') < content.indexOf('schedule_event_'));
+    assert.equal(content.split('Ada').length - 1, 1);
+    assert.doesNotMatch(content, /Próximos 30 días|Pròxims 30 dies|Next 30 days/);
+  }
   assert.deepEqual(deleted, [901, 902]);
   assert.deepEqual(JSON.parse((await fixture.snapshotStorage.get('telegram.schedule.calendar_snapshot:events:-200:77'))!),
     { chatId: -200, messageThreadId: 77, messageId: 905, messageIds: [904, 905] });

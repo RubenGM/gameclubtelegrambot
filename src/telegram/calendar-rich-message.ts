@@ -7,9 +7,9 @@ const defaultTimeZone = 'Europe/Madrid';
 export type CalendarRichEntry = CalendarEntry & { equipmentNames?: string[]; venueImpactText?: string };
 export type CalendarRichTableEntry = Omit<Extract<CalendarRichEntry, { kind: 'schedule' }>, 'availableSeats'> | Extract<CalendarRichEntry, { kind: 'venue' }>;
 const calendarLabels = {
-  ca: { period: 'Pròxims 30 dies', generated: 'Actualitzat', venue: 'Local', seat: 'plaça', seats: 'places' },
-  es: { period: 'Próximos 30 días', generated: 'Actualizado', venue: 'Local', seat: 'plaza', seats: 'plazas' },
-  en: { period: 'Next 30 days', generated: 'Updated', venue: 'Venue', seat: 'seat', seats: 'seats' },
+  ca: { generated: 'Actualitzat', venue: 'Local', seat: 'plaça', seats: 'places' },
+  es: { generated: 'Actualizado', venue: 'Local', seat: 'plaza', seats: 'plazas' },
+  en: { generated: 'Updated', venue: 'Venue', seat: 'seat', seats: 'seats' },
 } as const;
 
 export function buildCalendarRichMessage({
@@ -20,7 +20,6 @@ export function buildCalendarRichMessage({
   footerHtml,
   actionsHtml,
   now,
-  startsAtTo,
   timeZone = defaultTimeZone,
 }: {
   entries: CalendarRichEntry[];
@@ -30,8 +29,6 @@ export function buildCalendarRichMessage({
   footerHtml: string;
   actionsHtml: string;
   now: Date;
-  /** Omit for direct activity lists, which have no broadcast horizon. */
-  startsAtTo?: string;
   timeZone?: string;
 }): TelegramRichMessage {
   const locale = resolveLocale(language);
@@ -47,10 +44,7 @@ export function buildCalendarRichMessage({
   const parts = [
     `<h2>${escapeHtml(title)}</h2>`,
   ];
-  if (startsAtTo) {
-    const period = `${formatDate(now, locale, timeZone)} – ${formatDate(new Date(startsAtTo), locale, timeZone)}`;
-    parts.push(`<footer>${escapeHtml(labels.period)} · ${escapeHtml(period)}</footer>`);
-  }
+  if (footerHtml) parts.push(`<footer>${footerHtml}</footer>`);
 
   for (const [day, dayEntries] of groups) {
     parts.push(`<h3>${escapeHtml(formatDayHeading(day, locale))}</h3>`);
@@ -59,7 +53,6 @@ export function buildCalendarRichMessage({
 
   if (entries.length === 0) parts.push(`<p>${escapeHtml(emptyText)}</p>`);
   if (actionsHtml) parts.push(actionsHtml);
-  if (footerHtml) parts.push(`<footer>${footerHtml}</footer>`);
   parts.push(`<footer>${escapeHtml(labels.generated)}: ${escapeHtml(formatDateTime(now, locale, timeZone))}</footer>`);
   return { html: parts.join('') };
 }
@@ -122,10 +115,6 @@ function formatDayHeading(day: string, locale: string): string {
   const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(value);
   const monthName = new Intl.DateTimeFormat(locale, { month: 'long', timeZone: 'UTC' }).format(value);
   return `${weekday.charAt(0).toLocaleUpperCase(locale)}${weekday.slice(1)} ${date} ${monthName}`;
-}
-
-function formatDate(date: Date, locale: string, timeZone: string): string {
-  return new Intl.DateTimeFormat(locale, { timeZone, dateStyle: 'medium' }).format(date);
 }
 
 function formatDateTime(date: Date, locale: string, timeZone: string): string {
