@@ -4307,6 +4307,7 @@ test('calendar changes send a new rich topic snapshot and retire every previous 
   assert.match(sent[0]?.fallbackText ?? '', /schedule_create/);
   assert.match(sent[0]?.fallbackText ?? '', /Ada/);
   for (const content of [sent[0]?.richMessage.html ?? '', sent[0]?.fallbackText ?? '']) {
+    assert.match(content, /<i>Pública &amp; club actualizada por Ada para el Lunes 6 abril<\/i>/);
     assert.ok(content.indexOf('Ada') < content.indexOf('schedule_event_'));
     assert.equal(content.split('Ada').length - 1, 1);
     assert.doesNotMatch(content, /Próximos 30 días|Pròxims 30 dies|Next 30 days/);
@@ -4332,7 +4333,7 @@ test('format refresh edits subscribed calendar topics without an invented activi
   assert.match(edits[0]?.richMessage.html ?? '', /Privada secreta/);
   assert.doesNotMatch(edits[1]?.richMessage.html ?? '', /Privada secreta|schedule_create/);
   assert.doesNotMatch(edits[1]?.fallbackText ?? '', /Privada secreta|schedule_create/);
-  assert.doesNotMatch(edits.map((edit) => edit.fallbackText).join(''), /ha creado|ha actualizado|ha eliminado/);
+  assert.doesNotMatch(edits.map((edit) => edit.fallbackText).join(''), /creada por|actualizada por|eliminada por/);
 });
 
 test('public calendar ignores private-only changes and safely removes a newly hidden activity', async () => {
