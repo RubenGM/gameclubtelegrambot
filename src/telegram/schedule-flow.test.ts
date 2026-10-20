@@ -746,12 +746,14 @@ test('handleTelegramScheduleStartText opens an activity detail from a deep link 
       cancellationReason: null,
     },
   ]);
-  const { context, replies } = createContext({ scheduleRepository, isAdmin: true });
+  const { context, replies, forwardedMessages } = createContext({ scheduleRepository, isAdmin: true });
 
   context.messageText = '/start schedule_event_4';
   assert.equal(await handleTelegramScheduleStartText(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Wingspan<\/b>/);
   assert.ok(replies.at(-1)?.options?.inlineKeyboard?.flat().some((button) => button.text === 'Editar activitat'));
+  assert.equal(replies.length, 1);
+  assert.equal(forwardedMessages.length, 0);
 });
 
 test('activity detail shows creator card, named attendees and assignable reserved seats in the selected language', async () => {
@@ -1135,6 +1137,7 @@ test('promotion offers a forum General destination separately from known subscri
 test('schedule details use a rich heading and table with original links, permission-filtered controls and plain fallback', async () => {
   const event = {
     id: 4, title: 'Partida <Catan> & Amics', description: 'Descripció <segura>', startsAt: '2026-04-05T16:00:00.000Z',
+    detailsMessageChatId: 1, detailsMessageId: 444,
     organizerTelegramUserId: 42, createdByTelegramUserId: 42, tableId: null, durationMinutes: 180,
     attendanceMode: 'open' as const, isPublic: false, initialOccupiedSeats: 0, capacity: 4,
     lifecycleStatus: 'scheduled' as const, createdAt: '2026-04-04T10:00:00.000Z', updatedAt: '2026-04-04T10:00:00.000Z',
@@ -1142,24 +1145,44 @@ test('schedule details use a rich heading and table with original links, permiss
   };
   const { context, replies } = createContext({ scheduleRepository: createScheduleRepository([event]), actorTelegramUserId: 123 });
   const richMessages: TelegramRichMessageInput[] = [];
-  context.runtime.bot.sendRichMessage = async (input) => { richMessages.push(input); return { messageId: 42 }; };
+  const deliveries: string[] = [];
+  context.messageThreadId = 12;
+  context.runtime.bot.forwardMessage = async (input) => {
+    assert.deepEqual(input, { fromChatId: 1, messageId: 444, toChatId: 1, messageThreadId: 12 });
+    await Promise.resolve();
+    deliveries.push('details');
+    return { messageId: 43 };
+  };
+  context.runtime.bot.sendRichMessage = async (input) => {
+    deliveries.push('summary');
+    richMessages.push(input);
+    return { messageId: 42 };
+  };
   context.messageText = '/start schedule_event_4';
   assert.equal(await handleTelegramScheduleStartText(context), true);
   assert.equal(replies.length, 0);
+  assert.deepEqual(deliveries, ['details', 'summary']);
   assert.match(richMessages[0]?.richMessage.html ?? '', /<h2>Partida &lt;Catan&gt; &amp; Amics<\/h2>/);
   assert.match(richMessages[0]?.richMessage.html ?? '', /<table>.*3 h.*<\/table>/s);
-  assert.match(richMessages[0]?.richMessage.html ?? '', /Descripció &lt;segura&gt;/);
+  assert.match(richMessages[0]?.richMessage.html ?? '', /schedule_details_4/);
+  assert.doesNotMatch(richMessages[0]?.richMessage.html ?? '', /Descripció &lt;segura&gt;/);
   assert.match(richMessages[0]?.fallbackText ?? '', /<b>Partida &lt;Catan&gt; &amp; Amics<\/b>/);
   assert.equal(richMessages[0]?.options?.parseMode, 'HTML');
+  assert.equal(richMessages[0]?.messageThreadId, 12);
 
   context.callbackData = `${scheduleCallbackPrefixes.inspect}4`;
   assert.equal(await handleTelegramScheduleCallback(context), true);
   assert.equal(richMessages.length, 2);
+  assert.deepEqual(deliveries, ['details', 'summary', 'details', 'summary']);
   assert.deepEqual(richMessages[1]?.options, richMessages[0]?.options);
   context.runtime.actor.isApproved = false;
   context.runtime.actor.status = 'pending';
   assert.equal(await handleTelegramScheduleStartText(context), false);
+  context.messageText = '/start schedule_details_4';
+  assert.equal(await handleTelegramScheduleStartText(context), false);
+  assert.equal(await handleTelegramScheduleCallback(context), false);
   assert.equal(richMessages.length, 2);
+  assert.deepEqual(deliveries, ['details', 'summary', 'details', 'summary']);
 });
 
 test('handleTelegramScheduleStartText lets non-approved users open and join public schedule events', async () => {
@@ -1230,7 +1253,7 @@ test('handleTelegramScheduleStartText keeps private schedule events closed to no
   assert.equal(replies.length, 0);
 });
 
-test('handleTelegramScheduleStartText forwards the saved details message from a deep link payload', async () => {
+test('activity links deliver saved details before the summary and preserve it when forwarding or copying fails', async () => {
   const scheduleRepository = createScheduleRepository([
     {
       id: 4,
@@ -1252,11 +1275,31 @@ test('handleTelegramScheduleStartText forwards the saved details message from a 
       cancellationReason: null,
     },
   ]);
-  const { context, forwardedMessages } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+  const { context, replies, forwardedMessages, copiedMessages } = createContext({ scheduleRepository, actorTelegramUserId: 77 });
+  const reply = context.reply;
+  context.reply = async (message, options) => {
+    assert.equal(forwardedMessages.length + copiedMessages.length, 1);
+    await reply(message, options);
+  };
 
   context.messageText = '/start schedule_details_4';
   assert.equal(await handleTelegramScheduleStartText(context), true);
   assert.deepEqual(forwardedMessages, [{ fromChatId: 1, messageId: 444, toChatId: 1 }]);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Wingspan<\/b>/);
+  assert.equal(replies.length, 1);
+
+  context.reply = reply;
+  context.runtime.bot.forwardMessage = async () => { throw new Error('Message cannot be forwarded'); };
+  context.messageText = '/start schedule_event_4';
+  assert.equal(await handleTelegramScheduleStartText(context), true);
+  assert.deepEqual(copiedMessages, [{ fromChatId: 1, messageId: 444, toChatId: 1 }]);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Wingspan<\/b>/);
+
+  context.runtime.bot.copyMessage = async () => { throw new Error('Message not found'); };
+  context.callbackData = `${scheduleCallbackPrefixes.inspect}4`;
+  assert.equal(await handleTelegramScheduleCallback(context), true);
+  assert.equal(replies.at(-2)?.message, createTelegramI18n('ca').schedule.detailsUnavailable);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Wingspan<\/b>/);
 });
 
 test('handleTelegramScheduleText creates an activity through keyboard-guided conversation steps', async () => {

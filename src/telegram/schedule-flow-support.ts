@@ -446,7 +446,7 @@ export async function handleTelegramScheduleStartText(context: TelegramScheduleC
     if (!canReadScheduleEvent(context.runtime.actor, event)) {
       return false;
     }
-    await sendScheduleDetailsMessage(context, event);
+    await replyWithScheduleEventView(context, event);
     return true;
   }
 
@@ -2741,6 +2741,9 @@ function formatParticipantLabel(
 async function replyWithScheduleEventView(context: TelegramScheduleContext, event: ScheduleEventRecord): Promise<void> {
   const text = await formatScheduleEventView(context, event);
   const options: TelegramReplyOptions = { ...(await resolveScheduleDetailActionOptions(context, event)), parseMode: 'HTML' };
+  if (hasScheduleDetailsMessage(event)) {
+    await sendScheduleDetailsMessage(context, event);
+  }
   if (context.runtime.bot.sendRichMessage) {
     await context.runtime.bot.sendRichMessage({
       chatId: context.runtime.chat.chatId,
@@ -3169,6 +3172,7 @@ async function sendScheduleDetailsMessage(
     fromChatId: event.detailsMessageChatId!,
     messageId: event.detailsMessageId!,
     toChatId: context.runtime.chat.chatId,
+    ...(context.messageThreadId !== undefined ? { messageThreadId: context.messageThreadId } : {}),
   };
 
   try {
