@@ -48,6 +48,28 @@ const runtimeConfig: RuntimeConfig = {
   featureFlags: {},
 };
 
+test('createMiddlewarePipeline propagates Calendar credentials including configuration installed after startup', async () => {
+  const config: RuntimeConfig = { ...runtimeConfig };
+  const middlewares = createMiddlewarePipeline({
+    config,
+    services: { database: { db: createMembershipDatabaseStub() as never, pool: undefined as never, close: async () => {} } },
+    bot: createBotStub(),
+    logger: createLoggerStub(),
+    isNewsEnabledGroup: async () => false,
+    loadActor: async ({ telegramUserId }) => createApprovedActor(telegramUserId),
+    conversationSessionStore: createConversationSessionStoreStub(),
+    languagePreferenceStore: { loadLanguage: async () => null },
+  });
+  const before = createTextContext();
+  await runMiddlewares(middlewares, before);
+  assert.equal(before.runtime?.googleCalendar, undefined);
+
+  config.googleCalendar = { serviceAccountFile: '/tmp/review-calendar-credentials.json', publicBaseUrl: 'https://club.example' };
+  const after = createTextContext();
+  await runMiddlewares(middlewares, after);
+  assert.equal(after.runtime?.googleCalendar, config.googleCalendar);
+});
+
 test('createMiddlewarePipeline reuses the board-game import service across updates', async () => {
   const database = createMembershipDatabaseStub();
   const middlewares = createMiddlewarePipeline({

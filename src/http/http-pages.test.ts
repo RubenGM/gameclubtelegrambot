@@ -2,6 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { renderHttpPage, renderNav } from './http-pages.js';
 
+test('pages declare Spanish by default and retain the explicit language of Catalan and English content', () => {
+  assert.match(renderHttpPage({ title: 'Actividades', body: '<p>Consulta las actividades.</p>' }), /<html lang="es"/);
+  for (const language of ['ca', 'en'] as const) {
+    assert.match(renderHttpPage({ title: 'Club', body: '<p>Club</p>', language }), new RegExp(`<html lang="${language}"`));
+  }
+});
+
 test('renderNav mantiene la navegación pública siempre visible', () => {
   const html = renderNav([{ href: '/actividades', label: 'Actividades' }]);
 

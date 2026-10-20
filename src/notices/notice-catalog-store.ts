@@ -19,83 +19,87 @@ export function createDatabaseNoticeRepository({
 }): NoticeRepository {
   return {
     async createNotice(input) {
-      const created = await database
-        .insert(notices)
-        .values({
-          createdByTelegramUserId: input.createdByTelegramUserId,
-          creatorDisplayName: input.creatorDisplayName,
-          text: input.text,
-          textHtml: input.textHtml ?? null,
-          expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-        })
-        .returning();
+      return database.transaction(async (tx) => {
+        const created = await tx
+          .insert(notices)
+          .values({
+            createdByTelegramUserId: input.createdByTelegramUserId,
+            creatorDisplayName: input.creatorDisplayName,
+            text: input.text,
+            textHtml: input.textHtml ?? null,
+            expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+          })
+          .returning();
 
-      const notice = created[0];
-      if (!notice) {
-        throw new Error('Notice insert did not return a row');
-      }
+        const notice = created[0];
+        if (!notice) {
+          throw new Error('Notice insert did not return a row');
+        }
 
-      const attachmentInputs = input.attachments ?? [];
-      if (attachmentInputs.length > 0) {
-        await database.insert(noticeAttachments).values(
-          attachmentInputs.map((attachment) => ({
-            noticeId: notice.id,
-            sourceChatId: attachment.sourceChatId,
-            sourceMessageId: attachment.sourceMessageId,
-            attachmentKind: attachment.attachmentKind,
-            telegramFileId: attachment.telegramFileId,
-            telegramFileUniqueId: attachment.telegramFileUniqueId,
-            caption: attachment.caption,
-            originalFileName: attachment.originalFileName,
-            mimeType: attachment.mimeType,
-            fileSizeBytes: attachment.fileSizeBytes,
-            mediaGroupId: attachment.mediaGroupId,
-            sortOrder: attachment.sortOrder,
-          })),
-        );
-      }
+        const attachmentInputs = input.attachments ?? [];
+        if (attachmentInputs.length > 0) {
+          await tx.insert(noticeAttachments).values(
+            attachmentInputs.map((attachment) => ({
+              noticeId: notice.id,
+              sourceChatId: attachment.sourceChatId,
+              sourceMessageId: attachment.sourceMessageId,
+              attachmentKind: attachment.attachmentKind,
+              telegramFileId: attachment.telegramFileId,
+              telegramFileUniqueId: attachment.telegramFileUniqueId,
+              caption: attachment.caption,
+              originalFileName: attachment.originalFileName,
+              mimeType: attachment.mimeType,
+              fileSizeBytes: attachment.fileSizeBytes,
+              mediaGroupId: attachment.mediaGroupId,
+              sortOrder: attachment.sortOrder,
+            })),
+          );
+        }
 
-      return loadNoticeDetail(database, notice.id);
+        return loadNoticeDetail(tx, notice.id);
+      });
     },
     async updateNotice(input) {
-      const updated = await database
-        .update(notices)
-        .set({
-          text: input.text,
-          textHtml: input.textHtml ?? null,
-          expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(notices.id, input.noticeId), eq(notices.status, 'active')))
-        .returning();
+      return database.transaction(async (tx) => {
+        const updated = await tx
+          .update(notices)
+          .set({
+            text: input.text,
+            textHtml: input.textHtml ?? null,
+            expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(notices.id, input.noticeId), eq(notices.status, 'active')))
+          .returning();
 
-      if (!updated[0]) {
-        const existing = await database.select().from(notices).where(eq(notices.id, input.noticeId)).limit(1);
-        return existing[0] ? loadNoticeDetail(database, input.noticeId) : null;
-      }
+        if (!updated[0]) {
+          const existing = await tx.select().from(notices).where(eq(notices.id, input.noticeId)).limit(1);
+          return existing[0] ? loadNoticeDetail(tx, input.noticeId) : null;
+        }
 
-      await database.delete(noticeAttachments).where(eq(noticeAttachments.noticeId, input.noticeId));
-      const attachmentInputs = input.attachments ?? [];
-      if (attachmentInputs.length > 0) {
-        await database.insert(noticeAttachments).values(
-          attachmentInputs.map((attachment) => ({
-            noticeId: input.noticeId,
-            sourceChatId: attachment.sourceChatId,
-            sourceMessageId: attachment.sourceMessageId,
-            attachmentKind: attachment.attachmentKind,
-            telegramFileId: attachment.telegramFileId,
-            telegramFileUniqueId: attachment.telegramFileUniqueId,
-            caption: attachment.caption,
-            originalFileName: attachment.originalFileName,
-            mimeType: attachment.mimeType,
-            fileSizeBytes: attachment.fileSizeBytes,
-            mediaGroupId: attachment.mediaGroupId,
-            sortOrder: attachment.sortOrder,
-          })),
-        );
-      }
+        await tx.delete(noticeAttachments).where(eq(noticeAttachments.noticeId, input.noticeId));
+        const attachmentInputs = input.attachments ?? [];
+        if (attachmentInputs.length > 0) {
+          await tx.insert(noticeAttachments).values(
+            attachmentInputs.map((attachment) => ({
+              noticeId: input.noticeId,
+              sourceChatId: attachment.sourceChatId,
+              sourceMessageId: attachment.sourceMessageId,
+              attachmentKind: attachment.attachmentKind,
+              telegramFileId: attachment.telegramFileId,
+              telegramFileUniqueId: attachment.telegramFileUniqueId,
+              caption: attachment.caption,
+              originalFileName: attachment.originalFileName,
+              mimeType: attachment.mimeType,
+              fileSizeBytes: attachment.fileSizeBytes,
+              mediaGroupId: attachment.mediaGroupId,
+              sortOrder: attachment.sortOrder,
+            })),
+          );
+        }
 
-      return loadNoticeDetail(database, input.noticeId);
+        return loadNoticeDetail(tx, input.noticeId);
+      });
     },
     async findNoticeDetail(noticeId) {
       const rows = await database.select().from(notices).where(eq(notices.id, noticeId)).limit(1);

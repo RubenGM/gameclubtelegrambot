@@ -1,4 +1,5 @@
 import type { GroupPurchaseRepository } from './group-purchase-catalog.js';
+import { groupPurchaseDateParts } from './group-purchase-time.js';
 
 export type GroupPurchaseReminderKind = 'confirm_deadline';
 
@@ -109,11 +110,7 @@ function formatGroupPurchaseReminderMessage({
   confirmDeadlineAt: string;
   language: string;
 }): string {
-  const date = new Date(confirmDeadlineAt);
-  const day = String(date.getUTCDate()).padStart(2, '0');
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const hours = String(date.getUTCHours()).padStart(2, '0');
-  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const { day, month, hour: hours, minute: minutes } = groupPurchaseDateParts(confirmDeadlineAt);
 
   if (language === 'es') {
     return `Recordatorio: confirma la compra conjunta ${title} antes del ${day}/${month} a las ${hours}:${minutes}.`;

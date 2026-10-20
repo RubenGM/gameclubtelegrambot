@@ -412,7 +412,7 @@ export function createAdminHttpServer({
       });
     } catch (error) {
       logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Admin HTTP request failed');
-      sendHtml(response, 500, page('Error', '<p>No s&apos;ha pogut completar la peticio.</p>'));
+      sendHtml(response, 500, page('Error', '<p>No s&apos;ha pogut completar la peticio.</p>', 'ca'));
     }
   };
 
@@ -634,7 +634,7 @@ async function routeRequest(options: {
       userAgent: request.headers['user-agent'] ?? '',
       remoteAddress: request.socket.remoteAddress ?? '',
     });
-    sendHtml(response, 200, page('Feedback enviat', '<p>Gracies. El feedback ha quedat registrat.</p><p><a href="/feedback">Enviar-ne un altre</a></p>'));
+    sendHtml(response, 200, page('Feedback enviat', '<p>Gracies. El feedback ha quedat registrat.</p><p><a href="/feedback">Enviar-ne un altre</a></p>', 'ca'));
     return;
   }
 
@@ -670,7 +670,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/logout') {
     const form = await readForm(request);
     if (!authenticatedSession || !isValidCsrf(form, authenticatedSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     response.setHeader('Set-Cookie', `${sessionCookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
@@ -732,7 +732,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/config/activity-form') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     try {
@@ -795,7 +795,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && memberSignupStatusMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     const nextStatus = normalizeMemberSignupStatus(form.get('status') ?? '');
@@ -823,7 +823,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/welcome') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     await saveWelcomeTemplateFromForm(options.services, form);
@@ -835,7 +835,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && welcomeDeleteMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     await deleteWelcomeTemplate(options.services, welcomeDeleteMatch[1]);
@@ -886,7 +886,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && storageEntryEditMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     try {
@@ -921,7 +921,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && storageEntryDeleteMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     if (form.get('confirm') !== 'DELETE') {
@@ -951,7 +951,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && storageCategoryEditMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     try {
@@ -986,7 +986,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && storageCategoryArchiveMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     if (form.get('confirm') !== 'ARCHIVE') {
@@ -1002,7 +1002,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/web') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     const currentSettings = await options.webSettingsStore.load();
@@ -1057,7 +1057,7 @@ async function routeRequest(options: {
     const resourceDef = requireResource(resourceEditMatch[1]);
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     await updateResourceFields(options.services, resourceDef, resourceEditMatch[2], form);
@@ -1077,7 +1077,7 @@ async function routeRequest(options: {
     const resourceDef = requireResource(resourceDeleteMatch[1]);
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     const isHardDelete = form.get('mode') === 'hard';
@@ -1095,7 +1095,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && userActionMatch?.[1]) {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     await applyUserAction(options.services, userActionMatch[1], form.get('action') ?? '');
@@ -1106,7 +1106,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/token') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     const token = normalizeTelegramToken(form.get('token') ?? '');
@@ -1122,7 +1122,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/token-confirm') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     if (!adminSession.pendingTelegramToken || form.get('confirm') !== 'CHANGE_TOKEN') {
@@ -1138,7 +1138,7 @@ async function routeRequest(options: {
   if (request.method === 'GET' && url.pathname === '/admin/service/confirm') {
     const action = url.searchParams.get('action') ?? '';
     if (action !== 'stop') {
-      sendHtml(response, 404, page('No trobat', '<p>Pàgina no trobada.</p>'));
+      sendHtml(response, 404, page('No trobat', '<p>Pàgina no trobada.</p>', 'ca'));
       return;
     }
     sendHtml(response, 200, serviceStopConfirmationPage(adminSession.csrfToken));
@@ -1148,7 +1148,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/service') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     const action = form.get('action');
@@ -1168,7 +1168,7 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/backup') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     await options.operations.createFullBackup();
@@ -1180,7 +1180,7 @@ async function routeRequest(options: {
     const backupFilePath = url.searchParams.get('backupFilePath') ?? '';
     const archive = await findBackupArchive(options.operations, backupFilePath);
     if (!archive) {
-      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>'));
+      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>', 'ca'));
       return;
     }
     sendHtml(response, 200, backupConfirmationPage('restore', archive, adminSession.csrfToken));
@@ -1190,13 +1190,13 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/restore') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     const backupFilePath = form.get('backupFilePath') ?? '';
     const archive = await findBackupArchive(options.operations, backupFilePath);
     if (!archive) {
-      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>'));
+      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>', 'ca'));
       return;
     }
     if (form.get('confirm') !== 'RESTORE') {
@@ -1212,7 +1212,7 @@ async function routeRequest(options: {
     const backupFilePath = url.searchParams.get('backupFilePath') ?? '';
     const archive = await findBackupArchive(options.operations, backupFilePath);
     if (!archive) {
-      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>'));
+      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>', 'ca'));
       return;
     }
     sendHtml(response, 200, backupConfirmationPage('delete', archive, adminSession.csrfToken));
@@ -1222,13 +1222,13 @@ async function routeRequest(options: {
   if (request.method === 'POST' && url.pathname === '/admin/delete-backup') {
     const form = await readForm(request);
     if (!isValidCsrf(form, adminSession)) {
-      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+      sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
       return;
     }
     const backupFilePath = form.get('backupFilePath') ?? '';
     const archive = await findBackupArchive(options.operations, backupFilePath);
     if (!archive) {
-      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>'));
+      sendHtml(response, 400, page('Backup inválido', '<p>El backup seleccionat no és vàlid.</p>', 'ca'));
       return;
     }
     if (form.get('confirm') !== 'DELETE') {
@@ -1240,7 +1240,7 @@ async function routeRequest(options: {
     return;
   }
 
-  sendHtml(response, 404, page('No trobat', '<p>Pàgina no trobada.</p>'));
+  sendHtml(response, 404, page('No trobat', '<p>Pàgina no trobada.</p>', 'ca'));
 }
 
 interface ScheduleWebCreatorUser {
@@ -2518,7 +2518,7 @@ async function handleWebAssetAction({
   const files = multipart?.files ?? new Map<string, MultipartFile>();
 
   if (!isValidCsrf(fields, session)) {
-    sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>'));
+    sendHtml(response, 403, page('Acció rebutjada', '<p>La sessió admin no és vàlida. Torna a entrar.</p>', 'ca'));
     return false;
   }
 
@@ -2692,7 +2692,7 @@ function updateWebSettingsAsset(settings: WebSettings, target: WebAssetTarget, a
 async function sendWebAsset(response: ServerResponse, webAssetsDir: string, fileName: string): Promise<void> {
   const filePath = resolve(webAssetsDir, fileName);
   if (!filePath.startsWith(`${webAssetsDir}/`)) {
-    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>'));
+    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>', 'ca'));
     return;
   }
 
@@ -2704,13 +2704,13 @@ async function sendWebAsset(response: ServerResponse, webAssetsDir: string, file
     });
     response.end(content);
   } catch {
-    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>'));
+    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>', 'ca'));
   }
 }
 
 async function sendBundledBrandAsset(response: ServerResponse, appRoot: string, fileName: string): Promise<void> {
   if (!bundledBrandAssetNames.has(fileName)) {
-    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>'));
+    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>', 'ca'));
     return;
   }
   try {
@@ -2726,7 +2726,7 @@ async function sendBundledBrandAsset(response: ServerResponse, appRoot: string, 
     });
     response.end(content);
   } catch {
-    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>'));
+    sendHtml(response, 404, page('No trobat', '<p>Asset no trobat.</p>', 'ca'));
   }
 }
 
@@ -4508,9 +4508,9 @@ function normalizeCatalogMediaMimeType(mimeType: string | null, attachmentKind: 
   return attachmentKind === 'photo' ? 'image/jpeg' : 'application/octet-stream';
 }
 
-function page(titleOrOptions: string | RenderHttpPageOptions, body = ''): string {
+function page(titleOrOptions: string | RenderHttpPageOptions, body = '', language: RenderHttpPageOptions['language'] = 'es'): string {
   if (typeof titleOrOptions === 'string') {
-    return renderHttpPage({ title: titleOrOptions, body });
+    return renderHttpPage({ title: titleOrOptions, body, language });
   }
 
   return renderHttpPage(titleOrOptions);
@@ -4800,7 +4800,7 @@ function scheduleWebCreateFailedPage(settings: WebSettings, reason?: string): st
 }
 
 function feedbackPage(): string {
-  return page({ title: 'Feedback', body: '<form method="post"><label>Sobre que es?<select name="topic"><option value="bot">Bot</option><option value="club">Club</option><option value="both">Bot i club</option></select></label><label>Nom opciónal<input name="name" autocomplete="name"></label><label>Contacte opciónal<input name="contact" autocomplete="email"></label><label>Feedback<textarea name="message" required maxlength="4000"></textarea></label><button type="submit">Enviar feedback</button></form>' });
+  return page({ title: 'Feedback', language: 'ca', body: '<form method="post"><label>Sobre que es?<select name="topic"><option value="bot">Bot</option><option value="club">Club</option><option value="both">Bot i club</option></select></label><label>Nom opciónal<input name="name" autocomplete="name"></label><label>Contacte opciónal<input name="contact" autocomplete="email"></label><label>Feedback<textarea name="message" required maxlength="4000"></textarea></label><button type="submit">Enviar feedback</button></form>' });
 }
 
 function memberSignupPage(settings: WebSettings, error = ''): string {
@@ -4826,7 +4826,7 @@ function memberSignupConfirmationPage(
 
 function loginPage(error = ''): string {
   const errorHtml = error ? `<p>${escapeHtml(error)}</p>` : '';
-  return page({ title: 'Admin', body: `${errorHtml}<form method="post"><label>Contrasenya admin<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Entrar</button></form>`, shell: 'admin' });
+  return page({ title: 'Admin', language: 'ca', body: `${errorHtml}<form method="post"><label>Contrasenya admin<input name="password" type="password" required autocomplete="current-password"></label><button type="submit">Entrar</button></form>`, shell: 'admin' });
 }
 
 function welcomePage(settings: WebSettings): string {

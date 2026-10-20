@@ -123,6 +123,7 @@ export interface GroupPurchaseRepository {
     purchaseId: number;
     participantTelegramUserId: number;
     status: GroupPurchaseParticipantStatus;
+    preserveExistingStatus?: boolean;
   }): Promise<GroupPurchaseParticipantRecord>;
   listParticipantFieldValues(
     purchaseId: number,
@@ -220,12 +221,16 @@ export async function joinGroupPurchase({
   now?: () => Date;
 }): Promise<GroupPurchaseParticipantRecord> {
   const purchase = await loadPurchaseOrThrow(repository, purchaseId);
+  const participantId = normalizeTelegramUserId(participantTelegramUserId, 'participant');
+  const existing = await repository.findParticipant(purchaseId, participantId);
+  if (existing && existing.status !== 'removed') return existing;
   ensureJoinAllowed(purchase, now().toISOString());
 
   return repository.upsertParticipant({
     purchaseId,
-    participantTelegramUserId: normalizeTelegramUserId(participantTelegramUserId, 'participant'),
+    participantTelegramUserId: participantId,
     status: 'interested',
+    preserveExistingStatus: true,
   });
 }
 

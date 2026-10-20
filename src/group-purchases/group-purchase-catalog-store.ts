@@ -216,11 +216,12 @@ export function createDatabaseGroupPurchaseRepository({
             ...(input.status === 'paid' ? { paidAt: now } : {}),
             ...(input.status === 'delivered' ? { deliveredAt: now } : {}),
           },
+          ...(input.preserveExistingStatus ? { setWhere: eq(groupPurchaseParticipants.status, 'removed') } : {}),
         })
         .returning();
 
       const row = inserted[0];
-      if (!row) {
+      if (!row && !input.preserveExistingStatus) {
         throw new Error(`Group purchase participant ${input.participantTelegramUserId} for purchase ${input.purchaseId} not found`);
       }
 

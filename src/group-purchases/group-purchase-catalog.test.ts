@@ -309,6 +309,17 @@ test('createGroupPurchase rejects multiple quantity-affecting fields', async () 
   );
 });
 
+test('repeated joining preserves existing participation and payment states', async () => {
+  const repository = createRepository([createOpenPurchase({ id: 11, joinDeadlineAt: null })]);
+  for (const status of ['interested', 'confirmed', 'paid', 'delivered'] as const) {
+    const before = await repository.upsertParticipant({ purchaseId: 11, participantTelegramUserId: 77, status });
+    const after = await joinGroupPurchase({ repository, purchaseId: 11, participantTelegramUserId: 77 });
+    assert.deepEqual(after, before);
+  }
+  await repository.upsertParticipant({ purchaseId: 11, participantTelegramUserId: 77, status: 'removed' });
+  assert.equal((await joinGroupPurchase({ repository, purchaseId: 11, participantTelegramUserId: 77 })).status, 'interested');
+});
+
 test('joinGroupPurchase rejects purchases whose join deadline has expired', async () => {
   const repository = createRepository([
     createOpenPurchase({

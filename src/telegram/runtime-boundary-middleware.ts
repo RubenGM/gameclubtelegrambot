@@ -95,7 +95,6 @@ export function createMiddlewarePipeline({
       llmCommandService,
       llmCommandMetrics,
       ...(notionCredentialEncryptionKey ? { notionCredentialEncryptionKey } : {}),
-      ...(config.googleCalendar ? { googleCalendar: config.googleCalendar } : {}),
     }),
     createChatContextMiddleware({ services, isNewsEnabledGroup }),
     createActorMiddleware({ services, loadActor }),
@@ -303,6 +302,7 @@ function createRuntimeContextMiddleware({
       llmCommandService,
       llmCommandMetrics,
       ...(notionCredentialEncryptionKey ? { notionCredentialEncryptionKey } : {}),
+      ...(config.googleCalendar ? { googleCalendar: config.googleCalendar } : {}),
     };
 
     await next();

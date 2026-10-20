@@ -36,7 +36,7 @@ test('sendDueGroupPurchaseReminders sends confirmation reminders to interested p
   });
 
   assert.deepEqual(sent, [
-    { telegramUserId: 77, message: 'Recordatori: confirma la compra conjunta Samarretes abans del 28/04 a les 15:00.' },
+    { telegramUserId: 77, message: 'Recordatori: confirma la compra conjunta Samarretes abans del 28/04 a les 17:00.' },
   ]);
   assert.deepEqual(reminderRepository.records, [
     { purchaseId: 1, participantTelegramUserId: 77, reminderKind: 'confirm_deadline', leadHours: 24 },

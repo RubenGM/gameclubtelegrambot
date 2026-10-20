@@ -2,6 +2,7 @@ import type { GroupPurchaseDetailRecord, GroupPurchaseRecord } from '../group-pu
 import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, type BotLanguage } from './i18n.js';
 import { escapeHtml } from './schedule-presentation.js';
+import { groupPurchaseDateParts } from '../group-purchases/group-purchase-time.js';
 
 export function formatGroupPurchaseListMessage({
   purchases,
@@ -165,9 +166,7 @@ function formatSharedCostStatusLines(detail: GroupPurchaseDetailRecord): string[
 }
 
 function formatShortDate(iso: string): string {
-  const date = new Date(iso);
-  const day = String(date.getUTCDate()).padStart(2, '0');
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const { day, month } = groupPurchaseDateParts(iso);
   return `${day}/${month}`;
 }
 

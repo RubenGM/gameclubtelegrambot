@@ -1,6 +1,6 @@
 # Estado real de features
 
-Última revisión: 2026-10-19.
+Última revisión: 2026-10-21.
 
 Este documento refleja lo que existe en el código actual, no solo lo que aparece en planes o specs. Los estados usados son:
 
@@ -275,6 +275,7 @@ Integración Google Calendar:
   sobrevive a `./startup.sh`. La variable de entorno anterior sigue soportada.
 - `Inicio → Admin → Calendar Google` y `/google_calendar` permiten seleccionar el calendario asociado, alternar su accesibilidad pública/privada (privado por defecto) e iniciar o detener la sincronización automática.
 - La Agenda conserva la autoridad: las altas, ediciones y cancelaciones se envían a Google Calendar, mientras que los cambios manuales en Google no se importan al bot.
+- El contexto Telegram recibe la configuración efectiva de credenciales Calendar en cada actualización, incluido el archivo configurado durante el arranque; la gestión desde Telegram y la sincronización inmediata usan esa misma configuración.
 - Al iniciar la sincronización se reconcilian las actividades futuras existentes; un worker cada cinco minutos reintenta la sincronización de actividades futuras y cancelaciones recientes. Las cancelaciones ya borradas en Google (HTTP 404/410) se consideran completadas; los fallos de una actividad no bloquean las siguientes y se registran con los IDs afectados.
 - Los eventos sincronizados en Google Calendar incluyen en su descripción el aforo y el enlace directo al detalle web público de la actividad (`https://cawa.hopto.org/actividades/<id>`).
 - En grupos y topics, `@cawa_management_bot calendar` publica el enlace configurado en el mismo destino e intenta borrar el trigger si Telegram autoriza al bot. Un calendario privado sigue requiriendo que Google haya concedido acceso al socio o grupo.
@@ -470,6 +471,7 @@ Implementado:
 - Antes de crear, si no hay destinos suscritos a la categoría `/news` `avisos`, el bot avisa de que un admin debe configurar el canal/topic y no continúa.
 - Publicación sólo en grupos/topics suscritos específicamente a `avisos`, guardando cada `chat_id`, `message_thread_id` y `message_id` publicado; el mensaje publicado no muestra la duración interna del aviso.
 - Edición manual: el creador o cualquier admin puede modificar texto, adjuntos o duración; el bot borra las publicaciones anteriores y republica la versión actualizada.
+- El alta y la edición del aviso guardan texto, duración y adjuntos en una transacción PostgreSQL; si falla un adjunto, se conserva íntegra la versión anterior, incluidas las referencias a publicaciones existentes.
 - Archivo manual: el creador puede archivar sus propios avisos y cualquier admin puede archivar cualquier aviso; al archivar se intenta borrar automáticamente cada mensaje publicado.
 - Expiración automática dentro del servicio cada 15 minutos: archiva avisos vencidos y borra sus publicaciones de forma best-effort.
 - `Inicio` incluye hasta 3 avisos activos recientes en el resumen privado.
@@ -488,9 +490,10 @@ Implementado:
 - `/group_purchases` con crear y listar; el detalle permite consultar las personas confirmadas y a creador/admin ampliar, cambiar o retirar los plazos de inscripción y confirmación.
 - Modos de compra por unidad o coste compartido.
 - Descripciones enriquecidas con texto y adjuntos opcionales, botón directo de edición para admins/creador y enlaces de descripción en mensajes privados y de grupo; al editar se conserva un único mensaje de detalle e intenta borrar el anterior.
-- Deadlines de unión y confirmación.
+- Plazos de unión y confirmación interpretados hasta las 23:59:59 del día elegido en `Europe/Madrid`, persistidos como instantes UTC y mostrados en hora del club, también en los recordatorios y durante los cambios de horario de verano/invierno.
 - Campos personalizados de participante: entero, opción simple o texto; pueden afectar cantidad.
 - Unirse como interesado o confirmado, editar valores, salir, gestionar participantes y cambiar estados.
+- Repetir la inscripción con un botón antiguo conserva el estado y las fechas del participante; la escritura PostgreSQL sólo reactiva bajas y no rebaja confirmaciones, pagos o entregas ante una petición de inscripción concurrente.
 - Publicación automática de nuevas compras en destinos `/news group-purchases`: por defecto llega al grupo completo habilitado, y si existe una suscripción explícita por topic se publica con su `message_thread_id`.
 - Cada compra mantiene un único mensaje vivo por destino `chat_id` + `message_thread_id` y borra el mensaje anterior al publicar una actualización.
 - Actualizaciones automáticas en grupos/topics cuando alguien se apunta, confirma, edita la compra o se echa atrás; incluyen botones inline para detalle, descripción y participación privada, y en coste compartido muestran coste total, coste actual por persona y usuarios confirmados.
@@ -612,6 +615,7 @@ Implementado:
 - El despliegue Debian conserva `data/` al sincronizar código para no borrar feedback ni assets existentes o restaurados.
 - TUI `npm run backup:console`.
 - Consola admin Textual `npm run admin:console` con gestor especifico de Storage.
+- Las páginas HTML declaran castellano (`lang="es"`) por defecto y conservan `lang="ca"` explícito para los formularios y respuestas redactados en catalán; el renderizador admite también inglés.
 - Panel web admin protegido por contraseña de elevación, sesión firmada, token CSRF en acciones POST y límite de cinco fallos de login por cliente en quince minutos. `httpServer.trustedProxyAddresses` permite usar la IP válida de `X-Real-IP` sólo desde proxies explícitos que sustituyen esa cabecera; por defecto se ignoran cabeceras y se usa la IP de conexión. Las formas IPv6 equivalentes comparten clave; se cubren aislamiento entre clientes, cabeceras inválidas y conexiones no fiables.
 - `/admin` abre en un dashboard de estado y métricas principales con toolbar operativa, métricas compactas y tarjetas de navegación por dominio; la operación queda separada en secciones: socios/usuarios en `/admin/users`, bienvenidas de grupo en `/admin/welcome`, actividades en `/admin/activities`, catálogo en `/admin/catalog`, Storage en `/admin/storage`, Google Calendar en `/admin/google-calendar`, servicio/logs en `/admin/service`, configuración general —incluida la creación web de actividades y la URL pública usada por los accesos web emitidos desde Telegram— y cambio de token en `/admin/config`, backups en `/admin/backups`, feedback en `/admin/feedback`, feeds en `/admin/news` y altas web en `/admin/member-signups`. En pantallas móviles, esta navegación se recoge en un menú desplegable compacto y accesible para no desplazar el contenido varias filas hacia abajo.
 - `/admin/config` permite activar o desactivar la creación web de actividades y configurar la URL pública usada en los enlaces de Telegram; el ajuste se persiste en `app_metadata` y tiene efecto inmediato.

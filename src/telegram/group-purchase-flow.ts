@@ -37,6 +37,7 @@ import {
 } from './group-purchase-presentation.js';
 import { escapeHtml } from './schedule-presentation.js';
 import { parseDate } from './schedule-parsing.js';
+import { endOfGroupPurchaseDay, groupPurchaseDateParts } from '../group-purchases/group-purchase-time.js';
 import type { TelegramReplyOptions, TelegramSentMessage } from './runtime-boundary.js';
 
 const createFlowKey = 'group-purchase-create';
@@ -263,11 +264,22 @@ export async function handleTelegramGroupPurchaseCallback(context: TelegramGroup
       'group purchase',
     );
     const detail = await loadPurchaseDetailOrThrow(context, purchaseId);
+    const existingParticipant = detail.participants.find((entry) =>
+      entry.participantTelegramUserId === context.runtime.actor.telegramUserId && entry.status !== 'removed');
+    if (existingParticipant) {
+      await context.reply(formatGroupPurchaseDetailMessage({ detail, language }), buildGroupPurchaseDetailOptions(context, detail, language));
+      return true;
+    }
     const participant = await joinGroupPurchase({
       repository: resolveRepository(context),
       purchaseId,
       participantTelegramUserId: context.runtime.actor.telegramUserId,
     });
+    if (participant.status !== 'interested') {
+      const currentDetail = await loadPurchaseDetailOrThrow(context, purchaseId);
+      await context.reply(formatGroupPurchaseDetailMessage({ detail: currentDetail, language }), buildGroupPurchaseDetailOptions(context, currentDetail, language));
+      return true;
+    }
     const targetStatus: 'interested' | 'confirmed' = isJoinConfirmed ? 'confirmed' : 'interested';
     if (targetStatus === 'confirmed' && detail.fields.length === 0) {
       await changeGroupPurchaseParticipantStatus({
@@ -1001,12 +1013,7 @@ function parseDeadline(text: string): string | null {
   if (parsed instanceof Error) {
     return null;
   }
-  const [yearText, monthText, dayText] = parsed.split('-');
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const date = new Date(Date.UTC(year, month - 1, day, 23, 59, 59));
-  return date.toISOString();
+  return endOfGroupPurchaseDay(parsed);
 }
 
 function hasQuantityField(fields: GroupPurchaseFieldInput[]): boolean {
@@ -1042,8 +1049,8 @@ function formatDeadlineSummary(value: string | null | undefined): string {
   if (!value) {
     return 'Sense data limit';
   }
-  const date = new Date(value);
-  return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${date.getUTCFullYear()}`;
+  const { day, month, year } = groupPurchaseDateParts(value);
+  return `${day}/${month}/${year}`;
 }
 
 function formatMoney(cents: number): string {

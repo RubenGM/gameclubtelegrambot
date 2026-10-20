@@ -773,11 +773,15 @@ test('admin http server exposes public feedback and protects admin pages', async
 
     const feedbackPage = await fetch(`${baseUrl}/feedback`);
     assert.equal(feedbackPage.status, 200);
-    assert.match(await feedbackPage.text(), /Enviar feedback/);
+    const feedbackHtml = await feedbackPage.text();
+    assert.match(feedbackHtml, /Enviar feedback/);
+    assert.match(feedbackHtml, /<html lang="ca"/);
 
     const signupPage = await fetch(`${baseUrl}/alta`);
     assert.equal(signupPage.status, 200);
-    assert.match(await signupPage.text(), /Alta como socio/);
+    const signupHtml = await signupPage.text();
+    assert.match(signupHtml, /Alta como socio/);
+    assert.match(signupHtml, /<html lang="es"/);
 
     const invalidSignupResponse = await fetch(`${baseUrl}/alta`, {
       method: 'POST',

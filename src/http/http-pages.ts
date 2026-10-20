@@ -8,6 +8,7 @@ export interface PageNavItem {
 export interface RenderHttpPageOptions {
   title: string;
   body: string;
+  language?: 'ca' | 'es' | 'en';
   navItems?: PageNavItem[];
   themeName?: string | null;
   shell?: 'public' | 'admin';
@@ -50,6 +51,7 @@ const adminNavItems: PageNavItem[] = [
 export function renderHttpPage({
   title,
   body,
+  language = 'es',
   navItems,
   themeName = defaultHttpThemeName,
   shell = 'public',
@@ -60,7 +62,7 @@ export function renderHttpPage({
   const theme = resolveHttpTheme(themeName);
   const resolvedNavItems = navItems ?? (shell === 'admin' ? adminNavItems : publicNavItems);
   const favicon = faviconAsset ? `<link rel="icon" href="${escapeHtml(faviconAsset)}" type="image/svg+xml">` : '';
-  return `<!doctype html><html lang="ca" data-theme="${escapeHtml(theme.name)}" data-shell="${escapeHtml(shell)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${favicon}<title>${escapeHtml(title)}</title><style>${renderHttpThemeCss(theme.name)}${baseCss()}</style></head><body><header class="site-header">${renderBrand(headerBrandName, headerLogoAsset ?? defaultBrandLogoAsset)}${renderNav(resolvedNavItems, shell === 'admin')}</header><main class="page-shell"><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
+  return `<!doctype html><html lang="${language}" data-theme="${escapeHtml(theme.name)}" data-shell="${escapeHtml(shell)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${favicon}<title>${escapeHtml(title)}</title><style>${renderHttpThemeCss(theme.name)}${baseCss()}</style></head><body><header class="site-header">${renderBrand(headerBrandName, headerLogoAsset ?? defaultBrandLogoAsset)}${renderNav(resolvedNavItems, shell === 'admin')}</header><main class="page-shell"><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
 }
 
 export function renderNav(items: PageNavItem[], collapsibleOnMobile = false): string {

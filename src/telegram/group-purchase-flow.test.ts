@@ -1207,8 +1207,8 @@ test('creator can extend join and confirmation deadlines', async () => {
   await handleTelegramGroupPurchaseText(context);
 
   const purchase = await repository.findPurchaseById(53);
-  assert.match(purchase?.joinDeadlineAt ?? '', /-10-30T23:59:59\.000Z$/);
-  assert.match(purchase?.confirmDeadlineAt ?? '', /-10-31T23:59:59\.000Z$/);
+  assert.match(purchase?.joinDeadlineAt ?? '', /-10-30T22:59:59\.000Z$/);
+  assert.match(purchase?.confirmDeadlineAt ?? '', /-10-31T22:59:59\.000Z$/);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'group_purchase.updated');
   assert.equal(getCurrentSession(), null);
 });
@@ -1569,4 +1569,26 @@ test('manager status change notifies the affected participant privately', async 
   assert.equal(privateMessages.at(-1)?.telegramUserId, 77);
   assert.match(privateMessages.at(-1)?.message ?? '', /paid/i);
   assert.equal(auditRepository.__events.at(-1)?.actionKey, 'group_purchase.participant_status_changed');
+});
+
+test('old join buttons preserve paid participants without starting a new flow or publication', async () => {
+  const repository = createRepository([buildPurchase({ id: 63, joinDeadlineAt: null })]);
+  const before = await repository.upsertParticipant({ purchaseId: 63, participantTelegramUserId: 7, status: 'paid' });
+  const auditRepository = createAuditRepository();
+  const { context, getCurrentSession } = createContext(repository, { auditRepository });
+  for (const callback of ['join:', 'join_interested:', 'join_confirmed:']) {
+    context.callbackData = `group_purchase:${callback}63`;
+    assert.equal(await handleTelegramGroupPurchaseCallback(context), true);
+    assert.deepEqual(await repository.findParticipant(63, 7), before);
+    assert.equal(getCurrentSession(), null);
+  }
+  assert.equal(auditRepository.__events.length, 0);
+});
+
+test('creation interprets deadline input as the end of the Madrid day', async () => {
+  const { context, getCurrentSession } = createContext(createRepository());
+  await context.runtime.session.start({ flowKey: 'group-purchase-create', stepKey: 'join-deadline', data: { fields: [] } });
+  context.messageText = '30/06/2099';
+  assert.equal(await handleTelegramGroupPurchaseText(context), true);
+  assert.equal(getCurrentSession()?.data.joinDeadlineAt, '2099-06-30T21:59:59.000Z');
 });
