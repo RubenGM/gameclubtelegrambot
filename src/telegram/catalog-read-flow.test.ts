@@ -21,6 +21,36 @@ function successButton(text: string) {
   return { text, semanticRole: 'success' as const };
 }
 
+for (const language of ['ca', 'es', 'en'] as const) {
+  test(`catalog initial index keeps rich rows, navigation and page boundaries in ${language}`, async () => {
+    const items = ['1960', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((name, index) => buildItem(index + 1, name));
+    const { context, replies } = createContext(createRepository({ items }));
+    const sent: TelegramRichMessageInput[] = [];
+    context.runtime.bot.language = language;
+    context.runtime.bot.sendRichMessage = async (message) => { sent.push(message); };
+    context.messageText = '/catalog_search';
+    await handleTelegramCatalogReadCommand(context);
+    assert.equal(replies.length, 0);
+    assert.match(sent[0]?.richMessage.html ?? '', /<table compact>/);
+    assert.match(sent[0]?.richMessage.html ?? '', /catalog_read_letter_hash_AB/);
+    assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /catalog_read_letter_OPQ/);
+    assert.match(sent[0]?.fallbackText ?? '', /1\/2/);
+    assert.ok(sent[0]?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === catalogReadCallbackPrefixes.pageNext));
+    context.callbackData = catalogReadCallbackPrefixes.pageNext;
+    await handleTelegramCatalogReadCallback(context);
+    assert.match(sent[1]?.richMessage.html ?? '', /catalog_read_letter_OPQ/);
+    assert.doesNotMatch(sent[1]?.richMessage.html ?? '', /catalog_read_letter_hash_AB/);
+    assert.match(sent[1]?.fallbackText ?? '', /2\/2/);
+    await handleTelegramCatalogReadCallback(context);
+    assert.equal(sent[2]?.fallbackText, sent[1]?.fallbackText);
+    context.callbackData = catalogReadCallbackPrefixes.pagePrev;
+    await handleTelegramCatalogReadCallback(context);
+    assert.equal(sent[3]?.fallbackText, sent[0]?.fallbackText);
+    await handleTelegramCatalogReadCallback(context);
+    assert.equal(sent[4]?.fallbackText, sent[0]?.fallbackText);
+  });
+}
+
 test('rich catalog search escapes the query and keeps item links and navigation', async () => {
   const { context, replies } = createContext(createRepository({ items: [buildItem(1, 'Catan <Club> & Amics')] }));
   const sent: TelegramRichMessageInput[] = [];
@@ -380,10 +410,10 @@ test('handleTelegramCatalogReadCommand groups the overview by initial letter', a
 
   await handleTelegramCatalogReadCommand(context);
 
-  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_letter_ABC"><b>A B C - 5 articles<\/b><\/a>/);
-  assert.match(replies[0]?.message ?? '', /4 jocs de taula/);
+  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_letter_ABC"><b>A B C<\/b><\/a>/);
+  assert.match(replies[0]?.message ?? '', /4 jocs/);
   assert.match(replies[0]?.message ?? '', /1 llibre/);
-  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_letter_D"><b>D - 1 article<\/b><\/a>/);
+  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_letter_D"><b>D<\/b><\/a>/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Unused group/);
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 
@@ -402,13 +432,13 @@ test('handleTelegramCatalogReadCommand groups the overview by initial letter', a
   replies.length = 0;
   context.callbackData = `${catalogReadCallbackPrefixes.inspectFamily}999`;
   assert.equal(await handleTelegramCatalogReadCallback(context), true);
-  assert.match(replies[0]?.message ?? '', /A B C - 5 articles/);
+  assert.match(replies[0]?.message ?? '', /<b>A B C<\/b><\/a> — 4 jocs · 1 llibre/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Família|Family|Categoria/);
 
   replies.length = 0;
   context.callbackData = `${catalogReadCallbackPrefixes.inspectGroup}999`;
   assert.equal(await handleTelegramCatalogReadCallback(context), true);
-  assert.match(replies[0]?.message ?? '', /A B C - 5 articles/);
+  assert.match(replies[0]?.message ?? '', /<b>A B C<\/b><\/a> — 4 jocs · 1 llibre/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Grup|Group/);
 });
 
@@ -483,8 +513,8 @@ test('handleTelegramCatalogReadCommand keeps the overview message compact for la
   await handleTelegramCatalogReadCommand(context);
 
   assert.ok((replies[0]?.message.length ?? 0) < 4096);
-  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_letter_G"><b>G - 120 articles<\/b><\/a>/);
-  assert.match(replies[0]?.message ?? '', /120 jocs de taula/);
+  assert.match(replies[0]?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_read_letter_G"><b>G<\/b><\/a>/);
+  assert.match(replies[0]?.message ?? '', /120 jocs/);
 });
 
 test('handleTelegramCatalogReadCommand escapes HTML-sensitive labels in the overview', async () => {
@@ -781,7 +811,7 @@ test('handleTelegramCatalogReadText opens the catalog from the member keyboard a
   const handled = await handleTelegramCatalogReadText(context);
 
   assert.equal(handled, true);
-  assert.match(replies[0]?.message ?? '', /A - 1 article/);
+  assert.match(replies[0]?.message ?? '', /catalog_read_letter_A"><b>A<\/b><\/a> — 1 joc/);
   assert.doesNotMatch(replies[0]?.message ?? '', /Alpha/);
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
 

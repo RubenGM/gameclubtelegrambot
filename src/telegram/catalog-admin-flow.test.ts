@@ -48,6 +48,28 @@ function dangerButton(text: string) {
   return { text, semanticRole: 'danger' as const };
 }
 
+test('admin catalog menu uses the compact initial index with its persistent keyboard', async () => {
+  const repository = createRepository({ items: [
+    createCatalogItemFixture({ id: 1, displayName: 'Azul' }),
+    createCatalogItemFixture({ id: 2, displayName: 'Brass' }),
+    createCatalogItemFixture({ id: 3, displayName: 'Dune', itemType: 'book' }),
+  ] });
+  const { context, replies } = createContext({ repository, language: 'es' });
+  const sent: Array<{ html: string; fallback: string; options?: TelegramReplyOptions }> = [];
+  context.runtime.bot.sendRichMessage = async (message) => {
+    sent.push({ html: message.richMessage.html ?? '', fallback: message.fallbackText, ...(message.options ? { options: message.options } : {}) });
+  };
+  context.messageText = 'Catálogo';
+  assert.equal(await handleTelegramCatalogAdminText(context), true);
+  assert.equal(replies.length, 0);
+  assert.match(sent[0]?.html ?? '', /^<h2>Catálogo<\/h2><p>3 artículos<\/p><table compact>/);
+  assert.match(sent[0]?.html ?? '', /catalog_admin_letters_ABD/);
+  assert.match(sent[0]?.html ?? '', /<td align="right">2 juegos · 1 libro<\/td>/);
+  assert.match(sent[0]?.fallback ?? '', /<b>A B D<\/b><\/a> — 2 juegos · 1 libro/);
+  assert.ok(sent[0]?.options?.persistentKeyboard);
+  assert.deepEqual(sent[0]?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
+});
+
 function buttonText(button: string | { text: string }): string {
   return typeof button === 'string' ? button : button.text;
 }
@@ -1393,8 +1415,8 @@ test('handleTelegramCatalogAdminText shows expansion counts in the compact initi
   context.messageText = 'Listar expansiones';
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
-  assert.match(replies.at(-1)?.message ?? '', /R - 1 artículo/);
-  assert.match(replies.at(-1)?.message ?? '', /1 juego de mesa/);
+  assert.match(replies.at(-1)?.message ?? '', /catalog_admin_letters_R"><b>R<\/b><\/a> — 1 juego/);
+  assert.match(replies.at(-1)?.message ?? '', /1 artículo/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Riverfolk Expansion/);
 });
 
@@ -3302,9 +3324,9 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.messageText = catalogAdminLabels.listBoardGames;
   assert.equal(await handleTelegramCatalogAdminText(context), true);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ítems de catàleg:/);
-  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_letters_AD"><b>A D - 3 artículos<\/b><\/a>/);
-  assert.match(replies.at(-1)?.message ?? '', /A D - 3 artículos/);
-  assert.match(replies.at(-1)?.message ?? '', /3 juegos de mesa/);
+  assert.match(replies.at(-1)?.message ?? '', /<a href="https:\/\/t\.me\/cawa_management_bot\?start=catalog_admin_letters_AD"><b>A D<\/b><\/a>/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>A D<\/b><\/a> — 3 jocs/);
+  assert.match(replies.at(-1)?.message ?? '', /3 jocs/);
   assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
 
@@ -3320,7 +3342,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}7`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Categoria|Arkham Horror/);
-  assert.match(replies.at(-1)?.message ?? '', /A D - 3 artículos/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>A D<\/b><\/a> — 3 jocs/);
 
   context.callbackData = `${catalogAdminCallbackPrefixes.inspect}4`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
@@ -5046,8 +5068,8 @@ test('handleTelegramCatalogAdminText hides deactivated items from the normal cat
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ítems de catàleg:/);
-  assert.match(replies.at(-1)?.message ?? '', /A - 1 artículo/);
-  assert.match(replies.at(-1)?.message ?? '', /1 libro/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>A<\/b><\/a> — 1 llibre/);
+  assert.match(replies.at(-1)?.message ?? '', /1 llibre/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Desactivat/);
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}A`;
@@ -5139,8 +5161,8 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
   assert.equal(await handleTelegramCatalogAdminText(context), true);
 
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Ítems de catàleg:/);
-  assert.match(replies.at(-1)?.message ?? '', /E M - 2 artículos/);
-  assert.match(replies.at(-1)?.message ?? '', /2 libros/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>E M<\/b><\/a> — 2 llibres/);
+  assert.match(replies.at(-1)?.message ?? '', /2 llibres/);
   assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes(catalogAdminLabels.searchByName));
 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}EM`;
@@ -5155,7 +5177,7 @@ test('handleTelegramCatalogAdminText groups standalone items under their family 
   context.callbackData = `${catalogAdminCallbackPrefixes.browseFamily}1`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Categoria|Mundodisco/);
-  assert.match(replies.at(-1)?.message ?? '', /E M - 2 artículos/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>E M<\/b><\/a> — 2 llibres/);
 });
 
 test('handleTelegramCatalogAdminText can search catalog items by name', async () => {

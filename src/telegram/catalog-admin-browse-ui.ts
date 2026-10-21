@@ -1,6 +1,5 @@
 import type { CatalogFamilyRecord, CatalogGroupRecord, CatalogItemRecord } from '../catalog/catalog-model.js';
 import { escapeHtml, formatHtmlField } from './catalog-presentation.js';
-import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n } from './i18n.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 
@@ -73,19 +72,6 @@ export function buildCatalogAdminBrowseSearchKeyboard({
   ];
 }
 
-export function formatCatalogAdminItemList({
-  items,
-}: {
-  texts: CatalogAdminTexts;
-  families: CatalogFamilyRecord[];
-  groups: CatalogGroupRecord[];
-  items: CatalogItemRecord[];
-  itemLines: Map<number, string>;
-  browseLettersPrefix: string;
-}): string {
-  return compactCatalogAdminMessage(formatCatalogAdminInitialBuckets(items));
-}
-
 function compactCatalogAdminMessage(lines: string[]): string {
   const visibleLines: string[] = [];
   let currentLength = 0;
@@ -107,76 +93,6 @@ function compactCatalogAdminMessage(lines: string[]): string {
   }
 
   return visibleLines.join('\n');
-}
-
-function formatCatalogAdminInitialBuckets(items: CatalogItemRecord[]): string[] {
-  return buildCatalogAdminInitialBuckets(items)
-    .flatMap((initials) => {
-      const href = buildTelegramStartUrl(`catalog_admin_letters_${serializeCatalogAdminInitialsStartPayload(initials.initials.join(''))}`);
-      return [
-        `<a href="${escapeHtml(href)}"><b>${escapeHtml(initials.label)}</b></a>`,
-        ...formatCatalogAdminTypeCounts(initials.items),
-        '',
-      ];
-    })
-    .slice(0, -1);
-}
-
-function buildCatalogAdminInitialBuckets(items: CatalogItemRecord[]): Array<{ initials: string[]; label: string; items: CatalogItemRecord[] }> {
-  const buckets = new Map<string, CatalogItemRecord[]>();
-
-  for (const item of items) {
-    const initial = getCatalogAdminItemInitial(item);
-    buckets.set(initial, [...(buckets.get(initial) ?? []), item]);
-  }
-
-  const sortedInitials = Array.from(buckets.keys()).sort((left, right) => left.localeCompare(right));
-  return chunkArray(sortedInitials, 3).map((initials) => {
-    const bucketItems = initials.flatMap((initial) => buckets.get(initial) ?? []);
-    const label = `${initials.join(' ')} - ${bucketItems.length} ${bucketItems.length === 1 ? 'artículo' : 'artículos'}`;
-    return { initials, label, items: bucketItems };
-  });
-}
-
-function getCatalogAdminItemInitial(item: CatalogItemRecord): string {
-  const first = item.displayName.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').at(0)?.toUpperCase() ?? '#';
-  return /^[A-Z]$/.test(first) ? first : '#';
-}
-
-function serializeCatalogAdminInitialsStartPayload(value: string): string {
-  const normalized = Array.from(new Set(value.trim().toUpperCase().replace(/[^A-Z#]/g, '').split(''))).join('');
-  if (normalized.startsWith('#')) {
-    return `hash_${normalized.slice(1)}`;
-  }
-
-  return normalized;
-}
-
-function formatCatalogAdminTypeCounts(items: CatalogItemRecord[]): string[] {
-  const boardGameCount = items.filter((item) => item.itemType === 'board-game' || item.itemType === 'expansion').length;
-  const bookCount = items.filter((item) => item.itemType === 'book' || item.itemType === 'rpg-book').length;
-  const accessoryCount = items.filter((item) => item.itemType === 'accessory').length;
-  const lines: string[] = [];
-
-  if (boardGameCount > 0) {
-    lines.push(`${boardGameCount} ${boardGameCount === 1 ? 'juego de mesa' : 'juegos de mesa'}`);
-  }
-  if (bookCount > 0) {
-    lines.push(`${bookCount} ${bookCount === 1 ? 'libro' : 'libros'}`);
-  }
-  if (accessoryCount > 0) {
-    lines.push(`${accessoryCount} ${accessoryCount === 1 ? 'accesorio' : 'accesorios'}`);
-  }
-
-  return lines;
-}
-
-function chunkArray<T>(values: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size));
-  }
-  return chunks;
 }
 
 export function buildCatalogAdminSelectionKeyboard({

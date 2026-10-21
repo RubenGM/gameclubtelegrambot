@@ -1,4 +1,5 @@
 import { replyWithCatalogItemTable } from './catalog-item-table.js';
+import { buildCatalogInitialBuckets, replyWithCatalogInitialIndex } from './catalog-initial-index.js';
 import { buildCatalogRichDetailMessage, replyWithCatalogRichMessage } from './catalog-rich-message.js';
 import type { CatalogMediaRecord, CatalogRepository, CatalogFamilyRecord, CatalogGroupRecord, CatalogItemRecord } from '../catalog/catalog-model.js';
 import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
@@ -12,7 +13,6 @@ import {
   formatMemberCatalogGroupDetails,
   formatMemberCatalogItemDetails,
   formatCatalogItemSummaryDetails,
-  formatMemberCatalogOverview,
   formatHtmlField,
   renderCatalogItemType,
 } from './catalog-presentation.js';
@@ -283,12 +283,20 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
   const texts = createTelegramI18n(language);
 
   if (state.view === 'overview') {
-    const entries = buildOverviewEntries({ items, language });
+    const entries = buildCatalogInitialBuckets(items);
     const page = paginateEntries(entries, state.page);
-    await replyWithCatalogRichMessage(context,
-      `${formatMemberCatalogOverview({ families, groups, items, language })}\n\n${formatEntryPage(page.items, page.page, page.totalPages, language)}`,
-      { ...buildListNavigationOptions([], state, page.totalPages > 1, language), parseMode: 'HTML' },
-    );
+    if (state.page !== page.page) {
+      await persistCatalogReadState(context, { ...state, page: page.page });
+    }
+    const pageLabel = language === 'ca' ? 'Pàgina' : language === 'es' ? 'Página' : 'Page';
+    await replyWithCatalogInitialIndex(context, {
+      buckets: page.items,
+      totalCount: items.length,
+      startPayloadPrefix: 'catalog_read_letter_',
+      language,
+      footerText: `${pageLabel} ${page.page}/${page.totalPages}`,
+      hint: texts.catalogRead.searchHint,
+    }, buildListNavigationOptions([], state, page.totalPages > 1, language));
     return;
   }
 
@@ -732,29 +740,6 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
-function buildOverviewEntries({ items, language }: { items: CatalogItemRecord[]; language: 'ca' | 'es' | 'en'; }): CatalogBrowseEntry[] {
-  const buckets = new Map<string, CatalogItemRecord[]>();
-
-  for (const item of items) {
-    const initial = getCatalogItemInitial(item);
-    buckets.set(initial, [...(buckets.get(initial) ?? []), item]);
-  }
-
-  const sortedInitials = Array.from(buckets.keys()).sort((left, right) => left.localeCompare(right));
-  return chunkArray(sortedInitials, 3)
-    .map((initials, index) => {
-      const bucketItems = initials.flatMap((initial) => buckets.get(initial) ?? []);
-      const initialSet = initials.join('');
-      return {
-      kind: 'letter' as const,
-      id: index + 1,
-      label: `${formatInitialSetLabel(initialSet)} - ${bucketItems.length} ${articleCountLabel(bucketItems.length, language)}`,
-      subtitle: formatLetterCounts(bucketItems, language).join('\n'),
-      initial: initialSet,
-      };
-    });
-}
-
 async function buildLetterEntries(context: TelegramCatalogReadContext, { items, activeLoansByItemId, initials }: { items: CatalogItemRecord[]; activeLoansByItemId: Map<number, CatalogLoanRecord>; initials: string; }): Promise<CatalogBrowseEntry[]> {
   const initialSet = new Set(normalizeInitialSet(initials).split(''));
   return Promise.all(items
@@ -945,33 +930,6 @@ function formatInitialSetLabel(initials: string): string {
   return normalizeInitialSet(initials).split('').join(' ');
 }
 
-function chunkArray<T>(values: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size));
-  }
-  return chunks;
-}
-
-function formatLetterCounts(items: CatalogItemRecord[], language: 'ca' | 'es' | 'en'): string[] {
-  const boardGameCount = items.filter((item) => item.itemType === 'board-game' || item.itemType === 'expansion').length;
-  const bookCount = items.filter((item) => item.itemType === 'book' || item.itemType === 'rpg-book').length;
-  const accessoryCount = items.filter((item) => item.itemType === 'accessory').length;
-  const lines: string[] = [];
-
-  if (boardGameCount > 0) {
-    lines.push(`${boardGameCount} ${boardGameCountLabel(boardGameCount, language)}`);
-  }
-  if (bookCount > 0) {
-    lines.push(`${bookCount} ${bookCountLabel(bookCount, language)}`);
-  }
-  if (accessoryCount > 0) {
-    lines.push(`${accessoryCount} ${accessoryCountLabel(accessoryCount, language)}`);
-  }
-
-  return lines;
-}
-
 function articleCountLabel(count: number, language: 'ca' | 'es' | 'en'): string {
   if (language === 'es') {
     return count === 1 ? 'artículo' : 'artículos';
@@ -980,36 +938,6 @@ function articleCountLabel(count: number, language: 'ca' | 'es' | 'en'): string 
     return count === 1 ? 'item' : 'items';
   }
   return count === 1 ? 'article' : 'articles';
-}
-
-function boardGameCountLabel(count: number, language: 'ca' | 'es' | 'en'): string {
-  if (language === 'es') {
-    return count === 1 ? 'juego de mesa' : 'juegos de mesa';
-  }
-  if (language === 'en') {
-    return count === 1 ? 'board game' : 'board games';
-  }
-  return count === 1 ? 'joc de taula' : 'jocs de taula';
-}
-
-function bookCountLabel(count: number, language: 'ca' | 'es' | 'en'): string {
-  if (language === 'es') {
-    return count === 1 ? 'libro' : 'libros';
-  }
-  if (language === 'en') {
-    return count === 1 ? 'book' : 'books';
-  }
-  return count === 1 ? 'llibre' : 'llibres';
-}
-
-function accessoryCountLabel(count: number, language: 'ca' | 'es' | 'en'): string {
-  if (language === 'es') {
-    return count === 1 ? 'accesorio' : 'accesorios';
-  }
-  if (language === 'en') {
-    return count === 1 ? 'accessory' : 'accessories';
-  }
-  return count === 1 ? 'accessori' : 'accessoris';
 }
 
 function resolveCatalogRepository(context: TelegramCatalogReadContext): CatalogRepository {

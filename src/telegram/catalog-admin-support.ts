@@ -4,6 +4,7 @@ import { catalogPhotoTexts } from './i18n-catalog-photo.js';
 import { createDatabaseCatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event-store.js';
 import type { CatalogLoanNewsEventRepository } from '../catalog/catalog-loan-news-event.js';
 import { replyWithCatalogItemTable, type CatalogTableEntry } from './catalog-item-table.js';
+import { buildCatalogInitialBuckets, replyWithCatalogInitialIndex } from './catalog-initial-index.js';
 import { replyWithCatalogRichMessage } from './catalog-rich-message.js';
 import { chmod, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -132,7 +133,6 @@ import {
   buildCatalogAdminBrowseSearchKeyboard,
   buildCatalogAdminSelectionKeyboard,
   formatCatalogAdminFamilyBrowseMessage,
-  formatCatalogAdminItemList,
 } from './catalog-admin-browse-ui.js';
 import { parseCatalogAdminCallbackRoute } from './catalog-admin-callback-routing.js';
 import {
@@ -3604,7 +3604,8 @@ async function replyWithCatalogList(
   mode: 'list' | 'edit' | 'deactivate',
   itemTypeFilter?: CatalogItemType,
 ): Promise<void> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
+  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
+  const texts = createTelegramI18n(language).catalogAdmin;
   if (mode === 'list') {
     await context.runtime.session.start({ flowKey: browseFlowKey, stepKey: 'menu', data: {} });
   }
@@ -3612,6 +3613,15 @@ async function replyWithCatalogList(
     .filter((item) => itemTypeFilter ? item.itemType === itemTypeFilter : item.itemType !== 'expansion');
   if (items.length === 0) {
     await replyWithCatalogRichMessage(context, texts.noItems, buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca'), context.runtime.actor.isAdmin));
+    return;
+  }
+  if (mode === 'list') {
+    await replyWithCatalogInitialIndex(context, {
+      buckets: buildCatalogInitialBuckets(items),
+      totalCount: items.length,
+      startPayloadPrefix: 'catalog_admin_letters_',
+      language,
+    }, buildCatalogAdminMenuOptions(language, context.runtime.actor.isAdmin));
     return;
   }
   const inlineKeyboard = buildCatalogAdminSelectionKeyboard({
@@ -3622,10 +3632,8 @@ async function replyWithCatalogList(
     deactivatePrefix: catalogAdminCallbackPrefixes.deactivate,
   });
   await replyWithCatalogRichMessage(context,
-    mode === 'list' ? await formatCatalogItemList(context, items, itemTypeFilter !== undefined) : mode === 'edit' ? texts.chooseItemToEdit : texts.chooseItemToDeactivate,
-    mode === 'list'
-      ? { ...buildCatalogAdminMenuOptions(normalizeBotLanguage(context.runtime.bot.language, 'ca'), context.runtime.actor.isAdmin), parseMode: 'HTML' }
-      : { inlineKeyboard },
+    mode === 'edit' ? texts.chooseItemToEdit : texts.chooseItemToDeactivate,
+    { inlineKeyboard },
   );
 }
 
@@ -3856,31 +3864,6 @@ async function withCompatibleGroup(
     return { ...data, familyId, groupId: null };
   }
   return { ...data, familyId, groupId: currentGroupId };
-}
-
-async function formatCatalogItemList(
-  context: TelegramCatalogAdminContext,
-  items: CatalogItemRecord[],
-  omitTypeLabel = false,
-): Promise<string> {
-  const texts = createTelegramI18n(normalizeBotLanguage(context.runtime.bot.language, 'ca')).catalogAdmin;
-  const repository = resolveCatalogRepository(context);
-  const loanRepository = resolveCatalogLoanRepository(context);
-  const families = await repository.listFamilies();
-  const groups = await listCatalogGroups({ repository });
-  const activeLoans = await loadActiveLoansByItemMap(loanRepository, items);
-  const itemLines = new Map<number, string>(await Promise.all(items.map(async (item): Promise<[number, string]> => [
-    item.id,
-    await formatCatalogListItemLine(context, item, activeLoans.get(item.id) ?? null, 'Disponible', omitTypeLabel),
-  ])));
-  return formatCatalogAdminItemList({
-    texts,
-    families,
-    groups,
-    items,
-    itemLines,
-    browseLettersPrefix: catalogAdminCallbackPrefixes.browseLetters,
-  });
 }
 
 async function buildCatalogItemDetailButtons(
