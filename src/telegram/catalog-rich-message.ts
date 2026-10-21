@@ -1,6 +1,6 @@
 import { escapeHtml } from './catalog-presentation.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
-import { splitDetailLines } from './rich-detail-message.js';
+import { renderTelegramRichDetailTable, splitDetailLines } from './rich-detail-message.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { TelegramRichMessage, TelegramRichMessageTransport } from './rich-message-transport.js';
 
@@ -47,27 +47,15 @@ export function buildCatalogRichMessage(title: string, html: string): TelegramRi
   return { html: parts.join('') };
 }
 
-/** Give item facts priority while retaining every permission-filtered detail and link. */
+/** Match activity details while retaining permission-filtered fields and catalog navigation. */
 export function buildCatalogRichDetailMessage(title: string, html: string, language = 'ca'): TelegramRichMessage {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
   const fieldLabel = (label: string) => `${escapeHtml(label)}:`;
-  const metrics = new Map([
-    [fieldLabel(texts.catalogAdmin.players), '👥'],
-    [fieldLabel(texts.catalogAdmin.playTimeMinutes), '⏱'],
-    [fieldLabel(texts.catalogAdmin.recommendedAge), ''],
-  ]);
   const availabilityLabel = fieldLabel(texts.catalogLoan.availabilityAvailable);
-  const primaryLabels = new Set([
-    availabilityLabel,
-    fieldLabel(texts.catalogLoan.availabilityHas),
-    fieldLabel(texts.catalogAdmin.storagePosition),
-  ]);
-  const metricParts: string[] = [];
-  const primaryRows: string[] = [];
-  const detailRows: string[] = [];
+  const descriptionLabel = fieldLabel(texts.catalogAdmin.description);
+  const rows: Array<{ labelHtml: string; valueHtml: string }> = [];
   const introduction: string[] = [];
   const paragraphs: string[] = [];
-  const descriptions: string[] = [];
   const heading = `<b>${escapeHtml(title)}</b>`;
   let bodyStarted = false;
   for (const line of splitDetailLines(html)) {
@@ -78,33 +66,18 @@ export function buildCatalogRichDetailMessage(title: string, html: string, langu
       bodyStarted = true;
       const label = field[1]!;
       const value = field[2]!;
-      if (label === fieldLabel(texts.catalogAdmin.description)) {
-        descriptions.push(value);
-      } else if (metrics.has(label)) {
-        const icon = metrics.get(label);
-        metricParts.push(`${icon ? `${icon} ` : ''}<b>${label}</b> ${value}`);
-      } else {
-        const emphasizedValue = label === availabilityLabel
-          ? value === escapeHtml(texts.catalogLoan.availabilityLoaned) ? `<mark>${value}</mark>` : `<b>${value}</b>`
-          : value;
-        const row = `<tr><th>${label}</th><td>${emphasizedValue}</td></tr>`;
-        (primaryLabels.has(label) ? primaryRows : detailRows).push(row);
-      }
-    } else if (line.startsWith(`${fieldLabel(texts.catalogAdmin.description)} `)) {
-      descriptions.push(line.slice(fieldLabel(texts.catalogAdmin.description).length + 1));
+      const valueHtml = label === availabilityLabel
+        ? value === escapeHtml(texts.catalogLoan.availabilityLoaned) ? `<mark>${value}</mark>` : `<b>${value}</b>`
+        : value;
+      rows.push({ labelHtml: label, valueHtml });
+    } else if (line.startsWith(`${descriptionLabel} `)) {
+      bodyStarted = true;
+      rows.push({ labelHtml: descriptionLabel, valueHtml: line.slice(descriptionLabel.length + 1) });
     } else {
       (bodyStarted ? paragraphs : introduction).push(`<p>${line}</p>`);
     }
   }
-  return { html: [
-    `<h2>${escapeHtml(title)}</h2>`,
-    ...introduction,
-    ...(metricParts.length ? [`<p>${metricParts.join(' · ')}</p>`] : []),
-    ...(primaryRows.length ? [`<table compact>${primaryRows.join('')}</table>`] : []),
-    ...(detailRows.length ? [`<table compact>${detailRows.join('')}</table>`] : []),
-    ...(descriptions.length ? [`<h3>${escapeHtml(texts.catalogAdmin.description)}</h3>`, ...descriptions.map((description) => `<p>${description}</p>`)] : []),
-    ...paragraphs,
-  ].join('') };
+  return { html: `<h2>${escapeHtml(title)}</h2>${introduction.join('')}${renderTelegramRichDetailTable(rows)}${paragraphs.join('')}` };
 }
 
 export async function replyWithCatalogRichMessage(

@@ -74,7 +74,7 @@ test('rich catalog search escapes the query and keeps item links and navigation'
   await handleTelegramCatalogReadCommand(context);
   assert.equal(replies.length, 0);
   assert.equal(sent.length, 1);
-  assert.match(sent[0]?.richMessage.html ?? '', /<p><a[^>]+catalog_read_item_1/s);
+  assert.match(sent[0]?.richMessage.html ?? '', /<h2><a[^>]+catalog_read_item_1/s);
   assert.match(sent[0]?.richMessage.html ?? '', /&lt;Club&gt;/);
   assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /<Club>/);
   assert.match(sent[0]?.fallbackText ?? '', /Pàgina 1\/1/);
@@ -119,7 +119,7 @@ test('catalog item sends a rich heading and table preserving escaped text, detai
   assert.equal(replies.length, 0);
   assert.equal(sent.length, 1);
   assert.match(sent[0]?.richMessage.html ?? '', /<h2>Catan &lt;Club&gt; &amp; Amics<\/h2>/);
-  assert.match(sent[0]?.richMessage.html ?? '', /<p>👥 <b>Jugadors:<\/b> 3-4 · ⏱ <b>Durada:<\/b> 90 min · <b>Edat recomanada:<\/b> 10\+<\/p>/);
+  assert.match(sent[0]?.richMessage.html ?? '', /<th>Jugadors:<\/th><td>3-4<\/td>.*<th>Durada:<\/th><td>90 min<\/td>.*<th>Edat recomanada:<\/th><td>10\+<\/td>/s);
   assert.match(sent[0]?.richMessage.html ?? '', /catalog_read_item_full_1/);
   assert.match(sent[0]?.fallbackText ?? '', /<b>Catan &lt;Club&gt; &amp; Amics<\/b>/);
   assert.match(sent[0]?.fallbackText ?? '', /<b>Durada:<\/b> 90 min/);
@@ -127,7 +127,7 @@ test('catalog item sends a rich heading and table preserving escaped text, detai
   assert.deepEqual(sent[0]?.options?.replyKeyboard?.at(-1), ['Inici', 'Ajuda']);
   context.messageText = '/start catalog_read_item_full_1';
   assert.equal(await handleTelegramCatalogReadStartText(context), true);
-  assert.match(sent[1]?.richMessage.html ?? '', /<h3>Descripció<\/h3><p><i>Primera\nSegunda<\/i><\/p>/);
+  assert.match(sent[1]?.richMessage.html ?? '', /<th>Descripció:<\/th><td><i>Primera\nSegunda<\/i><\/td>/);
 });
 
 function createRepository({
@@ -605,7 +605,7 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
 
   assert.match(replies[0]?.message ?? '', /Resultats per a &quot;Game&quot;/);
   assert.match(replies[0]?.message ?? '', /Pàgina 1\/2/);
-  assert.match(replies[0]?.message ?? '', /El té: Marta &lt;Club&gt; &amp; amics/);
+  assert.match(replies[0]?.message ?? '', /<b>El té:<\/b> 🟠 Marta &lt;Club&gt; &amp; amics/);
   assert.doesNotMatch(replies[0]?.message ?? '', /&amp;lt;|&amp;amp;/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
   assert.match(replies[0]?.message ?? '', /catalog_read_item_1/);

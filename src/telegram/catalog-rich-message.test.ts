@@ -43,13 +43,13 @@ for (const language of supportedBotLanguages) {
       '<b>Extra:</b> Valor',
       '<a href="https://example.test/full">Más detalles</a>',
     ].join('\n'), language).html!;
-    assert.match(html, /^<h2>Juego &lt;Club&gt;<\/h2><p><a[^>]+>Volver<\/a><\/p><p>👥 /);
-    assert.ok(html.indexOf('45 min') < html.indexOf('A&amp;1'));
-    assert.ok(html.indexOf('A&amp;1') < html.indexOf('tg://user?id=7'));
+    assert.match(html, /^<h2>Juego &lt;Club&gt;<\/h2><p><a[^>]+>Volver<\/a><\/p><table>/);
+    assert.equal((html.match(/<table>/g) ?? []).length, 1);
+    assert.doesNotMatch(html, /<table compact>|👥|⏱/);
     assert.ok(html.includes(`<mark>${escapeHtml(loan.availabilityLoaned)}</mark>`));
     assert.ok(html.includes('María &lt;Club&gt;'));
     assert.ok(html.includes('<a href="tg://user?id=7">Ana &amp; Leo</a>'));
-    assert.ok(html.includes(`<h3>${escapeHtml(admin.description)}</h3><p><i>Primera\nSegunda &amp; tercera</i></p>`));
+    assert.ok(html.includes(`<th>${escapeHtml(admin.description)}:</th><td><i>Primera\nSegunda &amp; tercera</i></td>`));
     assert.match(html, /<th>Extra:<\/th><td>Valor<\/td>/);
     assert.match(html, /<p><a href="https:\/\/example.test\/full">Más detalles<\/a><\/p>$/);
     assert.doesNotMatch(html, /<Club>/);
@@ -60,7 +60,7 @@ for (const language of supportedBotLanguages) {
 test('catalog detail without game metrics retains plain descriptions and does not mark available items as loaned', () => {
   const html = buildCatalogRichDetailMessage('Libro', '<b>Libro</b>\n<b>Disponibilidad:</b> Disponible\nDescripción: Uno &amp; dos\n<b>Editorial:</b> Club', 'es').html!;
   assert.match(html, /<td><b>Disponible<\/b><\/td>/);
-  assert.match(html, /<h3>Descripción<\/h3><p>Uno &amp; dos<\/p>/);
+  assert.match(html, /<th>Descripción:<\/th><td>Uno &amp; dos<\/td>/);
   assert.doesNotMatch(html, /👥|⏱|<mark>/);
 });
 

@@ -6,6 +6,7 @@ import { buildTelegramStartUrl } from './deep-links.js';
 import { normalizeBotLanguage } from './i18n.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { TelegramRichMessage, TelegramRichMessageTransport } from './rich-message-transport.js';
+import { isTelegramRichMessageWithinLimits } from './rich-message-limits.js';
 
 export type CatalogTableEntry = { item: CatalogItemRecord; loan: CatalogLoanRecord | null; borrowerName?: string };
 const labels = {
@@ -88,8 +89,34 @@ export async function replyWithCatalogItemTable(context: {
   reply(text: string, options?: TelegramReplyOptions): Promise<unknown>;
   runtime: { chat: { chatId: number; messageThreadId?: number }; bot: Partial<Pick<TelegramRichMessageTransport, 'sendRichMessage'>> & { language?: string } };
 }, input: Parameters<typeof buildCatalogItemTable>[0], options?: TelegramReplyOptions): Promise<unknown> {
-  const message = buildCatalogItemTable({ ...input, language: context.runtime.bot.language ?? 'ca' });
+  const settings = { ...input, language: context.runtime.bot.language ?? 'ca' };
+  const message = buildCatalogItemTable(settings);
   const replyOptions = { ...options, parseMode: 'HTML' as const };
   if (!context.runtime.bot.sendRichMessage) return context.reply(message.fallbackText, replyOptions);
-  return context.runtime.bot.sendRichMessage({ chatId: context.runtime.chat.chatId, ...message, options: replyOptions, ...(context.runtime.chat.messageThreadId !== undefined ? { messageThreadId: context.runtime.chat.messageThreadId } : {}) });
+  const sorted = sortCatalogTableEntries(input.entries);
+  // Preserve the renderer's type sections and borrowed-first order across messages.
+  const ordered = [
+    sorted.filter(({ item }) => item.itemType === 'board-game' || item.itemType === 'expansion'),
+    sorted.filter(({ item }) => item.itemType === 'book' || item.itemType === 'rpg-book'),
+    sorted.filter(({ item }) => item.itemType === 'accessory'),
+  ].flat();
+  const split = (entries: CatalogTableEntry[], rendered = buildCatalogItemTable({ ...settings, entries })): CatalogTableEntry[][] => {
+    if (entries.length <= 1 || isTelegramRichMessageWithinLimits(rendered.richMessage)) return [entries];
+    const middle = Math.ceil(entries.length / 2);
+    return [...split(entries.slice(0, middle)), ...split(entries.slice(middle))];
+  };
+  const batches = split(ordered, message);
+  let result: unknown;
+  const { footerHtml: _footer, ...withoutFooter } = settings;
+  for (const [index, entries] of batches.entries()) {
+    const last = index === batches.length - 1;
+    const rendered = batches.length === 1 ? message : buildCatalogItemTable({ ...(last ? settings : withoutFooter), entries });
+    result = await context.runtime.bot.sendRichMessage({
+      chatId: context.runtime.chat.chatId,
+      ...rendered,
+      options: last ? replyOptions : { parseMode: 'HTML', ...(options?.messageThreadId !== undefined ? { messageThreadId: options.messageThreadId } : {}) },
+      ...(context.runtime.chat.messageThreadId !== undefined ? { messageThreadId: context.runtime.chat.messageThreadId } : {}),
+    });
+  }
+  return result;
 }

@@ -36,6 +36,9 @@ Telegram. Léela antes de añadir o cambiar vistas paginadas.
   tenga varias filas o incluya footer de página.
 - Mantén las filas compactas. Usa un deep link por fila para la acción primaria
   de item/detalle, salvo que se pidan atajos explícitos por fila.
+- Si un listado enriquecido supera los límites de Telegram, divídelo entre
+  fichas completas, conserva el orden y deja el pie de página y los controles
+  únicamente en el último mensaje.
 
 ## Controles
 

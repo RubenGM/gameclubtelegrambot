@@ -125,7 +125,7 @@ test('admin item inspection uses rich fields with the full HTML and persistent a
   assert.equal(replies.length, 0);
   assert.equal(getCurrentSession()?.stepKey, 'detail');
   assert.match(sent[0]?.html ?? '', /<h2>Catan &lt;Club&gt; &amp; Amics<\/h2>/);
-  assert.match(sent[0]?.html ?? '', /<table compact>.*A&amp;1.*<\/table>/s);
+  assert.match(sent[0]?.html ?? '', /<table>.*A&amp;1.*<\/table>/s);
   assert.match(sent[0]?.fallback ?? '', /catalog_admin_item_full_1/);
   assert.deepEqual(sent[0]?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
 });
@@ -3347,7 +3347,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}AD`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Arkham Horror Core Set<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /Ubicació: A3/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Ubicació:<\/b> A3/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Azul<\/b>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Azul<\/b><\/a> · <i>Joc de taula · Posició/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sin familia/);

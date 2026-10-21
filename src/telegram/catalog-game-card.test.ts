@@ -2,29 +2,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { CatalogItemRecord } from '../catalog/catalog-model.js';
 import { buildCatalogGameCard, catalogGameTags, summarizeCatalogDescription } from './catalog-game-card.js';
+import { buildTelegramRichDetailMessage } from './rich-detail-message.js';
 
 function item(overrides: Partial<CatalogItemRecord> = {}): CatalogItemRecord {
   return { id: 1, displayName: 'Juego <Club> & Amigos', itemType: 'board-game', familyId: null, groupId: null, originalName: null, description: null, language: null, publisher: null, publicationYear: null, playerCountMin: 2, playerCountMax: 4, recommendedAge: 10, playTimeMinutes: 60, storagePosition: 'A&1', externalRefs: null, metadata: null, lifecycleStatus: 'active', createdAt: '', updatedAt: '', deactivatedAt: null, ...overrides };
 }
 
 for (const [language, tags, complexity, best] of [
-  ['es', 'Construcción · Dados · Memoria', 'Complejidad: 2,1/5', 'Mejor a: 4'],
-  ['ca', 'Construcció · Daus · Memòria', 'Complexitat: 2,1/5', 'Millor a: 4'],
-  ['en', 'City Building · Dice Rolling · Memory', 'Complexity: 2.1/5', 'Best with: 4'],
+  ['es', 'Construcción · Dados · Memoria', 'Complejidad', 'Mejor a'],
+  ['ca', 'Construcció · Daus · Memòria', 'Complexitat', 'Millor a'],
+  ['en', 'City Building · Dice Rolling · Memory', 'Complexity', 'Best with'],
 ] as const) {
   test(`game cards present full-width titles, description and existing BGG data in ${language}`, () => {
-    const game = item({ description: 'Un juego de construcción con dados para toda la familia. Segunda frase.', metadata: { categories: ['City Building', 'Dice'], mechanics: ['Dice Rolling', 'Memory', 'Worker Placement'], averageWeight: 2.1161, bestPlayerCounts: ['4'] } });
+    const game = item({ description: 'Un juego de construcción con dados para toda la familia. Segunda frase.', publisher: 'Editorial no mostrada', createdAt: '2026-10-21T10:15:00Z', metadata: { categories: ['City Building', 'Dice'], mechanics: ['Dice Rolling', 'Memory', 'Worker Placement'], averageWeight: 2.1161, bestPlayerCounts: ['4'], averageRating: 9.9 } });
     const result = buildCatalogGameCard({ item: game, loan: null, language, startPayloadPrefix: 'catalog_read_item_' });
-    assert.match(result.html, /^<p><a[^>]+><b>Juego &lt;Club&gt; &amp; Amigos<\/b><\/a><\/p><table compact>/);
-    assert.match(result.html, /<td>👥 2-4 · ⏱ 60 min · 10\+<\/td>/);
+    assert.match(result.html, /^<h2><a[^>]+><b>Juego &lt;Club&gt; &amp; Amigos<\/b><\/a><\/h2><table>/);
+    assert.match(result.html, /<tr><th>[^<]+:<\/th><td>2-4<\/td><\/tr>/);
+    assert.match(result.html, /<tr><th>[^<]+:<\/th><td>60 min<\/td><\/tr>/);
+    assert.match(result.html, /<tr><th>[^<]+:<\/th><td>10\+<\/td><\/tr>/);
     assert.ok(result.html.includes(tags));
-    assert.ok(result.html.includes(complexity));
-    assert.ok(result.fallbackText.includes(best));
+    assert.ok(result.html.includes(`<th>${complexity}:</th><td>${language === 'en' ? '2.1' : '2,1'}/5</td>`));
+    assert.ok(result.fallbackText.includes(`<b>${best}:</b> 4`));
     assert.match(result.html, /<td>Un juego de construcción con dados para toda la familia\.<\/td>/);
     assert.doesNotMatch(result.html, /<i>|Categories:|Categorías:|Mecánicas:|Segunda frase|<Club>/);
+    assert.doesNotMatch(result.html, /Editorial no mostrada|2026-10-21|9[.,]9/);
     assert.match(result.fallbackText, /catalog_read_item_1/);
     assert.match(result.fallbackText, /A&amp;1/);
     assert.equal(game.description, 'Un juego de construcción con dados para toda la familia. Segunda frase.');
+    const activityStyle = buildTelegramRichDetailMessage(game.displayName, result.fallbackText).html!;
+    assert.equal(result.html.match(/<table>[\s\S]*?<\/table>/)?.[0], activityStyle.match(/<table>[\s\S]*?<\/table>/)?.[0]);
   });
 }
 

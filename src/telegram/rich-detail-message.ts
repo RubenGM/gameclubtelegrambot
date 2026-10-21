@@ -1,18 +1,23 @@
 import { escapeHtml } from './catalog-presentation.js';
 import type { TelegramRichMessage } from './rich-message-transport.js';
 
+/** Trusted, escaped HTML: shared label/value table used by activity and catalog details. */
+export function renderTelegramRichDetailTable(rows: ReadonlyArray<{ labelHtml: string; valueHtml: string }>): string {
+  return rows.length ? `<table>${rows.map(({ labelHtml, valueHtml }) => `<tr><th>${labelHtml}</th><td>${valueHtml}</td></tr>`).join('')}</table>` : '';
+}
+
 /** Reuse trusted detail renderers, keeping their links and permission-filtered fields. */
 export function buildTelegramRichDetailMessage(displayName: string, renderedDetails: string): TelegramRichMessage {
   const title = `<b>${escapeHtml(displayName)}</b>`;
-  const rows: string[] = [];
+  const rows: Array<{ labelHtml: string; valueHtml: string }> = [];
   const paragraphs: string[] = [];
   for (const line of splitDetailLines(renderedDetails)) {
     if (!line.trim() || line === title) continue;
     const field = /^<b>([^<]+)<\/b>\s*([\s\S]+)$/.exec(line);
-    if (field) rows.push(`<tr><th>${field[1]}</th><td>${field[2]}</td></tr>`);
+    if (field) rows.push({ labelHtml: field[1]!, valueHtml: field[2]! });
     else paragraphs.push(`<p>${line}</p>`);
   }
-  return { html: `<h2>${escapeHtml(displayName)}</h2>${rows.length ? `<table>${rows.join('')}</table>` : ''}${paragraphs.join('')}` };
+  return { html: `<h2>${escapeHtml(displayName)}</h2>${renderTelegramRichDetailTable(rows)}${paragraphs.join('')}` };
 }
 
 export function splitDetailLines(html: string): string[] {
