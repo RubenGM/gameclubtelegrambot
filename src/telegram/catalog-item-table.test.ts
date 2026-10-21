@@ -10,6 +10,24 @@ function item(id: number, displayName: string, overrides: Partial<CatalogItemRec
 }
 const loan: CatalogLoanRecord = { id: 1, itemId: 2, borrowerTelegramUserId: 7, borrowerDisplayName: 'Ana <Club>', loanedByTelegramUserId: 7, dueAt: null, notes: null, returnedAt: null, returnedByTelegramUserId: null, createdAt: '', updatedAt: '' };
 
+for (const [language, borrower, categories, mechanics, age] of [
+  ['es', 'Lo tiene', 'Categorías', 'Mecánicas', 'Edad'],
+  ['ca', 'El té', 'Categories', 'Mecàniques', 'Edat'],
+  ['en', 'Borrower', 'Categories', 'Mechanics', 'Age'],
+] as const) {
+  test(`catalog list uses three columns and separate secondary lines in ${language}`, () => {
+    const game = item(2, 'La Iniciativa <Club>', { description: 'Only in the full detail', playerCountMin: 1, playerCountMax: 4, playTimeMinutes: 60, recommendedAge: 8, metadata: { categories: ['Unknown category', 'Other category', 'Hidden category'], mechanics: ['Unknown mechanic', 'Other mechanic', 'Hidden mechanic'], averageWeight: 2.7, bestPlayerCounts: ['4'] } });
+    const result = buildCatalogItemTable({ title: 'Catálogo', language, startPayloadPrefix: 'catalog_read_item_', entries: [{ item: game, loan }] });
+    const html = result.richMessage.html!;
+    assert.match(html, /<td valign="top">1-4<\/td><td valign="top">60 min<\/td>/);
+    assert.ok(html.includes(`<td colspan="3"><i><b>${borrower}:</b> Ana &lt;Club&gt;<br><b>${categories}:</b> Unknown category, Other category<br><b>${mechanics}:</b> Unknown mechanic, Other mechanic<br><b>${age}:</b> 8+</i></td>`));
+    assert.ok(result.fallbackText.includes(`<b>${borrower}:</b> Ana &lt;Club&gt;\n<b>${categories}:</b> Unknown category, Other category\n<b>${mechanics}:</b> Unknown mechanic, Other mechanic\n<b>${age}:</b> 8+`));
+    assert.doesNotMatch(html, /Only in the full detail|2,7|2\.7|Hidden category|Hidden mechanic|<Club>/);
+    assert.match(html, /catalog_read_item_2/);
+    assert.equal(game.description, 'Only in the full detail');
+  });
+}
+
 test('catalog tables group types, put borrowed games first, and highlight them without availability/type columns', () => {
   const result = buildCatalogItemTable({ title: 'Catálogo', language: 'es', startPayloadPrefix: 'catalog_admin_item_', entries: [
     { item: item(1, 'Azul'), loan: null },
@@ -21,11 +39,11 @@ test('catalog tables group types, put borrowed games first, and highlight them w
   assert.ok(html.indexOf('Zeta') < html.indexOf('Azul'));
   assert.ok(html.indexOf('Azul') < html.indexOf('Libro</b>'));
   assert.match(html, /<mark><a[^>]+><b>Zeta &lt;Club&gt;<\/b><\/a><\/mark>/);
-  assert.match(html, /<td>👥 2-4 · ⏱ 45 min<\/td>/);
-  assert.match(html, /Economía · Colocación de trabajadores · &lt;script&gt;/);
-  assert.match(html, /<td>🟠 Lo tiene: Ana &lt;Club&gt; · Ubicación: A1<\/td>/);
+  assert.match(html, /<td valign="top">2-4<\/td><td valign="top">45 min<\/td>/);
+  assert.match(html, /<b>Categorías:<\/b> Economía<br><b>Mecánicas:<\/b> Colocación de trabajadores, &lt;script&gt;/);
+  assert.match(html, /<b>Lo tiene:<\/b> Ana &lt;Club&gt;<br><b>Ubicación:<\/b> A1<br>/);
   assert.match(html, /<h3>Libros<\/h3><table compact><tr><td align="left" valign="top">.*Libro.*<td align="right" valign="top">Editorial &amp; Amigos<\/td>/);
-  assert.doesNotMatch(html, /<th>/);
+  assert.match(html, /<th>Título<\/th><th>Jugadores<\/th><th>Duración<\/th>/);
   assert.doesNotMatch(html, /Disponible|Disponibilidad|Joc de taula|Llibre RPG|<script>/);
   assert.doesNotMatch(result.fallbackText, /<mark>|<table>|Disponible/);
   assert.match(result.fallbackText, /🟠 <a[^>]+><b>Zeta/);
@@ -33,13 +51,13 @@ test('catalog tables group types, put borrowed games first, and highlight them w
 
 test('catalog only renders populated sections and omits unknown metrics without inventing metadata', () => {
   const { richMessage } = buildCatalogItemTable({ title: 'Games', language: 'en', startPayloadPrefix: 'catalog_read_item_', entries: [{ item: item(1, 'Unknown', { metadata: { categories: [42, null], mechanics: 'not an array' } }), loan: null }] });
-  assert.match(richMessage.html!, /<p><a[^>]+><b>Unknown<\/b><\/a><\/p>/);
-  assert.doesNotMatch(richMessage.html!, /👥|⏱|—/);
+  assert.match(richMessage.html!, /<td valign="top"><a[^>]+><b>Unknown<\/b><\/a><\/td>/);
+  assert.doesNotMatch(richMessage.html!, /👥|⏱|<br>/);
   assert.doesNotMatch(richMessage.html!, /Books|Accessories|Categories|Mechanics|colspan|<mark>/);
 });
 
 test('large initial buckets keep complete cards, order, topics and final navigation when split into rich messages', async () => {
-  const entries = Array.from({ length: 100 }, (_, index) => ({ item: item(index + 1, `Juego ${index}`, { description: 'Una descripción muy extensa con Unicode 🎲 y más información. '.repeat(200), playerCountMin: 2, playerCountMax: 4, playTimeMinutes: 60, recommendedAge: 10, storagePosition: 'A3', metadata: { categories: ['City Building'], mechanics: ['Dice Rolling', 'Memory'], averageWeight: 2.1, bestPlayerCounts: ['4'] } }), loan: null }));
+  const entries = Array.from({ length: 300 }, (_, index) => ({ item: item(index + 1, `Juego ${index}`, { description: 'Una descripción muy extensa con Unicode 🎲 y más información. '.repeat(200), playerCountMin: 2, playerCountMax: 4, playTimeMinutes: 60, recommendedAge: 10, storagePosition: 'A3', metadata: { categories: ['City Building'], mechanics: ['Dice Rolling', 'Memory'], averageWeight: 2.1, bestPlayerCounts: ['4'] } }), loan: null }));
   entries.push({ item: item(1001, 'A book', { itemType: 'book' }), loan: null }, { item: item(1002, 'Accessory', { itemType: 'accessory' }), loan: null });
   const input = { title: 'Catálogo', language: 'es', entries, startPayloadPrefix: 'catalog_admin_item_', footerHtml: 'Página 1/1' };
   const result = buildCatalogItemTable(input);

@@ -1,9 +1,10 @@
 import type { CatalogItemRecord, CatalogLoanRecord } from '../catalog/catalog-model.js';
 import { compareCatalogItemTitles } from '../catalog/catalog-title-order.js';
-import { buildCatalogGameCard } from './catalog-game-card.js';
-import { escapeHtml } from './catalog-presentation.js';
+import { catalogMetadataNames } from './catalog-game-metadata.js';
+import { escapeHtml, renderCatalogPlayerRange } from './catalog-presentation.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { normalizeBotLanguage } from './i18n.js';
+import { translateCatalogTag } from './i18n-catalog-tags.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
 import type { TelegramRichMessage, TelegramRichMessageTransport } from './rich-message-transport.js';
 import { isTelegramRichMessageWithinLimits } from './rich-message-limits.js';
@@ -44,30 +45,38 @@ export function buildCatalogItemTable(input: {
     if (!section.entries.length) continue;
     rich.push(`<h3>${section.title}</h3>`);
     fallback.push('', `<b>${section.title}</b>`);
-    if (section.game) {
-      for (const entry of section.entries) {
-        const card = buildCatalogGameCard({ ...entry, language, startPayloadPrefix: input.startPayloadPrefix });
-        rich.push(card.html);
-        fallback.push('', card.fallbackText);
-      }
-      continue;
-    }
     rich.push('<table compact>');
+    if (section.game) rich.push(`<tr><th>${texts.name}</th><th>${texts.players}</th><th>${texts.duration}</th></tr>`);
     for (const { item, loan, borrowerName } of section.entries) {
       const name = escapeHtml(item.displayName);
       const link = `<a href="${escapeHtml(buildTelegramStartUrl(`${input.startPayloadPrefix}${item.id}`))}"><b>${name}</b></a>`;
-      rich.push(`<tr><td align="left" valign="top">${loan ? `<mark>${link}</mark>` : link}</td><td align="right" valign="top">${escapeHtml(item.publisher ?? '')}</td></tr>`);
-      fallback.push(`${loan ? '🟠 ' : '- '}${link}${item.publisher ? ` · ${escapeHtml(item.publisher)}` : ''}`);
+      const titleCell = loan ? `<mark>${link}</mark>` : link;
+      if (section.game) {
+        const players = item.playerCountMin !== null || item.playerCountMax !== null ? renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, language) : '—';
+        const duration = item.playTimeMinutes !== null ? `${item.playTimeMinutes} min` : '—';
+        rich.push(`<tr><td valign="top">${titleCell}</td><td valign="top">${players}</td><td valign="top">${duration}</td></tr>`);
+        fallback.push('', `${loan ? '🟠 ' : '- '}${link} · ${texts.players}: ${players} · ${duration}`);
+      } else {
+        rich.push(`<tr><td align="left" valign="top">${titleCell}</td><td align="right" valign="top">${escapeHtml(item.publisher ?? '')}</td></tr>`);
+        fallback.push(`${loan ? '🟠 ' : '- '}${link}${item.publisher ? ` · ${escapeHtml(item.publisher)}` : ''}`);
+      }
       const details: string[] = [];
       const add = (label: string, value: string | null | undefined) => { if (value) details.push(`<b>${label}:</b> ${escapeHtml(value)}`); };
       if (loan) add(texts.borrower, borrowerName ?? loan.borrowerDisplayName);
       add(texts.position, item.storagePosition);
-      add(texts.categories, metadataLabels(item.metadata?.genres ?? item.metadata?.subjects));
-      if (item.publicationYear !== null) details.push(String(item.publicationYear));
+      if (section.game) {
+        for (const key of ['categories', 'mechanics'] as const) {
+          add(texts[key], catalogMetadataNames(item.metadata?.[key]).slice(0, 2).map((tag) => translateCatalogTag(tag, language)).join(', '));
+        }
+        if (item.recommendedAge !== null) add(texts.age, `${item.recommendedAge}+`);
+      } else {
+        add(texts.categories, metadataLabels(item.metadata?.genres ?? item.metadata?.subjects));
+        if (item.publicationYear !== null) details.push(String(item.publicationYear));
+      }
       if (item.language) details.push(escapeHtml(item.language));
       if (details.length) {
-        rich.push(`<tr><td colspan="2"><i>${details.join(' · ')}</i></td></tr>`);
-        fallback.push(details.join(' · '));
+        rich.push(`<tr><td colspan="${section.game ? 3 : 2}"><i>${details.join(section.game ? '<br>' : ' · ')}</i></td></tr>`);
+        fallback.push(details.join(section.game ? '\n' : ' · '));
       }
     }
     rich.push('</table>');

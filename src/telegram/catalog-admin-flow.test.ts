@@ -3355,7 +3355,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}AD`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Arkham Horror Core Set<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /Ubicació: A3/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Ubicació:<\/b> A3/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Azul<\/b>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Azul<\/b><\/a> · <i>Joc de taula · Posició/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sin familia/);

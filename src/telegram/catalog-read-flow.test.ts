@@ -74,7 +74,7 @@ test('rich catalog search escapes the query and keeps item links and navigation'
   await handleTelegramCatalogReadCommand(context);
   assert.equal(replies.length, 0);
   assert.equal(sent.length, 1);
-  assert.match(sent[0]?.richMessage.html ?? '', /<p><a[^>]+catalog_read_item_1/s);
+  assert.match(sent[0]?.richMessage.html ?? '', /<td valign="top"><a[^>]+catalog_read_item_1/s);
   assert.match(sent[0]?.richMessage.html ?? '', /&lt;Club&gt;/);
   assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /<Club>/);
   assert.match(sent[0]?.fallbackText ?? '', /Pàgina 1\/1/);
@@ -104,7 +104,7 @@ test('borrowed catalog items move onto the first search page and keep their high
   assert.match(html, /<mark><a[^>]+><b>Game 6<\/b><\/a><\/mark>/);
   assert.ok(html.indexOf('Game 6') < html.indexOf('Game 1'));
   assert.doesNotMatch(html, /Game 5|Disponible/);
-  assert.match(html, /<td>🟠.*Ana &lt;Club&gt;/);
+  assert.match(html, /<b>El té:<\/b> Ana &lt;Club&gt;/);
   assert.match(html, /<footer>Pàgina 1\/2<\/footer>/);
   assert.ok(sent[0]?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === catalogReadCallbackPrefixes.pageNext));
 });
@@ -612,7 +612,7 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
 
   assert.match(replies[0]?.message ?? '', /Resultats per a &quot;Game&quot;/);
   assert.match(replies[0]?.message ?? '', /Pàgina 1\/2/);
-  assert.match(replies[0]?.message ?? '', /El té: Marta &lt;Club&gt; &amp; amics/);
+  assert.match(replies[0]?.message ?? '', /<b>El té:<\/b> Marta &lt;Club&gt; &amp; amics/);
   assert.doesNotMatch(replies[0]?.message ?? '', /&amp;lt;|&amp;amp;/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
   assert.match(replies[0]?.message ?? '', /catalog_read_item_1/);
