@@ -224,6 +224,17 @@ Before adding or changing natural-language LLM/chat behavior, read
 
 For public/admin web visual changes, read `docs/brand-guidelines.md`.
 
+## Orden de títulos del catálogo
+
+Al ordenar y agrupar juegos de mesa y expansiones, ignora el artículo inicial
+en castellano, catalán e inglés (incluidos `l'` y `l’`). Por ejemplo,
+`La Iniciativa` pertenece a la **I** y `The Island` a la **I**. Conserva siempre
+el título visible y los alias completos para búsquedas; no renombres registros
+para conseguir este orden. Usa `src/catalog/catalog-title-order.ts` en listas,
+índices, breadcrumbs, navegación Telegram y catálogo web. En consultas paginadas,
+aplica el orden antes de LIMIT/OFFSET. Esta regla no cambia los títulos de libros,
+accesorios, familias ni grupos.
+
 ## Telegram progress messages
 
 For Telegram actions that can take medium or long time, use an editable progress

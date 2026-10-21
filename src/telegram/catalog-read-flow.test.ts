@@ -21,6 +21,21 @@ function successButton(text: string) {
   return { text, semanticRole: 'success' as const };
 }
 
+test('article-free game initials stay consistent between the index, lists and detail navigation', async () => {
+  const { context, replies } = createContext(createRepository({ items: [buildItem(1, 'La Iniciativa'), buildItem(2, 'La Isla', { itemType: 'book' })] }));
+  context.messageText = '/catalog_search';
+  await handleTelegramCatalogReadCommand(context);
+  assert.match(replies.at(-1)?.message ?? '', /catalog_read_letter_IL/);
+  context.messageText = '/start catalog_read_letter_I';
+  await handleTelegramCatalogReadStartText(context);
+  assert.match(replies.at(-1)?.message ?? '', /La Iniciativa/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /La Isla/);
+  context.messageText = '/start catalog_read_item_1';
+  await handleTelegramCatalogReadStartText(context);
+  assert.match(replies.at(-1)?.message ?? '', /catalog_read_letter_I/);
+  assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().includes('I'));
+});
+
 for (const language of ['ca', 'es', 'en'] as const) {
   test(`catalog initial index keeps rich rows, navigation and page boundaries in ${language}`, async () => {
     const items = ['1960', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((name, index) => buildItem(index + 1, name));
@@ -59,7 +74,7 @@ test('rich catalog search escapes the query and keeps item links and navigation'
   await handleTelegramCatalogReadCommand(context);
   assert.equal(replies.length, 0);
   assert.equal(sent.length, 1);
-  assert.match(sent[0]?.richMessage.html ?? '', /<table compact>.*catalog_read_item_1/s);
+  assert.match(sent[0]?.richMessage.html ?? '', /<p><a[^>]+catalog_read_item_1/s);
   assert.match(sent[0]?.richMessage.html ?? '', /&lt;Club&gt;/);
   assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /<Club>/);
   assert.match(sent[0]?.fallbackText ?? '', /Pàgina 1\/1/);
@@ -89,7 +104,7 @@ test('borrowed catalog items move onto the first search page and keep their high
   assert.match(html, /<mark><a[^>]+><b>Game 6<\/b><\/a><\/mark>/);
   assert.ok(html.indexOf('Game 6') < html.indexOf('Game 1'));
   assert.doesNotMatch(html, /Game 5|Disponible/);
-  assert.match(html, /colspan="2".*Ana &lt;Club&gt;/);
+  assert.match(html, /<td>🟠.*Ana &lt;Club&gt;/);
   assert.match(html, /<footer>Pàgina 1\/2<\/footer>/);
   assert.ok(sent[0]?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === catalogReadCallbackPrefixes.pageNext));
 });
@@ -520,7 +535,7 @@ test('handleTelegramCatalogReadCommand keeps the overview message compact for la
 test('handleTelegramCatalogReadCommand escapes HTML-sensitive labels in the overview', async () => {
   const repository = createRepository({
     families: [buildFamily(1, 'Rock & Roll')],
-    items: [buildItem(2, 'A < B')],
+    items: [buildItem(2, 'Azul < B')],
   });
   const { context, replies } = createContext(repository);
   context.messageText = '/catalog_search';
@@ -534,7 +549,7 @@ test('handleTelegramCatalogReadCommand escapes HTML-sensitive labels in the over
 
   await handleTelegramCatalogReadCallback(context);
 
-  assert.match(replies[0]?.message ?? '', /A &lt; B/);
+  assert.match(replies[0]?.message ?? '', /Azul &lt; B/);
 });
 
 test('handleTelegramCatalogReadCommand paginates searches and exposes loan status', async () => {
@@ -590,7 +605,7 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
 
   assert.match(replies[0]?.message ?? '', /Resultats per a &quot;Game&quot;/);
   assert.match(replies[0]?.message ?? '', /Pàgina 1\/2/);
-  assert.match(replies[0]?.message ?? '', /El té:<\/b> Marta &lt;Club&gt; &amp; amics/);
+  assert.match(replies[0]?.message ?? '', /El té: Marta &lt;Club&gt; &amp; amics/);
   assert.doesNotMatch(replies[0]?.message ?? '', /&amp;lt;|&amp;amp;/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
   assert.match(replies[0]?.message ?? '', /catalog_read_item_1/);

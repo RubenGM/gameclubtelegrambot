@@ -1,3 +1,4 @@
+import { catalogItemInitial, compareCatalogItemTitles } from '../catalog/catalog-title-order.js';
 import { catalogNameMetadataVersion, catalogItemNames, catalogItemMatchesQuery, mergeCatalogNameMetadata, preserveCatalogDisplayName } from '../catalog/catalog-names.js';
 import { handleCatalogPhotoText, handleCatalogPhotoMessage, handleCatalogPhotoCallback, type CatalogPhotoDependencies } from './catalog-photo-flow.js';
 import { catalogPhotoTexts } from './i18n-catalog-photo.js';
@@ -1296,7 +1297,7 @@ async function buildQuickBggMetadataNavigationLines(
 }
 
 function compareCatalogItemsForNavigation(a: CatalogItemRecord, b: CatalogItemRecord): number {
-  const byName = a.displayName.localeCompare(b.displayName, 'ca-ES', { sensitivity: 'base', numeric: true });
+  const byName = compareCatalogItemTitles(a, b);
   return byName !== 0 ? byName : a.id - b.id;
 }
 
@@ -3436,8 +3437,7 @@ function normalizeCatalogInitials(value: string): string {
 }
 
 function getCatalogAdminItemInitial(item: CatalogItemRecord): string {
-  const first = item.displayName.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').at(0)?.toUpperCase() ?? '#';
-  return /^[A-Z]$/.test(first) ? first : '#';
+  return catalogItemInitial(item);
 }
 
 function formatCatalogInitialsLabel(initials: string): string {
@@ -4209,8 +4209,7 @@ function deserializeCatalogInitialsStartPayload(value: string): string {
 }
 
 function getCatalogItemInitial(item: CatalogItemRecord): string {
-  const first = item.displayName.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').at(0)?.toUpperCase() ?? '#';
-  return /^[A-Z]$/.test(first) ? first : '#';
+  return catalogItemInitial(item);
 }
 
 function serializeCatalogInitialsStartPayload(value: string): string {

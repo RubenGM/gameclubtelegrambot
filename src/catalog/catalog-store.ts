@@ -1,4 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm';
+import { compareCatalogItemTitles } from './catalog-title-order.js';
 
 import type { DatabaseConnection } from '../infrastructure/database/connection.js';
 import { catalogFamilies, catalogGroups, catalogItems, catalogMedia } from '../infrastructure/database/schema.js';
@@ -83,7 +84,7 @@ export function createDatabaseCatalogRepository({
         ? await query.where(and(...filters)).orderBy(asc(catalogItems.displayName))
         : await query.orderBy(asc(catalogItems.displayName));
 
-      return result.map(mapCatalogItemRow);
+      return result.map(mapCatalogItemRow).sort(compareCatalogItemTitles);
     },
     async updateItem(input) {
       const updated = await database

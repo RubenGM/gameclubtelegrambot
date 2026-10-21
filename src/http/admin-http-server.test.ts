@@ -1,3 +1,4 @@
+import { catalogItemSortTitleSql } from '../catalog/catalog-title-order.js';
 import { SchedulePriorityConflictError } from '../schedule/schedule-catalog.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,6 +49,7 @@ test('admin http server exposes public feedback and protects admin pages', async
   const serviceActions: string[] = [];
   const restored: string[] = [];
   const queries: Array<{ sql: string; params: unknown[] }> = [];
+  let catalogDisplayName = 'Dune Imperium';
   const privateMessages: Array<{ telegramUserId: number; message: string }> = [];
   const groupMessages: Array<{ chatId: number; message: string }> = [];
   const backupPath = join(tmp, 'gameclub-backup-test.zip');
@@ -318,7 +320,7 @@ test('admin http server exposes public feedback and protects admin pages', async
           return {
             rows: [{
               id: 11,
-              display_name: 'Dune Imperium',
+              display_name: catalogDisplayName,
               original_name: 'Dune: Imperium',
               item_type: 'board-game',
               description: 'Juego de construccion de mazos, intriga y control de zonas.',
@@ -637,6 +639,15 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(catalogHtml, /Pagina 2 de 2/);
     assert.match(catalogHtml, /href="\/catalogo\?q=dune&amp;type=board-game&amp;page=1"/);
 
+    catalogDisplayName = 'La Iniciativa';
+    const articleCatalogPage = await fetch(`${baseUrl}/catalogo`);
+    const articleCatalogHtml = await articleCatalogPage.text();
+    assert.equal(articleCatalogPage.status, 200);
+    assert.match(articleCatalogHtml, /La Iniciativa/);
+    assert.match(articleCatalogHtml, /<h2>I<\/h2>/);
+    assert.doesNotMatch(articleCatalogHtml, /<h2>L<\/h2>/);
+    catalogDisplayName = 'Dune Imperium';
+
     const spanishCatalogSearch = await fetch(`${baseUrl}/catalogo?q=Se%C3%B1or%20Anillos`);
     assert.equal(spanishCatalogSearch.status, 200);
     assert.ok(queries.some((query) => query.sql.includes("items.metadata->>'alternateNames'")
@@ -674,7 +685,7 @@ test('admin http server exposes public feedback and protects admin pages', async
     assert.match(catalogAdminGridHtml, /<option value="12" selected>12<\/option>/);
     assert.match(catalogAdminGridHtml, new RegExp(`/catalogo/admin/${catalogWebAdminToken}/11\\?returnQ=dune&amp;returnView=grid&amp;returnPerPage=12&amp;returnPage=2`));
     assert.match(catalogAdminGridHtml, new RegExp(`href="/catalogo/admin/${catalogWebAdminToken}\\?q=dune&amp;view=grid&amp;perPage=12&amp;page=3">Siguiente`));
-    assert.ok(queries.some((query) => query.sql.includes('order by items.display_name asc') && query.params.at(-2) === 12 && query.params.at(-1) === 12));
+    assert.ok(queries.some((query) => query.sql.includes(`order by ${catalogItemSortTitleSql} asc`) && query.params.at(-2) === 12 && query.params.at(-1) === 12));
 
     const catalogAdminEdit = await fetch(`${baseUrl}/catalogo/admin/${catalogWebAdminToken}/11`);
     assert.equal(catalogAdminEdit.status, 200);

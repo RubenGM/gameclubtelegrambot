@@ -48,6 +48,20 @@ function dangerButton(text: string) {
   return { text, semanticRole: 'danger' as const };
 }
 
+test('admin index and item breadcrumbs ignore the initial article of game titles', async () => {
+  const { context, replies } = createContext({ repository: createRepository({ items: [createCatalogItemFixture({ displayName: 'La Iniciativa' })] }), language: 'es' });
+  context.messageText = 'Catálogo';
+  await handleTelegramCatalogAdminText(context);
+  assert.match(replies.at(-1)?.message ?? '', /catalog_admin_letters_I/);
+  context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}I`;
+  await handleTelegramCatalogAdminCallback(context);
+  assert.match(replies.at(-1)?.message ?? '', /La Iniciativa/);
+  context.callbackData = `${catalogAdminCallbackPrefixes.inspect}1`;
+  await handleTelegramCatalogAdminCallback(context);
+  assert.match(replies.at(-1)?.message ?? '', /catalog_admin_letters_I/);
+  assert.match(replies.at(-1)?.message ?? '', /La Iniciativa/);
+});
+
 test('admin catalog menu uses the compact initial index with its persistent keyboard', async () => {
   const repository = createRepository({ items: [
     createCatalogItemFixture({ id: 1, displayName: 'Azul' }),
@@ -3333,7 +3347,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}AD`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Arkham Horror Core Set<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Ubicació:<\/b> A3/);
+  assert.match(replies.at(-1)?.message ?? '', /Ubicació: A3/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Azul<\/b>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Azul<\/b><\/a> · <i>Joc de taula · Posició/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sin familia/);

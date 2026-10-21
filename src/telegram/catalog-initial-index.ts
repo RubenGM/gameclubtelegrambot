@@ -1,4 +1,5 @@
 import type { CatalogItemRecord } from '../catalog/catalog-model.js';
+import { catalogItemInitial } from '../catalog/catalog-title-order.js';
 import { escapeHtml } from './catalog-presentation.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
@@ -15,8 +16,7 @@ const labels = {
 export function buildCatalogInitialBuckets(items: CatalogItemRecord[]): InitialBucket[] {
   const byInitial = new Map<string, CatalogItemRecord[]>();
   for (const item of items) {
-    const first = item.displayName.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').at(0)?.toUpperCase() ?? '#';
-    const initial = /^[A-Z]$/.test(first) ? first : '#';
+    const initial = catalogItemInitial(item);
     const bucket = byInitial.get(initial) ?? [];
     bucket.push(item);
     byInitial.set(initial, bucket);

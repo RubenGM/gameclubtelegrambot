@@ -1,3 +1,4 @@
+import { catalogItemInitial } from '../catalog/catalog-title-order.js';
 import { replyWithCatalogRichMessage } from './catalog-rich-message.js';
 import type { CatalogItemRecord, CatalogLoanRecord, CatalogLoanRepository, CatalogRepository } from '../catalog/catalog-model.js';
 export type { CatalogLoanRecord } from '../catalog/catalog-model.js';
@@ -792,8 +793,7 @@ function successButton(text: string): TelegramReplyButton {
 }
 
 function getCatalogItemInitial(item: CatalogItemRecord): string {
-  const first = item.displayName.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').at(0)?.toUpperCase() ?? '#';
-  return /^[A-Z]$/.test(first) ? first : '#';
+  return catalogItemInitial(item);
 }
 
 function formatCatalogInitialsLabel(initials: string): string {

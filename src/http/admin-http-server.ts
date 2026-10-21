@@ -25,6 +25,7 @@ import {
   type CatalogDescriptionTranslator,
 } from '../catalog/catalog-description-translation.js';
 import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
+import { catalogItemInitial, catalogItemSortTitleSql } from '../catalog/catalog-title-order.js';
 import { isUsableCatalogTitle, mergeCatalogNameMetadata, normalizeCatalogSearchText, preserveCatalogDisplayName } from '../catalog/catalog-names.js';
 import { createCatalogSpanishNameResolver } from '../catalog/catalog-spanish-names.js';
 import {
@@ -3974,7 +3975,7 @@ async function fetchPublicCatalogItems(
         limit 1
       ) media on true
       where ${filters.join(' and ')}
-      order by items.display_name asc
+      order by ${catalogItemSortTitleSql} asc, items.display_name asc, items.id asc
       limit $${itemParams.length - 1}
       offset $${itemParams.length}
     `,
@@ -5056,7 +5057,7 @@ function buildCatalogFilterSummary(catalogResult: PublicCatalogPage, filters: Pu
 function renderCatalogLetterGroups(items: PublicCatalogItemRow[]): string {
   const groups = new Map<string, PublicCatalogItemRow[]>();
   for (const item of items) {
-    const letter = getCatalogLetter(item.display_name);
+    const letter = catalogItemInitial({ displayName: item.display_name, itemType: item.item_type });
     groups.set(letter, [...(groups.get(letter) ?? []), item]);
   }
 
@@ -5067,7 +5068,7 @@ function renderCatalogCard(item: PublicCatalogItemRow): string {
   const mediaUrl = resolveCatalogCoverUrl(item);
   const media = mediaUrl
     ? `<img class="catalog-cover" src="${escapeHtml(mediaUrl)}" alt="${escapeHtml(item.media_alt_text ?? item.display_name)}" loading="lazy">`
-    : `<div class="catalog-cover catalog-cover-placeholder" aria-hidden="true">${escapeHtml(getCatalogLetter(item.display_name))}</div>`;
+    : `<div class="catalog-cover catalog-cover-placeholder" aria-hidden="true">${escapeHtml(getCatalogLetter(item))}</div>`;
   const subtitle = renderCatalogType(item.item_type);
   const originalName = item.original_name && item.original_name !== item.display_name
     ? `<p class="catalog-original">${escapeHtml(item.original_name)}</p>`
@@ -5103,7 +5104,7 @@ function catalogDetailPage(settings: WebSettings, item: PublicCatalogItemRow): s
   const mediaUrl = resolveCatalogCoverUrl(item);
   const media = mediaUrl
     ? `<img class="catalog-detail-cover" src="${escapeHtml(mediaUrl)}" alt="${escapeHtml(item.media_alt_text ?? item.display_name)}">`
-    : `<div class="catalog-detail-cover catalog-cover-placeholder" aria-hidden="true">${escapeHtml(getCatalogLetter(item.display_name))}</div>`;
+    : `<div class="catalog-detail-cover catalog-cover-placeholder" aria-hidden="true">${escapeHtml(getCatalogLetter(item))}</div>`;
   const subtitle = renderCatalogType(item.item_type);
   const status = item.active_loan_borrower
     ? `<span class="catalog-status catalog-status-loaned">Prestado a ${escapeHtml(item.active_loan_borrower)}${item.active_loan_due_at ? ` · hasta ${escapeHtml(formatShortDate(item.active_loan_due_at))}` : ''}</span>`
@@ -5463,6 +5464,10 @@ function renderCatalogItemFacts(item: PublicCatalogItemRow): string {
   return facts.length > 0 ? `<p>${facts.map(escapeHtml).join(' · ')}</p>` : '';
 }
 
+function getCatalogLetter(item: PublicCatalogItemRow): string {
+  return catalogItemInitial({ displayName: item.display_name, itemType: item.item_type });
+}
+
 function renderPlayerRange(min: number | null, max: number | null): string {
   if (min !== null && max !== null && min !== max) {
     return `${min}-${max}`;
@@ -5474,12 +5479,6 @@ function renderPlayerRange(min: number | null, max: number | null): string {
     return String(max);
   }
   return '-';
-}
-
-function getCatalogLetter(value: string): string {
-  const normalized = value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const first = normalized.charAt(0).toUpperCase();
-  return /^[A-Z]$/.test(first) ? first : '#';
 }
 
 function truncateText(value: string, maxLength: number): string {

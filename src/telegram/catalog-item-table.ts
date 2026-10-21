@@ -1,5 +1,7 @@
 import type { CatalogItemRecord, CatalogLoanRecord } from '../catalog/catalog-model.js';
-import { escapeHtml, renderCatalogPlayerRange } from './catalog-presentation.js';
+import { compareCatalogItemTitles } from '../catalog/catalog-title-order.js';
+import { buildCatalogGameCard } from './catalog-game-card.js';
+import { escapeHtml } from './catalog-presentation.js';
 import { buildTelegramStartUrl } from './deep-links.js';
 import { normalizeBotLanguage } from './i18n.js';
 import type { TelegramReplyOptions } from './runtime-boundary.js';
@@ -13,7 +15,7 @@ const labels = {
 } as const;
 
 export function sortCatalogTableEntries(entries: CatalogTableEntry[]): CatalogTableEntry[] {
-  return entries.slice().sort((a, b) => Number(Boolean(b.loan)) - Number(Boolean(a.loan)) || a.item.displayName.localeCompare(b.item.displayName));
+  return entries.slice().sort((a, b) => Number(Boolean(b.loan)) - Number(Boolean(a.loan)) || compareCatalogItemTitles(a.item, b.item));
 }
 
 export function buildCatalogItemTable(input: {
@@ -23,7 +25,8 @@ export function buildCatalogItemTable(input: {
   startPayloadPrefix: string;
   footerHtml?: string;
 }): { richMessage: TelegramRichMessage; fallbackText: string } {
-  const texts = labels[normalizeBotLanguage(input.language, 'ca')];
+  const language = normalizeBotLanguage(input.language, 'ca');
+  const texts = labels[language];
   const sorted = sortCatalogTableEntries(input.entries);
   const rich = [`<h2>${escapeHtml(input.title)}</h2>`];
   const fallback = [`<b>${escapeHtml(input.title)}</b>`];
@@ -38,41 +41,28 @@ export function buildCatalogItemTable(input: {
   ];
   for (const section of sections) {
     if (!section.entries.length) continue;
-    rich.push(`<h3>${section.title}</h3><table compact>`);
+    rich.push(`<h3>${section.title}</h3>`);
     fallback.push('', `<b>${section.title}</b>`);
+    if (section.game) {
+      for (const entry of section.entries) {
+        const card = buildCatalogGameCard({ ...entry, language, startPayloadPrefix: input.startPayloadPrefix });
+        rich.push(card.html);
+        fallback.push('', card.fallbackText);
+      }
+      continue;
+    }
+    rich.push('<table compact>');
     for (const { item, loan, borrowerName } of section.entries) {
       const name = escapeHtml(item.displayName);
       const link = `<a href="${escapeHtml(buildTelegramStartUrl(`${input.startPayloadPrefix}${item.id}`))}"><b>${name}</b></a>`;
-      const metrics: string[] = [];
-      const fallbackMetrics: string[] = [];
-      if (section.game) {
-        if (item.playerCountMin !== null || item.playerCountMax !== null) {
-          const players = renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, normalizeBotLanguage(input.language, 'ca'));
-          metrics.push(`👥 ${players}`);
-          fallbackMetrics.push(`${texts.players}: ${players}`);
-        }
-        if (item.playTimeMinutes !== null) {
-          metrics.push(`⏱ ${item.playTimeMinutes} min`);
-          fallbackMetrics.push(`${item.playTimeMinutes} min`);
-        }
-      } else if (item.publisher) {
-        metrics.push(escapeHtml(item.publisher));
-        fallbackMetrics.push(escapeHtml(item.publisher));
-      }
-      rich.push(`<tr><td align="left" valign="top">${loan ? `<mark>${link}</mark>` : link}</td><td align="right" valign="top">${metrics.join(' · ')}</td></tr>`);
-      fallback.push(`${loan ? '🟠 ' : '- '}${link}${fallbackMetrics.length ? ` · ${fallbackMetrics.join(' · ')}` : ''}`);
+      rich.push(`<tr><td align="left" valign="top">${loan ? `<mark>${link}</mark>` : link}</td><td align="right" valign="top">${escapeHtml(item.publisher ?? '')}</td></tr>`);
+      fallback.push(`${loan ? '🟠 ' : '- '}${link}${item.publisher ? ` · ${escapeHtml(item.publisher)}` : ''}`);
       const details: string[] = [];
       const add = (label: string, value: string | null | undefined) => { if (value) details.push(`<b>${label}:</b> ${escapeHtml(value)}`); };
       if (loan) add(texts.borrower, borrowerName ?? loan.borrowerDisplayName);
       add(texts.position, item.storagePosition);
-      if (section.game) {
-        add(texts.categories, metadataLabels(item.metadata?.categories));
-        add(texts.mechanics, metadataLabels(item.metadata?.mechanics));
-        if (item.recommendedAge !== null) add(texts.age, `${item.recommendedAge}+`);
-      } else {
-        add(texts.categories, metadataLabels(item.metadata?.genres ?? item.metadata?.subjects));
-        if (item.publicationYear !== null) details.push(String(item.publicationYear));
-      }
+      add(texts.categories, metadataLabels(item.metadata?.genres ?? item.metadata?.subjects));
+      if (item.publicationYear !== null) details.push(String(item.publicationYear));
       if (item.language) details.push(escapeHtml(item.language));
       if (details.length) {
         rich.push(`<tr><td colspan="2"><i>${details.join(' · ')}</i></td></tr>`);

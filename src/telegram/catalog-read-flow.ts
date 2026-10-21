@@ -1,3 +1,4 @@
+import { catalogItemInitial, compareCatalogItemTitles } from '../catalog/catalog-title-order.js';
 import { replyWithCatalogItemTable } from './catalog-item-table.js';
 import { buildCatalogInitialBuckets, replyWithCatalogInitialIndex } from './catalog-initial-index.js';
 import { buildCatalogRichDetailMessage, replyWithCatalogRichMessage } from './catalog-rich-message.js';
@@ -744,7 +745,7 @@ async function buildLetterEntries(context: TelegramCatalogReadContext, { items, 
   const initialSet = new Set(normalizeInitialSet(initials).split(''));
   return Promise.all(items
     .filter((item) => initialSet.has(getCatalogItemInitial(item)))
-    .sort((left, right) => Number(activeLoansByItemId.has(right.id)) - Number(activeLoansByItemId.has(left.id)) || left.displayName.localeCompare(right.displayName))
+    .sort((left, right) => Number(activeLoansByItemId.has(right.id)) - Number(activeLoansByItemId.has(left.id)) || compareCatalogItemTitles(left, right))
     .map(async (item) => ({
       kind: 'item' as const,
       id: item.id,
@@ -764,7 +765,7 @@ async function buildFamilyEntries(context: TelegramCatalogReadContext, { family,
       subtitle: `${countGroupItems(items, group.id)} item${countGroupItems(items, group.id) === 1 ? '' : 's'}`,
     }));
 
-  for (const item of items.filter((entry) => entry.familyId === family.id && entry.groupId === null).sort((left, right) => left.displayName.localeCompare(right.displayName))) {
+  for (const item of items.filter((entry) => entry.familyId === family.id && entry.groupId === null).sort(compareCatalogItemTitles)) {
     entries.push({ kind: 'item', id: item.id, label: item.displayName, subtitle: await formatItemSubtitle(context, item, activeLoansByItemId.get(item.id) ?? null) });
   }
 
@@ -774,7 +775,7 @@ async function buildFamilyEntries(context: TelegramCatalogReadContext, { family,
 async function buildGroupEntries(context: TelegramCatalogReadContext, { group, items, activeLoansByItemId }: { group: CatalogGroupRecord; items: CatalogItemRecord[]; activeLoansByItemId: Map<number, CatalogLoanRecord>; }): Promise<CatalogBrowseEntry[]> {
   return Promise.all(items
     .filter((item) => item.groupId === group.id)
-    .sort((left, right) => left.displayName.localeCompare(right.displayName))
+    .sort(compareCatalogItemTitles)
     .map(async (item) => ({
       kind: 'item' as const,
       id: item.id,
@@ -839,7 +840,7 @@ async function searchCatalogItems(context: TelegramCatalogReadContext, {
         group?.description,
       ]);
     })
-    .sort((left, right) => Number(activeLoansByItemId.has(right.id)) - Number(activeLoansByItemId.has(left.id)) || left.displayName.localeCompare(right.displayName))
+    .sort((left, right) => Number(activeLoansByItemId.has(right.id)) - Number(activeLoansByItemId.has(left.id)) || compareCatalogItemTitles(left, right))
     .map(async (item) => ({
       kind: 'item' as const,
       id: item.id,
@@ -890,8 +891,7 @@ function parseInitial(callbackData: string, prefix: string): string {
 }
 
 function getCatalogItemInitial(item: CatalogItemRecord): string {
-  const first = item.displayName.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').at(0)?.toUpperCase() ?? '#';
-  return /^[A-Z]$/.test(first) ? first : '#';
+  return catalogItemInitial(item);
 }
 
 function formatLetterHeading(initials: string, count: number, language: 'ca' | 'es' | 'en'): string {
