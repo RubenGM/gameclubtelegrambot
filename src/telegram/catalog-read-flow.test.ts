@@ -74,7 +74,7 @@ test('rich catalog search escapes the query and keeps item links and navigation'
   await handleTelegramCatalogReadCommand(context);
   assert.equal(replies.length, 0);
   assert.equal(sent.length, 1);
-  assert.match(sent[0]?.richMessage.html ?? '', /<h2><a[^>]+catalog_read_item_1/s);
+  assert.match(sent[0]?.richMessage.html ?? '', /<p><a[^>]+catalog_read_item_1/s);
   assert.match(sent[0]?.richMessage.html ?? '', /&lt;Club&gt;/);
   assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /<Club>/);
   assert.match(sent[0]?.fallbackText ?? '', /Pàgina 1\/1/);
@@ -109,8 +109,8 @@ test('borrowed catalog items move onto the first search page and keep their high
   assert.ok(sent[0]?.options?.inlineKeyboard?.flat().some((button) => button.callbackData === catalogReadCallbackPrefixes.pageNext));
 });
 
-test('catalog item sends a rich heading and table preserving escaped text, detail links and navigation', async () => {
-  const item = { ...buildItem(1, 'Catan <Club> & Amics'), description: 'Primera\nSegunda', playerCountMin: 3, playerCountMax: 4, playTimeMinutes: 90, recommendedAge: 10 };
+test('catalog item sends a complete rich detail immediately, preserving escaped text and navigation', async () => {
+  const item = { ...buildItem(1, 'Catan <Club> & Amics'), description: 'Primera\nSegunda ' + 'Texto completo. '.repeat(30) + 'FINAL', playerCountMin: 3, playerCountMax: 4, playTimeMinutes: 90, recommendedAge: 10, metadata: { averageWeight: 2.7, bestPlayerCounts: ['4'], categories: ['Ancient'], mechanics: ['Dice Rolling', 'Income'] } };
   const { context, replies } = createContext(createRepository({ items: [item] }));
   const sent: TelegramRichMessageInput[] = [];
   context.runtime.bot.sendRichMessage = async (message) => { sent.push(message); return { messageId: 42 }; };
@@ -119,15 +119,22 @@ test('catalog item sends a rich heading and table preserving escaped text, detai
   assert.equal(replies.length, 0);
   assert.equal(sent.length, 1);
   assert.match(sent[0]?.richMessage.html ?? '', /<h2>Catan &lt;Club&gt; &amp; Amics<\/h2>/);
-  assert.match(sent[0]?.richMessage.html ?? '', /<th>Jugadors:<\/th><td>3-4<\/td>.*<th>Durada:<\/th><td>90 min<\/td>.*<th>Edat recomanada:<\/th><td>10\+<\/td>/s);
-  assert.match(sent[0]?.richMessage.html ?? '', /catalog_read_item_full_1/);
+  for (const field of ['<th>Jugadors:</th><td>3-4</td>', '<th>Durada:</th><td>90 min</td>', '<th>Edat recomanada:</th><td>10+</td>']) {
+    assert.ok(sent[0]?.richMessage.html?.includes(field));
+  }
+  assert.doesNotMatch(sent[0]?.richMessage.html ?? '', /catalog_read_item_full_|Veure detalls/);
+  assert.match(sent[0]?.richMessage.html ?? '', /2,7\/5/);
+  assert.match(sent[0]?.richMessage.html ?? '', /<th>Millor a:<\/th><td>4<\/td>/);
+  assert.match(sent[0]?.richMessage.html ?? '', /<\/table><h3>Descripció<\/h3><p>Primera/);
+  assert.match(sent[0]?.richMessage.html ?? '', /FINAL<\/p>/);
   assert.match(sent[0]?.fallbackText ?? '', /<b>Catan &lt;Club&gt; &amp; Amics<\/b>/);
   assert.match(sent[0]?.fallbackText ?? '', /<b>Durada:<\/b> 90 min/);
   assert.match(sent[0]?.fallbackText ?? '', /<b>Edat recomanada:<\/b> 10\+/);
   assert.deepEqual(sent[0]?.options?.replyKeyboard?.at(-1), ['Inici', 'Ajuda']);
   context.messageText = '/start catalog_read_item_full_1';
   assert.equal(await handleTelegramCatalogReadStartText(context), true);
-  assert.match(sent[1]?.richMessage.html ?? '', /<th>Descripció:<\/th><td><i>Primera\nSegunda<\/i><\/td>/);
+  assert.equal(sent[1]?.richMessage.html, sent[0]?.richMessage.html);
+  assert.equal(sent[1]?.fallbackText, sent[0]?.fallbackText);
 });
 
 function createRepository({
@@ -605,7 +612,7 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
 
   assert.match(replies[0]?.message ?? '', /Resultats per a &quot;Game&quot;/);
   assert.match(replies[0]?.message ?? '', /Pàgina 1\/2/);
-  assert.match(replies[0]?.message ?? '', /<b>El té:<\/b> 🟠 Marta &lt;Club&gt; &amp; amics/);
+  assert.match(replies[0]?.message ?? '', /El té: Marta &lt;Club&gt; &amp; amics/);
   assert.doesNotMatch(replies[0]?.message ?? '', /&amp;lt;|&amp;amp;/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
   assert.match(replies[0]?.message ?? '', /catalog_read_item_1/);
@@ -624,8 +631,8 @@ test('handleTelegramCatalogReadCommand paginates searches and exposes loan statu
 
   assert.match(replies[0]?.message ?? '', /<b>Disponibilitat:<\/b> En préstec/);
   assert.match(replies[0]?.message ?? '', /<b>Té:<\/b> Marta/);
-  assert.doesNotMatch(replies[0]?.message ?? '', /<b>Retorn previst:<\/b> 10\/04\/2026/);
-  assert.match(replies[0]?.message ?? '', /catalog_read_item_full_1/);
+  assert.match(replies[0]?.message ?? '', /<b>Retorn previst:<\/b> 10\/04\/2026/);
+  assert.doesNotMatch(replies[0]?.message ?? '', /catalog_read_item_full_1|Veure detalls/);
   assert.equal(replies[0]?.options?.inlineKeyboard, undefined);
   assert.ok(replies[0]?.options?.replyKeyboard?.flat().some((button) => button === 'Els meus préstecs'));
 });

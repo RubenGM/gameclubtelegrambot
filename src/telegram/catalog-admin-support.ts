@@ -189,7 +189,6 @@ import { parseCatalogFamilyInput, parseCatalogGroupInput } from './catalog-admin
 import {
   escapeHtml,
   formatCatalogDescriptionLine,
-  formatCatalogItemSummaryDetails,
   formatHtmlField,
   renderCatalogItemType,
   renderCatalogOptionalObject,
@@ -626,7 +625,7 @@ export async function handleTelegramCatalogAdminStartText(context: TelegramCatal
   }
 
   const item = await loadItemOrThrow(context, payload);
-  await replyWithCatalogAdminItemDetail(context, item, normalizeBotLanguage(context.runtime.bot.language, 'ca'), { full: fullPayload !== null });
+  await replyWithCatalogAdminItemDetail(context, item, normalizeBotLanguage(context.runtime.bot.language, 'ca'));
   return true;
 }
 
@@ -1226,7 +1225,7 @@ async function replyWithCatalogAdminItemDetail(
   context: TelegramCatalogAdminContext,
   item: CatalogItemRecord,
   language: 'ca' | 'es' | 'en',
-  { full = false, footerLines = [] }: { full?: boolean; footerLines?: string[] } = {},
+  { footerLines = [] }: { footerLines?: string[] } = {},
 ): Promise<void> {
   await sendCatalogItemCoverIfPresent(context, { itemId: item.id });
   await context.runtime.session.start({
@@ -1236,9 +1235,7 @@ async function replyWithCatalogAdminItemDetail(
   });
   await replyWithCatalogAdminItemInspection({
     reply: (message, options) => replyWithCatalogRichMessage(context, message, options, item.displayName),
-    detailsMessage: full
-      ? appendCatalogDetailFooterLines(await formatCatalogItemDetails(context, item), footerLines)
-      : appendCatalogDetailFooterLines(await formatCatalogItemSummary(context, item), footerLines),
+    detailsMessage: appendCatalogDetailFooterLines(await formatCatalogItemDetails(context, item), footerLines),
     replyKeyboard: await buildCatalogItemDetailReplyKeyboard(context, item, language),
   });
 }
@@ -3964,35 +3961,6 @@ async function buildCatalogItemAdministrationButtons(
 
 function successButton(text: string): TelegramReplyButton {
   return { text, semanticRole: 'success' };
-}
-
-async function formatCatalogItemSummary(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string> {
-  const language = normalizeBotLanguage(context.runtime.bot.language, 'ca');
-  const loan = await loadActiveLoanByItemIdAdmin(context, item.id);
-  const summary = formatCatalogItemSummaryDetails({
-    breadcrumbLine: buildCatalogAdminItemBreadcrumb(item, language),
-    item,
-    availabilityLine: formatCatalogAdminAvailabilityLine(loan, language),
-    borrowerLine: await formatCatalogAdminBorrowerLine(context, loan, language),
-    ownerLine: await formatCatalogOwnerLine(context, item, { includeEmpty: false }),
-    detailsUrl: buildTelegramStartUrl(`${catalogAdminFullItemStartPayloadPrefix}${item.id}`),
-    language,
-  });
-  const bggReimportNoticeLine = formatBoardGameGeekReimportNoticeLine(context, item, language);
-  return bggReimportNoticeLine ? `${summary}\n${bggReimportNoticeLine}` : summary;
-}
-
-function formatCatalogAdminAvailabilityLine(loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): string {
-  const texts = createTelegramI18n(language).catalogLoan;
-  return formatHtmlField(texts.availabilityAvailable, loan ? texts.availabilityLoaned : texts.available);
-}
-
-async function formatCatalogAdminBorrowerLine(context: TelegramCatalogAdminContext, loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): Promise<string | null> {
-  if (!loan) {
-    return null;
-  }
-  const texts = createTelegramI18n(language).catalogLoan;
-  return formatHtmlField(texts.availabilityHas, escapeHtml(await resolveLoanBorrowerDisplayName(context, loan)));
 }
 
 async function formatCatalogItemDetails(context: TelegramCatalogAdminContext, item: CatalogItemRecord): Promise<string> {

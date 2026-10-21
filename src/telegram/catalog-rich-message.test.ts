@@ -49,7 +49,7 @@ for (const language of supportedBotLanguages) {
     assert.ok(html.includes(`<mark>${escapeHtml(loan.availabilityLoaned)}</mark>`));
     assert.ok(html.includes('María &lt;Club&gt;'));
     assert.ok(html.includes('<a href="tg://user?id=7">Ana &amp; Leo</a>'));
-    assert.ok(html.includes(`<th>${escapeHtml(admin.description)}:</th><td><i>Primera\nSegunda &amp; tercera</i></td>`));
+    assert.ok(html.includes(`</table><h3>${escapeHtml(admin.description)}</h3><p>Primera\nSegunda &amp; tercera</p>`));
     assert.match(html, /<th>Extra:<\/th><td>Valor<\/td>/);
     assert.match(html, /<p><a href="https:\/\/example.test\/full">Más detalles<\/a><\/p>$/);
     assert.doesNotMatch(html, /<Club>/);
@@ -60,7 +60,7 @@ for (const language of supportedBotLanguages) {
 test('catalog detail without game metrics retains plain descriptions and does not mark available items as loaned', () => {
   const html = buildCatalogRichDetailMessage('Libro', '<b>Libro</b>\n<b>Disponibilidad:</b> Disponible\nDescripción: Uno &amp; dos\n<b>Editorial:</b> Club', 'es').html!;
   assert.match(html, /<td><b>Disponible<\/b><\/td>/);
-  assert.match(html, /<th>Descripción:<\/th><td>Uno &amp; dos<\/td>/);
+  assert.match(html, /<\/table><h3>Descripción<\/h3><p>Uno &amp; dos<\/p>/);
   assert.doesNotMatch(html, /👥|⏱|<mark>/);
 });
 

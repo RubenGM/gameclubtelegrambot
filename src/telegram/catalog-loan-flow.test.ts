@@ -353,7 +353,7 @@ test('catalog loan callbacks create, list and return loans', async () => {
       itemType: 'board-game',
       displayName: 'Game 1',
       originalName: null,
-      description: null,
+      description: 'Descripción completa del juego. Segunda frase para el detalle.',
       language: null,
       publisher: null,
       publicationYear: null,
@@ -362,7 +362,7 @@ test('catalog loan callbacks create, list and return loans', async () => {
       recommendedAge: null,
       playTimeMinutes: null,
       externalRefs: null,
-      metadata: null,
+      metadata: { averageWeight: 2.7, bestPlayerCounts: ['4'] },
       lifecycleStatus: 'active',
       createdAt: '2026-04-04T10:00:00.000Z',
       updatedAt: '2026-04-04T10:00:00.000Z',
@@ -379,6 +379,9 @@ test('catalog loan callbacks create, list and return loans', async () => {
   assert.match(replies[0]?.message ?? '', /Has agafat Game 1 en préstec\./);
   assert.match(replies[0]?.message ?? '', /Avisaré al grup d’aquí a 5 minuts/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
+  assert.match(replies[0]?.message ?? '', /2,7\/5/);
+  assert.match(replies[0]?.message ?? '', /Segunda frase para el detalle\./);
+  assert.doesNotMatch(replies[0]?.message ?? '', /catalog_read_item_full_|Veure detalls/);
   assert.equal((await catalogLoanRepository.findActiveLoanByItemId(1))?.borrowerTelegramUserId, 7);
 
   replies.length = 0;
@@ -395,6 +398,9 @@ test('catalog loan callbacks create, list and return loans', async () => {
   assert.match(replies[0]?.message ?? '', /Has retornat Game 1\./);
   assert.match(replies[0]?.message ?? '', /compte enrere tornarà a començar/);
   assert.match(replies[0]?.message ?? '', /<b>Game 1<\/b>/);
+  assert.match(replies[0]?.message ?? '', /2,7\/5/);
+  assert.match(replies[0]?.message ?? '', /Segunda frase para el detalle\./);
+  assert.doesNotMatch(replies[0]?.message ?? '', /catalog_read_item_full_|Veure detalls/);
   assert.ok(replies[0]?.options?.replyKeyboard?.flat().some((button) => (
     typeof button === 'string' ? button : button.text
   ) === 'Prendre prestat'));

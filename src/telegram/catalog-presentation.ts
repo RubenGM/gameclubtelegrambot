@@ -7,6 +7,12 @@ import type {
 } from '../catalog/catalog-model.js';
 import { catalogFamilyGroupUiEnabled } from '../catalog/catalog-taxonomy-visibility.js';
 import { createTelegramI18n, normalizeBotLanguage, type BotLanguage } from './i18n.js';
+import { catalogGameMetadataFields } from './catalog-game-metadata.js';
+
+export function formatCatalogGameMetadataLines(item: CatalogItemRecord, language: BotLanguage): string[] {
+  return catalogGameMetadataFields(item, language).map(({ label, value, href }) => formatHtmlField(label,
+    href ? `<a href="${escapeHtml(href)}">${escapeHtml(value)}</a>` : escapeHtml(value)));
+}
 
 export function renderCatalogItemType(itemType: CatalogItemType, language: BotLanguage = 'ca'): string {
   const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
@@ -62,7 +68,7 @@ export function formatCatalogDescriptionLine(
   }
 
   const escaped = escapeHtml(description);
-  if (itemType === 'book' || itemType === 'board-game') {
+  if (itemType === 'book' || itemType === 'board-game' || itemType === 'expansion') {
     return `<b>${createTelegramI18n(normalizeBotLanguage(language, 'ca')).catalogAdmin.description}:</b> <i>${escaped}</i>`;
   }
 
@@ -164,7 +170,6 @@ export function formatMemberCatalogItemDetails({
   const descriptionLine = formatCatalogDescriptionLine(item.itemType, item.description, language);
 
   const detailLines = [
-    ...(descriptionLine ? [descriptionLine] : []),
     ...(item.language ? [formatHtmlField(texts.catalogAdmin.language, escapeHtml(item.language))] : []),
     ...(item.publisher ? [formatHtmlField(texts.catalogAdmin.publisher, escapeHtml(item.publisher))] : []),
     ...(item.publicationYear !== null ? [formatHtmlField(texts.catalogAdmin.publicationYear, String(item.publicationYear))] : []),
@@ -173,6 +178,7 @@ export function formatMemberCatalogItemDetails({
       : []),
     ...(item.recommendedAge !== null ? [formatHtmlField(texts.catalogAdmin.recommendedAge, `${item.recommendedAge}+`)] : []),
     ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.catalogAdmin.playTimeMinutes, `${item.playTimeMinutes} min`)] : []),
+    ...formatCatalogGameMetadataLines(item, language),
     ...extraLines,
   ];
 
@@ -181,50 +187,14 @@ export function formatMemberCatalogItemDetails({
     `<b>${escapeHtml(item.displayName)}</b>`,
     '',
     formatHtmlField(texts.catalogAdmin.type, renderCatalogItemType(item.itemType, language)),
+    ...(item.originalName && item.originalName !== item.displayName ? [formatHtmlField(texts.catalogAdmin.editFieldOriginalName, escapeHtml(item.originalName))] : []),
     ...(catalogFamilyGroupUiEnabled && family ? [formatHtmlField(texts.catalogAdmin.family, escapeHtml(family.displayName))] : []),
     ...(catalogFamilyGroupUiEnabled && group ? [formatHtmlField(texts.catalogAdmin.group, escapeHtml(group.displayName))] : []),
     ...(item.storagePosition ? [formatHtmlField(texts.catalogAdmin.storagePosition, escapeHtml(item.storagePosition))] : []),
     ...(ownerLine ? [ownerLine] : []),
     ...availabilityLines,
     ...detailLines,
+    ...(descriptionLine ? ['', descriptionLine] : []),
     ...mediaLines,
   ].join('\n');
-}
-
-export function formatCatalogItemSummaryDetails({
-  breadcrumbLine,
-  item,
-  availabilityLine,
-  borrowerLine = null,
-  ownerLine = null,
-  detailsUrl,
-  language = 'ca',
-}: {
-  breadcrumbLine?: string | null;
-  item: CatalogItemRecord;
-  availabilityLine: string;
-  borrowerLine?: string | null;
-  ownerLine?: string | null;
-  detailsUrl: string;
-  language?: BotLanguage;
-}): string {
-  const texts = createTelegramI18n(normalizeBotLanguage(language, 'ca'));
-  const lines = [
-    ...(breadcrumbLine ? [breadcrumbLine] : []),
-    `<b>${escapeHtml(item.displayName)}</b>`,
-    '',
-    availabilityLine,
-    ...(borrowerLine ? [borrowerLine] : []),
-    ...(item.storagePosition ? [formatHtmlField(texts.catalogAdmin.storagePosition, escapeHtml(item.storagePosition))] : []),
-    ...(ownerLine ? [ownerLine] : []),
-    ...(item.itemType !== 'book' && item.itemType !== 'rpg-book' && (item.playerCountMin !== null || item.playerCountMax !== null)
-      ? [formatHtmlField(texts.catalogAdmin.players, renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, language))]
-      : []),
-    ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.catalogAdmin.playTimeMinutes, `${item.playTimeMinutes} min`)] : []),
-    ...(item.recommendedAge !== null ? [formatHtmlField(texts.catalogAdmin.recommendedAge, `${item.recommendedAge}+`)] : []),
-    '',
-    `<a href="${escapeHtml(detailsUrl)}">${escapeHtml(texts.catalogAdmin.viewDetails)}</a>`,
-  ];
-
-  return lines.join('\n');
 }

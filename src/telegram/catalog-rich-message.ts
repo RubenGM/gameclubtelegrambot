@@ -54,6 +54,7 @@ export function buildCatalogRichDetailMessage(title: string, html: string, langu
   const availabilityLabel = fieldLabel(texts.catalogLoan.availabilityAvailable);
   const descriptionLabel = fieldLabel(texts.catalogAdmin.description);
   const rows: Array<{ labelHtml: string; valueHtml: string }> = [];
+  const descriptions: string[] = [];
   const introduction: string[] = [];
   const paragraphs: string[] = [];
   const heading = `<b>${escapeHtml(title)}</b>`;
@@ -66,18 +67,21 @@ export function buildCatalogRichDetailMessage(title: string, html: string, langu
       bodyStarted = true;
       const label = field[1]!;
       const value = field[2]!;
+      if (label === descriptionLabel) { descriptions.push(value); continue; }
       const valueHtml = label === availabilityLabel
         ? value === escapeHtml(texts.catalogLoan.availabilityLoaned) ? `<mark>${value}</mark>` : `<b>${value}</b>`
         : value;
       rows.push({ labelHtml: label, valueHtml });
     } else if (line.startsWith(`${descriptionLabel} `)) {
       bodyStarted = true;
-      rows.push({ labelHtml: descriptionLabel, valueHtml: line.slice(descriptionLabel.length + 1) });
+      descriptions.push(line.slice(descriptionLabel.length + 1));
     } else {
       (bodyStarted ? paragraphs : introduction).push(`<p>${line}</p>`);
     }
   }
-  return { html: `<h2>${escapeHtml(title)}</h2>${introduction.join('')}${renderTelegramRichDetailTable(rows)}${paragraphs.join('')}` };
+  const descriptionHtml = descriptions.length
+    ? `<h3>${escapeHtml(texts.catalogAdmin.description)}</h3>${descriptions.map((value) => `<p>${value.replace(/^<i>([\s\S]*)<\/i>$/, '$1')}</p>`).join('')}` : '';
+  return { html: `<h2>${escapeHtml(title)}</h2>${introduction.join('')}${renderTelegramRichDetailTable(rows)}${descriptionHtml}${paragraphs.join('')}` };
 }
 
 export async function replyWithCatalogRichMessage(

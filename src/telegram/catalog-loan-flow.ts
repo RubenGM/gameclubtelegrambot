@@ -9,7 +9,7 @@ import { createDatabaseCatalogLoanNewsEventRepository } from '../catalog/catalog
 import { createDatabaseMembershipAccessRepository } from '../membership/access-flow-store.js';
 import { catalogLoanNewsCategoryByItemType, type NewsGroupRepository } from '../news/news-group-catalog.js';
 import type { MembershipAccessRepository, MembershipUserRecord } from '../membership/access-flow.js';
-import { escapeHtml, formatCatalogItemSummaryDetails, formatHtmlField } from './catalog-presentation.js';
+import { escapeHtml, formatMemberCatalogItemDetails, formatHtmlField } from './catalog-presentation.js';
 import type { TelegramCommandHandlerContext } from './command-registry.js';
 import type { TelegramInlineButton, TelegramReplyButton, TelegramReplyOptions } from './runtime-boundary.js';
 import { createTelegramI18n, normalizeBotLanguage } from './i18n.js';
@@ -23,7 +23,6 @@ const catalogAdminBrowseFlowKey = 'catalog-admin-browse';
 const catalogAdminEditCallbackPrefix = 'catalog_admin:edit:';
 const catalogAdminCreateActivityCallbackPrefix = 'catalog_admin:create_activity:';
 const catalogAdminDeactivateCallbackPrefix = 'catalog_admin:deactivate:';
-const catalogReadFullItemStartPayloadPrefix = 'catalog_read_item_full_';
 
 export const catalogLoanCallbackPrefixes = {
   openMyLoans: 'catalog_loan:my_loans',
@@ -730,12 +729,13 @@ async function replyWithItemDetail(
     data: { itemId },
   });
 
-  const itemDetail = formatCatalogItemSummaryDetails({
+  const itemDetail = formatMemberCatalogItemDetails({
     item,
-    availabilityLine: formatLoanAvailabilitySummaryLine(loan, language),
-    borrowerLine: await formatLoanBorrowerSummaryLine(context, loan, language),
+    family: item.familyId !== null ? await catalog.findFamilyById(item.familyId) : null,
+    group: item.groupId !== null ? await catalog.findGroupById(item.groupId) : null,
+    media: await catalog.listMedia({ itemId: item.id }),
+    availabilityLines: await formatLoanAvailabilityLines(context, loan),
     ownerLine: await formatLoanOwnerSummaryLine(context, item, language),
-    detailsUrl: buildTelegramStartUrl(`${catalogReadFullItemStartPayloadPrefix}${item.id}`),
     language,
   });
   await replyWithCatalogRichMessage(context,
@@ -798,19 +798,6 @@ function getCatalogItemInitial(item: CatalogItemRecord): string {
 
 function formatCatalogInitialsLabel(initials: string): string {
   return initials.split('').join(' ');
-}
-
-function formatLoanAvailabilitySummaryLine(loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): string {
-  const texts = createTelegramI18n(language).catalogLoan;
-  return formatHtmlField(texts.availabilityAvailable, loan ? texts.availabilityLoaned : texts.available);
-}
-
-async function formatLoanBorrowerSummaryLine(context: TelegramCatalogLoanContext, loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): Promise<string | null> {
-  if (!loan) {
-    return null;
-  }
-  const texts = createTelegramI18n(language).catalogLoan;
-  return formatHtmlField(texts.availabilityHas, escapeHtml(await resolveLoanBorrowerDisplayName(context, loan)));
 }
 
 async function formatLoanOwnerSummaryLine(context: TelegramCatalogLoanContext, item: CatalogItemRecord, language: 'ca' | 'es' | 'en'): Promise<string | null> {

@@ -1,14 +1,14 @@
 import type { CatalogItemRecord, CatalogLoanRecord } from '../catalog/catalog-model.js';
 import { escapeHtml, renderCatalogPlayerRange } from './catalog-presentation.js';
 import { buildTelegramStartUrl } from './deep-links.js';
-import { createTelegramI18n, type BotLanguage } from './i18n.js';
+import type { BotLanguage } from './i18n.js';
 import { translateCatalogTag } from './i18n-catalog-tags.js';
-import { renderTelegramRichDetailTable } from './rich-detail-message.js';
+import { catalogGameComplexity, catalogGamePlayerCounts } from './catalog-game-metadata.js';
 
 const labels = {
-  ca: { complexity: 'Complexitat', best: 'Millor a', borrower: 'El té', position: 'Ubicació', style: 'Estil', age: 'Edat' },
-  es: { complexity: 'Complejidad', best: 'Mejor a', borrower: 'Lo tiene', position: 'Ubicación', style: 'Estilo', age: 'Edad' },
-  en: { complexity: 'Complexity', best: 'Best with', borrower: 'Borrower', position: 'Location', style: 'Style', age: 'Age' },
+  ca: { complexity: 'Complexitat', best: 'Millor a', borrower: 'El té', position: 'Ubicació' },
+  es: { complexity: 'Complejidad', best: 'Mejor a', borrower: 'Lo tiene', position: 'Ubicación' },
+  en: { complexity: 'Complexity', best: 'Best with', borrower: 'Borrower', position: 'Location' },
 } as const;
 
 export function summarizeCatalogDescription(description: string | null, language: BotLanguage): string | null {
@@ -40,38 +40,32 @@ export function buildCatalogGameCard({ item, loan, borrowerName, language, start
   startPayloadPrefix: string;
 }): { html: string; fallbackText: string } {
   const texts = labels[language];
-  const admin = createTelegramI18n(language).catalogAdmin;
-  const rows: Array<{ labelHtml: string; valueHtml: string }> = [];
   const lines: string[] = [];
-  const add = (label: string, value: string) => {
-    rows.push({ labelHtml: escapeHtml(`${label}:`), valueHtml: escapeHtml(value) });
-    lines.push(`<b>${escapeHtml(label)}:</b> ${escapeHtml(value)}`);
-  };
+  const metrics: string[] = [];
   if (item.playerCountMin !== null || item.playerCountMax !== null) {
     const players = item.playerCountMin === item.playerCountMax ? String(item.playerCountMin) : renderCatalogPlayerRange(item.playerCountMin, item.playerCountMax, language);
-    add(admin.players, players);
+    metrics.push(`👥 ${players}`);
   }
-  if (item.playTimeMinutes !== null) add(admin.playTimeMinutes, `${item.playTimeMinutes} min`);
-  if (item.recommendedAge !== null) add(texts.age, `${item.recommendedAge}+`);
-  if (item.language) add(admin.language, item.language);
+  if (item.playTimeMinutes !== null) metrics.push(`⏱ ${item.playTimeMinutes} min`);
+  if (item.recommendedAge !== null) metrics.push(`${item.recommendedAge}+`);
+  if (item.language) metrics.push(item.language);
+  if (metrics.length) lines.push(metrics.join(' · '));
   const description = summarizeCatalogDescription(item.description, language);
-  if (description) add(admin.description, description);
   const tags = catalogGameTags(item, language);
-  if (tags.length) add(texts.style, tags.join(' · '));
-  const weight = item.metadata?.averageWeight;
-  if (typeof weight === 'number' && Number.isFinite(weight) && weight >= 1 && weight <= 5) {
-    add(texts.complexity, `${new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(weight)}/5`);
-  }
-  const best = Array.isArray(item.metadata?.bestPlayerCounts) ? item.metadata.bestPlayerCounts : [];
-  const bestCounts = [...new Set(best.filter((value): value is string => typeof value === 'string' && /^[1-9]\d*\+?$/.test(value)))]
-    .filter((value) => (item.playerCountMin === null || Number.parseInt(value) >= item.playerCountMin) && (item.playerCountMax === null || Number.parseInt(value) <= item.playerCountMax))
-    .sort((a, b) => Number.parseInt(a) - Number.parseInt(b));
-  if (bestCounts.length) add(texts.best, bestCounts.join(', '));
-  if (loan) add(texts.borrower, `🟠 ${borrowerName ?? loan.borrowerDisplayName}`);
-  if (item.storagePosition) add(texts.position, item.storagePosition);
+  if (tags.length) lines.push(tags.join(' · '));
+  const extra: string[] = [];
+  const complexity = catalogGameComplexity(item, language);
+  if (complexity) extra.push(`⚖ ${texts.complexity}: ${complexity}`);
+  const bestCounts = catalogGamePlayerCounts(item, 'bestPlayerCounts');
+  if (bestCounts.length) extra.push(`${texts.best}: ${bestCounts.join(', ')}`);
+  if (extra.length) lines.push(extra.join(' · '));
+  const location: string[] = [];
+  if (loan) location.push(`🟠 ${texts.borrower}: ${borrowerName ?? loan.borrowerDisplayName}`);
+  if (item.storagePosition) location.push(`${texts.position}: ${item.storagePosition}`);
+  if (location.length) lines.push(location.join(' · '));
   const link = `<a href="${escapeHtml(buildTelegramStartUrl(`${startPayloadPrefix}${item.id}`))}"><b>${escapeHtml(item.displayName)}</b></a>`;
   return {
-    html: `<h2>${loan ? `<mark>${link}</mark>` : link}</h2>${renderTelegramRichDetailTable(rows)}`,
-    fallbackText: [`${loan ? '🟠 ' : ''}${link}`, ...lines].join('\n'),
+    html: `<p>${loan ? `<mark>${link}</mark>` : link}</p>${lines.length ? `<table compact>${lines.map((line) => `<tr><td>${escapeHtml(line)}</td></tr>`).join('')}</table>` : ''}${description ? `<p>${escapeHtml(description)}</p>` : ''}`,
+    fallbackText: [`${loan ? '🟠 ' : ''}${link}`, ...lines.map(escapeHtml), ...(description ? [escapeHtml(description)] : [])].join('\n'),
   };
 }

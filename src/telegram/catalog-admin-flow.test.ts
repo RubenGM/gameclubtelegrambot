@@ -116,7 +116,7 @@ function createCatalogItemFixture(overrides: Partial<CatalogItemRecord> = {}): C
 }
 
 test('admin item inspection uses rich fields with the full HTML and persistent actions', async () => {
-  const repository = createRepository({ items: [createCatalogItemFixture({ displayName: 'Catan <Club> & Amics', storagePosition: 'A&1' })] });
+  const repository = createRepository({ items: [createCatalogItemFixture({ displayName: 'Catan <Club> & Amics', storagePosition: 'A&1', description: 'Descripción completa ' + 'Historia. '.repeat(30) + 'FINAL', metadata: { averageWeight: 2.7, bestPlayerCounts: ['4'], categories: ['Ancient'], mechanics: ['Dice Rolling'] } })] });
   const { context, replies, getCurrentSession } = createContext({ repository, language: 'es' });
   const sent: Array<{ html: string; fallback: string; options: TelegramReplyOptions | undefined }> = [];
   context.runtime.bot.sendRichMessage = async (message) => { sent.push({ html: message.richMessage.html ?? '', fallback: message.fallbackText, options: message.options }); };
@@ -126,8 +126,16 @@ test('admin item inspection uses rich fields with the full HTML and persistent a
   assert.equal(getCurrentSession()?.stepKey, 'detail');
   assert.match(sent[0]?.html ?? '', /<h2>Catan &lt;Club&gt; &amp; Amics<\/h2>/);
   assert.match(sent[0]?.html ?? '', /<table>.*A&amp;1.*<\/table>/s);
-  assert.match(sent[0]?.fallback ?? '', /catalog_admin_item_full_1/);
+  assert.doesNotMatch(sent[0]?.fallback ?? '', /catalog_admin_item_full_|Ver detalles/);
+  assert.match(sent[0]?.html ?? '', /2,7\/5/);
+  assert.match(sent[0]?.html ?? '', /<th>Mejor a:<\/th><td>4<\/td>/);
+  assert.match(sent[0]?.html ?? '', /<\/table><h3>Descripción<\/h3><p>Descripción completa/);
+  assert.match(sent[0]?.html ?? '', /FINAL<\/p>/);
   assert.deepEqual(sent[0]?.options?.replyKeyboard?.at(-1), ['Inicio', 'Ayuda']);
+  context.messageText = '/start catalog_admin_item_full_1';
+  assert.equal(await handleTelegramCatalogAdminStartText(context), true);
+  assert.equal(sent[1]?.html, sent[0]?.html);
+  assert.equal(sent[1]?.fallback, sent[0]?.fallback);
 });
 
 for (const language of supportedBotLanguages) {
@@ -3347,7 +3355,7 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   context.callbackData = `${catalogAdminCallbackPrefixes.browseLetters}AD`;
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.match(replies.at(-1)?.message ?? '', /<b>Arkham Horror Core Set<\/b>/);
-  assert.match(replies.at(-1)?.message ?? '', /<b>Ubicació:<\/b> A3/);
+  assert.match(replies.at(-1)?.message ?? '', /Ubicació: A3/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Azul<\/b>/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Azul<\/b><\/a> · <i>Joc de taula · Posició/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sin familia/);
@@ -3362,8 +3370,8 @@ test('handleTelegramCatalogAdminText shows category browse and loan state', asyn
   assert.equal(await handleTelegramCatalogAdminCallback(context), true);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Grup:<\/b> Second Edition/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Té:<\/b> Anna/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Des de:<\/b> 04\/04\/2026/);
-  assert.match(replies.at(-1)?.message ?? '', /catalog_admin_item_full_4/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Des de:<\/b> 04\/04\/2026/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /catalog_admin_item_full_4|Veure detalls/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
   assert.ok(replies.at(-1)?.options?.replyKeyboard?.flat().some((button) => button === 'Retornar'));
@@ -3408,10 +3416,10 @@ test('handleTelegramCatalogAdminCallback shows item details with localized admin
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Media:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Descripcio:/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Sense valor/);
-  assert.doesNotMatch(replies.at(-1)?.message ?? '', /<b>Tipo:<\/b> Juego de mesa/);
+  assert.match(replies.at(-1)?.message ?? '', /<b>Tipo:<\/b> Juego de mesa/);
   assert.match(replies.at(-1)?.message ?? '', /<b>Jugadores:<\/b> 2-4/);
   assert.match(replies.at(-1)?.message ?? '', /catalog_admin_letters_R/);
-  assert.match(replies.at(-1)?.message ?? '', /catalog_admin_item_full_3/);
+  assert.doesNotMatch(replies.at(-1)?.message ?? '', /catalog_admin_item_full_3|Ver detalles/);
   assert.doesNotMatch(replies.at(-1)?.message ?? '', /Grupo: Sin grupo/);
   assert.equal(replies.at(-1)?.options?.inlineKeyboard, undefined);
   const buttons = replies.at(-1)?.options?.replyKeyboard?.flat() ?? [];

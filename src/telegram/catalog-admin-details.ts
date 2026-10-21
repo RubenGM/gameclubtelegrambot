@@ -4,6 +4,7 @@ import {
   escapeHtml,
   formatCatalogDescriptionLine,
   formatHtmlField,
+  formatCatalogGameMetadataLines,
   renderCatalogItemType,
   renderCatalogPlayerRange,
 } from './catalog-presentation.js';
@@ -56,7 +57,6 @@ export function formatCatalogAdminItemDetails({
     ...(ownerLine ? [ownerLine] : []),
     ...loanAvailabilityLines,
     ...originalNameLine,
-    ...(descriptionLine ? [descriptionLine] : []),
     ...(item.language ? [formatHtmlField(texts.language, escapeHtml(item.language))] : []),
     ...(item.publisher ? [formatHtmlField(texts.publisher, escapeHtml(item.publisher))] : []),
     ...(item.publicationYear !== null ? [formatHtmlField(texts.publicationYear, String(item.publicationYear))] : []),
@@ -65,8 +65,10 @@ export function formatCatalogAdminItemDetails({
       : []),
     ...(item.recommendedAge !== null ? [formatHtmlField(texts.recommendedAge, `${item.recommendedAge}+`)] : []),
     ...(item.playTimeMinutes !== null ? [formatHtmlField(texts.playTimeMinutes, `${item.playTimeMinutes} min`)] : []),
-    ...mediaLines,
+    ...formatCatalogGameMetadataLines(item, language),
     formatHtmlField(texts.status, item.lifecycleStatus),
+    ...(descriptionLine ? ['', descriptionLine] : []),
+    ...mediaLines,
     ...footerLines,
   ].join('\n');
 }

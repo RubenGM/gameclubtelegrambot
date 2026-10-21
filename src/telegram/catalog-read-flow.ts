@@ -13,7 +13,6 @@ import {
   formatMemberCatalogFamilyDetails,
   formatMemberCatalogGroupDetails,
   formatMemberCatalogItemDetails,
-  formatCatalogItemSummaryDetails,
   formatHtmlField,
   renderCatalogItemType,
 } from './catalog-presentation.js';
@@ -152,7 +151,6 @@ export async function handleTelegramCatalogReadStartText(context: TelegramCatalo
     media: media.filter((entry) => entry.itemId === item.id).sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id),
     loan,
     language,
-    full: fullItemId !== null,
   });
   return true;
 }
@@ -384,7 +382,7 @@ async function renderCatalogReadState(context: TelegramCatalogReadContext, state
     const group = item.groupId !== null ? groupById(groups, item.groupId) ?? null : null;
     const media = (await loadCatalogData(context)).media.filter((entry) => entry.itemId === item.id).sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id);
     const loan = await loadActiveLoanByItemId(context, item.id);
-    await replyWithCatalogReadItemDetail(context, { item, family, group, media, loan, language, full: false });
+    await replyWithCatalogReadItemDetail(context, { item, family, group, media, loan, language });
   }
 }
 
@@ -397,31 +395,20 @@ async function replyWithCatalogReadItemDetail(
     media: CatalogMediaRecord[];
     loan: CatalogLoanRecord | null;
     language: 'ca' | 'es' | 'en';
-    full?: boolean;
   },
 ): Promise<void> {
   await sendCatalogItemCoverIfPresent(context, { itemId: input.item.id, media: input.media });
-  const ownerLine = await formatCatalogReadOwnerLine(context, input.item, input.language, { includeEmpty: Boolean(input.full) });
-  const text = input.full
-      ? formatMemberCatalogItemDetails({
-          breadcrumbLine: buildCatalogReadItemBreadcrumb(input.item, input.language),
-          item: input.item,
-          family: input.family,
-          group: input.group,
-          media: input.media,
-          availabilityLines: await formatLoanAvailabilityLines(context, input.loan),
-          ownerLine,
-          language: input.language,
-        })
-      : formatCatalogItemSummaryDetails({
-          breadcrumbLine: buildCatalogReadItemBreadcrumb(input.item, input.language),
-          item: input.item,
-          availabilityLine: formatCatalogReadAvailabilityLine(input.loan, input.language),
-          borrowerLine: await formatCatalogReadBorrowerLine(context, input.loan, input.language),
-          ownerLine,
-          detailsUrl: buildTelegramStartUrl(`${catalogReadFullItemStartPayloadPrefix}${input.item.id}`),
-          language: input.language,
-        });
+  const ownerLine = await formatCatalogReadOwnerLine(context, input.item, input.language);
+  const text = formatMemberCatalogItemDetails({
+    breadcrumbLine: buildCatalogReadItemBreadcrumb(input.item, input.language),
+    item: input.item,
+    family: input.family,
+    group: input.group,
+    media: input.media,
+    availabilityLines: await formatLoanAvailabilityLines(context, input.loan),
+    ownerLine,
+    language: input.language,
+  });
   const options: TelegramReplyOptions = {
     ...buildCatalogReadItemReplyOptions(context, input.item, input.loan, input.language),
     parseMode: 'HTML',
@@ -454,19 +441,6 @@ async function formatCatalogReadOwnerLine(
     return formatHtmlField(texts.owner, escapeHtml(`#${item.ownerTelegramUserId}`));
   }
   return formatHtmlField(texts.owner, formatTelegramUserLink(owner));
-}
-
-function formatCatalogReadAvailabilityLine(loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): string {
-  const texts = createTelegramI18n(language).catalogLoan;
-  return formatHtmlField(texts.availabilityAvailable, loan ? texts.availabilityLoaned : texts.available);
-}
-
-async function formatCatalogReadBorrowerLine(context: TelegramCatalogReadContext, loan: CatalogLoanRecord | null, language: 'ca' | 'es' | 'en'): Promise<string | null> {
-  if (!loan) {
-    return null;
-  }
-  const texts = createTelegramI18n(language).catalogLoan;
-  return formatHtmlField(texts.availabilityHas, escapeHtml(await resolveLoanBorrowerDisplayName(context, loan)));
 }
 
 function buildCatalogReadItemReplyOptions(
